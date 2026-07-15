@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
 import org.apache.doris.thrift.TQueryOptions;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -38,6 +39,7 @@ import org.apache.thrift.TSerializer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -56,6 +58,8 @@ public class ShortCircuitQueryContext {
 
     public final int schemaVersion;
     public final OlapTable tbl;
+    public final String tableName;
+    private final long fileCacheQueryLimitBytes;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -86,6 +90,9 @@ public class ShortCircuitQueryContext {
         this.serializedDescTable = ByteString.copyFrom(
                 new TSerializer().serialize(DescriptorToThriftConverter.toThrift(planner.getDescTable())));
         TQueryOptions options = planner.getQueryOptions() != null ? planner.getQueryOptions() : new TQueryOptions();
+        this.fileCacheQueryLimitBytes = options.isSetFileCacheQueryLimitBytes()
+                ? options.getFileCacheQueryLimitBytes()
+                : -1;
         this.serializedQueryOptions = ByteString.copyFrom(
                 new TSerializer().serialize(options));
         List<TExpr> exprs = new ArrayList<>();
@@ -106,8 +113,32 @@ public class ShortCircuitQueryContext {
         this.cacheID = UUID.randomUUID();
         this.scanNode = olapScanNode;
         this.tbl = this.scanNode.getOlapTable();
+        this.tableName = this.scanNode.getTableNameInPlan();
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
         this.analzyedQuery = analzyedQuery;
+    }
+
+    @VisibleForTesting
+    ShortCircuitQueryContext(OlapTable tbl, String tableName, int schemaVersion,
+            long fileCacheQueryLimitBytes) {
+        this.planner = null;
+        this.serializedDescTable = ByteString.EMPTY;
+        this.serializedOutputExpr = ByteString.EMPTY;
+        this.serializedQueryOptions = ByteString.EMPTY;
+        this.cacheID = UUID.randomUUID();
+        this.tbl = tbl;
+        this.tableName = tableName;
+        this.schemaVersion = schemaVersion;
+        this.fileCacheQueryLimitBytes = fileCacheQueryLimitBytes;
+        this.scanNode = null;
+        this.analzyedQuery = null;
+    }
+
+    public boolean isReusable(ConnectContext ctx) {
+        return !this.tbl.isDropped
+                && this.tbl.getBaseSchemaVersion() == this.schemaVersion
+                && Objects.equals(this.tableName, this.tbl.getName())
+                && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes;
     }
 
     public void sanitize() {
@@ -115,5 +146,6 @@ public class ShortCircuitQueryContext {
         Preconditions.checkNotNull(serializedOutputExpr);
         Preconditions.checkNotNull(cacheID);
         Preconditions.checkNotNull(tbl);
+        Preconditions.checkNotNull(tableName);
     }
 }

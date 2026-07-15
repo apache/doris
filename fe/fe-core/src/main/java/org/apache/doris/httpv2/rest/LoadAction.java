@@ -32,6 +32,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.util.StreamLoadRedirectDrainUtil;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -45,6 +46,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
+import com.google.common.net.HostAndPort;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -59,8 +61,8 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.io.IOException;
 import java.net.InetAddress;
-import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Optional;
@@ -131,7 +133,7 @@ public class LoadAction extends RestBaseController {
             if (!checkClusterToken(authToken)) {
                 throw new UnauthorizedException("Invalid token: " + authToken);
             }
-            return executeWithClusterToken(request, db, table, true);
+            return executeWithClusterToken(request, response, db, table, true);
         } else {
             try {
                 executeCheckPassword(request, response);
@@ -190,8 +192,7 @@ public class LoadAction extends RestBaseController {
             LOG.info("redirect load action to destination={}, label: {}",
                     redirectAddr.toString(), label);
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
-            return redirectView;
+            return createRedirectResponse(request, response, redirectAddr, true, null, null, label);
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
         }
@@ -311,11 +312,17 @@ public class LoadAction extends RestBaseController {
                         redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
             }
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
-            return redirectView;
+            return createRedirectResponse(request, response, redirectAddr, isStreamLoad, dbName, tableName, label);
         } catch (StreamLoadForwardException e) {
-            // Special handling for stream load forwarding
-            return e.getRedirectView();
+            // Handle IOException from redirect response generation in the forwarding path.
+            try {
+                return createRedirectResponse(request, response, e.getRedirectView(),
+                        isStreamLoad, db, table, label);
+            } catch (IOException ioException) {
+                LOG.warn("stream load forward redirect failed, stream: {}, db: {}, tbl: {}, label: {}, err: {}",
+                        isStreamLoad, db, table, label, ioException.getMessage());
+                return new RestBaseResult(ioException.getMessage());
+            }
         } catch (Exception e) {
             LOG.warn("load failed, stream: {}, db: {}, tbl: {}, label: {}, err: {}",
                     isStreamLoad, db, table, label, e.getMessage());
@@ -498,14 +505,11 @@ public class LoadAction extends RestBaseController {
         }
 
         String reqHost = "";
-        String[] pair = reqHostStr.split(":");
-        if (pair.length == 1) {
-            reqHost = pair[0];
-        } else if (pair.length == 2) {
-            reqHost = pair[0];
-        } else {
+        try {
+            reqHost = HostAndPort.fromString(reqHostStr).getHost();
+        } catch (IllegalArgumentException e) {
             LOG.info("Invalid header host: {}", reqHostStr);
-            throw new LoadException("Invalid header host: " + reqHost);
+            throw new LoadException("Invalid header host: " + reqHostStr);
         }
 
         // User specified redirect policy
@@ -573,26 +577,33 @@ public class LoadAction extends RestBaseController {
             throw new AnalysisException("empty endpoint: " + hostPort);
         }
 
-        String[] pair = hostPort.split(":");
-        if (pair.length != 2) {
+        String host;
+        int port;
+        try {
+            HostAndPort hp = HostAndPort.fromString(hostPort);
+            if (!hp.hasPort()) {
+                throw new IllegalArgumentException("No port found");
+            }
+            host = hp.getHost();
+            port = hp.getPort();
+        } catch (IllegalArgumentException e) {
             LOG.info("Invalid endpoint: {}", hostPort);
             throw new AnalysisException("Invalid endpoint: " + hostPort);
         }
 
-        int port = Integer.parseInt(pair[1]);
         if (port <= 0 || port >= 65536) {
-            LOG.info("Invalid endpoint port: {}", pair[1]);
-            throw new AnalysisException("Invalid endpoint port: " + pair[1]);
+            LOG.info("Invalid endpoint port: {}", port);
+            throw new AnalysisException("Invalid endpoint port: " + port);
         }
 
-        return Pair.of(pair[0], port);
+        return Pair.of(host, port);
     }
 
     // NOTE: This function can only be used for AuditlogPlugin stream load for now.
     // AuditlogPlugin should be re-disigned carefully, and blow method focuses on
     // temporarily addressing the users' needs for audit logs.
     // So this function is not widely tested under general scenario
-    private Object executeWithClusterToken(HttpServletRequest request, String db,
+    private Object executeWithClusterToken(HttpServletRequest request, HttpServletResponse response, String db,
             String table, boolean isStreamLoad) {
         try {
             ConnectContext ctx = new ConnectContext();
@@ -635,29 +646,7 @@ public class LoadAction extends RestBaseController {
                             + "stream: {}, db: {}, tbl: {}, label: {}",
                     redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
 
-            URI urlObj = null;
-            URI resultUriObj = null;
-            String urlStr = request.getRequestURI();
-            String userInfo = null;
-
-            try {
-                urlObj = new URI(urlStr);
-                resultUriObj = new URI("http", userInfo, redirectAddr.getHostname(),
-                        redirectAddr.getPort(), urlObj.getPath(), "", null);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-            String redirectUrl = resultUriObj.toASCIIString();
-            if (!Strings.isNullOrEmpty(request.getQueryString())) {
-                redirectUrl += request.getQueryString();
-            }
-            LOG.info("Redirect url: {}", "http://" + redirectAddr.getHostname() + ":"
-                    + redirectAddr.getPort() + urlObj.getPath());
-            RedirectView redirectView = new RedirectView(redirectUrl);
-            redirectView.setContentType("text/html;charset=utf-8");
-            redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
-
-            return redirectView;
+            return createRedirectResponse(request, response, redirectAddr, isStreamLoad, dbName, tableName, label);
         } catch (Exception e) {
             LOG.warn("Failed to execute stream load with cluster token, {}", e.getMessage(), e);
             return new RestBaseResult(e.getMessage());
@@ -675,6 +664,80 @@ public class LoadAction extends RestBaseController {
             headers.append(headerName).append(":").append(headerValue).append(", ");
         }
         return headers.toString();
+    }
+
+    private Object createRedirectResponse(HttpServletRequest request, HttpServletResponse response,
+            TNetworkAddress redirectAddr, boolean isStreamLoad, String dbName, String tableName, String label)
+            throws IOException {
+        String redirectUrl = buildRedirectUrl(request, redirectAddr);
+        if (!shouldUseBoundedDrainForStreamLoad(isStreamLoad)) {
+            return redirectTo(request, redirectAddr);
+        }
+        writeTemporaryRedirect(response, redirectUrl);
+        DrainDecision drainDecision = decideDrainDecisionForStreamLoadRedirect(request);
+        if (drainDecision != DrainDecision.DRAIN) {
+            LOG.info("skip bounded drain after stream load redirect, target: {}, db: {}, tbl: {}, label: {},"
+                            + " reason: {}",
+                    redirectAddr, dbName, tableName, label, drainDecision);
+            return null;
+        }
+        drainStreamLoadRequestBodyAfterRedirect(request, redirectAddr.toString(), dbName, tableName, label);
+        return null;
+    }
+
+    private Object createRedirectResponse(HttpServletRequest request, HttpServletResponse response,
+            RedirectView redirectView, boolean isStreamLoad, String dbName, String tableName, String label)
+            throws IOException {
+        if (!shouldUseBoundedDrainForStreamLoad(isStreamLoad)) {
+            return redirectView;
+        }
+        writeTemporaryRedirect(response, redirectView.getUrl());
+        DrainDecision drainDecision = decideDrainDecisionForStreamLoadRedirect(request);
+        if (drainDecision != DrainDecision.DRAIN) {
+            LOG.info("skip bounded drain after stream load redirect, target: {}, db: {}, tbl: {}, label: {},"
+                            + " reason: {}",
+                    redirectView.getUrl(), dbName, tableName, label, drainDecision);
+            return null;
+        }
+        drainStreamLoadRequestBodyAfterRedirect(request, redirectView.getUrl(), dbName, tableName, label);
+        return null;
+    }
+
+    private boolean shouldUseBoundedDrainForStreamLoad(boolean isStreamLoad) {
+        return isStreamLoad && Config.stream_load_redirect_bounded_drain_max_bytes > 0;
+    }
+
+    // Skip the bounded drain for header-only probes and oversized fixed-length bodies.
+    private DrainDecision decideDrainDecisionForStreamLoadRedirect(HttpServletRequest request) {
+        long contentLength = request.getContentLengthLong();
+        String transferEncoding = request.getHeader(HttpHeaderNames.TRANSFER_ENCODING.toString());
+        if (contentLength <= 0 && Strings.isNullOrEmpty(transferEncoding)) {
+            return DrainDecision.SKIP_NO_REQUEST_BODY;
+        }
+        if (contentLength > Config.stream_load_redirect_bounded_drain_max_bytes) {
+            return DrainDecision.SKIP_CONTENT_LENGTH_EXCEEDS_MAX_BYTES;
+        }
+        return DrainDecision.DRAIN;
+    }
+
+    private void drainStreamLoadRequestBodyAfterRedirect(HttpServletRequest request, String redirectTarget,
+            String dbName, String tableName, String label) {
+        long drainLimit = Config.stream_load_redirect_bounded_drain_max_bytes;
+        LOG.info("write stream load redirect and start bounded drain, target: {}, db: {}, tbl: {}, label: {},"
+                        + " max_drain_bytes: {}",
+                redirectTarget, dbName, tableName, label, drainLimit);
+        StreamLoadRedirectDrainUtil.DrainResult drainResult =
+                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(request, drainLimit);
+        LOG.info("finish bounded drain after stream load redirect, target: {}, db: {}, tbl: {}, label: {},"
+                        + " drained_bytes: {}, elapsed_ms: {}, exit_reason: {}",
+                redirectTarget, dbName, tableName, label, drainResult.getDrainedBytes(),
+                drainResult.getElapsedMillis(), drainResult.getExitReason());
+    }
+
+    private enum DrainDecision {
+        SKIP_NO_REQUEST_BODY,
+        SKIP_CONTENT_LENGTH_EXCEEDS_MAX_BYTES,
+        DRAIN
     }
 
     private boolean isSensitiveHeader(String headerName) {
@@ -738,34 +801,14 @@ public class LoadAction extends RestBaseController {
      */
     private RedirectView redirectToStreamLoadForward(HttpServletRequest request, TNetworkAddress addr,
             String forwardTarget) {
-        URI urlObj = null;
-        URI resultUriObj = null;
-        String urlStr = request.getRequestURI();
-        String userInfo = null;
-        String modifiedPath = null;
-
-        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
-            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            userInfo = authInfo.fullUserName + ":" + authInfo.password;
-        }
-        try {
-            urlObj = new URI(urlStr);
-            // Replace _stream_load with _stream_load_forward in the path
-            modifiedPath = urlObj.getPath().replace("/_stream_load", "/_stream_load_forward");
-            resultUriObj = new URI("http", userInfo, addr.getHostname(),
-                    addr.getPort(), modifiedPath, "", null);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        String redirectUrl = resultUriObj.toASCIIString();
-
-        // Add forward_to parameter (note: toASCIIString() already includes '?' due to empty query)
+        // Replace _stream_load with _stream_load_forward in the path.
+        String modifiedPath = request.getRequestURI().replace("/_stream_load", "/_stream_load_forward");
         String queryString = request.getQueryString();
+        String redirectQuery = "forward_to=" + forwardTarget;
         if (!Strings.isNullOrEmpty(queryString)) {
-            redirectUrl += queryString + "&forward_to=" + forwardTarget;
-        } else {
-            redirectUrl += "forward_to=" + forwardTarget;
+            redirectQuery = queryString + "&" + redirectQuery;
         }
+        String redirectUrl = buildRedirectUrl(request, addr, modifiedPath, redirectQuery);
 
         LOG.info("Redirect stream load forward url: {}, forward_to: {}",
                 "http://" + addr.getHostname() + ":" + addr.getPort() + modifiedPath, forwardTarget);

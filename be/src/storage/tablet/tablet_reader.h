@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -51,7 +52,6 @@
 namespace doris {
 
 class RuntimeState;
-class BitmapFilterFuncBase;
 class BloomFilterFuncBase;
 class ColumnPredicate;
 class DeleteBitmap;
@@ -133,7 +133,7 @@ public:
         bool direct_mode = false;
         bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
-        // for query and config::disable_storage_page_cache is false, we use page cache
+        // for query, when the BE config disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
@@ -157,8 +157,16 @@ public:
 
         // return_columns is init from query schema
         std::vector<ColumnId> return_columns;
+        // TSO predicate column that is absent from return_columns but must be read by storage.
+        std::optional<ColumnId> tso_predicate_column_id;
         // output_columns only contain columns in OrderByExprs and outputExprs
         std::set<int32_t> output_columns;
+        // Extra storage key columns that are present only for scan-schema alignment.
+        // Example: for AGG keys (k1, k2), a query that returns k2 can scan
+        // (k1, k2) and project away k1. Direct readers may avoid reading such
+        // columns only if the lower iterator proves their real values are not
+        // required by predicates, delete conditions, or expressions.
+        std::set<ColumnId> extra_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
@@ -166,7 +174,6 @@ public:
         std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
-        std::vector<VExprSPtr> remaining_conjunct_roots;
         VExprContextSPtrs common_expr_ctxs_push_down;
 
         // used for compaction to record row ids
@@ -178,13 +185,19 @@ public:
         bool read_orderby_key = false;
         // used for special optimization for query : ORDER BY key DESC LIMIT n
         bool read_orderby_key_reverse = false;
+        // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+        // For example, use lower rowset version / segment id first.
+        bool use_insert_order_when_same = false;
+        // Force a key-ordered merge across all segments even when their key ranges do not
+        // overlap. By default a rowset reader can skip the merge heap if its segments are
+        // mono-ascending and disjoint, but row-binlog scans require strict global key order
+        // (e.g. so MIN_DELTA can group consecutive same-key changes), so this flag is set.
+        // See BetaRowsetReader::is_merge_iterator() in beta_rowset_reader.h:62.
+        bool force_key_ordered_read = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
         // limit of rows for read_orderby_key
         size_t read_orderby_key_limit = 0;
-        // filter_block arguments
-        VExprContextSPtrs filter_block_conjuncts;
-
         // for vertical compaction
         bool is_key_column_group = false;
         std::vector<uint32_t> key_group_cluster_key_idxes;
@@ -205,8 +218,6 @@ public:
         int64_t batch_size = -1;
 
         std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
-        std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
-        std::map<size_t, DataTypePtr> vir_col_idx_to_type;
 
         std::shared_ptr<ScoreRuntime> score_runtime;
         CollectionStatisticsPtr collection_statistics;
@@ -214,10 +225,9 @@ public:
 
         uint64_t condition_cache_digest = 0;
 
-        // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
-        // When > 0, the storage layer (VCollectIterator) will stop reading
-        // after returning this many rows. -1 means no limit.
+        // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
+        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
     };
 
     TabletReader() = default;
@@ -251,6 +261,17 @@ public:
 
     int batch_size() const { return _reader_context.batch_size; }
 
+    size_t batch_max_rows() const { return _reader_context.batch_size; }
+
+    void set_preferred_block_size_bytes(size_t bytes) {
+        _reader_context.preferred_block_size_bytes = bytes;
+    }
+
+    // Returns the preferred output block byte budget. Subclasses that support adaptive batch size
+    // should override this; the base returns 0 (disabled) so VCollectIterator degrades safely
+    // when called through a TabletReader* that has not been configured.
+    virtual size_t preferred_block_size_bytes() const { return 0; }
+
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
@@ -259,6 +280,13 @@ public:
             TabletSharedPtr tablet, ReaderType reader_type,
             const std::vector<RowsetSharedPtr>& input_rowsets,
             TabletReader::ReaderParams* reader_params, Block* block);
+
+    // Remove the delete-condition columns from `all_access_paths` so they fall back to a full
+    // read (a meta-only read would make the storage delete predicate match nothing and leak
+    // deleted rows).
+    static void remove_delete_columns_from_access_paths(
+            const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+            std::map<int32_t, TColumnAccessPaths>& all_access_paths);
 
 protected:
     friend class VCollectIterator;

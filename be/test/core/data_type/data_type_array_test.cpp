@@ -27,6 +27,9 @@
 #include <stdexcept>
 
 #include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
@@ -333,14 +336,10 @@ protected:
 TEST_F(DataTypeArrayTest, MetaInfoTest) {
     for (auto& type : array_types) {
         const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
-        auto nested_type =
-                assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type();
 
         auto arr_type_descriptor = type;
         auto col_meta = std::make_shared<PColumnMeta>();
         array_type->to_pb_column_meta(col_meta.get());
-        Array a;
-        a.push_back(nested_type->get_default());
 
         DataTypeMetaInfo arr_meta_info_to_assert = {
                 .type_id = PrimitiveType::TYPE_ARRAY,
@@ -354,7 +353,7 @@ TEST_F(DataTypeArrayTest, MetaInfoTest) {
                 .scale = size_t(-1),
                 .is_null_literal = false,
                 .pColumnMeta = col_meta.get(),
-                .default_field = Field::create_field<TYPE_ARRAY>(a),
+                .default_field = Field::create_field<TYPE_ARRAY>(Array()),
         };
         DataTypePtr arr = remove_nullable(type);
         meta_info_assert(arr, arr_meta_info_to_assert);
@@ -424,6 +423,27 @@ TEST_F(DataTypeArrayTest, CreateColumnTest) {
     }
 }
 
+TEST_F(DataTypeArrayTest, CreateColumnUsesNullableNestedColumn) {
+    auto nested_type = std::make_shared<DataTypeInt32>();
+    auto array_type = std::make_shared<DataTypeArray>(nested_type);
+    EXPECT_TRUE(array_type->get_nested_type()->is_nullable());
+
+    auto column = array_type->create_column();
+    auto& array_column = assert_cast<ColumnArray&>(*column);
+    auto& nested_column = assert_cast<ColumnNullable&>(array_column.get_data());
+    array_column.insert(Field::create_field<TYPE_ARRAY>(
+            Array {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2)}));
+
+    EXPECT_EQ(1, array_column.size());
+    EXPECT_EQ(2, nested_column.size());
+    EXPECT_FALSE(nested_column.has_null());
+    EXPECT_TRUE(array_type->check_column(*column).ok());
+
+    auto old_shape_column =
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    EXPECT_FALSE(array_type->check_column(*old_shape_column).ok());
+}
+
 TEST_F(DataTypeArrayTest, GetFieldTest) {
     TExprNode node;
     node.node_type = TExprNodeType::ARRAY_LITERAL;
@@ -445,7 +465,7 @@ TEST_F(DataTypeArrayTest, FromAndToStringTest) {
         if (i == 13 || i == 31) {
             continue;
         }
-        assert_to_string_from_string_assert(column->assume_mutable(), type);
+        assert_to_string_from_string_assert(column->assert_mutable(), type);
     }
 }
 

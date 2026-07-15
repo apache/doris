@@ -20,11 +20,38 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/value/time_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_time_impl.hpp"
 
 namespace doris {
+namespace {
+
+TimeValue::TimeType read_time_decoded_value(const DecodedColumnView& view, int64_t row) {
+    int64_t micros = 0;
+    if (view.value_kind == DecodedValueKind::INT32) {
+        const auto* values = reinterpret_cast<const int32_t*>(view.values);
+        micros = static_cast<int64_t>(values[row]) * 1000;
+    } else {
+        const auto* values = reinterpret_cast<const int64_t*>(view.values);
+        micros = values[row];
+        if (view.time_unit == DecodedTimeUnit::MILLIS) {
+            micros *= 1000;
+        } else if (view.time_unit == DecodedTimeUnit::NANOS) {
+            micros /= 1000;
+        }
+    }
+    const bool negative = micros < 0;
+    const int64_t abs_micros = std::abs(micros);
+    return TimeValue::make_time(
+            abs_micros / TimeValue::ONE_HOUR_MICROSECONDS,
+            (abs_micros % TimeValue::ONE_HOUR_MICROSECONDS) / TimeValue::ONE_MINUTE_MICROSECONDS,
+            (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) / TimeValue::ONE_SECOND_MICROSECONDS,
+            abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
+}
+
+} // namespace
 
 Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          MysqlRowBinaryBuffer& result,
@@ -43,7 +70,7 @@ Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeTimeV2SerDe::from_string_batch(const ColumnString& col_str, ColumnNullable& col_res,
                                               const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(col_res.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
 
@@ -145,11 +172,32 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
     return Status::OK();
 }
 
+Status DataTypeTimeV2SerDe::read_column_from_decoded_values(IColumn& column,
+                                                            const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT32 && view.value_kind != DecodedValueKind::INT64) {
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("TIMEV2 decoded reader expects INT32 or INT64 source"));
+    }
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data = assert_cast<ColumnTimeV2&>(column).get_data();
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(TimeValue::TimeType());
+            continue;
+        }
+        data.push_back(read_time_decoded_value(view, row));
+    }
+    return Status::OK();
+}
+
 template <typename IntDataType>
 Status DataTypeTimeV2SerDe::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                            ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
 
@@ -192,7 +240,7 @@ template <typename FloatDataType>
 Status DataTypeTimeV2SerDe::from_float_batch(const typename FloatDataType::ColumnType& float_col,
                                              ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
 
@@ -237,7 +285,7 @@ template <typename DecimalDataType>
 Status DataTypeTimeV2SerDe::from_decimal_batch(
         const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
 

@@ -22,7 +22,9 @@
 #include <gtest/gtest-test-part.h>
 
 #include <algorithm>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/column/column.h"
@@ -30,12 +32,63 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "storage/types.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+struct RecordedRead {
+    ReaderType reader_type = ReaderType::UNKNOWN;
+    const TUniqueId* query_id = nullptr;
+    io::FileCacheStatistics* file_cache_stats = nullptr;
+    io::RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr;
+    bool is_index_data = false;
+};
+
+class RecordingFileReader final : public io::FileReader {
+public:
+    explicit RecordingFileReader(io::FileReaderSPtr delegate)
+            : _delegate(std::move(delegate)), _path(_delegate->path()) {}
+
+    Status close() override { return _delegate->close(); }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _delegate->size(); }
+    bool closed() const override { return _delegate->closed(); }
+    const std::string& get_data_dir_path() override { return _delegate->get_data_dir_path(); }
+    int64_t mtime() const override { return _delegate->mtime(); }
+
+    const std::vector<RecordedRead>& records() const { return _records; }
+    void clear_records() { _records.clear(); }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        RecordedRead record;
+        if (io_ctx != nullptr) {
+            record.reader_type = io_ctx->reader_type;
+            record.query_id = io_ctx->query_id;
+            record.file_cache_stats = io_ctx->file_cache_stats;
+            record.remote_scan_cache_write_limiter = io_ctx->remote_scan_cache_write_limiter;
+            record.is_index_data = io_ctx->is_index_data;
+        }
+        _records.push_back(record);
+        return _delegate->read_at(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    io::FileReaderSPtr _delegate;
+    io::Path _path;
+    std::vector<RecordedRead> _records;
+};
+
+} // namespace
 
 class PrimaryKeyIndexTest : public testing::Test {
 public:
@@ -144,8 +197,8 @@ TEST_F(PrimaryKeyIndexTest, builder) {
             EXPECT_TRUE(index_reader.new_iterator(&iter, nullptr).ok());
 
             size_t num_to_read = std::min(batch_size, remaining);
-            auto index_type = DataTypeFactory::instance().create_data_type(
-                    index_reader.type_info()->type(), 1, 0);
+            auto index_type =
+                    DataTypeFactory::instance().create_data_type(index_reader.type(), 1, 0);
             auto index_column = index_type->create_column();
             Slice last_key_slice(last_key);
             EXPECT_TRUE(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());
@@ -321,5 +374,63 @@ TEST_F(PrimaryKeyIndexTest, single_page) {
         EXPECT_FALSE(exact_match);
         EXPECT_TRUE(status.is<ErrorCode::ENTRY_NOT_FOUND>());
     }
+}
+
+TEST_F(PrimaryKeyIndexTest, query_io_context_propagates_to_pk_and_bloom_filter_data_pages) {
+    std::string filename = kTestDir + "/io_context_propagation";
+    auto fs = io::global_local_filesystem();
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(fs->create_file(filename, &file_writer).ok());
+
+    PrimaryKeyIndexBuilder builder(file_writer.get(), 0, 0);
+    ASSERT_TRUE(builder.init().ok());
+    for (int i = 0; i < 128; ++i) {
+        ASSERT_TRUE(builder.add_item("key-" + std::to_string(1000 + i)).ok());
+    }
+    segment_v2::PrimaryKeyIndexMetaPB index_meta;
+    ASSERT_TRUE(builder.finalize(&index_meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(fs->open_file(filename, &file_reader).ok());
+    auto recording_reader = std::make_shared<RecordingFileReader>(std::move(file_reader));
+
+    TUniqueId query_id;
+    query_id.hi = 100;
+    query_id.lo = 200;
+    io::RemoteScanCacheWriteLimiter limiter(query_id, 1024);
+    OlapReaderStatistics stats;
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.query_id = &query_id;
+    io_ctx.file_cache_stats = &stats.file_cache_stats;
+    io_ctx.remote_scan_cache_write_limiter = &limiter;
+
+    auto expect_query_io_context = [&] {
+        ASSERT_FALSE(recording_reader->records().empty());
+        for (const auto& record : recording_reader->records()) {
+            EXPECT_EQ(record.reader_type, ReaderType::READER_QUERY);
+            EXPECT_EQ(record.query_id, &query_id);
+            EXPECT_EQ(record.file_cache_stats, &stats.file_cache_stats);
+            EXPECT_EQ(record.remote_scan_cache_write_limiter, &limiter);
+            EXPECT_TRUE(record.is_index_data);
+        }
+    };
+
+    PrimaryKeyIndexReader index_reader;
+    ASSERT_TRUE(index_reader.parse_index(recording_reader, index_meta, &stats, &io_ctx).ok());
+    recording_reader->clear_records();
+
+    std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
+    ASSERT_TRUE(index_reader.new_iterator(&index_iterator, &stats, &io_ctx).ok());
+    std::string key = "key-1064";
+    bool exact_match = false;
+    ASSERT_TRUE(index_iterator->seek_at_or_after(&key, &exact_match).ok());
+    ASSERT_TRUE(exact_match);
+    expect_query_io_context();
+
+    recording_reader->clear_records();
+    ASSERT_TRUE(index_reader.parse_bf(recording_reader, index_meta, &stats, &io_ctx).ok());
+    expect_query_io_context();
 }
 } // namespace doris

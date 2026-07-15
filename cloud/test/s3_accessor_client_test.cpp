@@ -18,7 +18,7 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <butil/guid.h>
-#include <cpp/s3_rate_limiter.h>
+#include <cpp/token_bucket_rate_limiter.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 

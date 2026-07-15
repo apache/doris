@@ -61,7 +61,6 @@ import java.util.stream.Stream;
 
 public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
-    private static final int DEFAULT_INTERVAL_SECONDS = 30; // 30 seconds
     // erase meta at least after minEraseLatency milliseconds
     // to avoid erase log ahead of drop log
     private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
@@ -104,7 +103,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     String unused;
 
     public CatalogRecycleBin() {
-        super("recycle bin", FeConstants.runningUnitTest ? 10 * 1000L : DEFAULT_INTERVAL_SECONDS * 1000L);
+        super("recycle bin", FeConstants.runningUnitTest ? 10 * 1000L : Config.catalog_recycle_bin_interval_ms);
         idToDatabase = new ConcurrentHashMap<>();
         idToTable = new ConcurrentHashMap<>();
         idToPartition = new ConcurrentHashMap<>();
@@ -1698,7 +1697,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         public void readFields(DataInput in) throws IOException {
-            db = Database.read(in);
+            db = Database.readForRecycleBin(in);
 
             int count  = in.readInt();
             for (int i = 0; i < count; i++) {
@@ -1710,7 +1709,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long tableId = in.readLong();
                 tableIds.add(tableId);
             }
-            GsonUtils.GSON.fromJson(Text.readString(in), RecycleDatabaseInfo.class);
+            // Consume legacy trailing json for stream compatibility.
+            // Do not deserialize it because nested Database.gsonPostProcess()
+            // would register functions from recycle bin into Nereids registry.
+            Text.readString(in);
         }
     }
 

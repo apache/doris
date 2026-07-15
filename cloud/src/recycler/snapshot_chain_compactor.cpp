@@ -27,6 +27,7 @@
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
@@ -98,9 +99,8 @@ void SnapshotChainCompactor::compaction_loop() {
         }
 
         std::string job_key = job_snapshot_chain_compactor_key(instance.instance_id());
-        int ret =
-                prepare_instance_recycle_job(txn_kv_.get(), job_key, instance.instance_id(),
-                                             ip_port_, config::recycle_job_lease_expired_ms * 1000);
+        int ret = prepare_instance_recycle_job(txn_kv_.get(), job_key, instance.instance_id(),
+                                               ip_port_, config::recycle_job_lease_expired_ms);
         if (ret != 0) { // Prepare failed
             continue;
         } else {
@@ -391,8 +391,8 @@ int InstanceChainCompactor::do_compact() {
                 .tag("cost(sec)", stop_watch.elapsed_seconds());
     };
 
-    SnapshotManager snapshot_mgr(txn_kv_);
-    int res = snapshot_mgr.compact_snapshot_chains(this);
+    auto snapshot_mgr = create_snapshot_manager(txn_kv_);
+    int res = snapshot_mgr->compact_snapshot_chains(this);
     if (res != 0) {
         LOG_WARNING("failed to compact snapshot chains").tag("instance_id", instance_id_);
         return res;

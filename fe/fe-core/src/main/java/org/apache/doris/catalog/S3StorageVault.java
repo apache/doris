@@ -72,6 +72,7 @@ public class S3StorageVault extends StorageVault {
         public static final String BUCKET = S3Properties.BUCKET;
         public static final String ROLE_ARN = S3Properties.ROLE_ARN;
         public static final String EXTERNAL_ID = S3Properties.EXTERNAL_ID;
+        public static final String CREDENTIALS_PROVIDER_TYPE = S3Properties.CREDENTIALS_PROVIDER_TYPE;
     }
 
     public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(
@@ -81,7 +82,8 @@ public class S3StorageVault extends StorageVault {
             PropertyKey.SECRET_KEY,
             PropertyKey.USE_PATH_STYLE,
             PropertyKey.ROLE_ARN,
-            PropertyKey.EXTERNAL_ID
+            PropertyKey.EXTERNAL_ID,
+            PropertyKey.CREDENTIALS_PROVIDER_TYPE
     ));
 
     @SerializedName(value = "properties")

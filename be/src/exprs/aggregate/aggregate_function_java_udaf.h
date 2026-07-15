@@ -187,7 +187,8 @@ public:
         RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf get value function");
 
         Block output_block;
-        output_block.insert(ColumnWithTypeAndName(to.get_ptr(), result_type, "_result_"));
+        output_block.insert(
+                ColumnWithTypeAndName(result_type->create_column(), result_type, "_result_"));
         auto output_table_schema = JniDataBridge::parse_table_schema(&output_block);
         std::string output_nullable = result_type->is_nullable() ? "true" : "false";
         std::map<String, String> output_params = {{"is_nullable", output_nullable},
@@ -203,7 +204,11 @@ public:
                                 .with_arg(output_map)
                                 .call(&output_address));
 
-        return JniDataBridge::fill_block(&output_block, {0}, output_address);
+        RETURN_IF_ERROR(JniDataBridge::fill_block(&output_block, {0}, output_address));
+        const auto& result_column = output_block.get_by_position(0).column;
+        DORIS_CHECK(result_column->size() == 1);
+        to.insert_from(*result_column, 0);
+        return Status::OK();
     }
 
 private:

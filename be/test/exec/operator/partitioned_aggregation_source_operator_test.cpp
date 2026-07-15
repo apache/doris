@@ -46,6 +46,54 @@ protected:
     PartitionedAggregationTestHelper _helper;
 };
 
+namespace {
+
+constexpr auto CANCEL_REASON = "partitioned aggregation source cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
+} // namespace
+
+TEST_F(PartitionedAggregationSourceOperatorTest, RecoverBlocksFromPartitionReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedAggSharedState> shared_state;
+    auto* local_state = _helper.create_source_local_state(_helper.runtime_state.get(),
+                                                          source_operator.get(), shared_state);
+    AggSpillPartitionInfo partition;
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(
+            local_state->_recover_blocks_from_partition(_helper.runtime_state.get(), partition));
+}
+
+TEST_F(PartitionedAggregationSourceOperatorTest, RevokeMemoryReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedAggSharedState> shared_state;
+    auto* local_state = _helper.create_source_local_state(_helper.runtime_state.get(),
+                                                          source_operator.get(), shared_state);
+    ASSERT_NE(local_state, nullptr);
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(source_operator->revoke_memory(_helper.runtime_state.get()));
+}
+
+TEST_F(PartitionedAggregationSourceOperatorTest, FlushAndRepartitionReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedAggSharedState> shared_state;
+    auto* local_state = _helper.create_source_local_state(_helper.runtime_state.get(),
+                                                          source_operator.get(), shared_state);
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(local_state->_flush_and_repartition(_helper.runtime_state.get()));
+}
+
 TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
     auto [source_operator, sink_operator] = _helper.create_operators();
     ASSERT_TRUE(source_operator != nullptr);

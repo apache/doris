@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -163,12 +162,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             return PhysicalProperties.GATHER;
         }
         return new PhysicalProperties(olapScan.getDistributionSpec());
-    }
-
-    @Override
-    public PhysicalProperties visitPhysicalDeferMaterializeOlapScan(
-            PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, PlanContext context) {
-        return visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
     }
 
     @Override
@@ -428,7 +421,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             Preconditions.checkState(childDistSpec instanceof DistributionSpecHash,
                     "child dist spec is not hash spec");
 
-            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOrderKeys()));
+            // Declare the delivered order via getOutputOrderKeys() (= [partitionKeys, orderKeys]), NOT
+            // getOrderKeys() (= orderKeys only). getOrderKeys() is the executable sort key list sent to BE, from
+            // which order keys that duplicate a partition key are pruned (they are constant within each partition,
+            // so sorting on them is redundant). The two-phase-global output order property, however, must remain
+            // the full [partitionKeys, orderKeys] -- the same order this node declared before that pruning split.
+            // Keeping it full stays in lockstep with the parent window's required order (RequestPropertyDeriver),
+            // so OrderSpec.satisfy passes and no redundant sort enforcer is inserted above this PartitionTopN.
+            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOutputOrderKeys()));
         }
     }
 

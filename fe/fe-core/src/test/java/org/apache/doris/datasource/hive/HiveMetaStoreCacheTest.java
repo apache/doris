@@ -17,16 +17,22 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -78,6 +84,120 @@ public class HiveMetaStoreCacheTest {
         Assertions.assertEquals(0, entrySize(fileCache));
         Assertions.assertEquals(0, entrySize(partitionCache));
         Assertions.assertEquals(0, entrySize(partitionValuesCache));
+    }
+
+    @Test
+    public void testInvalidatePartitionCacheClearsStaleFileCacheOnPartitionMiss() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+            cache.initCatalog(0, new HashMap<>());
+
+            MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> fileCache =
+                    cache.entry(0, HiveExternalMetaCache.ENTRY_FILE,
+                            HiveExternalMetaCache.FileCacheKey.class,
+                            HiveExternalMetaCache.FileCacheValue.class);
+
+            String dbName = "db";
+            String tbName = "tb";
+            NameMapping nameMapping = NameMapping.createForTest(dbName, tbName);
+            long catalogId = nameMapping.getCtlId();
+            long tableId = Util.genIdByName(dbName, tbName);
+            long otherTableId = Util.genIdByName(dbName, "tb2");
+
+            String targetPartName = "dt=2024-01-01";
+            List<String> targetValues = Collections.singletonList("2024-01-01");
+            String otherPartName = "dt=2024-01-02";
+            List<String> otherValues = Collections.singletonList("2024-01-02");
+
+            // Neither the `partition` cache nor the `partition_values` cache is populated for this table,
+            // simulating entries that were evicted or never loaded. invalidatePartitionCache must still
+            // clear the stale file listing: it derives the partition values from the partition name and
+            // cannot rebuild the exact FileCacheKey (which needs the partition path / input format).
+            HiveExternalMetaCache.FileCacheKey targetFileKey = new HiveExternalMetaCache.FileCacheKey(
+                    catalogId, tableId, "/wh/db/tb/" + targetPartName, "orc", targetValues);
+            // Same table, a different partition -> must be kept.
+            HiveExternalMetaCache.FileCacheKey otherPartFileKey = new HiveExternalMetaCache.FileCacheKey(
+                    catalogId, tableId, "/wh/db/tb/" + otherPartName, "orc", otherValues);
+            // A different table that merely shares the same partition value names at a different location
+            // -> must be kept (the fallback is intentionally scoped by table id, not by values alone).
+            HiveExternalMetaCache.FileCacheKey otherTableFileKey = new HiveExternalMetaCache.FileCacheKey(
+                    catalogId, otherTableId, "/wh/db/tb2/" + targetPartName, "orc", targetValues);
+            fileCache.put(targetFileKey, new HiveExternalMetaCache.FileCacheValue());
+            fileCache.put(otherPartFileKey, new HiveExternalMetaCache.FileCacheValue());
+            fileCache.put(otherTableFileKey, new HiveExternalMetaCache.FileCacheValue());
+            Assertions.assertEquals(3, entrySize(fileCache));
+
+            // Partition-level refresh for the target partition. Even though its `partition` cache entry
+            // is missing, the stale file listing for that partition must still be invalidated.
+            cache.invalidatePartitionCache(nameMapping, targetPartName);
+
+            Assertions.assertNull(fileCache.getIfPresent(targetFileKey),
+                    "stale file cache for the refreshed partition must be cleared even on partition cache miss");
+            Assertions.assertNotNull(fileCache.getIfPresent(otherPartFileKey),
+                    "file cache for other partitions of the same table must NOT be affected");
+            Assertions.assertNotNull(fileCache.getIfPresent(otherTableFileKey),
+                    "file cache for other tables sharing the same partition values must NOT be affected");
+            Assertions.assertEquals(2, entrySize(fileCache));
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testDefaultSpecsFollowConfig() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        long originalExpireAfterAccess = Config.external_cache_expire_time_seconds_after_access;
+        long originalPartitionCapacity = Config.max_hive_partition_cache_num;
+        long originalPartitionTableCapacity = Config.max_hive_partition_table_cache_num;
+        long originalFileCapacity = Config.max_external_file_cache_num;
+        try {
+            Config.external_cache_expire_time_seconds_after_access = 321L;
+            Config.max_hive_partition_cache_num = 100L;
+            Config.max_hive_partition_table_cache_num = 20L;
+            Config.max_external_file_cache_num = 30L;
+
+            HiveExternalMetaCache hiveMetaStoreCache = new HiveExternalMetaCache(executor, listExecutor);
+            hiveMetaStoreCache.initCatalog(0, Collections.emptyMap());
+
+            Map<String, MetaCacheEntryStats> stats = hiveMetaStoreCache.stats(0);
+            MetaCacheEntryStats partitionValuesStats = stats.get(HiveExternalMetaCache.ENTRY_PARTITION_VALUES);
+            MetaCacheEntryStats partitionStats = stats.get(HiveExternalMetaCache.ENTRY_PARTITION);
+            MetaCacheEntryStats fileStats = stats.get(HiveExternalMetaCache.ENTRY_FILE);
+            Assertions.assertEquals(321L, partitionValuesStats.getTtlSecond());
+            Assertions.assertEquals(20L, partitionValuesStats.getCapacity());
+            Assertions.assertEquals(321L, partitionStats.getTtlSecond());
+            Assertions.assertEquals(100L, partitionStats.getCapacity());
+            Assertions.assertEquals(321L, fileStats.getTtlSecond());
+            Assertions.assertEquals(30L, fileStats.getCapacity());
+        } finally {
+            Config.external_cache_expire_time_seconds_after_access = originalExpireAfterAccess;
+            Config.max_hive_partition_cache_num = originalPartitionCapacity;
+            Config.max_hive_partition_table_cache_num = originalPartitionTableCapacity;
+            Config.max_external_file_cache_num = originalFileCapacity;
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testHivePartitionValuesCopyKeepsIndependentNameMaps() {
+        Map<String, PartitionItem> nameToPartitionItem = new HashMap<>();
+        Map<String, List<String>> nameToPartitionValues = new HashMap<>();
+        nameToPartitionValues.put("dt=2026-06-26", Collections.singletonList("2026-06-26"));
+        HiveExternalMetaCache.HivePartitionValues partitionValues =
+                new HiveExternalMetaCache.HivePartitionValues(nameToPartitionItem, nameToPartitionValues);
+
+        HiveExternalMetaCache.HivePartitionValues copy = partitionValues.copy();
+        copy.getNameToPartitionValues().put("dt=2026-06-27", Collections.singletonList("2026-06-27"));
+        Assertions.assertFalse(partitionValues.getNameToPartitionValues().containsKey("dt=2026-06-27"));
     }
 
     private void putCache(

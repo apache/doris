@@ -54,10 +54,13 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -75,6 +78,7 @@ import java.util.stream.Collectors;
  */
 public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.PreAggInfoContext>>
         implements CustomRewriter {
+    private static final Logger LOG = LogManager.getLogger(SetPreAggStatus.class);
     private Map<RelationId, PreAggInfoContext> olapScanPreAggContexts = new HashMap<>();
 
     /**
@@ -141,8 +145,11 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
     @Override
     public Plan visit(Plan plan, Stack<PreAggInfoContext> context) {
+        // push null sentinel to stop preagg collection for children reached via generic visitor,
+        // while keeping the aggregate's own frame intact on the stack
+        context.push(null);
         Plan newPlan = super.visit(plan, context);
-        context.clear();
+        context.pop();
         return newPlan;
     }
 
@@ -161,10 +168,9 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                             logicalOlapScan.getTable().getName()))) {
                 return logicalOlapScan.withPreAggStatus(PreAggStatus.on());
             } else {
-                if (context.empty()) {
-                    context.push(new PreAggInfoContext());
+                if (!context.empty() && context.peek() != null) {
+                    context.peek().addRelationId(logicalOlapScan.getRelationId());
                 }
-                context.peek().addRelationId(logicalOlapScan.getRelationId());
                 return logicalOlapScan;
             }
         } else {
@@ -175,7 +181,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> logicalFilter, Stack<PreAggInfoContext> context) {
         LogicalFilter plan = (LogicalFilter) super.visit(logicalFilter, context);
-        if (!context.empty()) {
+        if (!context.empty() && context.peek() != null) {
             context.peek().addFilterConjuncts(plan.getExpressions());
         }
         return plan;
@@ -185,7 +191,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> logicalJoin,
             Stack<PreAggInfoContext> context) {
         LogicalJoin plan = (LogicalJoin) super.visit(logicalJoin, context);
-        if (!context.empty()) {
+        if (!context.empty() && context.peek() != null) {
             context.peek().addJoinInfo(plan);
         }
         return plan;
@@ -195,7 +201,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     public Plan visitLogicalProject(LogicalProject<? extends Plan> logicalProject,
             Stack<PreAggInfoContext> context) {
         LogicalProject plan = (LogicalProject) super.visit(logicalProject, context);
-        if (!context.empty()) {
+        if (!context.empty() && context.peek() != null) {
             context.peek().setReplaceMap(plan.getAliasToProducer());
         }
         return plan;
@@ -204,14 +210,25 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> logicalAggregate,
             Stack<PreAggInfoContext> context) {
+        PreAggInfoContext preAggInfoContext = new PreAggInfoContext();
+        context.push(preAggInfoContext);
         Plan plan = super.visit(logicalAggregate, context);
-        if (!context.isEmpty()) {
-            PreAggInfoContext preAggInfoContext = context.pop();
-            preAggInfoContext.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
-            preAggInfoContext.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
-            for (RelationId id : preAggInfoContext.olapScanIds) {
-                olapScanPreAggContexts.put(id, preAggInfoContext);
+        PreAggInfoContext popped = context.pop();
+        if (popped != preAggInfoContext) {
+            if (SessionVariable.isFeDebug()) {
+                Preconditions.checkState(popped == preAggInfoContext,
+                        "PreAggInfoContext stack mismatch in visitLogicalAggregate");
+            } else {
+                LOG.warn("PreAggInfoContext stack mismatch in visitLogicalAggregate: "
+                        + "expected {} but got {}. Skipping preagg for this aggregate.",
+                        preAggInfoContext, popped);
+                return plan;
             }
+        }
+        popped.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
+        popped.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
+        for (RelationId id : popped.olapScanIds) {
+            olapScanPreAggContexts.put(id, popped);
         }
         return plan;
     }
@@ -219,7 +236,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Stack<PreAggInfoContext> context) {
         repeat = (LogicalRepeat<? extends Plan>) super.visit(repeat, context);
-        if (!context.isEmpty()) {
+        if (!context.isEmpty() && context.peek() != null) {
             context.peek().addGroupingScalarFunctionExpresssion(repeat.getGroupingId().get());
             context.peek().addGroupingScalarFunctionExpresssions(
                     repeat.getOutputExpressions().stream()

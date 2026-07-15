@@ -66,7 +66,7 @@ public:
                     get_name(), arguments[0]->get_name());
         }
 
-        auto nested_type = assert_cast<const DataTypeArray&>(*array_type).get_nested_type();
+        auto nested_type = array_type->get_nested_type();
         bool is_nested_nullable = nested_type->is_nullable();
         bool is_nullable = arguments[0]->is_nullable();
         auto return_nested_type = std::make_shared<DataTypeInt64>();
@@ -105,11 +105,8 @@ public:
         }
         ColumnPtr res_column =
                 ColumnArray::create(std::move(nested_column), array->get_offsets_ptr());
-        if (block.get_by_position(arguments[0]).column->is_nullable()) {
-            const ColumnNullable* nullable =
-                    check_and_get_column<ColumnNullable>(left_column.get());
-            res_column = ColumnNullable::create(
-                    res_column, nullable->get_null_map_column().clone_resized(nullable->size()));
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(left_column.get())) {
+            res_column = ColumnNullable::create(res_column, nullable->get_null_map_column_ptr());
         }
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();

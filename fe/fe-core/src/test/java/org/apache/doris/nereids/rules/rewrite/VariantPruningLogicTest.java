@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -45,6 +48,10 @@ public class VariantPruningLogicTest extends TestWithFeService {
                 + "  id int,\n"
                 + "  v variant\n"
                 + ") properties ('replication_num'='1')");
+        createTable("create table variant_msg_tbl(\n"
+                + "  id int,\n"
+                + "  msg variant\n"
+                + ") properties ('replication_num'='1')");
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
         connectContext.getSessionVariable().enablePruneNestedColumns = true;
@@ -62,6 +69,24 @@ public class VariantPruningLogicTest extends TestWithFeService {
                 "select v['arr'][0]['x'] from variant_tbl",
                 ImmutableList.of(path("v", "arr", "0", "x")),
                 ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testVariantArraySubscriptUsesPrunedSubPath() throws Exception {
+        String sql = "select cast(v['items']['type'] as array<string>)[1] from variant_tbl";
+        String explain = getSQLPlanOrErrorMsg(sql, true);
+        Assertions.assertTrue(explain.contains("final projections: element_at(CAST(v AS array<text>), 1)"),
+                explain);
+        Assertions.assertTrue(explain.contains("subColPath=[items, type]"),
+                explain);
+        Assertions.assertFalse(explain.contains("element_at(CAST(element_at(element_at("),
+                explain);
+        assertVariantSubColumnSlots(
+                sql,
+                ImmutableList.of(
+                        ImmutableList.of("items", "type")
+                )
         );
     }
 
@@ -164,24 +189,53 @@ public class VariantPruningLogicTest extends TestWithFeService {
         );
     }
 
+    @Test
+    public void testMatchOnDotVariantSubColumnUsesSlotRefInScanPredicate() throws Exception {
+        String sql = "select id from variant_msg_tbl "
+                + "where cast(msg.trace_id as string) match_phrase_prefix 'abc'";
+        List<OlapScanNode> olapScanNodes = collectOlapScanNodes(sql);
+        Assertions.assertEquals(1, olapScanNodes.size());
+
+        List<MatchPredicate> matchPredicates = new ArrayList<>();
+        Expr.collectList(olapScanNodes.get(0).getConjuncts(), MatchPredicate.class, matchPredicates);
+        Assertions.assertEquals(1, matchPredicates.size());
+
+        Expr leftWithoutCast = matchPredicates.get(0).getChildWithoutCast(0);
+        Assertions.assertInstanceOf(SlotRef.class, leftWithoutCast, matchPredicates.get(0).toString());
+        SlotRef leftSlot = (SlotRef) leftWithoutCast;
+        Assertions.assertEquals(ImmutableList.of("trace_id"), leftSlot.getDesc().getSubColLables());
+    }
+
     private Pair<PhysicalPlan, List<SlotDescriptor>> collectVariantSlots(String sql) throws Exception {
-        NereidsPlanner planner = (NereidsPlanner) executeNereidsSql(sql).planner();
+        NereidsPlanner planner = plan(sql);
         List<SlotDescriptor> variantSlots = new ArrayList<>();
         PhysicalPlan physicalPlan = planner.getPhysicalPlan();
-        for (PlanFragment fragment : planner.getFragments()) {
-            List<OlapScanNode> olapScanNodes =
-                    fragment.getPlanRoot().collectInCurrentFragment(OlapScanNode.class::isInstance);
-            for (OlapScanNode olapScanNode : olapScanNodes) {
-                List<SlotDescriptor> slots = olapScanNode.getTupleDesc().getSlots();
-                for (SlotDescriptor slot : slots) {
-                    Type type = slot.getType();
-                    if (type.isVariantType()) {
-                        variantSlots.add(slot);
-                    }
+        for (OlapScanNode olapScanNode : collectOlapScanNodes(planner)) {
+            List<SlotDescriptor> slots = olapScanNode.getTupleDesc().getSlots();
+            for (SlotDescriptor slot : slots) {
+                Type type = slot.getType();
+                if (type.isVariantType()) {
+                    variantSlots.add(slot);
                 }
             }
         }
         return Pair.of(physicalPlan, variantSlots);
+    }
+
+    private List<OlapScanNode> collectOlapScanNodes(String sql) throws Exception {
+        return collectOlapScanNodes(plan(sql));
+    }
+
+    private List<OlapScanNode> collectOlapScanNodes(NereidsPlanner planner) {
+        List<OlapScanNode> olapScanNodes = new ArrayList<>();
+        for (PlanFragment fragment : planner.getFragments()) {
+            olapScanNodes.addAll(fragment.getPlanRoot().collectInCurrentFragment(OlapScanNode.class::isInstance));
+        }
+        return olapScanNodes;
+    }
+
+    private NereidsPlanner plan(String sql) throws Exception {
+        return (NereidsPlanner) executeNereidsSql(sql).planner();
     }
 
     private void assertVariantSubColumnSlots(String sql, List<List<String>> expectedSubColPaths) throws Exception {

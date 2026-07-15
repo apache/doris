@@ -219,7 +219,7 @@ public class ExternalUtilTest {
         TFileScanRangeParams params = new TFileScanRangeParams();
         Long schemaId = 500L;
 
-        Column col1 = new Column("c1", Type.INT, true);
+        Column col1 = new Column("c1", Type.INT, false, null, true, "7", "");
         col1.setUniqueId(101);
         Column col2 = new Column("c2", Type.VARCHAR, false);
         col2.setUniqueId(102);
@@ -230,7 +230,10 @@ public class ExternalUtilTest {
         nameMapping.put(col1.getUniqueId(), Arrays.asList("m_c1"));
         nameMapping.put(col2.getUniqueId(), Arrays.asList("m_c2_a", "m_c2_b"));
 
-        ExternalUtil.initSchemaInfoForAllColumn(params, schemaId, columns, nameMapping);
+        Map<Integer, String> base64InitialDefaults = new HashMap<>();
+        base64InitialDefaults.put(col2.getUniqueId(), "AAEC/w==");
+        ExternalUtil.initSchemaInfoForAllColumn(
+                params, schemaId, columns, nameMapping, base64InitialDefaults);
 
         Assert.assertEquals(schemaId.longValue(), params.getCurrentSchemaId());
         List<TSchema> history = params.getHistorySchemaInfo();
@@ -251,12 +254,15 @@ public class ExternalUtilTest {
         Assert.assertEquals(col1.isAllowNull(), field1.isIsOptional());
         Assert.assertEquals(col1.getType().toColumnTypeThrift(), field1.getType());
         Assert.assertEquals(Arrays.asList("m_c1"), field1.getNameMapping());
+        Assert.assertEquals("7", field1.getInitialDefaultValue());
+        Assert.assertFalse(field1.isSetInitialDefaultValueIsBase64());
 
         Assert.assertEquals(col2.getName(), field2.getName());
         Assert.assertEquals(col2.getUniqueId(), field2.getId());
         Assert.assertEquals(col2.isAllowNull(), field2.isIsOptional());
         Assert.assertEquals(col2.getType().toColumnTypeThrift(), field2.getType());
         Assert.assertEquals(Arrays.asList("m_c2_a", "m_c2_b"), field2.getNameMapping());
+        Assert.assertEquals("AAEC/w==", field2.getInitialDefaultValue());
+        Assert.assertTrue(field2.isInitialDefaultValueIsBase64());
     }
 }
-

@@ -23,8 +23,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /** SequenceFunction */
 public interface SequenceFunction extends FunctionTrait {
+    Pattern EVENT_PATTERN = Pattern.compile("\\(\\?(\\d+)\\)");
+
     @Override
     default void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
@@ -36,11 +41,25 @@ public interface SequenceFunction extends FunctionTrait {
         }
         if (!getArgumentType(1).isDateLikeType()) {
             throw new AnalysisException("The timestamp params of " + functionName
-                    + " function must be DATE or DATETIME, but it is " + getArgumentType(1));
+                    + " function must be DATE, DATETIME or TIMESTAMPTZ, but it is " + getArgumentType(1));
         }
         String pattern = ((StringLikeLiteral) firstArg).getStringValue();
         if (!FunctionCallExpr.parsePattern(pattern)) {
             throw new AnalysisException("The format of pattern params is wrong: " + this.toSql());
+        }
+        int eventCount = arity() - 2;
+        Matcher matcher = EVENT_PATTERN.matcher(pattern);
+        while (matcher.find()) {
+            long eventNumber;
+            try {
+                eventNumber = Long.parseLong(matcher.group(1));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Event number " + matcher.group(1) + " is out of range");
+            }
+            if (eventNumber == 0 || eventNumber > eventCount) {
+                throw new AnalysisException("Event number " + eventNumber
+                        + " is out of range, valid range is [1, " + eventCount + "]");
+            }
         }
 
         for (int i = 2; i < arity(); i++) {

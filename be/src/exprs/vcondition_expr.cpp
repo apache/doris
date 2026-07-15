@@ -73,8 +73,7 @@ size_t VConditionExpr::count_true_with_notnull(const ColumnPtr& col) {
     }
 
     auto count = col->size();
-    if (col->is_nullable()) {
-        const auto* nullable = assert_cast<const ColumnNullable*>(col.get());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(col.get())) {
         const auto* __restrict null_data = nullable->get_null_map_data().data();
         const auto* __restrict bool_data =
                 ((const ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
@@ -194,7 +193,7 @@ Status VectorizedIfExpr::execute_for_null_then_else(Block& block,
         return Status::OK();
     }
 
-    const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+    const auto* cond_col = check_and_get_column<ColumnUInt8>(arg_cond.column.get());
     const ColumnConst* cond_const_col =
             check_and_get_column_const<ColumnUInt8>(arg_cond.column.get());
 
@@ -311,17 +310,23 @@ Status VectorizedIfExpr::execute_for_nullable_then_else(Block& block,
         // b. create a const_nullmap_column: it's a not nullable column or a const nullable column, contain a const value
         Block temporary_block;
         temporary_block.insert(arg_cond);
-        auto then_nested_null_map =
-                (then_type_is_nullable && !then_column_is_const_nullable)
-                        ? then_is_nullable->get_null_map_column_ptr()
-                        : DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+        ColumnPtr then_nested_null_map;
+        if (then_type_is_nullable && !then_column_is_const_nullable) {
+            then_nested_null_map = then_is_nullable->get_null_map_column_ptr();
+        } else {
+            then_nested_null_map =
+                    DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+        }
         temporary_block.insert(
                 {then_nested_null_map, std::make_shared<DataTypeUInt8>(), "then_column_null_map"});
 
-        auto else_nested_null_map =
-                (else_type_is_nullable && !else_column_is_const_nullable)
-                        ? else_is_nullable->get_null_map_column_ptr()
-                        : DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+        ColumnPtr else_nested_null_map;
+        if (else_type_is_nullable && !else_column_is_const_nullable) {
+            else_nested_null_map = else_is_nullable->get_null_map_column_ptr();
+        } else {
+            else_nested_null_map =
+                    DataTypeUInt8().create_column_const_with_default_value(input_rows_count);
+        }
         temporary_block.insert(
                 {else_nested_null_map, std::make_shared<DataTypeUInt8>(), "else_column_null_map"});
         temporary_block.insert(
@@ -496,7 +501,7 @@ Status VectorizedIfNullExpr::execute_column_impl(VExprContext* context, const Bl
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, first_column));
     first_column = first_column->convert_to_full_column_if_const();
 
-    if (!first_column->is_nullable()) {
+    if (!is_column_nullable(*first_column)) {
         result_column = first_column;
         DCHECK(_data_type->is_nullable() == false);
         return Status::OK();
@@ -583,6 +588,12 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                     binary_cast<VecDateTimeValue, int64_t>(result_raw_data[row]) +
                     binary_cast<VecDateTimeValue, int64_t>(column_raw_data[row]) *
                             int64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                             std::is_same_v<ColumnType, ColumnFloat64>) {
+            auto flag = (!(null_map_data[row] | filled_flag[row]));
+            result_raw_data[row] += std::isfinite(column_raw_data[row])
+                                            ? column_raw_data[row] * flag
+                                            : (flag ? column_raw_data[row] : 0);
         } else {
             result_raw_data[row] +=
                     column_raw_data[row] *
@@ -680,7 +691,7 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
             /// Return the negated null map.
             auto res_column = ColumnUInt8::create(size);
             const auto* __restrict src_data = nullable->get_null_map_data().data();
-            auto* __restrict res_data = assert_cast<ColumnUInt8&>(*res_column).get_data().data();
+            auto* __restrict res_data = res_column->get_data().data();
 
             for (size_t i = 0; i < size; ++i) {
                 res_data[i] = !src_data[i];

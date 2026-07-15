@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -28,7 +29,7 @@ import java.util.Set;
  * SPI provider for HDFS-family filesystems: hdfs, viewfs, ofs, jfs, oss.
  * Registered via META-INF/services for Java ServiceLoader discovery.
  */
-public class HdfsFileSystemProvider implements FileSystemProvider {
+public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
 
     public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs", "oss");
 

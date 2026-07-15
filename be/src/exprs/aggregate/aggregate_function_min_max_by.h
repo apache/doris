@@ -19,10 +19,12 @@
 
 #include "common/logging.h"
 #include "core/assert_cast.h"
+#include "core/call_on_type_index.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_bitmap.h"
+#include "core/data_type/primitive_type.h"
 #include "core/value/bitmap_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_min_max.h"
@@ -84,9 +86,9 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<ColumnBitmap&>(to).get_data().push_back(value);
+            assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(value);
         } else {
-            assert_cast<ColumnBitmap&>(to).insert_default();
+            assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to).insert_default();
         }
     }
 
@@ -320,81 +322,32 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
         return nullptr;
     }
 
+    AggregateFunctionPtr result;
+    auto call = [&](const auto& dispatch_type) -> bool {
+        using DispatchType = std::decay_t<decltype(dispatch_type)>;
+        constexpr auto PT = DispatchType::PType;
+        if constexpr (is_decimal(PT)) {
+            result = creator_without_type::create_multi_arguments<
+                    AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<PT>>>>(
+                    argument_types, result_is_nullable, attr);
+        } else {
+            result = creator_without_type::create_multi_arguments<
+                    AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<PT>>>>(
+                    argument_types, result_is_nullable, attr);
+        }
+        return true;
+    };
+    if (dispatch_switch_scalar(argument_types[1]->get_primitive_type(), call)) {
+        return result;
+    }
+
     switch (argument_types[1]->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_BOOLEAN>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_TINYINT>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_SMALLINT>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_INT:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_INT>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_BIGINT>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_LARGEINT>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_FLOAT>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DOUBLE>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMAL32:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMAL32>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMAL64:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMAL64>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMAL128I:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMAL128I>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMALV2:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMALV2>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMAL256:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMAL256>>>>(
-                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING:
         return creator_without_type::create_multi_arguments<
                 AggregateFunctionsMinMaxBy<Data<SingleValueDataString>>>(argument_types,
                                                                          result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATE:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATE>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATETIME:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATETIME>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATEV2:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATEV2>>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATETIMEV2:
-        return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
-                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_ARRAY:
         return creator_without_type::create_multi_arguments<
                 AggregateFunctionsMinMaxBy<Data<SingleValueDataComplexType>>>(

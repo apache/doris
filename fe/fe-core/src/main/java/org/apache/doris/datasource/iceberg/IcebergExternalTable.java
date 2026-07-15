@@ -25,10 +25,12 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -75,6 +77,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     private boolean isValidRelatedTable = false;
     private boolean isView;
     private static final String ENGINE_PROP_NAME = "engine-name";
+    private static final String TABLE_COMMENT_PROP = "comment";
 
     public IcebergExternalTable(long id, String name, String remoteName, IcebergExternalCatalog catalog,
             IcebergExternalDatabase db) {
@@ -94,7 +97,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
-            isView = catalog.viewExists(getRemoteDbName(), getRemoteName());
+            isView = ((IcebergExternalCatalog) catalog)
+                    .viewExists(SessionContext.current(), getRemoteDbName(), getRemoteName());
         }
     }
 
@@ -144,6 +148,17 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public Table getIcebergTable() {
         return IcebergUtils.getIcebergTable(this);
+    }
+
+    @Override
+    public String getComment() {
+        return properties().getOrDefault(TABLE_COMMENT_PROP, "");
+    }
+
+    @Override
+    public String getComment(boolean escapeQuota) {
+        String comment = getComment();
+        return escapeQuota ? SqlUtils.escapeQuota(comment) : comment;
     }
 
     @Override
@@ -298,6 +313,16 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return true;
     }
 
+    @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        return true;
+    }
+
     @VisibleForTesting
     public boolean isValidRelatedTableCached() {
         return isValidRelatedTableCached;
@@ -316,19 +341,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Map<String, SysTable> getSupportedSysTables() {
         makeSureInitialized();
         return IcebergSysTable.SUPPORTED_SYS_TABLES;
-    }
-
-    @Override
-    public Optional<SysTable> findSysTable(String tableNameWithSysTableName) {
-        Optional<SysTable> sysTable = MTMVRelatedTableIf.super.findSysTable(tableNameWithSysTableName);
-        if (sysTable.isPresent()) {
-            return sysTable;
-        }
-        String sysTableName = SysTable.getTableNameWithSysTableName(tableNameWithSysTableName).second;
-        if (IcebergSysTable.POSITION_DELETES.equals(sysTableName)) {
-            return Optional.of(IcebergSysTable.UNSUPPORTED_POSITION_DELETES_TABLE);
-        }
-        return Optional.empty();
     }
 
     @Override
@@ -458,5 +470,55 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         Table table = getIcebergTable();
         org.apache.iceberg.SortOrder sortOrder = table.sortOrder();
         return sortOrder != null && !sortOrder.isUnsorted();
+    }
+
+    /** Reconstructs PARTITION BY LIST (...) () from the Iceberg PartitionSpec for SHOW CREATE TABLE. */
+    public String getPartitionSpecSql() {
+        makeSureInitialized();
+        Table table = getIcebergTable();
+        PartitionSpec spec = table.spec();
+        if (spec == null || spec.isUnpartitioned()) {
+            return "";
+        }
+        List<String> fields = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            String colName = table.schema().findColumnName(field.sourceId());
+            if (colName == null) {
+                continue;
+            }
+            org.apache.iceberg.transforms.Transform<?, ?> t = field.transform();
+            // isVoid/isIdentity: public interface methods; toString(): canonical spec-defined names.
+            if (t.isVoid()) {
+                continue;
+            }
+            String quotedCol = "`" + colName + "`";
+            if (t.isIdentity()) {
+                fields.add(quotedCol);
+            } else {
+                String transformStr = t.toString();
+                if (transformStr.startsWith("bucket[")) {
+                    int n = Integer.parseInt(transformStr.substring(7, transformStr.length() - 1));
+                    fields.add("BUCKET(" + n + ", " + quotedCol + ")");
+                } else if (transformStr.startsWith("truncate[")) {
+                    int w = Integer.parseInt(transformStr.substring(9, transformStr.length() - 1));
+                    fields.add("TRUNCATE(" + w + ", " + quotedCol + ")");
+                } else if ("year".equals(transformStr)) {
+                    fields.add("YEAR(" + quotedCol + ")");
+                } else if ("month".equals(transformStr)) {
+                    fields.add("MONTH(" + quotedCol + ")");
+                } else if ("day".equals(transformStr)) {
+                    fields.add("DAY(" + quotedCol + ")");
+                } else if ("hour".equals(transformStr)) {
+                    fields.add("HOUR(" + quotedCol + ")");
+                } else {
+                    LOG.warn("Unsupported Iceberg partition transform '{}' on column '{}', "
+                            + "skipped in SHOW CREATE TABLE.", transformStr, colName);
+                }
+            }
+        }
+        if (fields.isEmpty()) {
+            return "";
+        }
+        return "PARTITION BY LIST (" + String.join(", ", fields) + ") ()";
     }
 }

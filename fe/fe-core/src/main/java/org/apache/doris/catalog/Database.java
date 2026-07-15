@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -85,6 +86,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
+    private static final ThreadLocal<Boolean> SKIP_REGISTER_NEREIDS_FUNCTIONS = new ThreadLocal<>();
 
     @SerializedName(value = "id")
     private long id;
@@ -441,6 +443,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 if (table instanceof MTMV) {
                     Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
                 }
+
+                if (table instanceof BaseTableStream) {
+                    Env.getCurrentEnv().getTableStreamManager().addTableStream((BaseTableStream) table);
+                }
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
@@ -630,10 +636,28 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public static Database read(DataInput in) throws IOException {
+        return read(in, false);
+    }
+
+    public static Database readForRecycleBin(DataInput in) throws IOException {
+        return read(in, true);
+    }
+
+    private static Database read(DataInput in, boolean skipRegisterNereidsFunctions) throws IOException {
         LOG.info("read db from journal {}", in);
-        Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-        db.readTables(in);
-        return db;
+        Boolean previous = SKIP_REGISTER_NEREIDS_FUNCTIONS.get();
+        SKIP_REGISTER_NEREIDS_FUNCTIONS.set(skipRegisterNereidsFunctions);
+        try {
+            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+            db.readTables(in);
+            return db;
+        } finally {
+            if (previous == null) {
+                SKIP_REGISTER_NEREIDS_FUNCTIONS.remove();
+            } else {
+                SKIP_REGISTER_NEREIDS_FUNCTIONS.set(previous);
+            }
+        }
     }
 
     private void writeTables(DataOutput out) throws IOException {
@@ -665,12 +689,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         transactionQuotaSize = Long.parseLong(txnQuotaStr);
         binlogConfig = dbProperties.getBinlogConfig();
 
-        for (ImmutableList<Function> functions : name2Function.values()) {
-            for (Function function : functions) {
-                try {
-                    FunctionUtil.translateToNereids(this.getFullName(), function);
-                } catch (Exception e) {
-                    LOG.warn("Nereids add function failed", e);
+        if (!Boolean.TRUE.equals(SKIP_REGISTER_NEREIDS_FUNCTIONS.get())) {
+            for (ImmutableList<Function> functions : name2Function.values()) {
+                for (Function function : functions) {
+                    try {
+                        FunctionUtil.translateToNereids(this.getFullName(), function);
+                    } catch (Exception e) {
+                        LOG.warn("Nereids add function failed", e);
+                    }
                 }
             }
         }
@@ -743,16 +769,85 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
-        function.checkWritable();
-        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
-            Env.getCurrentEnv().getEditLog().logAddFunction(function);
-            try {
+        addFunctions(ImmutableList.of(function), ifNotExists, false);
+    }
+
+    public synchronized void addTableFunction(Function function, boolean ifNotExists) throws UserException {
+        // Doris table functions are registered as two functions: the normal function and its outer variant.
+        Function outerFunction = function.clone();
+        FunctionName name = outerFunction.getFunctionName();
+        name.setFn(name.getFunction() + "_outer");
+        List<Function> functionsToAdd = getTableFunctionsToAdd(function, outerFunction, ifNotExists);
+        if (functionsToAdd.isEmpty()) {
+            return;
+        }
+        addFunctions(functionsToAdd, false, functionsToAdd.size() > 1);
+    }
+
+    private List<Function> getTableFunctionsToAdd(Function function, Function outerFunction, boolean ifNotExists)
+            throws UserException {
+        Function existingFunction = getExistingFunction(function);
+        Function existingOuterFunction = getExistingFunction(outerFunction);
+        if (existingFunction == null && existingOuterFunction == null) {
+            return ImmutableList.of(function, outerFunction);
+        }
+        if (!ifNotExists) {
+            throw new UserException(getExistingFunctionMessage(existingFunction, existingOuterFunction));
+        }
+        return ImmutableList.of();
+    }
+
+    private String getExistingFunctionMessage(Function existingFunction, Function existingOuterFunction) {
+        List<String> existingFunctionNames = Lists.newArrayList();
+        if (existingFunction != null) {
+            existingFunctionNames.add(existingFunction.functionName());
+        }
+        if (existingOuterFunction != null) {
+            existingFunctionNames.add(existingOuterFunction.functionName());
+        }
+        return "function already exists: " + String.join(", ", existingFunctionNames);
+    }
+
+    private Function getExistingFunction(Function function) {
+        try {
+            return getFunction(getFunctionSearchDesc(function));
+        } catch (AnalysisException e) {
+            return null;
+        }
+    }
+
+    private void addFunctions(List<Function> functions, boolean ifNotExists, boolean logAsBatch) throws UserException {
+        List<Function> addedFunctions = Lists.newArrayList();
+        try {
+            for (Function function : functions) {
+                function.checkWritable();
+                if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
+                    addedFunctions.add(function);
+                }
+            }
+            for (Function function : addedFunctions) {
                 FunctionUtil.translateToNereidsThrows(this.getFullName(), function);
-            } catch (Exception e) {
-                name2Function.remove(function.getFunctionName().getFunction());
-                throw e;
+            }
+        } catch (Exception e) {
+            for (Function function : addedFunctions) {
+                FunctionUtil.dropFromNereids(this.getFullName(), getFunctionSearchDesc(function));
+            }
+            for (int i = addedFunctions.size() - 1; i >= 0; i--) {
+                FunctionUtil.removeFunctionImpl(addedFunctions.get(i), true, name2Function);
+            }
+            throw e;
+        }
+        if (logAsBatch) {
+            Env.getCurrentEnv().getEditLog().logAddFunctions(addedFunctions);
+        } else {
+            for (Function function : addedFunctions) {
+                Env.getCurrentEnv().getEditLog().logAddFunction(function);
             }
         }
+    }
+
+    private FunctionSearchDesc getFunctionSearchDesc(Function function) {
+        return new FunctionSearchDesc(function.getFunctionName(), function.getArgs(), function.hasVarArgs());
     }
 
     public synchronized void replayAddFunction(Function function) {
@@ -922,7 +1017,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             BinlogConfig oldBinlogConfig = getBinlogConfig();
             BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
 
-            if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
+            if (newBinlogConfig.isEnableForCCR() && !oldBinlogConfig.isEnableForCCR()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {
                     if (!table.isManagedTable()) {
@@ -932,7 +1027,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     OlapTable olapTable = (OlapTable) table;
                     olapTable.readLock();
                     try {
-                        if (!olapTable.getBinlogConfig().isEnable()) {
+                        if (!olapTable.getBinlogConfig().isEnableForCCR()) {
                             String errMsg = String
                                     .format("binlog is not enable in table[%s] in db [%s]",
                                         table.getDisplayName(), getFullName());

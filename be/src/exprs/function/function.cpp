@@ -39,6 +39,7 @@
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function_helpers.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 
 namespace doris {
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
@@ -62,13 +63,12 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
         if (auto nullable = cast_to_column<ColumnNullable>(elem.column); nullable->has_null()) {
             const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
             if (!result_null_map_column) { // NOLINT(bugprone-use-after-move)
-                result_null_map_column = null_map_column->clone_resized(input_rows_count);
+                result_null_map_column = null_map_column;
                 continue;
             }
 
             if (!mutable_result_null_map_column) {
-                mutable_result_null_map_column =
-                        std::move(result_null_map_column)->assume_mutable();
+                mutable_result_null_map_column = (*std::move(result_null_map_column)).mutate();
             }
 
             NullMap& result_null_map =
@@ -78,6 +78,12 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
 
             VectorizedUtils::update_null_map(result_null_map, src_null_map);
         }
+    }
+
+    // Commit merged null map back: result_null_map_column was moved into
+    // mutable_result_null_map_column when merging 2+ nullable args with nulls.
+    if (mutable_result_null_map_column) {
+        result_null_map_column = std::move(mutable_result_null_map_column);
     }
 
     if (!result_null_map_column) {
@@ -398,6 +404,21 @@ bool FunctionBuilderImpl::is_nested_type_date_or_datetime_or_decimal(
     default:
         return is_date_or_datetime_or_decimal(return_type_ptr, func_return_type_ptr);
     }
+}
+
+ZoneMapFilterResult IFunctionBase::evaluate_zonemap_filter(
+        const ZoneMapEvalContext& ctx, const VExprSPtrs& function_arguments) const {
+    return unsupported_zonemap_filter(ctx);
+}
+
+ZoneMapFilterResult IFunctionBase::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx, const VExprSPtrs& function_arguments) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
+
+ZoneMapFilterResult IFunctionBase::evaluate_bloom_filter(
+        const BloomFilterEvalContext& ctx, const VExprSPtrs& function_arguments) const {
+    return ZoneMapFilterResult::kUnsupported;
 }
 
 } // namespace doris

@@ -18,6 +18,7 @@
 
 #include "core/data_type_serde/data_type_serde.h"
 
+#include <arrow/api.h>
 #include <gen_cpp/types.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -48,6 +49,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant.h"
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
@@ -424,12 +426,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_STRING);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_STRING>(), "123");
         subcolumn.deserialize_from_binary_column(&value, 0);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_STRING);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_STRING>(), "123");
     }
 
     {
@@ -437,11 +437,9 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         subcolumn.deserialize_from_binary_column(&value, 1);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_INT>(), 123);
         subcolumn.deserialize_from_binary_column(&value, 1);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_INT>(), 123);
     }
 
     {
@@ -450,12 +448,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_LARGEINT);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_LARGEINT>(), 123);
         subcolumn.deserialize_from_binary_column(&value, 2);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_LARGEINT);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_LARGEINT>(), 123);
     }
 
     {
@@ -464,12 +460,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DOUBLE);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_DOUBLE>(), 123.456);
         subcolumn.deserialize_from_binary_column(&value, 3);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DOUBLE);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_DOUBLE>(), 123.456);
     }
 
     {
@@ -478,12 +472,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_BOOLEAN);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_BOOLEAN>(), true);
         subcolumn.deserialize_from_binary_column(&value, 4);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_BOOLEAN);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_BOOLEAN>(), true);
     }
 
     {
@@ -492,12 +484,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DATETIMEV2);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_DATETIMEV2>().to_date_int_val(), 23232323);
         subcolumn.deserialize_from_binary_column(&value, 5);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DATETIMEV2);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_DATETIMEV2>().to_date_int_val(), 23232323);
     }
 
     {
@@ -506,12 +496,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DATEV2);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_DATEV2>().to_date_int_val(), 154543245);
         subcolumn.deserialize_from_binary_column(&value, 6);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DATEV2);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_DATEV2>().to_date_int_val(), 154543245);
     }
 
     {
@@ -520,12 +508,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_IPV4);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_IPV4>(), static_cast<IPv4>(367357));
         subcolumn.deserialize_from_binary_column(&value, 7);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_IPV4);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_IPV4>(), static_cast<IPv4>(367357));
     }
 
     {
@@ -534,12 +520,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_IPV6);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_IPV6>(), static_cast<IPv6>(36534645));
         subcolumn.deserialize_from_binary_column(&value, 8);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_IPV6);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_IPV6>(), static_cast<IPv6>(36534645));
     }
 
     {
@@ -548,8 +532,6 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL32);
-        auto v = subcolumn.get_last_field().get<TYPE_DECIMAL32>();
-        EXPECT_EQ(static_cast<Int32>(v), static_cast<Int32>(3456345634));
         subcolumn.deserialize_from_binary_column(&value, 9);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
@@ -562,14 +544,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL64);
-        auto v = subcolumn.get_last_field().get<TYPE_DECIMAL64>();
-        EXPECT_EQ(static_cast<Int64>(v), static_cast<Int64>(13452435));
         subcolumn.deserialize_from_binary_column(&value, 10);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL64);
-        v = subcolumn.get_last_field().get<TYPE_DECIMAL64>();
-        EXPECT_EQ(static_cast<Int64>(v), static_cast<Int64>(13452435));
     }
 
     {
@@ -578,14 +556,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL128I);
-        auto v = subcolumn.get_last_field().get<TYPE_DECIMAL128I>();
-        EXPECT_EQ(static_cast<Int128>(v), static_cast<Int128>(2342345));
         subcolumn.deserialize_from_binary_column(&value, 11);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL128I);
-        v = subcolumn.get_last_field().get<TYPE_DECIMAL128I>();
-        EXPECT_EQ(static_cast<Int128>(v), static_cast<Int128>(2342345));
     }
 
     {
@@ -594,14 +568,10 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL256);
-        auto v = subcolumn.get_last_field().get<TYPE_DECIMAL256>();
-        EXPECT_TRUE(v == Decimal256(2345243));
         subcolumn.deserialize_from_binary_column(&value, 12);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL256);
-        v = subcolumn.get_last_field().get<TYPE_DECIMAL256>();
-        EXPECT_TRUE(v == Decimal256(2345243));
     }
 
     {
@@ -624,25 +594,35 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
                   PrimitiveType::TYPE_ARRAY);
         EXPECT_EQ(subcolumn.get_dimensions(), 1);
         EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_JSONB);
-        auto v = subcolumn.get_last_field();
-        auto& arr = v.get<TYPE_ARRAY>();
-        EXPECT_EQ(arr.size(), 3);
-        EXPECT_FALSE(arr[0].is_null());
-        EXPECT_TRUE(arr[1].is_null());
-        EXPECT_FALSE(arr[2].is_null());
         subcolumn.deserialize_from_binary_column(&value, 14);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);
         EXPECT_EQ(subcolumn.get_dimensions(), 1);
         EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_JSONB);
-
-        v = subcolumn.get_last_field();
-        arr = v.get<TYPE_ARRAY>();
-        EXPECT_EQ(arr.size(), 3);
-        EXPECT_FALSE(arr[0].is_null());
-        EXPECT_TRUE(arr[1].is_null());
-        EXPECT_FALSE(arr[2].is_null());
     }
+}
+
+TEST(DataTypeSerDeTest, VariantWriteColumnToArrowSupportsLargeString) {
+    auto variant_column = ColumnVariant::create(0, false);
+    VariantMap root;
+    root.try_emplace(PathInData(), FieldWithDataType {.field = Field::create_field<TYPE_STRING>(
+                                                              String("variant value", 13))});
+    variant_column->try_insert(Field::create_field<TYPE_VARIANT>(std::move(root)));
+
+    auto data_type = std::make_shared<DataTypeVariant>();
+    auto serde = data_type->get_serde(0);
+    arrow::LargeStringBuilder builder;
+    auto ctz = cctz::utc_time_zone();
+    auto st = serde->write_column_to_arrow(*variant_column, nullptr, &builder, 0,
+                                           variant_column->size(), ctz);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+    auto* string_array = dynamic_cast<arrow::LargeStringArray*>(array.get());
+    ASSERT_NE(string_array, nullptr);
+    ASSERT_EQ(string_array->length(), 1);
+    EXPECT_EQ(string_array->GetString(0), "variant value");
 }
 } // namespace doris

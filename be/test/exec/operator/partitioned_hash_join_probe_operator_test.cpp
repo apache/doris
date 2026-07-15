@@ -49,6 +49,17 @@ protected:
 
 namespace {
 
+constexpr auto CANCEL_REASON = "partitioned hash join probe cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
 SpillFileSPtr create_probe_test_spill_file(RuntimeState* state, RuntimeProfile* profile,
                                            int node_id, const std::string& prefix,
                                            const std::vector<std::vector<int32_t>>& batches) {
@@ -123,6 +134,28 @@ Status prepare_probe_local_state_for_repartition(PartitionedHashJoinProbeOperato
 }
 
 } // namespace
+
+TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildAndProbeReturnCancelAtEntry) {
+    auto [probe_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedHashJoinSharedState> shared_state;
+    auto* local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
+                                                         probe_operator.get(), shared_state);
+    JoinSpillPartitionInfo build_partition(nullptr, nullptr, 0);
+    JoinSpillPartitionInfo probe_partition(nullptr, nullptr, 0);
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(local_state->recover_build_blocks_from_partition(_helper.runtime_state.get(),
+                                                                      build_partition));
+    expect_cancelled(local_state->recover_probe_blocks_from_partition(_helper.runtime_state.get(),
+                                                                      probe_partition));
+}
+
+TEST_F(PartitionedHashJoinProbeOperatorTest, RevokeMemoryReturnsCancelAtEntry) {
+    auto [probe_operator, sink_operator] = _helper.create_operators();
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(probe_operator->revoke_memory(_helper.runtime_state.get()));
+}
 
 TEST_F(PartitionedHashJoinProbeOperatorTest, debug_string) {
     auto [probe_operator, sink_operator] = _helper.create_operators();
@@ -1137,6 +1170,45 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskEmpty) {
 
     ASSERT_EQ(partition_info.build_file, nullptr);
     ASSERT_TRUE(local_state->_recovered_build_block == nullptr);
+}
+
+TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskCancelledBeforeEmptyEos) {
+    auto [probe_operator, sink_operator] = _helper.create_operators();
+
+    std::shared_ptr<MockPartitionedHashJoinSharedState> shared_state;
+    auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
+                                                        probe_operator.get(), shared_state);
+
+    SpillFileSPtr spill_file;
+    auto relative_path = fmt::format(
+            "{}/hash_build-{}-{}", print_id(_helper.runtime_state->query_id()),
+            probe_operator->node_id(), ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+    ASSERT_TRUE(ExecEnv::GetInstance()
+                        ->spill_file_mgr()
+                        ->create_spill_file(relative_path, spill_file)
+                        .ok());
+
+    {
+        SpillFileWriterSPtr writer;
+        ASSERT_TRUE(spill_file
+                            ->create_writer(_helper.runtime_state.get(),
+                                            local_state->operator_profile(), writer)
+                            .ok());
+        ASSERT_TRUE(writer->close().ok());
+    }
+
+    _helper.runtime_state->cancel(Status::Cancelled("test cancel"));
+
+    JoinSpillPartitionInfo partition_info(spill_file, nullptr, 0);
+    auto status = local_state->recover_build_blocks_from_partition(_helper.runtime_state.get(),
+                                                                   partition_info);
+    ASSERT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    ASSERT_NE(partition_info.build_file, nullptr);
+    ASSERT_TRUE(local_state->_recovered_build_block == nullptr);
+
+    ASSERT_TRUE(local_state->close(_helper.runtime_state.get()).ok());
+    ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(partition_info.build_file);
+    partition_info.build_file.reset();
 }
 
 TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskLargeData) {

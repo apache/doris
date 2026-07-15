@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
@@ -79,14 +80,10 @@ public class FrontendsProcNode implements ProcNodeInterface {
         List<Pair<String, Integer>> allFe = new ArrayList<>();
         List<Frontend> frontends = env.getFrontends(null);
 
-        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
-        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
-            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
-        }
+        String selfNodeName = env.getNodeName();
 
-        String finalSelfNode = selfNode;
         frontends.stream()
-            .filter(fe -> (!fe.getHost().equals(finalSelfNode) || includeSelf))
+            .filter(fe -> (!fe.getNodeName().equals(selfNodeName) || includeSelf))
             .map(fe -> Pair.of(fe.getHost(), fe.getRpcPort()))
                 .forEach(allFe::add);
         return allFe;
@@ -127,9 +124,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getNodeName());
             info.add(fe.getHost());
             info.add(Integer.toString(fe.getEditLogPort()));
-            info.add(Integer.toString(Config.http_port));
+            info.add(Integer.toString(HttpURLUtil.getHttpPort()));
 
-            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+            if (fe.getNodeName().equals(env.getNodeName())) {
                 info.add(Integer.toString(Config.query_port));
                 info.add(Integer.toString(Config.rpc_port));
                 info.add(Integer.toString(Config.arrow_flight_sql_port));
@@ -143,12 +140,16 @@ public class FrontendsProcNode implements ProcNodeInterface {
             InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
             //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
             //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
-            info.add(String.valueOf(socketAddress.equals(master)));
+            boolean isMaster = socketAddress.equals(master);
+            if (!isMaster && master == null && fe.getNodeName().equals(env.getNodeName()) && env.isMaster()) {
+                isMaster = true;
+            }
+            info.add(String.valueOf(isMaster));
 
             info.add(Integer.toString(env.getClusterId()));
             info.add(String.valueOf(isJoin(allFe, fe)));
 
-            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+            if (fe.getNodeName().equals(env.getNodeName())) {
                 info.add("true");
                 info.add(Long.toString(env.getEditLog().getMaxJournalId()));
             } else {
@@ -170,7 +171,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
     public static Frontend getCurrentFrontendVersion(Env env) {
         for (Frontend fe : env.getFrontends(null /* all */)) {
-            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+            if (fe.getNodeName().equals(env.getNodeName())) {
                 return fe;
             }
         }
@@ -204,34 +205,36 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     private static boolean isJoin(List<InetSocketAddress> allFeHosts, Frontend fe) {
+        String feHost = fe.getHost();
+        int fePort = fe.getEditLogPort();
         for (InetSocketAddress addr : allFeHosts) {
-            if (fe.getEditLogPort() != addr.getPort()) {
+            if (fePort != addr.getPort()) {
                 continue;
             }
-            // if hostname of InetSocketAddress is ip, addr.getHostName() may be not equal to fe.getIp()
-            // so we need to compare fe.getIp() with address.getHostAddress()
-            InetAddress address = addr.getAddress();
-            if (null == address) {
-                LOG.warn("Failed to get InetAddress {}", addr);
-                continue;
-            }
-            if (fe.getHost().equals(address.getHostAddress())) {
-                return true;
-            }
-        }
-
-        // Avoid calling getHostName multiple times, don't remove it
-        for (InetSocketAddress addr : allFeHosts) {
-            // Avoid calling getHostName multiple times, don't remove it
-            if (fe.getEditLogPort() != addr.getPort()) {
-                continue;
-            }
-            // https://bugs.openjdk.org/browse/JDK-8143378#:~:text=getHostName()%3B%20takes%20about%205,millisecond%20on%20JDK%20update%2051
-            // getHostName sometime has bug, take 5s
-            String host = addr.getHostName();
-            if (!Strings.isNullOrEmpty(host)) {
-                if (host.equals(fe.getHost())) {
+            if (Config.enable_fqdn_mode) {
+                String hostName = addr.getHostName();
+                if (!Strings.isNullOrEmpty(hostName) && hostName.equals(feHost)) {
                     return true;
+                }
+                InetAddress address = addr.getAddress();
+                if (address != null && feHost.equals(address.getHostAddress())) {
+                    return true;
+                }
+                if (address == null && !Strings.isNullOrEmpty(hostName) && hostName.equals(feHost)) {
+                    return true;
+                }
+            } else {
+                InetAddress address = addr.getAddress();
+                if (address != null) {
+                    String addrIp = address.getHostAddress();
+                    if (feHost.equals(addrIp)) {
+                        return true;
+                    }
+                } else {
+                    String hostName = addr.getHostName();
+                    if (!Strings.isNullOrEmpty(hostName) && hostName.equals(feHost)) {
+                        return true;
+                    }
                 }
             }
         }

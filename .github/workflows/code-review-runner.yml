@@ -1,0 +1,709 @@
+name: Code Review Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Install Codex
+        run: |
+          for attempt in 1 2 3; do
+            if npm install -g @openai/codex; then
+              codex --version
+              exit 0
+            fi
+            echo "Install attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "All install attempts failed"
+          exit 1
+
+      - name: Install ossutil
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
+      - name: Install Codex goal binary
+        run: |
+          codex_cmd="$(command -v codex)"
+          codex_target="$(readlink -f "$codex_cmd")"
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+
+          downloaded=false
+          for object in "$OSS_CODEX_GOAL_OBJECT" "$OSS_CODEX_GOAL_FALLBACK_OBJECT"; do
+            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$object" "$tmp_dir/codex-goal"; then
+              downloaded=true
+              break
+            fi
+          done
+          test "$downloaded" = "true"
+          test -s "$tmp_dir/codex-goal"
+          sudo install -m 0755 "$tmp_dir/codex-goal" "$codex_target"
+          "$codex_cmd" exec --help | grep -q -- '--goal'
+          "$codex_cmd" --version
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_GOAL_OBJECT: oss://doris-community-ci/codex-goal
+          OSS_CODEX_GOAL_FALLBACK_OBJECT: oss://doris-community-ci/codex/codex-goal
+
+      - name: Configure Codex auth
+        run: |
+          install -m 700 -d "$RUNNER_TEMP/codex-home"
+          printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+
+          auth_object="$(printf '%s\n' \
+            'oss://doris-community-ci/codex/auth.json.1' \
+            'oss://doris-community-ci/codex/auth.json.2' \
+            | shuf -n 1)"
+          printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
+          echo "Selected Codex auth object: ${auth_object##*/}"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$RUNNER_TEMP/codex-home/auth.json"
+          chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
+          test -s "$RUNNER_TEMP/codex-home/auth.json"
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null
+
+          cat > "$RUNNER_TEMP/codex-home/config.toml" <<EOF
+          cli_auth_credentials_store = "file"
+          approval_policy = "never"
+
+          [features]
+          memories = true
+
+          [memories]
+          use_memories = true
+          generate_memories = true
+
+          [shell_environment_policy]
+          inherit = "all"
+
+          [otel]
+          environment = "github-actions"
+          exporter = "none"
+          metrics_exporter = "none"
+          trace_exporter = "none"
+          EOF
+          chmod 600 "$RUNNER_TEMP/codex-home/config.toml"
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+
+      - name: Sync Codex memories from OSS
+        run: |
+          install -m 700 -d "$CODEX_HOME/memories"
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+          listing="$RUNNER_TEMP/codex-memories.list"
+
+          if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_MEMORIES_OBJECT" "$archive"; then
+            if [ -s "$archive" ]; then
+              tar -tzf "$archive" > "$listing"
+              if [ -s "$listing" ]; then
+                awk '
+                  $0 != "memories" && $0 != "memories/" && $0 !~ /^memories\// { bad = 1 }
+                  END { exit bad }
+                ' "$listing"
+                tar -xzf "$archive" -C "$CODEX_HOME"
+              else
+                echo "Codex memories archive is empty; continuing with empty memories."
+              fi
+            else
+              echo "Codex memories archive is empty; continuing with empty memories."
+            fi
+          else
+            echo "No Codex memories archive could be downloaded; continuing with empty memories."
+          fi
+          install -m 700 -d "$CODEX_HOME/memories"
+          touch "$CODEX_HOME/memories/memory_summary.md"
+          chmod -R go-rwx "$CODEX_HOME/memories" || true
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/memories.tar.gz
+
+      - name: Prepare review context directory
+        run: |
+          review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.code-review.XXXXXX")"
+          review_context_rel="$(basename "$review_context_dir")"
+          printf 'REVIEW_CONTEXT_DIR=%s\n' "$review_context_dir" >> "$GITHUB_ENV"
+          printf 'REVIEW_CONTEXT_REL=%s\n' "$review_context_rel" >> "$GITHUB_ENV"
+
+      - name: Fetch existing PR review threads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          MAX_THREADS=30
+          MAX_BODY_CHARS=1200
+
+          if gh api --paginate --slurp repos/${REPO}/pulls/${PR_NUMBER}/comments > "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" 2>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
+            && jq 'add | sort_by((.in_reply_to_id // .id), .id)' "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" > "$REVIEW_CONTEXT_DIR/pr_review_comments.json" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
+            && jq -r '
+              def shorten($limit):
+                if (. // "" | length) > $limit then
+                  .[0:$limit] + "...(truncated)"
+                else
+                  . // ""
+                end;
+              if length == 0 then
+                "No existing inline review comments or replies were found for this PR."
+              else
+                group_by(.in_reply_to_id // .id)
+                | sort_by(.[0].created_at // "")
+                | reverse
+                | .[:$max_threads]
+                | map(
+                    . as $thread
+                    | $thread[0] as $root
+                    | "### " + ($root.path // "(unknown path)") + ":" + (($root.line // $root.original_line // "n/a") | tostring)
+                    + "\nURL: " + ($root.html_url // "")
+                    + "\nComments:\n"
+                    + (
+                        $thread
+                        | map(
+                            "- " + (.user.login // "unknown")
+                            + " at " + (.created_at // "")
+                            + (if .in_reply_to_id then " (reply):" else " (original comment):" end)
+                            + "\n"
+                            + ((.body | shorten($max_body_chars)) | split("\n") | map("    " + .) | join("\n"))
+                          )
+                        | join("\n")
+                      )
+                )
+                | join("\n\n")
+              end
+            ' --argjson max_threads "$MAX_THREADS" --argjson max_body_chars "$MAX_BODY_CHARS" "$REVIEW_CONTEXT_DIR/pr_review_comments.json" > "$REVIEW_CONTEXT_DIR/pr_review_threads.md" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log"; then
+            echo "Fetched existing PR review threads successfully."
+          else
+            printf '%s\n\n' \
+              'Existing PR review threads could not be fetched or formatted for this run.' \
+              'Proceed with the automated review without this auxiliary context.' \
+              > "$REVIEW_CONTEXT_DIR/pr_review_threads.md"
+            if [ -s "$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" ]; then
+              {
+                printf '\n%s\n' 'Fetch/format error details:'
+                sed 's/^/    /' "$REVIEW_CONTEXT_DIR/pr_review_comments_error.log"
+              } >> "$REVIEW_CONTEXT_DIR/pr_review_threads.md"
+            fi
+          fi
+
+      - name: Prepare user review focus
+        env:
+          REVIEW_FOCUS: ${{ inputs.review_focus }}
+        run: |
+          if [ -n "$(printf '%s' "$REVIEW_FOCUS" | tr -d '[:space:]')" ]; then
+            printf '%s\n' "$REVIEW_FOCUS" > "$REVIEW_CONTEXT_DIR/review_focus.txt"
+          else
+            printf 'No additional user-provided review focus.\n' > "$REVIEW_CONTEXT_DIR/review_focus.txt"
+          fi
+
+      - name: Prepare authoritative PR context and required AGENTS guides
+        id: review_context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+        run: |
+          checkout_head_sha="$(git rev-parse HEAD)"
+          if [ "$checkout_head_sha" != "$HEAD_SHA" ]; then
+            echo "Checked-out HEAD $checkout_head_sha does not match expected PR head $HEAD_SHA"
+            exit 1
+          fi
+
+          live_pr="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+          live_head_sha="$(jq -r '.head.sha' <<<"$live_pr")"
+          live_base_sha="$(jq -r '.base.sha' <<<"$live_pr")"
+          if [ "$live_head_sha" != "$HEAD_SHA" ] || [ "$live_base_sha" != "$BASE_SHA" ]; then
+            echo "PR changed while review context was being prepared; restart the review"
+            echo "Expected base/head: $BASE_SHA $HEAD_SHA"
+            echo "Current base/head:  $live_base_sha $live_head_sha"
+            exit 1
+          fi
+
+          if [ "$(git rev-parse --is-shallow-repository)" != "false" ]; then
+            echo "Full history is required to generate an authoritative three-dot PR diff"
+            exit 1
+          fi
+
+          diff_range="${BASE_SHA}...${HEAD_SHA}"
+          merge_base_sha="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          echo "Generating review context from $diff_range (merge base: $merge_base_sha)"
+          git rev-list --count "${merge_base_sha}..${HEAD_SHA}"
+
+          changed_files_tmp="$(mktemp "$REVIEW_CONTEXT_DIR/pr_changed_files.txt.tmp.XXXXXX")"
+          git diff --name-only --no-ext-diff "$diff_range" > "$changed_files_tmp"
+          mv "$changed_files_tmp" "$REVIEW_CONTEXT_DIR/pr_changed_files.txt"
+
+          diff_tmp="$(mktemp "$REVIEW_CONTEXT_DIR/pr.diff.tmp.XXXXXX")"
+          git diff --no-ext-diff --no-color "$diff_range" > "$diff_tmp"
+          mv "$diff_tmp" "$REVIEW_CONTEXT_DIR/pr.diff"
+          git diff --shortstat "$diff_range"
+
+          helper="$RUNNER_TEMP/prepare_review_agents.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/prepare_review_agents.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
+            --changed-files "$REVIEW_CONTEXT_DIR/pr_changed_files.txt" \
+            --required-agents "$REVIEW_CONTEXT_DIR/required_agents.txt" \
+            --prompt-block "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt"
+
+          echo "Required AGENTS.md files for this review:"
+          sed 's/^/  /' "$REVIEW_CONTEXT_DIR/required_agents.txt"
+
+      - name: Prepare review prompt
+        run: |
+          cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
+          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN.
+          The current directory is the code repository for the PR to be reviewed.
+          This environment is only used for review operations, so do not attempt any builds or code modifications. However, temporary scripts you use for review purposes are exceptions.
+          You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
+          You can comment on the pull request.
+          This review task is executed in Codex goal mode. Subsequent prompts and skill indicate all the review and commenting actions you need to perform. The current round can only be concluded after completing the main agent risk scan, the normal full-review subagent review for each round, and the risk-focused subagent scan (if applicable). The final GitHub review can only be submitted after all subagents return NO_NEW_VALUABLE_FINDINGS, and all candidate points from the subagents have been validated, deduplicated, accepted, or rejected by the main agent.
+          In addition, the number of iterations shall not exceed 3 rounds. If new subagents identify valuable candidate points after 3 rounds, the main agent must indicate in the final summary that the review is incomplete.
+
+          Context:
+          - Repository: PLACEHOLDER_REPO
+          - PR number: PLACEHOLDER_PR_NUMBER
+          - PR Head SHA: PLACEHOLDER_HEAD_SHA
+          - PR Base SHA: PLACEHOLDER_BASE_SHA
+          - Existing inline review threads: PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md
+          - Raw inline review comments JSON: PLACEHOLDER_CONTEXT_DIR/pr_review_comments.json
+          - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
+          - PR changed files: PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt
+          - Authoritative aggregate PR diff: PLACEHOLDER_CONTEXT_DIR/pr.diff
+          - PR diff range: merge-base(PLACEHOLDER_BASE_SHA, PLACEHOLDER_HEAD_SHA) to PLACEHOLDER_HEAD_SHA
+          - Required AGENTS.md files: PLACEHOLDER_CONTEXT_DIR/required_agents.txt
+          - Shared subagent review ledger: PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md
+
+          PR diff and path-reading (for all subagents and the main agent):
+          - PLACEHOLDER_CONTEXT_DIR/pr.diff and PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt were both generated locally with `git diff PLACEHOLDER_BASE_SHA...PLACEHOLDER_HEAD_SHA` after the live PR base/head were verified. They are the authoritative PR diff and changed-path list: they contain changes from the computed merge base to the PR head. The listed PR Base SHA identifies the target-branch snapshot and is not necessarily the diff's left endpoint. Do not obtain the PR diff or changed-path list through other means.
+          - Before reading any file whose exact path is not already confirmed by PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt, PLACEHOLDER_CONTEXT_DIR/pr.diff, or a previous successful command output, you MUST first run `rg --files` to confirm the actual path of the target file.
+
+          Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          The active review goal's progress tracking MUST include, and must stay current throughout the review:
+          1. Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
+          2. Perform a main-agent initial risk scan before spawning review subagents. You must thoroughly read all the changes in this PR and understand all the involved mechanisms, pointing out: if there is a problem with this PR, where is the problem most likely to be? Or are there any points you suspect to be risky? write the result under `## Main Initial Risk Scan` in the shared ledger.
+          3. Based on the requirements of the code-review skill regarding the coverage points of the review spawn 1-3 subagents (depends on the complexity of the PR), each focusing on certain aspects. The sum of their focus points must fully cover the entire content of PR, as well as the points required in skill and any additional review points you consider necessary. They must complete the review of their own aspects and identify all possible issues before they can finish their work. You need assign each subagent a dedicated section in the shared ledger.
+          4. If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional risk-focused subagent(s), separate from the normal complete-review subagents, to specially investigate those specific mechanisms and their upstream/downstream interactions.
+          5. Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section. The status of each candidate must be clarified after this stage.
+          6. If all subagents return `NO_NEW_VALUABLE_FINDINGS`, or if this loop has already executed 3 rounds, conduct the necessary review to ensure that all current candidate points have been verified, deduplicated, accepted, or rejected, and then submit the final GitHub comment. Otherwise, continue with the next round of the same review process from the beginning.
+          7. Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete. You must address all checkpoints required by the skill, user concerns (if any), and indicate the status of the review completion.
+
+          Subagent Constraints:
+          - Every subagent appends only to its assigned ledger section, while reading the whole ledger to avoid duplicate candidates.
+          - Follow the principles indicated in the code-review skill.
+          - The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Subagents must read the whole ledger before reviewing, avoid duplicating existing candidates, and append their findings only under their assigned subagent section. They must not rewrite the whole ledger, edit another subagent section, edit the main merged sections, edit repository source files, or submit GitHub comments.
+          - Each subagent must record candidate findings in its own ledger section with stable IDs, path/line, claim, evidence, duplicate relationship if any, and recommendation. Do not add duplicates of existing items. This section-owned append-only rule is mandatory to avoid concurrent patch conflicts.
+          - Before returning, a further thought must be made—what problem, if any, might I have missed just now, and where? Then a thorough recheck should be conducted to confirm whether this potential issue is real and whether it needs to be reported.
+
+          Main-agent Constraints:
+          - The active review goal MUST remain incomplete until every suspicious point found during review has a clear conclusion: submitted as an inline issue, dismissed as already covered by existing review context, or dismissed with concrete code evidence explaining why it is not a bug.
+          - The main initial risk scan MUST be written under `## Main Initial Risk Scan` in the shared ledger before any subagent is spawned. For every risk focus item, include: ID, changed files/lines involved, related mechanisms to inspect, why it is suspicious, required upstream/downstream files or paths, and the exact question the risk-focused subagent must answer.
+          - The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Before spawning any subagent, the main agent MUST read this ledger. Every subagent prompt MUST include this ledger path and the exact ledger section assigned to that subagent.
+          - The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. It must also update the status of every main risk focus item.
+          - Before submitting the final review, do one explicit final sweep over the changed-file list and your unresolved candidate list. Only finish when there are no unresolved suspicious points and all possible substantiated bugs have been pointed out in the GitHub review. At this stage, you can conduct final research on any part you still have doubts about or which may not have been fully investigated, ensuring that all potential issues have been thoroughly investigated and reported.
+
+          Any agent MUST NOT stop after finding the first blocking issue. Keep reviewing changed files, related control flow, tests, and parallel/special-case paths until all plausible correctness, lifecycle, configuration, compatibility, performance, and coverage bugs have been investigated and every bug you can substantiate has been reported.
+
+          Before inspecting the PR diff or related code, you MUST read the contents of every AGENTS.md file listed below. These paths are computed from the PR changed file ancestors in this checkout. Searching for or listing paths is not sufficient; read each listed file directly.
+          Required AGENTS.md files for this PR:
+          PLACEHOLDER_REQUIRED_AGENTS_BLOCK
+
+          Before proposing any new issue, you MUST read PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
+          Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently. Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
+          You MUST also read PLACEHOLDER_CONTEXT_DIR/review_focus.txt. Perform a complete review of the whole PR as usual, and additionally pay special attention to the user-provided focus points from that file. In the final summary, include a short response to the user focus points, including when no additional issue was found for them.
+          In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
+
+          ## Final response format
+          - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
+          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
+              - Note that when submitting review comments in this way, the content will not be escaped, so you need to input multi-line text with line breaks directly, rather than using `\n`.
+          - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+              - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
+              - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
+              - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
+              - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
+              - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
+              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+          PROMPT
+
+          sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+
+          python3 - "$REVIEW_CONTEXT_DIR/review_prompt.txt" "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" <<'PY'
+          import sys
+          from pathlib import Path
+
+          prompt_path = Path(sys.argv[1])
+          required_agents_path = Path(sys.argv[2])
+          prompt = prompt_path.read_text()
+          required_agents = required_agents_path.read_text().rstrip()
+          prompt_path.write_text(prompt.replace("PLACEHOLDER_REQUIRED_AGENTS_BLOCK", required_agents))
+          PY
+
+          cat > "$REVIEW_CONTEXT_DIR/subagent_review_findings.md" <<'LEDGER'
+          # Shared Subagent Review Ledger
+
+          This is the shared source of truth for subagent-assisted review.
+
+          Rules:
+          - Subagents must read this whole file before reviewing.
+          - Each subagent may append only to its assigned section under `Subagent Candidate Sections`.
+          - Subagents must not rewrite this file, edit another subagent section, edit main-owned sections, edit repository source files, or submit GitHub comments.
+          - Avoid duplicates. If a candidate overlaps an existing candidate, add a duplicate note in your own section that references the existing candidate ID.
+          - The main agent owns final status, final deduplication, GitHub review submission, and GitHub API verification.
+
+          ## Main Initial Risk Scan
+
+          Main-owned format:
+
+          - ID:
+            Status:
+            Changed files/lines:
+            Related mechanisms to inspect:
+            Why suspicious:
+            Required upstream/downstream files or paths:
+            Question for risk-focused subagent:
+            Final conclusion:
+
+          Candidate statuses:
+          - proposed_by_subagent
+          - accepted_for_inline_comment
+          - dismissed_with_evidence
+          - duplicated
+
+          Candidate format:
+
+          - ID:
+            Owner:
+            Status:
+            Path:
+            Line:
+            Claim:
+            Evidence:
+            Duplicate relationship:
+            Recommendation:
+
+          ## Main Merged Findings
+
+          Main-owned format:
+
+          - ID:
+            Source IDs:
+            Owner: main
+            Status:
+            Path:
+            Line:
+            Claim:
+            Evidence:
+            Duplicate relationship:
+            Main verification:
+            Proposed inline body:
+
+          ## Dismissed Or Duplicate Points
+
+          ## Proposed Final Comment Set
+
+          ## Convergence Rounds
+          LEDGER
+
+          cat > "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" <<EOF
+          You are performing an automated code review inside a GitHub Actions runner.
+          This invocation is already running in Codex goal mode. Before inspecting the PR diff or related code, read ${REVIEW_CONTEXT_REL}/review_prompt.txt verbatim and follow that file as the complete review instruction set.
+          This document outlines the complete process, cyclic procedures, and exit agreements you need to follow. Please read it seriously and reconfirm the requirements at the end of each cycle. Complete the review according to the stipulations in this document.
+          EOF
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+
+      - name: Run automated code review
+        id: review
+        timeout-minutes: 115
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
+          review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          set +e
+          # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
+          # Codex uses bubblewrap for that mode and uid maps can be unavailable.
+          codex exec --goal "$GOAL_PROMPT" \
+            --cd "$GITHUB_WORKSPACE" \
+            --model "gpt-5.5" \
+            --config "model_reasoning_effort=xhigh" \
+            --sandbox danger-full-access \
+            --color never \
+            --json \
+            --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+            > "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            2> >(tee "$REVIEW_CONTEXT_DIR/codex-stderr.log" >&2)
+          status=$?
+          set -e
+
+          failure_reason=""
+          if [ "$status" -ne 0 ]; then
+            if [ -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+              failure_reason="$(jq -r 'select(.type == "turn.failed") | .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+              if [ -z "$failure_reason" ]; then
+                failure_reason="$(jq -r 'select(.type == "error") | .message // .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+              fi
+            fi
+            if [ -z "$failure_reason" ] && [ -s "$REVIEW_CONTEXT_DIR/codex-stderr.log" ]; then
+              failure_reason="$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/codex-stderr.log")"
+            fi
+            if [ -z "$failure_reason" ]; then
+              failure_reason="Codex exited with status $status"
+            fi
+          fi
+
+          if [ -z "$failure_reason" ]; then
+            reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
+            reviews_api_ok=false
+            review_verified=false
+            for attempt in 1 2 3 4 5 6; do
+              if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
+                reviews_api_ok=true
+                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                  (add // [])
+                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
+                  | length > 0
+                ' "$reviews_file" >/dev/null; then
+                  review_verified=true
+                  break
+                fi
+              fi
+              sleep 5
+            done
+
+            if [ "$review_verified" != "true" ] && [ "$reviews_api_ok" != "true" ]; then
+              failure_reason="Codex completed, but the workflow could not verify pull request reviews through GitHub API."
+            elif [ "$review_verified" != "true" ]; then
+              failure_reason="Codex completed, but no new pull request review was submitted for the current head SHA."
+            fi
+          fi
+
+          if [ -n "$failure_reason" ]; then
+            {
+              echo "failure_reason<<EOF"
+              printf '%s\n' "$failure_reason"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Record review I/O to Litefuse
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SK }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+        run: |
+          if [ ! -s "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+            echo "Goal prompt or Codex JSONL event stream is missing; skipping Litefuse I/O recording."
+            exit 0
+          fi
+
+          helper="$RUNNER_TEMP/emit_litefuse_otel_io.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/emit_litefuse_otel_io.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
+            --input-file "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" \
+            --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            --output-file "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+            --trace-name "doris-ai-review" \
+            --subagent-trace-name "doris-ai-review-subagent" \
+            --subagent-sessions-dir "$CODEX_HOME/sessions" \
+            --session-id "$GITHUB_RUN_ID" \
+            --repository "$REPO" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --pr-number "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
+            --model "gpt-5.5" \
+            --reasoning-effort "xhigh" \
+            --environment "github-actions" \
+            --max-payload-bytes 4000000 \
+            --min-observations 4 \
+            --min-step-observations 2 \
+            --verify-attempts 24 \
+            --verify-sleep-seconds 5 \
+            --verify
+
+      - name: Sync Codex sessions back to OSS
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          if [ ! -d "$CODEX_HOME/sessions" ]; then
+            echo "No Codex sessions directory found; skipping session sync."
+            exit 0
+          fi
+
+          uploaded=0
+          skipped=0
+          while IFS= read -r -d '' session_file; do
+            rel="${session_file#"$CODEX_HOME/sessions/"}"
+            remote="${OSS_CODEX_SESSION_PREFIX%/}/$rel"
+            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" stat "$remote" >/dev/null 2>&1; then
+              skipped=$((skipped + 1))
+              continue
+            fi
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$session_file" "$remote"
+            uploaded=$((uploaded + 1))
+          done < <(find "$CODEX_HOME/sessions" -type f -name '*.jsonl' -print0)
+
+          echo "Uploaded $uploaded new Codex session file(s); skipped $skipped existing file(s)."
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_SESSION_PREFIX: oss://doris-community-ci/session
+
+      - name: Sync Codex auth back to OSS
+        if: ${{ always() }}
+        run: |
+          if [ -z "$CODEX_AUTH_OSS_OBJECT" ]; then
+            echo "No selected Codex auth object found; skipping OSS auth sync."
+            exit 0
+          fi
+
+          if [ ! -s "$CODEX_HOME/auth.json" ]; then
+            echo "No Codex auth file found; skipping OSS auth sync."
+            exit 0
+          fi
+
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$CODEX_HOME/auth.json" >/dev/null
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+
+      - name: Comment PR on review failure
+        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+            error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          else
+            error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          fi
+          gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
+          Codex automated review failed and did not complete.
+
+          Error: ${error_msg}
+          Workflow run: ${RUN_URL}
+
+          Please inspect the workflow logs and rerun the review after the underlying issue is resolved.
+          EOF
+          )"
+
+      - name: Fail workflow if review failed
+        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
+        env:
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          if [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+            error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          else
+            error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          fi
+          echo "Codex automated review failed: ${error_msg}"
+          exit 1

@@ -219,6 +219,7 @@ enum TSchemaTableType {
     SCH_TABLE_STREAM_CONSUMPTION = 69;
     SCH_BE_COMPACTION_TASKS = 70;
     SCH_ROLE_MAPPINGS = 71;
+    SCH_BACKEND_MS_RPC_TABLE_THROTTLERS = 72;
 }
 
 enum THdfsCompression {
@@ -258,6 +259,10 @@ const map<string, THdfsCompression> COMPRESSION_MAP = {
 struct TOlapTableIndexTablets {
     1: required i64 index_id
     2: required list<i64> tablets
+    // only used in adaptive random bucket mode: FE-selected bucket owner BE for this index.
+    3: optional i64 bucket_be_id
+    // only used in adaptive random bucket mode: FE-selected bucket seqs for this index.
+    4: optional list<i32> local_bucket_seqs
 }
 
 // its a closed-open range
@@ -278,13 +283,20 @@ struct TOlapTablePartition {
     9: optional bool is_mutable = true
     // only used in List Partition
     10: optional bool is_default_partition;
-    // only used in random distribution scenario to make data distributed even 
+    // only used in random distribution scenario:
+    // - legacy mode: global round-robin index / fixed bucket index
+    // - adaptive random bucket mode: FE-selected starting bucket seq for this sink
     11: optional i64 load_tablet_idx
     12: optional i32 total_replica_num
     13: optional i32 load_required_replica_num
     // tablet_id -> list of backend_ids that have version gaps (lastFailedVersion >= 0)
     // used by BE to exclude these backends from success counting in majority write
     14: optional map<i64, list<i64>> tablet_version_gap_backends
+    // only used in adaptive random bucket mode: FE-selected bucket owner BE for this sink
+    15: optional i64 bucket_be_id
+    // only used in adaptive random bucket mode: FE-selected bucket seqs for this sink.
+    // When set, BE uses them directly and skips recomputing from tablet locations.
+    16: optional list<i32> local_bucket_seqs
 }
 
 struct TOlapTablePartitionParam {
@@ -331,6 +343,7 @@ struct TOlapTableIndexSchema {
     4: optional list<TColumn> columns_desc
     5: optional list<TOlapTableIndex> indexes_desc
     6: optional Exprs.TExpr where_clause
+    7: optional i64 row_binlog_id
 }
 
 struct TOlapTableSchemaParam {
@@ -352,6 +365,7 @@ struct TOlapTableSchemaParam {
     14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
+    17: optional TOlapTableIndexSchema row_binlog_index_schema
 }
 
 struct TTabletLocation {

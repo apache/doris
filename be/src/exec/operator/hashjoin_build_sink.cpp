@@ -22,6 +22,7 @@
 #include <variant>
 
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "exec/common/template_helpers.hpp"
@@ -32,6 +33,15 @@
 #include "util/uid_util.h"
 
 namespace doris {
+namespace {
+bool hash_table_built(const HashJoinSharedState* shared_state) {
+    DORIS_CHECK(shared_state != nullptr);
+    DORIS_CHECK(!shared_state->hash_table_variant_vector.empty());
+    return !std::holds_alternative<std::monostate>(
+            shared_state->hash_table_variant_vector.front()->method_variant);
+}
+} // namespace
+
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {
@@ -66,7 +76,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         _dependency->block();
         _finish_dependency->block();
         {
-            std::lock_guard<std::mutex> guard(p._mutex);
+            LockGuard guard(p._mutex);
             p._finish_dependencies.push_back(_finish_dependency);
         }
     } else {
@@ -101,8 +111,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
             _should_build_hash_table, p._is_broadcast_join);
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _build_expr_ctxs,
-                                                          p._runtime_filter_descs));
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(
+            state, _build_expr_ctxs, p._runtime_filter_descs, p._child->row_desc()));
     return Status::OK();
 }
 
@@ -118,7 +128,14 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    // Defensive null-guard: other paths in this file already gate on
+    // `_runtime_filter_producer_helper` because cancel / early wake-up may
+    // run terminate before the helper is attached. The terminate path used
+    // to be the only one missing the guard, which would NPE inside
+    // skip_process() and surface as a generic crash deep in the allocator.
+    if (_runtime_filter_producer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
     return JoinBuildSinkLocalState::terminate(state);
 }
 
@@ -179,7 +196,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
                     auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<ColumnNullable*>(column->assume_mutable().get())
+                    assert_cast<ColumnNullable*>(column->assert_mutable().get())
                             ->get_null_map_column()
                             .get_data()
                             .data()[0] = 1;
@@ -235,17 +252,10 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
 
         if (p._use_shared_hash_table) {
-            std::unique_lock lock(p._mutex);
-            // Only signal non-builder tasks when the builder actually built the hash table.
-            // When the builder is terminated (woken up early because the probe side finished
-            // first), it never called process_build_block() so the hash table variant is still
-            // monostate. Setting _signaled=true in that case would cause non-builder tasks to
-            // enter std::visit on monostate and crash with "Hash table type mismatch".
-            //
-            // _terminated is reliably true here when the task was woken up early, because
-            // operator terminate() is called from the execute() Defer in PipelineTask
-            // before close() is invoked.
-            if (!_terminated) {
+            LockGuard lock(p._mutex);
+            // Do not wake non-builders into a monostate hash table after early termination/errors.
+            const auto should_signal = !_terminated && hash_table_built(_shared_state);
+            if (should_signal) {
                 p._signaled = true;
             }
             for (auto& dep : _shared_state->sink_deps) {
@@ -379,8 +389,8 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     // Handle nullable: extract nested column for value access, keep nullable for null checks
     const ColumnNullable* nullable_col = nullptr;
     ColumnPtr build_col_nested = asof_build_col;
-    if (asof_build_col->is_nullable()) {
-        nullable_col = assert_cast<const ColumnNullable*>(asof_build_col.get());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(asof_build_col.get())) {
+        nullable_col = nullable;
         build_col_nested = nullable_col->get_nested_column_ptr();
     }
 
@@ -505,7 +515,9 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(Block& block, VExprContextSPtrs
             RETURN_IF_ERROR(exprs[i]->execute(&block, &result_col_id));
         }
 
-        // TODO: opt the column is const
+        // _extract_join_column() handles physical ColumnNullable only, so build-key const
+        // columns, including Const(Nullable), must be materialized before they are merged.
+        // TODO: if const-key optimization is added, update _extract_join_column() together.
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         res_col_ids[i] = result_col_id;
@@ -535,15 +547,21 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(Block& block,
     DCHECK(_should_build_hash_table);
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (!column->is_nullable() &&
-            _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i]) {
+        const auto& column_ptr = block.get_by_position(res_col_ids[i]).column;
+        const auto* column = column_ptr.get();
+        const bool serialize_null_into_key =
+                _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i];
+        // _do_evaluate() must have materialized Const(Nullable) build keys. If this check fails,
+        // is_nullable() no longer implies a physical ColumnNullable for the logic below.
+        const auto* const_column = check_and_get_column<ColumnConst>(*column);
+        DORIS_CHECK(const_column == nullptr ||
+                    !is_column_nullable(const_column->get_data_column()));
+        if (!column->is_nullable() && serialize_null_into_key) {
             _key_columns_holder.emplace_back(
                     make_nullable(block.get_by_position(res_col_ids[i]).column));
             raw_ptrs[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
-                   !_parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i] &&
-                   nullable) {
+                   !serialize_null_into_key && nullable) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
@@ -565,9 +583,11 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     // 1. Dispose the overflow of ColumnString
     // 2. Finalize the ColumnVariant to speed up
     for (auto& data : block) {
-        data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
+        data.column = IColumn::mutate(std::move(data.column))->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {
-            std::move(*data.column).mutate()->finalize();
+            auto mutable_column = IColumn::mutate(std::move(data.column));
+            mutable_column->finalize();
+            data.column = std::move(mutable_column);
         }
     }
 
@@ -579,7 +599,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<ColumnNullable*>(column->assume_mutable().get())
+            assert_cast<ColumnNullable*>(column->assert_mutable().get())
                     ->get_null_map_column()
                     .get_data()
                     .data()[0] = 1;
@@ -691,6 +711,11 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
 Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
+    if (_is_mark_join && _join_op == TJoinOp::RIGHT_ANTI_JOIN) {
+        return Status::InternalError(
+                "Hash join does not support right anti mark join, query={}, node={}, join_op={}",
+                print_id(state->query_id()), node_id(), to_string(_join_op));
+    }
 
     if (tnode.hash_join_node.__isset.hash_output_slot_ids) {
         _hash_output_slot_ids = tnode.hash_join_node.hash_output_slot_ids;
@@ -765,6 +790,12 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
 Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::prepare(state));
+    if (_is_broadcast_join && (_match_all_build || _is_right_semi_anti)) {
+        return Status::NotSupported(
+                "Broadcast hash join does not support {} because build-side rows must be "
+                "finalized exactly once",
+                to_string(_join_op));
+    }
     _use_shared_hash_table =
             _is_broadcast_join && state->enable_share_hash_table_for_broadcast_join();
     auto init_keep_column_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
@@ -792,7 +823,7 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_build_expr_ctxs, state);
 }
 
-Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -810,7 +841,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
                                                      *local_state._build_expr_call_timer,
                                                      local_state._build_col_ids));
             local_state._build_side_mutable_block =
-                    MutableBlock::build_mutable_block(&tmp_build_block);
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         if (!in_block->empty()) {

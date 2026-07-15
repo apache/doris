@@ -39,6 +39,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ExponentialMovingAverage;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
@@ -133,6 +135,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(bitmapAgg, context);
     }
 
+    default R visitExponentialMovingAverage(ExponentialMovingAverage ema, C context) {
+        return visitNullableAggregateFunction(ema, context);
+    }
+
     default R visitBitmapIntersect(BitmapIntersect bitmapIntersect, C context) {
         return visitAggregateFunction(bitmapIntersect, context);
     }
@@ -150,15 +156,15 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitBoolAnd(BoolAnd boolAnd, C context) {
-        return visitAggregateFunction(boolAnd, context);
+        return visitNullableAggregateFunction(boolAnd, context);
     }
 
     default R visitBoolOr(BoolOr boolOr, C context) {
-        return visitAggregateFunction(boolOr, context);
+        return visitNullableAggregateFunction(boolOr, context);
     }
 
     default R visitBoolXor(BoolXor boolXor, C context) {
-        return visitAggregateFunction(boolXor, context);
+        return visitNullableAggregateFunction(boolXor, context);
     }
 
     default R visitCollectList(CollectList collectList, C context) {
@@ -239,6 +245,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitHistogram(Histogram histogram, C context) {
         return visitAggregateFunction(histogram, context);
+    }
+
+    default R visitDataSketchesHllUnionAgg(DataSketchesHllUnionAgg datasketchesHllUnionAgg, C context) {
+        return visitAggregateFunction(datasketchesHllUnionAgg, context);
     }
 
     default R visitHllUnion(HllUnion hllUnion, C context) {

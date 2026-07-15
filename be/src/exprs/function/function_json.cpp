@@ -18,24 +18,12 @@
 #include <glog/logging.h>
 #include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
-#include <rapidjson/encodings.h>
-#include <rapidjson/pointer.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
-#include <re2/re2.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 
-#include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
-#include <boost/token_functions.hpp>
-#include <boost/tokenizer.hpp>
 #include <memory>
-#include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -57,281 +45,14 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
-#include "exec/common/stringop_substring.h"
-#include "exec/common/template_helpers.hpp"
-#include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
-#include "exprs/function/function_totype.h"
 #include "exprs/function/simple_function_factory.h"
-#include "exprs/json_functions.h"
-#include "util/string_parser.hpp"
-#include "util/string_util.h"
 
 namespace doris {
 class FunctionContext;
 } // namespace doris
 
 namespace doris {
-static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
-
-template <typename T, typename U>
-void char_split(std::vector<T>& res, const U& var, char p) {
-    int start = 0;
-    int pos = start;
-    int end = var.length();
-    while (pos < end) {
-        while (var[pos] != p && pos < end) {
-            pos++;
-        }
-        res.emplace_back(&var[start], pos - start);
-        pos++;
-        start = pos;
-    }
-}
-
-// T = std::vector<std::string>
-// TODO: update RE2 to support std::vector<std::string_view>
-template <typename T>
-void get_parsed_paths(const T& path_exprs, std::vector<JsonPath>* parsed_paths) {
-    if (path_exprs.empty()) {
-        return;
-    }
-
-    if (path_exprs[0] != "$") {
-        parsed_paths->emplace_back("", -1, false);
-    } else {
-        parsed_paths->emplace_back("$", -1, true);
-    }
-
-    for (int i = 1; i < path_exprs.size(); i++) {
-        std::string col;
-        std::string index;
-        if (UNLIKELY(!RE2::FullMatch(path_exprs[i], JSON_PATTERN, &col, &index))) {
-            parsed_paths->emplace_back("", -1, false);
-        } else {
-            int idx = -1;
-            if (!index.empty()) {
-                if (index == "*") {
-                    idx = -2;
-                } else {
-                    idx = atoi(index.c_str());
-                }
-            }
-            parsed_paths->emplace_back(col, idx, true);
-        }
-    }
-}
-
-rapidjson::Value* NO_SANITIZE_UNDEFINED
-match_value(const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
-            rapidjson::Document::AllocatorType& mem_allocator, bool is_insert_null = false) {
-    rapidjson::Value* root = document;
-    rapidjson::Value* array_obj = nullptr;
-    for (int i = 1; i < parsed_paths.size(); i++) {
-        if (root == nullptr || root->IsNull()) {
-            return nullptr;
-        }
-
-        if (UNLIKELY(!parsed_paths[i].is_valid)) {
-            return nullptr;
-        }
-
-        const std::string& col = parsed_paths[i].key;
-        int index = parsed_paths[i].idx;
-        if (LIKELY(!col.empty())) {
-            if (root->IsObject()) {
-                if (!root->HasMember(col.c_str())) {
-                    return nullptr;
-                } else {
-                    root = &((*root)[col.c_str()]);
-                }
-            } else {
-                // root is not a nested type, return NULL
-                return nullptr;
-            }
-        }
-
-        if (UNLIKELY(index != -1)) {
-            // judge the rapidjson:Value, which base the top's result,
-            // if not array return NULL;else get the index value from the array
-            if (root->IsArray()) {
-                if (root->IsNull()) {
-                    return nullptr;
-                } else if (index == -2) {
-                    // [*]
-                    array_obj = static_cast<rapidjson::Value*>(
-                            mem_allocator.Malloc(sizeof(rapidjson::Value)));
-                    array_obj->SetArray();
-
-                    for (int j = 0; j < root->Size(); j++) {
-                        rapidjson::Value v;
-                        v.CopyFrom((*root)[j], mem_allocator);
-                        array_obj->PushBack(v, mem_allocator);
-                    }
-                    root = array_obj;
-                } else if (index >= root->Size()) {
-                    return nullptr;
-                } else {
-                    root = &((*root)[index]);
-                }
-            } else {
-                return nullptr;
-            }
-        }
-    }
-    return root;
-}
-
-template <JsonFunctionType fntype>
-rapidjson::Value* get_json_object(std::string_view json_string, std::string_view path_string,
-                                  rapidjson::Document* document) {
-    std::vector<JsonPath>* parsed_paths;
-    std::vector<JsonPath> tmp_parsed_paths;
-
-    //Cannot use '\' as the last character, return NULL
-    if (path_string.back() == '\\') {
-        return nullptr;
-    }
-
-    std::string fixed_string;
-    if (path_string.size() >= 2 && path_string[0] == '$' && path_string[1] != '.') {
-        // Boost tokenizer requires explicit "." after "$" to correctly extract JSON path tokens.
-        // Without this, expressions like "$[0].key" cannot be properly split.
-        // This commit ensures a "." is automatically added after "$" to maintain consistent token parsing behavior.
-        fixed_string = "$.";
-        fixed_string += path_string.substr(1);
-        path_string = fixed_string;
-    }
-
-    try {
-#ifdef USE_LIBCPP
-        std::string s(path_string);
-        auto tok = get_json_token(s);
-#else
-        auto tok = get_json_token(path_string);
-#endif
-        std::vector<std::string> paths(tok.begin(), tok.end());
-        get_parsed_paths(paths, &tmp_parsed_paths);
-        if (tmp_parsed_paths.empty()) {
-            return document;
-        }
-    } catch (boost::escaped_list_error&) {
-        // meet unknown escape sequence, example '$.name\k'
-        return nullptr;
-    }
-
-    parsed_paths = &tmp_parsed_paths;
-
-    if (!(*parsed_paths)[0].is_valid) {
-        return nullptr;
-    }
-
-    if (UNLIKELY((*parsed_paths).size() == 1)) {
-        if (fntype == JSON_FUN_STRING) {
-            document->SetString(json_string.data(),
-                                cast_set<rapidjson::SizeType>(json_string.size()),
-                                document->GetAllocator());
-        } else {
-            return document;
-        }
-    }
-
-    document->Parse(json_string.data(), json_string.size());
-    if (UNLIKELY(document->HasParseError())) {
-        // VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
-        //         << GetParseError_En(document->GetParseError());
-        return nullptr;
-    }
-
-    return match_value(*parsed_paths, document, document->GetAllocator());
-}
-
-template <int flag>
-struct JsonParser {
-    //string
-    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
-                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetString(data.data, cast_set<rapidjson::SizeType>(data.size), allocator);
-    }
-};
-
-template <>
-struct JsonParser<'0'> {
-    // null
-    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
-                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetNull();
-    }
-};
-
-template <>
-struct JsonParser<'1'> {
-    // bool
-    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
-                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        DCHECK(data.size == 1 || strncmp(data.data, "true", 4) == 0 ||
-               strncmp(data.data, "false", 5) == 0);
-        value.SetBool(*data.data == '1' || *data.data == 't');
-    }
-};
-
-template <>
-struct JsonParser<'2'> {
-    // int
-    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
-                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetInt(StringParser::string_to_int<int32_t>(data.data, data.size, &result));
-    }
-};
-
-template <>
-struct JsonParser<'3'> {
-    // double
-    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
-                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetDouble(StringParser::string_to_float<double>(data.data, data.size, &result));
-    }
-};
-
-template <>
-struct JsonParser<'4'> {
-    // time
-    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
-                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        // remove double quotes, "xxx" -> xxx
-        value.SetString(data.data + 1, cast_set<rapidjson::SizeType>(data.size - 2), allocator);
-    }
-};
-
-template <>
-struct JsonParser<'5'> {
-    // bigint
-    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
-                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetInt64(StringParser::string_to_int<int64_t>(data.data, data.size, &result));
-    }
-};
-
-template <>
-struct JsonParser<'7'> {
-    // json string
-    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
-                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        rapidjson::Document document;
-        const JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
-        convert_jsonb_to_rapidjson(*json_val, document, allocator);
-        value.CopyFrom(document, allocator);
-    }
-};
-
-template <int flag, typename Impl>
-struct ExecuteReducer {
-    template <typename... TArgs>
-    static void run(TArgs&&... args) {
-        Impl::template execute_type<JsonParser<flag>>(std::forward<TArgs>(args)...);
-    }
-};
-
 struct FunctionJsonQuoteImpl {
     static constexpr auto name = "json_quote";
 
@@ -385,14 +106,13 @@ public:
 
         std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
         std::vector<const ColumnString*> data_columns;
-        for (int i = 0; i < arguments.size(); i++) {
+        for (unsigned int argument : arguments) {
             column_ptrs.push_back(
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const());
+                    block.get_by_position(argument).column->convert_to_full_column_if_const());
             data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
         }
 
-        Impl::execute(data_columns, *assert_cast<ColumnString*>(result_column.get()),
-                      input_rows_count);
+        Impl::execute(data_columns, *result_column.get(), input_rows_count);
         block.get_by_position(result).column = std::move(result_column);
         return Status::OK();
     }
@@ -516,8 +236,8 @@ public:
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
+        const auto* col_from_string = check_and_get_column<ColumnString>(col_from);
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
             col_from_string =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }

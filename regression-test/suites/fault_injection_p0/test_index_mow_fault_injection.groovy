@@ -47,7 +47,7 @@ suite("test_index_mow_fault_injection", "nonConcurrent") {
     try {
       sql "DROP TABLE IF EXISTS ${testTable_unique}"
       create_httplogs_unique_table.call(testTable_unique)
-      sql """ set enable_common_expr_pushdown = true """
+      sql """ set enable_segment_limit_pushdown = true """
 
       sql """ INSERT INTO ${testTable_unique} VALUES (893964617, '40.135.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 24736); """
       sql """ INSERT INTO ${testTable_unique} VALUES (893964653, '232.0.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 3781); """
@@ -67,7 +67,7 @@ suite("test_index_mow_fault_injection", "nonConcurrent") {
           qt_sql """ select count() from ${testTable_unique} where (clientip match_phrase_prefix 'http' or request match_phrase_prefix 'http' or status match_phrase_prefix 'http' or size match_phrase_prefix 'http');  """
       } finally {
           GetDebugPoint().disableDebugPointForAllBEs("match.invert_index_not_support_execute_match")
-      } 
+      }
     } finally {
     }
 }

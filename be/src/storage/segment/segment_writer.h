@@ -33,6 +33,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/olap_define.h"
 #include "storage/segment/column_writer.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -82,14 +83,14 @@ public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            const SegmentWriterOptions& opts, IndexFileWriter* inverted_file_writer);
-    ~SegmentWriter();
+    virtual ~SegmentWriter();
 
-    Status init();
+    virtual Status init();
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
+    virtual Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
-    Status append_block(const Block* block, size_t row_pos, size_t num_rows);
+    virtual Status append_block(const Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                              bool have_delete_sign,
                              const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -116,16 +117,18 @@ public:
 
     uint32_t row_count() const { return _row_count; }
 
-    Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
+    Status finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                    SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     uint32_t get_segment_id() const { return _segment_id; }
 
     Status finalize_columns_data();
     Status finalize_columns_index(uint64_t* index_size);
-    Status finalize_footer(uint64_t* segment_file_size);
+    Status finalize_footer(uint64_t* segment_file_size,
+                           SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                          TabletSchemaSPtr tablet_schema);
+                          const ColumnWriterOptions& opts);
     Slice min_encoded_key();
     Slice max_encoded_key();
 
@@ -182,17 +185,25 @@ private:
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(const Block& block);
+    void _serialize_block_to_row_column(Block& block);
     Status _generate_primary_key_index(
             const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
             IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
-    bool _is_mow();
-    bool _is_mow_with_cluster_key();
+    bool _is_mow() {
+        return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
+    }
+    bool _is_mow_with_cluster_key() {
+        return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
+    }
 
-private:
+protected:
+    // Build key index for derived writers that override append_block.
+    Status build_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
+                           IOlapColumnDataAccessor* seq_column, size_t num_rows);
+
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
@@ -205,6 +216,7 @@ private:
     IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
+    SegmentIndexFileCacheInfo _index_file_cache_info;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
     // for other tables, the sort key is the keys
     size_t _num_sort_key_columns;

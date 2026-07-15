@@ -35,7 +35,7 @@
 #include "common/status.h"
 #include "core/string_ref.h"
 #include "cpp/aws_common.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
 
 namespace Aws::S3 {
@@ -64,6 +64,9 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 
 std::string hide_access_key(const std::string& ak);
 int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit);
+// Rebuild the S3 GET/PUT rate limiters if the related configs have changed.
+// Safe to call periodically; it is a no-op when nothing changed.
+void check_s3_rate_limiter_config_changed();
 
 class S3URI;
 struct S3ClientConf {
@@ -156,6 +159,9 @@ public:
 
     S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
 
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
+            const S3ClientConf& s3_conf);
+
 #ifdef BE_TEST
     void set_client_creator_for_test(
             std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> creator);
@@ -172,8 +178,6 @@ private:
             const S3ClientConf& s3_conf);
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider(
             CredProviderType type);
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
-            const S3ClientConf& s3_conf);
 
     S3ClientFactory();
 

@@ -66,7 +66,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
-    "test_broker_load_func," +
     "test_index_compaction_failure_injection," +
     "test_full_compaction_run_status," +
     "test_topn_fault_injection," + 
@@ -76,10 +75,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 // this directories will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "cloud," +
-    "pythonudaf_p0," + // will cause a core when the third-party is compiled by clang
-    "pythonudtf_p0," + // will cause a core when the third-party is compiled by clang
-    "pythonudf_p0," + // will cause a core when the third-party is compiled by clang
-    "pythonudf_complex_p0," + // will cause a core when the third-party is compiled by clang
     "cloud_p0," +
     "external_table_p0/remote_doris," + // ubsan issue, need to investigate
     "workload_manager_p1," +

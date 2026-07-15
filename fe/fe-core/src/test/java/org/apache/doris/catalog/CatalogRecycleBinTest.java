@@ -17,12 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.Function.BinaryType;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.URI;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -34,6 +38,10 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -164,6 +172,46 @@ public class CatalogRecycleBinTest {
         Assert.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
         // verify recycle time is no longer present
         Assert.assertNull(recycleBin.getRecycleTimeById(CatalogTestUtil.testDbId1));
+    }
+
+    @Test
+    public void testReadRecycleBinDatabaseDoesNotRegisterNereidsFunctions() throws Exception {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+        String dbName = "recycle_db_with_python_udf";
+        String functionName = "recycled_py_udf";
+        Database db = new Database(10001, dbName);
+        ScalarFunction function = ScalarFunction.createUdf(
+                BinaryType.PYTHON_UDF,
+                new FunctionName(dbName, functionName),
+                new Type[] {Type.INT},
+                Type.INT,
+                false,
+                URI.create("file:///tmp/recycled_py_udf.py"),
+                "evaluate",
+                null,
+                null);
+        function.setRuntimeVersion("3.8");
+        function.setFunctionCode("def evaluate(x):\n    return x + 1\n");
+        function.setNullableMode(NullableMode.ALWAYS_NULLABLE);
+        function.setId(10002);
+        db.replayAddFunction(function);
+        Assert.assertTrue(hasUdfBuilder(dbName, functionName));
+
+        Assert.assertTrue(recycleBin.recycleDatabase(db, Sets.newHashSet(), Sets.newHashSet(), false, false, 0));
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        recycleBin.write(new DataOutputStream(outputStream));
+
+        Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);
+        Assert.assertFalse(hasUdfBuilder(dbName, functionName));
+
+        CatalogRecycleBin.read(new DataInputStream(new ByteArrayInputStream(outputStream.toByteArray())));
+        Assert.assertFalse(hasUdfBuilder(dbName, functionName));
+    }
+
+    private boolean hasUdfBuilder(String dbName, String functionName) {
+        Map<String, List<FunctionBuilder>> buildersByName =
+                Env.getCurrentEnv().getFunctionRegistry().getName2UdfBuilders().get(dbName);
+        return buildersByName != null && buildersByName.containsKey(functionName);
     }
 
     @Test
@@ -1011,4 +1059,3 @@ public class CatalogRecycleBinTest {
         }
     }
 }
-

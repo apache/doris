@@ -36,6 +36,7 @@
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
@@ -69,9 +70,11 @@ inline WindowFunnelMode string_to_window_funnel_mode(const String& string) {
     }
 }
 
+template <PrimitiveType T>
 struct DataValue {
     using TimestampEvent = std::vector<ColumnUInt8::Container>;
-    std::vector<DateV2Value<DateTimeV2ValueType>> dt;
+    using DateValueType = typename PrimitiveTypeTraits<T>::CppType;
+    std::vector<DateValueType> dt;
     TimestampEvent event_columns_data;
     bool operator<(const DataValue& other) const { return dt < other.dt; }
     void clear() {
@@ -96,15 +99,16 @@ struct DataValue {
     }
 };
 
+template <PrimitiveType T>
 struct WindowFunnelState {
-    static constexpr PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
-    using NativeType = UInt64;
-    using DateValueType = DateV2Value<DateTimeV2ValueType>;
+    static constexpr PrimitiveType PType = T;
+    using NativeType = typename PrimitiveTypeTraits<T>::StorageFieldType;
+    using DateValueType = typename PrimitiveTypeTraits<T>::CppType;
     int event_count = 0;
     int64_t window;
     bool enable_mode;
     WindowFunnelMode window_funnel_mode;
-    DataValue events_list;
+    DataValue<T> events_list;
 
     WindowFunnelState() {
         event_count = 0;
@@ -122,10 +126,14 @@ struct WindowFunnelState {
         window = win;
         window_funnel_mode = enable_mode ? mode : WindowFunnelMode::DEFAULT;
         events_list.dt.emplace_back(
-                assert_cast<const ColumnVector<PType>&>(*arg_columns[2]).get_data()[row_num]);
+                assert_cast<const typename PrimitiveTypeTraits<PType>::ColumnType&,
+                            TypeCheckOnRelease::DISABLE>(*arg_columns[2])
+                        .get_data()[row_num]);
         for (int i = 0; i < event_count; i++) {
             events_list.event_columns_data[i].emplace_back(
-                    assert_cast<const ColumnUInt8&>(*arg_columns[3 + i]).get_data()[row_num]);
+                    assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                            *arg_columns[3 + i])
+                            .get_data()[row_num]);
         }
     }
 
@@ -267,7 +275,7 @@ struct WindowFunnelState {
         }
     }
 
-    void merge(const WindowFunnelState& other) {
+    void merge(const WindowFunnelState<T>& other) {
         if (other.events_list.empty()) {
             return;
         }
@@ -326,7 +334,9 @@ struct WindowFunnelState {
         events_list.clear();
         events_list.dt.resize(size);
         for (auto i = 0; i < size; i++) {
-            read_var_int(*reinterpret_cast<Int64*>(&events_list.dt[i]), in);
+            Int64 timestamp = 0;
+            read_var_int(timestamp, in);
+            events_list.dt[i] = DateValueType(static_cast<UInt64>(timestamp));
         }
         events_list.event_columns_data.resize(event_count);
         for (int64_t i = 0; i < event_count; i++) {
@@ -341,17 +351,19 @@ struct WindowFunnelState {
     }
 };
 
+template <PrimitiveType T>
 class AggregateFunctionWindowFunnel final
-        : public IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>,
+        : public IAggregateFunctionDataHelper<WindowFunnelState<T>,
+                                              AggregateFunctionWindowFunnel<T>>,
           MultiExpression,
           NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>(
+            : IAggregateFunctionDataHelper<WindowFunnelState<T>, AggregateFunctionWindowFunnel<T>>(
                       argument_types_) {}
 
     void create(AggregateDataPtr __restrict place) const override {
-        auto data = new (place) WindowFunnelState(
+        auto data = new (place) WindowFunnelState<T>(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
         data->enable_mode = IAggregateFunction::version >= 3;
@@ -365,10 +377,22 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        const auto& window = assert_cast<const ColumnInt64&>(*columns[0]).get_data()[row_num];
+        const auto& window =
+                assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                        .get_data()[row_num];
         StringRef mode = columns[1]->get_data_at(row_num);
         this->data(place).add(columns, row_num, window,
                               string_to_window_funnel_mode(mode.to_string()));
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnInt64>(columns[0]);
+        this->template check_argument_column_type<ColumnString>(columns[1]);
+        this->template check_argument_column_type<typename PrimitiveTypeTraits<T>::ColumnType>(
+                columns[2]);
+        for (size_t i = 3; i < this->argument_types.size(); ++i) {
+            this->template check_argument_column_type<ColumnUInt8>(columns[i]);
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -388,9 +412,9 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
-        assert_cast<ColumnInt32&>(to).get_data().push_back(
-                IAggregateFunctionDataHelper<WindowFunnelState,
-                                             AggregateFunctionWindowFunnel>::data(place)
+        assert_cast<ColumnInt32&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                IAggregateFunctionDataHelper<WindowFunnelState<T>,
+                                             AggregateFunctionWindowFunnel<T>>::data(place)
                         .get());
     }
 

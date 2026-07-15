@@ -34,6 +34,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
@@ -47,6 +48,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
@@ -74,6 +76,12 @@ public class RoutineLoadManagerTest {
 
     private void mockSessionVariable(ConnectContext connectContext) {
         Mockito.when(connectContext.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+    }
+
+    private void mockAvailableBackend(long beId) {
+        Backend backend = new Backend(beId, "host" + beId, 9050);
+        backend.setAlive(true);
+        Mockito.when(systemInfoService.getBackend(beId)).thenReturn(backend);
     }
 
     @Test
@@ -224,6 +232,8 @@ public class RoutineLoadManagerTest {
         beIds.add(2L);
 
         Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(beIds);
+        mockAvailableBackend(1L);
+        mockAvailableBackend(2L);
 
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
@@ -301,6 +311,8 @@ public class RoutineLoadManagerTest {
         beIds.add(2L);
 
         Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(beIds);
+        mockAvailableBackend(1L);
+        mockAvailableBackend(2L);
 
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);

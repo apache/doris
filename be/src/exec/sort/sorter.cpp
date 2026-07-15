@@ -57,11 +57,11 @@ namespace doris {
 //
 
 void MergeSorterState::reset() {
-    std::vector<std::shared_ptr<MergeSortCursorImpl>> empty_cursors(0);
-    std::vector<std::shared_ptr<Block>> empty_blocks(0);
-    _sorted_blocks.swap(empty_blocks);
+    _sorted_blocks.clear();      // replaces swap-with-empty idiom
+    _queue = MergeSorterQueue(); // release stale cursors from prior flush cycle
     unsorted_block() = Block::create_unique(unsorted_block()->clone_empty());
     _in_mem_sorted_bocks_size = 0;
+    _num_rows = 0;
 }
 
 void MergeSorterState::add_sorted_block(std::shared_ptr<Block> block) {
@@ -94,9 +94,29 @@ Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size, bo
 }
 
 void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block, bool* eos) {
+    if (_queue.is_valid() && batch_size > 0) {
+        auto [current, current_rows] = _queue.current();
+        current_rows = std::min(current_rows, static_cast<size_t>(batch_size));
+        const size_t step = std::min(_offset, current_rows);
+
+        // Fast path when the current top run can contribute its whole remaining block
+        // before any other run. The returned block stays within batch_size because
+        // is_last(current_rows) can only hold after the min(batch_size, queue_batch_size)
+        // clamp above.
+        if (step == 0 && current->impl->is_first() && current->impl->is_last(current_rows) &&
+            (_queue.size() == 1 || (*current).totally_less_or_equals(_queue.next_child()))) {
+            current->impl->block->swap(*block);
+            _queue.remove_top();
+            *eos = false;
+            return;
+        }
+    }
+
     size_t num_columns = unsorted_block()->columns();
 
-    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
+    auto scoped_mutable_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, *unsorted_block());
+    auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
@@ -125,7 +145,6 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block
         }
     }
 
-    block->set_columns(std::move(merged_columns));
     *eos = merged_rows == 0;
 }
 
@@ -232,12 +251,12 @@ Status FullSorter::append_block(Block* block) {
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
             if (is_column_const(*arrival_data[i].column)) {
-                data[i].column->assume_mutable()->insert_many_from(
+                data[i].column->assert_mutable()->insert_many_from(
                         assert_cast<const ColumnConst*>(arrival_data[i].column.get())
                                 ->get_data_column(),
                         0, sz);
             } else {
-                data[i].column->assume_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
+                data[i].column->assert_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
             }
         }
         block->clear_column_data();

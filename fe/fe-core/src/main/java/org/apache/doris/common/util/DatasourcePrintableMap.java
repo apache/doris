@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
 import org.apache.doris.datasource.property.storage.GCSProperties;
@@ -34,6 +35,7 @@ import org.apache.doris.foundation.util.BasicPrintableMap;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -58,6 +60,7 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(GCSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AzureProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OSSProperties.class));
@@ -94,6 +97,24 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
 
     public void setAdditionalHiddenKeys(Set<String> additionalHiddenKeys) {
         this.additionalHiddenKeys = additionalHiddenKeys;
+    }
+
+    /**
+     * Registers additional sensitive property key aliases to be masked when printing property maps.
+     *
+     * <p>fe-core is decoupled from the filesystem provider implementations at the Maven level, so it
+     * cannot statically reference their typed properties classes the way the static block does for the
+     * legacy {@code *Properties}. Instead, {@code FileSystemPluginManager} aggregates each loaded
+     * provider's {@code sensitivePropertyKeys()} and registers them here at FE startup, before any
+     * SHOW CREATE / error-log printing occurs.
+     */
+    public static void registerSensitiveKeys(Collection<String> keys) {
+        if (keys == null) {
+            return;
+        }
+        synchronized (SENSITIVE_KEY) {
+            SENSITIVE_KEY.addAll(keys);
+        }
     }
 
     @Override

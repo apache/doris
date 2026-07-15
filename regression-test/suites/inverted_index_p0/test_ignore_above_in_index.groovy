@@ -65,7 +65,7 @@ suite("test_ignore_above_in_index", "p0") {
     // load the json data
     streamLoad {
         table "${tableName2}"
-        
+
         set 'read_json_by_line', 'true'
         set 'format', 'json'
         file 'documents-1000.json' // import json file
@@ -84,7 +84,7 @@ suite("test_ignore_above_in_index", "p0") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     qt_sql "select count() from ${tableName2} where clientip > '17.0';"
     qt_sql "select count() from ${tableName2} where clientip > '17.0' or status = 200;"
 }

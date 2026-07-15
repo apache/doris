@@ -114,6 +114,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         }
 
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        IcebergDmlCommandUtils.checkDeleteMode(icebergTable);
 
         // Verify table format version (must be v2+ for delete support)
         // org.apache.iceberg.Table icebergTableObj = icebergTable.getIcebergTable();
@@ -283,10 +284,12 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         if (!(table instanceof IcebergExternalTable)) {
             throw new AnalysisException("Table must be IcebergExternalTable in DELETE command");
         }
+        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        IcebergDmlCommandUtils.checkDeleteMode(icebergTable);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(table.getId());
         try {
-            return completeQueryPlan(ctx, logicalQuery, (IcebergExternalTable) table);
+            return completeQueryPlan(ctx, logicalQuery, icebergTable);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
         }

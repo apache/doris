@@ -20,10 +20,12 @@
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
@@ -156,11 +158,10 @@ Status DataTypeDateSerDe<T>::write_column_to_arrow(const IColumn& column, const 
         const auto* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
         } else {
             RETURN_IF_ERROR(checkArrowStatus(string_builder.Append(buf, cast_set<int32_t>(len)),
-                                             column.get_name(), array_builder->type()->name()));
+                                             column, *array_builder));
         }
     }
     return Status::OK();
@@ -192,6 +193,9 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
                                                      const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
@@ -327,7 +331,7 @@ Status DataTypeDateSerDe<T>::from_string_batch(
         const ColumnString& col_str, ColumnNullable& col_res,
         const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnType&>(col_res.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
 
@@ -434,7 +438,16 @@ Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& fie
                 ? DatelikeTargetType::DATE_TIME
                 : DatelikeTargetType::DATE > (StringRef(str), res, options.timezone, params))
             [[unlikely]] {
-        return Status::InvalidArgument("parse date or datetime fail, string: '{}'", str);
+        // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
+        // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
+        // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
+        // after compaction it will be replaced.
+        res = VecDateTimeValue::FIRST_DAY;
+        if constexpr (IsDatetime) {
+            res.to_datetime();
+        } else {
+            res.cast_to_date();
+        }
     }
     field = Field::create_field<T>(std::move(res));
     return Status::OK();
@@ -467,7 +480,7 @@ template <typename IntDataType>
 Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                             ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
 
@@ -519,7 +532,7 @@ template <typename FloatDataType>
 Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::ColumnType& float_col,
                                               ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
 
@@ -570,7 +583,7 @@ template <typename DecimalDataType>
 Status DataTypeDateSerDe<T>::from_decimal_batch(
         const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
 

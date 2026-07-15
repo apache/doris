@@ -567,7 +567,14 @@ public:
         auto time_zone = cctz::utc_time_zone();
         options.timezone =
                 (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
-        type.get_serde()->to_string_batch(col_from, *col_to, options);
+        ColumnPtr limited_col;
+        const IColumn* col_to_serialize = &col_from;
+        if (col_from.size() != input_rows_count) {
+            DORIS_CHECK(col_from.size() >= input_rows_count);
+            limited_col = col_from.cut(0, input_rows_count);
+            col_to_serialize = limited_col.get();
+        }
+        type.get_serde()->to_string_batch(*col_to_serialize, *col_to, options);
 
         block.replace_by_position(result, std::move(col_to));
         return Status::OK();

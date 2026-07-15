@@ -23,11 +23,19 @@
 
 #include <vector>
 
+#include "core/custom_allocator.h"
+
 namespace doris {
 
 class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
+
+enum class WriteRequestType {
+    DATA = 0,       // data write
+    ROW_BINLOG = 1, // row binlog write
+    GROUP = 2,      // group write for data and binlog<row>
+};
 
 struct WriteRequest {
     int64_t tablet_id = 0;
@@ -43,7 +51,14 @@ struct WriteRequest {
     std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
     bool is_high_priority = false;
     bool write_file_cache = false;
+    WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
+    bool enable_table_memtable_backpressure = false;
+};
+
+struct TabletAddRowsPayload {
+    DorisVector<uint32_t> row_idxs;
+    DorisVector<int64_t> row_binlog_lsns = {};
 };
 
 } // namespace doris

@@ -77,6 +77,10 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
     }
 
     docker(options) {
+        // The audit loader uses stream load to write __internal_schema.audit_log. That background
+        // load updates fragment status and can break the idle-window assertion below.
+        sql '''set global audit_plugin_max_batch_bytes=5000000000'''
+        sql '''set global audit_plugin_max_batch_interval_sec=10000000'''
         sql "set global enable_audit_plugin = false"
         sql """
             CREATE TABLE table1 (

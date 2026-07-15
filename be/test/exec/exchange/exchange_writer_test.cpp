@@ -82,7 +82,7 @@ public:
 
         _channel_ids.assign(block->rows(), 0);
 
-        auto mutable_columns = block->mutate_columns();
+        auto mutable_columns = std::move(*block).mutate_columns();
         for (size_t col_idx = 0; col_idx < mutable_columns.size(); ++col_idx) {
             mutable_columns[col_idx]->insert_from(*mutable_columns[col_idx], 0);
         }

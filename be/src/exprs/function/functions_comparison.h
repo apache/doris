@@ -20,9 +20,13 @@
 
 #pragma once
 
+#include <compare>
 #include <limits>
+#include <optional>
+#include <string_view>
 #include <type_traits>
 
+#include "common/check.h"
 #include "common/logging.h"
 #include "core/accurate_comparison.h"
 #include "core/assert_cast.h"
@@ -30,19 +34,22 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/decimal_comparison.h"
+#include "core/field.h"
 #include "core/memcmp_small.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/functions_logical.h"
+#include "exprs/vexpr.h"
 #include "storage/index/index_reader_helper.h"
 
 namespace doris {
-
 /** Comparison functions: ==, !=, <, >, <=, >=.
   * The comparison functions always return 0 or 1 (UInt8).
   *
@@ -257,6 +264,151 @@ struct NameGreaterOrEquals {
     static constexpr auto name = "ge";
 };
 
+namespace comparison_zonemap_detail {
+enum class Op {
+    EQ,
+    NE,
+    LT,
+    LE,
+    GT,
+    GE,
+};
+
+inline Op symmetric_op(Op op) {
+    switch (op) {
+    case Op::EQ:
+    case Op::NE:
+        return op;
+    case Op::LT:
+        return Op::GT;
+    case Op::LE:
+        return Op::GE;
+    case Op::GT:
+        return Op::LT;
+    case Op::GE:
+        return Op::LE;
+    }
+    __builtin_unreachable();
+}
+
+inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
+                                    Op op) {
+    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+
+    auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal->slot_index,
+                                                              slot_literal->slot_type);
+    if (slot_type == nullptr) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    auto zone_map_ptr = ctx.zone_map(slot_literal->slot_index);
+    if (zone_map_ptr == nullptr) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    const auto& zone_map = *zone_map_ptr;
+    if (!zone_map.has_not_null) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    if (!expr_zonemap::range_stats_usable_for_zonemap(zone_map, slot_type)) {
+        return unsupported_zonemap_filter(ctx);
+    }
+
+    const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
+    const auto& literal = slot_literal->literal;
+    switch (effective_op) {
+    case Op::EQ:
+        return literal < zone_map.min_value || zone_map.max_value < literal
+                       ? ZoneMapFilterResult::kNoMatch
+                       : ZoneMapFilterResult::kMayMatch;
+    case Op::NE:
+        return zone_map.min_value == literal && zone_map.max_value == literal
+                       ? ZoneMapFilterResult::kNoMatch
+                       : ZoneMapFilterResult::kMayMatch;
+    case Op::LT:
+        return zone_map.min_value >= literal ? ZoneMapFilterResult::kNoMatch
+                                             : ZoneMapFilterResult::kMayMatch;
+    case Op::LE:
+        return zone_map.min_value > literal ? ZoneMapFilterResult::kNoMatch
+                                            : ZoneMapFilterResult::kMayMatch;
+    case Op::GT:
+        return zone_map.max_value <= literal ? ZoneMapFilterResult::kNoMatch
+                                             : ZoneMapFilterResult::kMayMatch;
+    case Op::GE:
+        return zone_map.max_value < literal ? ZoneMapFilterResult::kNoMatch
+                                            : ZoneMapFilterResult::kMayMatch;
+    }
+
+    // keep this to avoid compile failure with g++.
+    __builtin_unreachable();
+}
+
+inline bool can_evaluate(const VExprSPtrs& arguments) {
+    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    if (!slot_literal.has_value()) {
+        return false;
+    }
+
+    // A NULL literal makes the comparison evaluate to NULL instead of a byte range predicate on
+    // the slot. This zonemap evaluator only derives bounds from non-NULL literals, so reject this
+    // shape here before evaluate_zonemap_filter is called.
+    if (slot_literal->literal.is_null()) {
+        return false;
+    }
+
+    DORIS_CHECK(slot_literal->slot_type != nullptr);
+    DORIS_CHECK(slot_literal->literal_type != nullptr);
+    if (!expr_zonemap::data_types_compatible(slot_literal->slot_type, slot_literal->literal_type)) {
+        // The optimizer may generate a bare slot/literal comparison whose logical types differ
+        // only by attributes such as DATETIMEV2 scale. Expr zonemap evaluates stored Field
+        // values without running expression casts, so conservatively skip this optimization.
+        return false;
+    }
+
+    return true;
+}
+
+inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
+    return op == Op::EQ && can_evaluate(arguments);
+}
+
+inline ZoneMapFilterResult evaluate_dictionary(const DictionaryEvalContext& ctx,
+                                               const VExprSPtrs& arguments, Op op) {
+    DORIS_CHECK(op == Op::EQ);
+    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    DORIS_CHECK(slot_literal.has_value());
+    return expr_zonemap::eval_eq_dictionary(ctx, *slot_literal);
+}
+
+inline ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                                 const VExprSPtrs& arguments, Op op) {
+    DORIS_CHECK(op == Op::EQ);
+    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    DORIS_CHECK(slot_literal.has_value());
+    return expr_zonemap::eval_eq_bloom_filter(ctx, *slot_literal);
+}
+
+inline std::optional<Op> op_from_name(std::string_view name) {
+    if (name == NameEquals::name) {
+        return Op::EQ;
+    }
+    if (name == NameNotEquals::name) {
+        return Op::NE;
+    }
+    if (name == NameLess::name) {
+        return Op::LT;
+    }
+    if (name == NameLessOrEquals::name) {
+        return Op::LE;
+    }
+    if (name == NameGreater::name) {
+        return Op::GT;
+    }
+    if (name == NameGreaterOrEquals::name) {
+        return Op::GE;
+    }
+    return std::nullopt;
+}
+} // namespace comparison_zonemap_detail
+
 template <template <PrimitiveType> class Op, typename Name>
 class FunctionComparison : public IFunction {
 public:
@@ -438,6 +590,42 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
+                                                const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        DORIS_CHECK(op.has_value());
+        return comparison_zonemap_detail::evaluate(ctx, arguments, *op);
+    }
+
+    bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
+        return comparison_zonemap_detail::op_from_name(name).has_value() &&
+               comparison_zonemap_detail::can_evaluate(arguments);
+    }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx,
+                                                   const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        DORIS_CHECK(op.has_value());
+        return comparison_zonemap_detail::evaluate_dictionary(ctx, arguments, *op);
+    }
+
+    bool can_evaluate_dictionary_filter(const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        return op.has_value() && comparison_zonemap_detail::can_evaluate_equality(arguments, *op);
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                              const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        DORIS_CHECK(op.has_value());
+        return comparison_zonemap_detail::evaluate_bloom_filter(ctx, arguments, *op);
+    }
+
+    bool can_evaluate_bloom_filter(const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        return op.has_value() && comparison_zonemap_detail::can_evaluate_equality(arguments, *op);
+    }
+
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeUInt8>();
@@ -486,15 +674,10 @@ public:
         if (param_value.is_null()) {
             return Status::OK();
         }
-        auto param_type = arguments[0].type->get_primitive_type();
-        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &param_value, query_param));
-
         segment_v2::InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
         param.column_type = data_type_with_name.second;
-        param.query_value = query_param->get_value();
+        param.query_value = param_value;
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();

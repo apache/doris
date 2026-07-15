@@ -80,10 +80,11 @@ public class ArrayCumSum extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (child(0).getDataType().isArrayType()
-                && !((ArrayType) child(0).getDataType()).getItemType().canBeCalculatedInArray()) {
+        Expression argument = getArgument(0);
+        if (argument.getDataType().isArrayType()
+                && !((ArrayType) argument.getDataType()).getItemType().canBeCalculatedInArray()) {
             throw new AnalysisException("array_cum_sum does not support type "
-            + child(0).getDataType().toString()
+            + argument.getDataType().toString()
             + ", expression is " + toSql());
         }
     }

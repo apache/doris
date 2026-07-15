@@ -20,14 +20,14 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
-import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
+import org.apache.doris.common.proc.CurrentQueryStatisticsProcDir;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -196,7 +196,7 @@ public class QueryProfileAction extends RestBaseController {
         // add node information
         for (List<String> query : queries) {
             query.set(1, NetUtils.getHostPortInAccessibleFormat(Env.getCurrentEnv().getSelfNode().getHost(),
-                    Config.http_port));
+                    HttpURLUtil.getHttpPort()));
         }
 
         if (!Strings.isNullOrEmpty(search)) {
@@ -373,7 +373,15 @@ public class QueryProfileAction extends RestBaseController {
      *  Query qError.
      */
     @RequestMapping(path = "/qerror/{id}", method = RequestMethod.GET)
-    public ResponseEntity<String> getStats(@PathVariable(value = "id") String id) {
+    public Object getStats(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable(value = "id") String id) {
+        executeCheckPassword(request, response);
+        try {
+            checkAuthByUserAndQueryId(id);
+        } catch (AuthenticationException e) {
+            return ResponseEntityBuilder.badRequest(e.getMessage());
+        }
+
         ProfileElement profile = ProfileManager.getInstance().findProfileElementObject(id);
         if (profile == null) {
             return ResponseEntityBuilder.notFound(null);
@@ -450,7 +458,7 @@ public class QueryProfileAction extends RestBaseController {
     }
 
     /**
-     * return the result of CurrentQueryStatementsProcNode.
+    * return the result of CurrentQueryStatisticsProcDir.
      *
      * @param request
      * @param response
@@ -480,15 +488,15 @@ public class QueryProfileAction extends RestBaseController {
                     LOG.warn("parse query info error: {}", data, e);
                 }
             }
-            List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+            List<String> titles = Lists.newArrayList(CurrentQueryStatisticsProcDir.TITLE_NAMES);
             titles.add(0, FRONTEND);
             return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(titles, queries));
         } else {
             try {
-                CurrentQueryStatementsProcNode node = new CurrentQueryStatementsProcNode();
+                CurrentQueryStatisticsProcDir node = new CurrentQueryStatisticsProcDir();
                 ProcResult result = node.fetchResult();
                 // add frontend info at first column.
-                List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+                List<String> titles = Lists.newArrayList(CurrentQueryStatisticsProcDir.TITLE_NAMES);
                 titles.add(0, FRONTEND);
                 List<List<String>> rows = result.getRows();
                 String feIp = FrontendOptions.getLocalHostAddress();

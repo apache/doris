@@ -143,7 +143,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to);
+        auto& column = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&,
+                                   TypeCheckOnRelease::DISABLE>(to);
         column.get_data().push_back(this->data(place).get());
     }
 };

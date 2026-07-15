@@ -34,8 +34,8 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
-import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
@@ -256,6 +256,9 @@ public class TxnUtil {
         if (rtTaskTxnCommitAttachment.getErrorLogUrl() != null) {
             builder.setErrorLogUrl(rtTaskTxnCommitAttachment.getErrorLogUrl());
         }
+        if (rtTaskTxnCommitAttachment.getFirstErrorMsg() != null) {
+            builder.setFirstErrorMsg(rtTaskTxnCommitAttachment.getFirstErrorMsg());
+        }
 
         attachementBuilder.setRlTaskTxnCommitAttachment(builder.build());
         return attachementBuilder.build();
@@ -285,7 +288,8 @@ public class TxnUtil {
                 .setScannedRows(streamingTaskTxnCommitAttachment.getScannedRows())
                 .setLoadBytes(streamingTaskTxnCommitAttachment.getLoadBytes())
                 .setNumFiles(streamingTaskTxnCommitAttachment.getNumFiles())
-                .setFileBytes(streamingTaskTxnCommitAttachment.getFileBytes());
+                .setFileBytes(streamingTaskTxnCommitAttachment.getFileBytes())
+                .setFilteredRows(streamingTaskTxnCommitAttachment.getFilteredRows());
 
         if (streamingTaskTxnCommitAttachment.getOffset() != null) {
             builder.setOffset(streamingTaskTxnCommitAttachment.getOffset());

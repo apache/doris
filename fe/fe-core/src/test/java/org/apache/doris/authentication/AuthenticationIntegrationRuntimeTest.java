@@ -172,7 +172,8 @@ class AuthenticationIntegrationRuntimeTest {
         AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
 
         AuthenticationIntegrationMeta integration = meta("corp", "chain_test",
-                map("result", "SUCCESS", "granted_role", "plugin_reader"));
+                map("result", "SUCCESS", "granted_role", "plugin_reader",
+                        "expires_at_ms", "1700000000000"));
         runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
 
         Env env = Mockito.mock(Env.class);
@@ -196,6 +197,9 @@ class AuthenticationIntegrationRuntimeTest {
         Assertions.assertTrue(outcome.isSuccess());
         Assertions.assertEquals(set("plugin_reader", "mapped_reader"), outcome.getGrantedRoles());
         Assertions.assertEquals(set("plugin_reader", "mapped_reader"), outcome.getAuthResult().getGrantedRoles());
+        Assertions.assertTrue(outcome.getAuthResult().getCredentialExpiresAtMillis().isPresent());
+        Assertions.assertEquals(1_700_000_000_000L,
+                outcome.getAuthResult().getCredentialExpiresAtMillis().getAsLong());
     }
 
     @Test
@@ -373,7 +377,12 @@ class AuthenticationIntegrationRuntimeTest {
                     if (grantedRole.isEmpty()) {
                         return AuthenticationResult.success(principal);
                     }
-                    return AuthenticationResult.success(principal, Collections.singleton(grantedRole));
+                    String expiresAtMillis = integration.getProperty("expires_at_ms", "");
+                    if (expiresAtMillis.isEmpty()) {
+                        return AuthenticationResult.success(principal, Collections.singleton(grantedRole));
+                    }
+                    return AuthenticationResult.success(principal, Collections.singleton(grantedRole),
+                            Long.parseLong(expiresAtMillis));
             }
         }
     }

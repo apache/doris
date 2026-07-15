@@ -22,6 +22,8 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -77,12 +79,15 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -280,6 +285,26 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             lineagePlan = Optional.ofNullable(analyzedPlan);
             if (!needBeginTransaction) {
                 return insertExecutor;
+            }
+
+            List<TableStreamUpdateInfo> infos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
+            if (!infos.isEmpty()) {
+                if (!Config.enable_feature_binlog) {
+                    throw new AnalysisException("Insert plan with Table stream failed."
+                            + " should enable binlog feature in FE config.");
+                }
+                // put offset into executor
+                insertExecutor.setStreamUpdateInfos(infos);
+                insertExecutor.registerListener(new InsertExecutorListener() {
+                    @Override
+                    public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
+                                               long jobId) throws Exception {
+                        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                                .getTransactionState(insertExecutor.getDatabase().getId(),
+                                        insertExecutor.getTxnId());
+                        transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
+                    }
+                });
             }
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
@@ -627,10 +652,24 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return;
         }
         for (PlanFragment fragment : planner.getFragments()) {
-            if (fragment.getPlanRoot() instanceof FileScanNode) {
-                FileScanNode fileScanNode = (FileScanNode) fragment.getPlanRoot();
+            // The FE local-shuffle planner may wrap the fragment root with one or more
+            // LocalExchangeNodes (e.g. a PASSTHROUGH fan-out above a serial FileScanNode).
+            // Peel those off before checking the actual operator, otherwise streaming /
+            // S3 INSERTs leave LoadStatistic.fileNum and totalFileSizeB at 0 and tests
+            // like job_p0.streaming_job.test_streaming_insert_job that inspect
+            // loadStatistic.fileNumber / fileSize fail.
+            PlanNode root = fragment.getPlanRoot();
+            while (root instanceof LocalExchangeNode && !root.getChildren().isEmpty()) {
+                root = root.getChild(0);
+            }
+            if (root instanceof FileScanNode) {
+                FileScanNode fileScanNode = (FileScanNode) root;
+                // Prefer distinct file count; fall back to split count for batch-mode scans.
+                int fileNum = fileScanNode.getSelectedFileNum() >= 0
+                        ? fileScanNode.getSelectedFileNum()
+                        : (int) fileScanNode.getSelectedSplitNum();
                 Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId())
-                        .addLoadFileInfo((int) fileScanNode.getSelectedSplitNum(), fileScanNode.getTotalFileSize());
+                        .addLoadFileInfo(fileNum, fileScanNode.getTotalFileSize());
             }
         }
     }

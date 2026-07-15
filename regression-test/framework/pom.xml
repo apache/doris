@@ -69,16 +69,18 @@ under the License.
         <doris.thrift.executable>${doris.home}/thirdparty/installed/bin/thrift</doris.thrift.executable>
         <doris.thrift.source>${doris.home}/gensrc/thrift</doris.thrift.source>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <revision>1.0-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
         <groovy.version>4.0.19</groovy.version>
         <antlr.version>4.9.3</antlr.version>
         <hadoop.version>2.8.0</hadoop.version>
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
-        <!-- Arrow 18 only supports jdk17 -->
-        <arrow.version>17.0.0</arrow.version>
+        <jackson.version>2.13.5</jackson.version>
+        <!-- Aligned with fe (fe/pom.xml). Arrow 18+ requires jdk17; the regression
+             framework now targets jdk17, so this matches fe-core. -->
+        <arrow.version>19.0.0</arrow.version>
     </properties>
     <profiles>
         <profile>
@@ -224,6 +226,27 @@ under the License.
             <artifactId>gson</artifactId>
             <version>2.10.1</version>
         </dependency>
+        <!-- Keep jackson ABI compatible with aws-java-sdk-v1 (used by kinesis routine load tests). -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-cbor</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.groovy</groupId>
             <artifactId>groovy-all</artifactId>
@@ -349,6 +372,11 @@ under the License.
             <artifactId>aws-java-sdk-s3</artifactId>
             <version>${aws-java-sdk-s3.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-kinesis</artifactId>
+            <version>${aws-java-sdk-s3.version}</version>
+        </dependency>
         <!-- aliyun ram -->
         <dependency>
             <groupId>com.aliyun</groupId>
@@ -461,7 +489,7 @@ under the License.
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
-            <version>4.1.104.Final</version>
+            <version>4.2.15.Final</version>
         </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>

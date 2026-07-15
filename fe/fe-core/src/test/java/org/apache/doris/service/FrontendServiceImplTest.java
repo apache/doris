@@ -22,10 +22,15 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -35,32 +40,50 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
+import org.apache.doris.thrift.TCommitTxnRequest;
 import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetTablesParams;
+import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TLoadTxnCommitRequest;
+import org.apache.doris.thrift.TLoadTxnRollbackRequest;
+import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
+import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Sets;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -116,6 +139,197 @@ public class FrontendServiceImplTest {
             return;
         }
         throw new IllegalArgumentException("Unsupported command in test: " + sql);
+    }
+
+    private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    @Test
+    public void testGetTableNamesWithSysTablePattern() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TGetTablesParams params = new TGetTablesParams();
+        params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+        params.setDb("test");
+        params.setPattern("test_dropped_partition_field$partitions");
+        params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+        TGetTablesResult result = impl.getTableNames(params);
+        Assert.assertTrue(result.getTables().isEmpty());
+    }
+
+    @Test
+    public void testListTableStatusPrunesUnrequestedExpensiveColumns() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_status_columns(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_status_columns");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_status_columns");
+            params.setRequiredColumns(Collections.singleton("UPDATE_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertTrue(status.isSetUpdateTime());
+            Assert.assertFalse(status.isSetRows());
+            Assert.assertFalse(status.isSetDataLength());
+            Assert.assertFalse(status.isSetAvgRowLength());
+            Assert.assertFalse(status.isSetIndexLength());
+            Mockito.verify(spyTable, Mockito.never()).getCachedRowCount();
+            Mockito.verify(spyTable, Mockito.never()).getDataLength();
+            Mockito.verify(spyTable, Mockito.never()).getAvgRowLength();
+            Mockito.verify(spyTable, Mockito.never()).getIndexLength();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusSetsLastCheckTimeForCheckTimeProjection() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_check_time_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_check_time_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn(10_000L).when(spyTable).getLastCheckTime();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_check_time_status_column");
+            params.setRequiredColumns(Collections.singleton("CHECK_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertTrue(status.isSetLastCheckTime());
+            Assert.assertEquals(10L, status.getLastCheckTime());
+            Assert.assertTrue(status.isSetCheckTime());
+            Assert.assertEquals(10L, status.getCheckTime());
+            Assert.assertFalse(status.isSetUpdateTime());
+            Assert.assertFalse(status.isSetRows());
+            Mockito.verify(spyTable, Mockito.never()).getTableStatusStats();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusPrunesAllOptionalColumnsWhenRequiredColumnsIsEmpty() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_all_optional_status_columns(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_all_optional_status_columns");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_all_optional_status_columns");
+            params.setRequiredColumns(Collections.emptySet());
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertFalse(status.isSetEngine());
+            Assert.assertFalse(status.isSetUpdateTime());
+            Assert.assertFalse(status.isSetRows());
+            Assert.assertFalse(status.isSetDataLength());
+            Assert.assertFalse(status.isSetAvgRowLength());
+            Assert.assertFalse(status.isSetIndexLength());
+            Mockito.verify(spyTable, Mockito.never()).getTableStatusStats();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusUsesCombinedStatsForExpensiveColumns() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.combined_status_stats(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("combined_status_stats");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn(new TableIf.TableStatusStats(10L, 20L, 2L, 30L))
+                .when(spyTable).getTableStatusStats();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("combined_status_stats");
+            params.setRequiredColumns(Sets.newHashSet("table_rows", "Data_Length", "avg_row_length",
+                    "INDEX_LENGTH"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertEquals(10L, status.getRows());
+            Assert.assertEquals(20L, status.getDataLength());
+            Assert.assertEquals(2L, status.getAvgRowLength());
+            Assert.assertEquals(30L, status.getIndexLength());
+            Mockito.verify(spyTable).getTableStatusStats();
+            Mockito.verify(spyTable, Mockito.never()).getCachedRowCount();
+            Mockito.verify(spyTable, Mockito.never()).getDataLength();
+            Mockito.verify(spyTable, Mockito.never()).getAvgRowLength();
+            Mockito.verify(spyTable, Mockito.never()).getIndexLength();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
     }
 
 
@@ -262,6 +476,34 @@ public class FrontendServiceImplTest {
         TShowUserRequest request = new TShowUserRequest();
         TShowUserResult result = impl.showUser(request);
         System.out.println(result);
+    }
+
+    @Test
+    public void testGetMaxComputeBlockIdRange() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        long txnId = Env.getCurrentEnv().getNextId();
+        MCTransaction transaction = new MCTransaction(Mockito.mock(MaxComputeExternalCatalog.class));
+        setPrivateField(transaction, "writeSessionId", "session-1");
+        Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(txnId, transaction);
+
+        try {
+            TMaxComputeBlockIdRequest request = new TMaxComputeBlockIdRequest();
+            request.setTxnId(txnId);
+            request.setWriteSessionId("session-1");
+            request.setLength(1);
+
+            TMaxComputeBlockIdResult first = impl.getMaxComputeBlockIdRange(request);
+            Assert.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+            Assert.assertEquals(0L, first.getStart());
+            Assert.assertEquals(1L, first.getLength());
+
+            TMaxComputeBlockIdResult second = impl.getMaxComputeBlockIdRange(request);
+            Assert.assertEquals(TStatusCode.OK, second.getStatus().getStatusCode());
+            Assert.assertEquals(1L, second.getStart());
+            Assert.assertEquals(1L, second.getLength());
+        } finally {
+            Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(txnId);
+        }
     }
 
     @Test
@@ -424,6 +666,113 @@ public class FrontendServiceImplTest {
             Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
             executeCommand("DROP USER IF EXISTS " + normalUser);
             executeCommand("DROP ROLE IF EXISTS " + readerRole);
+        }
+    }
+
+    @Test
+    public void testLoadTxnCommitRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TLoadTxnCommitRequest request = new TLoadTxnCommitRequest();
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        assertInvalidToken(impl, "loadTxnCommitImpl", request);
+    }
+
+    @Test
+    public void testLoadTxnRollbackRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TLoadTxnRollbackRequest request = new TLoadTxnRollbackRequest();
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        assertInvalidToken(impl, "loadTxnRollbackImpl", request);
+    }
+
+    @Test
+    public void testCommitTxnRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TCommitTxnRequest request = new TCommitTxnRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test");
+        request.setTxnId(100L);
+        request.setCommitInfos(Collections.emptyList());
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        mockTransactionForTokenValidation(100L);
+        try {
+            assertInvalidToken(impl, "commitTxnImpl", request);
+        } finally {
+            closeTransactionValidationMock();
+        }
+    }
+
+    @Test
+    public void testRollbackTxnRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TRollbackTxnRequest request = new TRollbackTxnRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test");
+        request.setTxnId(100L);
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        mockTransactionForTokenValidation(100L);
+        try {
+            assertInvalidToken(impl, "rollbackTxnImpl", request);
+        } finally {
+            closeTransactionValidationMock();
+        }
+    }
+
+    private MockedStatic<Env> transactionValidationEnvMock;
+
+    private void mockTransactionForTokenValidation(long txnId) {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        TransactionState transactionState = Mockito.mock(TransactionState.class);
+        GlobalTransactionMgrIface globalTransactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        List<Long> tableIds = Collections.singletonList(10L);
+
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("test")).thenReturn(db);
+        Mockito.when(db.getId()).thenReturn(1L);
+        Mockito.when(globalTransactionMgr.getTransactionState(1L, txnId)).thenReturn(transactionState);
+        Mockito.when(transactionState.getTableIdList()).thenReturn(tableIds);
+        try {
+            Mockito.doReturn(Collections.emptyList()).when(db).getTablesOnIdOrderOrThrowException(tableIds);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+
+        transactionValidationEnvMock = Mockito.mockStatic(Env.class);
+        transactionValidationEnvMock.when(Env::getCurrentEnv).thenReturn(env);
+        transactionValidationEnvMock.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTransactionMgr);
+    }
+
+    private void closeTransactionValidationMock() {
+        if (transactionValidationEnvMock != null) {
+            transactionValidationEnvMock.close();
+            transactionValidationEnvMock = null;
+        }
+    }
+
+    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object request) {
+        try {
+            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, request.getClass());
+            method.setAccessible(true);
+            method.invoke(impl, request);
+            Assert.fail("expected invalid token");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof AuthenticationException);
+            Assert.assertTrue(e.getCause().getMessage().contains("Invalid token"));
+            Assert.assertFalse(e.getCause().getMessage().contains("bad-token"));
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
         }
     }
 }

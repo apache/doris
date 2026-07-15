@@ -19,13 +19,12 @@
 
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
 #include "exprs/minmax_predicate.h"
-#include "exprs/vbitmap_predicate.h"
 #include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-Status RuntimeFilterConsumer::_apply_ready_expr(std::vector<VRuntimeFilterPtr>& push_exprs) {
+Status RuntimeFilterConsumer::_apply_ready_expr(std::vector<RuntimeFilterExprPtr>& push_exprs) {
     _check_state({State::READY});
     _set_state(State::APPLIED);
 
@@ -43,7 +42,7 @@ Status RuntimeFilterConsumer::_apply_ready_expr(std::vector<VRuntimeFilterPtr>& 
     return Status::OK();
 }
 
-Status RuntimeFilterConsumer::acquire_expr(std::vector<VRuntimeFilterPtr>& push_exprs) {
+Status RuntimeFilterConsumer::acquire_expr(std::vector<RuntimeFilterExprPtr>& push_exprs) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (_rf_state == State::READY) {
         RETURN_IF_ERROR(_apply_ready_expr(push_exprs));
@@ -74,7 +73,7 @@ std::shared_ptr<RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
     return timer;
 }
 
-Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& container,
+Status RuntimeFilterConsumer::_get_push_exprs(std::vector<RuntimeFilterExprPtr>& container,
                                               const TExpr& probe_expr) {
     // TODO: `VExprContextSPtr` is not need, we should just create an expr.
     VExprContextSPtr probe_ctx;
@@ -84,7 +83,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
     bool null_aware = _wrapper->contain_null();
 
     // Determine sampling frequency for the always_true optimization.
-    // This will be propagated to VExprContext in VRuntimeFilterWrapper::open().
+    // This will be propagated to VExprContext in RuntimeFilterExpr::open().
     int sampling_frequency = _wrapper->disable_always_true_logic()
                                      ? RuntimeFilterSelectivity::DISABLE_SAMPLING
                                      : config::runtime_filter_sampling_frequency;
@@ -101,9 +100,9 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         node.in_predicate.__set_is_not_in(false);
         node.__set_opcode(TExprOpcode::FILTER_IN);
         node.__set_is_nullable(false);
-        auto in_pred = VDirectInPredicate::create_shared(node, _wrapper->hybrid_set());
+        auto in_pred = VDirectInPredicate::create_shared(node, _wrapper->hybrid_set(), true);
         in_pred->add_child(probe_ctx->root());
-        auto wrapper = VRuntimeFilterWrapper::create_shared(
+        auto wrapper = RuntimeFilterExpr::create_shared(
                 node, in_pred, get_in_list_ignore_thredhold(_wrapper->hybrid_set()->size()),
                 null_aware, _wrapper->filter_id(), sampling_frequency);
         container.push_back(wrapper);
@@ -123,7 +122,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         if (null_aware) {
             return Status::InternalError("only min predicate do not support null aware");
         }
-        container.push_back(VRuntimeFilterWrapper::create_shared(
+        container.push_back(RuntimeFilterExpr::create_shared(
                 min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id(), sampling_frequency));
         break;
@@ -142,7 +141,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         if (null_aware) {
             return Status::InternalError("only max predicate do not support null aware");
         }
-        container.push_back(VRuntimeFilterWrapper::create_shared(
+        container.push_back(RuntimeFilterExpr::create_shared(
                 max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id(), sampling_frequency));
         break;
@@ -158,7 +157,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
                                        _wrapper->minmax_func()->get_max(), max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
-        container.push_back(VRuntimeFilterWrapper::create_shared(
+        container.push_back(RuntimeFilterExpr::create_shared(
                 max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id(), sampling_frequency));
 
@@ -175,7 +174,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
                                        _wrapper->minmax_func()->get_min(), min_literal));
         min_pred->add_child(new_probe_ctx->root());
         min_pred->add_child(min_literal);
-        container.push_back(VRuntimeFilterWrapper::create_shared(
+        container.push_back(RuntimeFilterExpr::create_shared(
                 min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id(), sampling_frequency));
         break;
@@ -192,29 +191,9 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         auto bloom_pred = VBloomPredicate::create_shared(node);
         bloom_pred->set_filter(_wrapper->bloom_filter_func());
         bloom_pred->add_child(probe_ctx->root());
-        auto wrapper = VRuntimeFilterWrapper::create_shared(
+        auto wrapper = RuntimeFilterExpr::create_shared(
                 node, bloom_pred, get_bloom_filter_ignore_thredhold(), null_aware,
                 _wrapper->filter_id(), sampling_frequency);
-        container.push_back(wrapper);
-        break;
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        // create a bitmap filter
-        TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-        type_desc.__set_is_nullable(false);
-        TExprNode node;
-        node.__set_type(type_desc);
-        node.__set_node_type(TExprNodeType::BITMAP_PRED);
-        node.__set_opcode(TExprOpcode::RT_FILTER);
-        node.__set_is_nullable(false);
-        auto bitmap_pred = VBitmapPredicate::create_shared(node);
-        bitmap_pred->set_filter(_wrapper->bitmap_filter_func());
-        bitmap_pred->add_child(probe_ctx->root());
-        if (null_aware) {
-            return Status::InternalError("bitmap predicate do not support null aware");
-        }
-        auto wrapper = VRuntimeFilterWrapper::create_shared(
-                node, bitmap_pred, 0, null_aware, _wrapper->filter_id(), sampling_frequency);
         container.push_back(wrapper);
         break;
     }

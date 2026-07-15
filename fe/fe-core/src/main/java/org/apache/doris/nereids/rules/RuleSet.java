@@ -64,9 +64,6 @@ import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalC
 import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumerToPhysicalCTEConsumer;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEProducerToPhysicalCTEProducer;
 import org.apache.doris.nereids.rules.implementation.LogicalConnectorTableSinkToPhysicalConnectorTableSink;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalDictionarySinkToPhysicalDictionarySink;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
@@ -106,7 +103,6 @@ import org.apache.doris.nereids.rules.implementation.LogicalWorkTableReferenceTo
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
-import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MaxMinFilterPushDown;
@@ -166,7 +162,6 @@ public class RuleSet {
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
             new MaxMinFilterPushDown(),
-            new CreatePartitionTopNFromWindow(),
             new PushDownFilterThroughProject(),
             new PushDownFilterThroughSort(),
             new PushDownJoinOtherCondition(),
@@ -204,7 +199,6 @@ public class RuleSet {
             .add(new LogicalJoinToHashJoin())
             .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
-            .add(new LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalFileScanToPhysicalFileScan())
@@ -215,7 +209,6 @@ public class RuleSet {
             .add(new LogicalWindowToPhysicalWindow())
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
-            .add(new LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN())
             .add(new LogicalPartitionTopNToPhysicalPartitionTopN())
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
@@ -241,7 +234,54 @@ public class RuleSet {
             .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
-            .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
+            .add(new LogicalDictionarySinkToPhysicalDictionarySink())
+            .add(new LogicalBlackholeSinkToPhysicalBlackholeSink())
+            .add(new LogicalTVFTableSinkToPhysicalTVFTableSink())
+            .build();
+
+    public static final List<Rule> DPHYPER_IMPLEMENTATION_RULES = planRuleFactories()
+            .add(new LogicalCTEProducerToPhysicalCTEProducer())
+            .add(new LogicalCTEConsumerToPhysicalCTEConsumer())
+            .add(new LogicalCTEAnchorToPhysicalCTEAnchor())
+            .add(new LogicalRepeatToPhysicalRepeat())
+            .add(new LogicalFilterToPhysicalFilter())
+            .add(new LogicalJoinToHashJoin())
+            .add(new LogicalJoinToNestedLoopJoin())
+            .add(new LogicalOlapScanToPhysicalOlapScan())
+            .add(new LogicalSchemaScanToPhysicalSchemaScan())
+            .add(new LogicalHudiScanToPhysicalHudiScan())
+            .add(new LogicalFileScanToPhysicalFileScan())
+            .add(new LogicalOdbcScanToPhysicalOdbcScan())
+            .add(new LogicalWorkTableReferenceToPhysicalWorkTableReference())
+            .add(new LogicalProjectToPhysicalProject())
+            .add(new LogicalLimitToPhysicalLimit())
+            .add(new LogicalWindowToPhysicalWindow())
+            .add(new LogicalSortToPhysicalQuickSort())
+            .add(new LogicalTopNToPhysicalTopN())
+            .add(new LogicalPartitionTopNToPhysicalPartitionTopN())
+            .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
+            .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
+            .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
+            .add(new LogicalTVFRelationToPhysicalTVFRelation())
+            .add(SplitAggWithoutDistinct.INSTANCE)
+            .add(SplitAggMultiPhase.INSTANCE)
+            .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
+            .add(new LogicalRecursiveUnionToPhysicalRecursiveUnion())
+            .add(new LogicalRecursiveUnionProducerToPhysicalRecursiveUnionProducer())
+            .add(new LogicalRecursiveUnionAnchorToPhysicalRecursiveUnionAnchor())
+            .add(new LogicalUnionToPhysicalUnion())
+            .add(new LogicalExceptToPhysicalExcept())
+            .add(new LogicalIntersectToPhysicalIntersect())
+            .add(new LogicalGenerateToPhysicalGenerate())
+            .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
+            .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
+            .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
+            .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
+            .add(new LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink())
+            .add(new LogicalIcebergMergeSinkToPhysicalIcebergMergeSink())
+            .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())
+            .add(new LogicalFileSinkToPhysicalFileSink())
+            .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDictionarySinkToPhysicalDictionarySink())
             .add(new LogicalBlackholeSinkToPhysicalBlackholeSink())
             .add(new LogicalTVFTableSinkToPhysicalTVFTableSink())
@@ -313,8 +353,24 @@ public class RuleSet {
             .add(JoinCommute.BUSHY.build())
             .build();
 
+    public static final List<Rule> AFTER_DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(planRuleFactories()
+                    .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
+                    .add(PushDownProjectThroughSemiJoin.INSTANCE)
+                    .build())
+            .add(new AggregateStrategies().buildRules().toArray(new Rule[0]))
+            .addAll(EXPLORATION_RULES)
+            .addAll(new PushDownTopNThroughJoin().buildRules())
+            .addAll(new PushDownLimitDistinctThroughJoin().buildRules())
+            .addAll(new PushDownTopNDistinctThroughJoin().buildRules())
+            .build();
+
     public List<Rule> getDPHypReorderRules() {
         return DPHYP_REORDER_RULES;
+    }
+
+    public List<Rule> getAfterDPHypReorderRules() {
+        return AFTER_DPHYP_REORDER_RULES;
     }
 
     public List<Rule> getZigZagTreeJoinReorder() {
@@ -331,6 +387,10 @@ public class RuleSet {
 
     public List<Rule> getImplementationRules() {
         return IMPLEMENTATION_RULES;
+    }
+
+    public List<Rule> getDphyperImplementationRules() {
+        return DPHYPER_IMPLEMENTATION_RULES;
     }
 
     public List<Rule> getMaterializedViewInRBORules() {

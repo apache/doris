@@ -19,15 +19,43 @@
 
 #include <fmt/format.h>
 
+#include <limits>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
+#include "common/logging.h" // DCHECK
+#include "common/status.h"
+#include "exec/sink/autoinc_buffer.h"
 #include "storage/olap_common.h"
+#include "storage/olap_define.h"          // DataWriteType
+#include "storage/tablet/tablet_schema.h" // TabletSchemaSPtr
+#include "storage/utils.h"                // BINLOG_*_COL
 
 namespace doris {
+
+class AutoIncIDBuffer;
+struct PartialUpdateInfo;
+struct MowContext;
+
+// Row binlog op type.
+// NOTE: The value is persisted into row binlog data, so keep it stable.
+static constexpr int64_t ROW_BINLOG_APPEND = 0;
+static constexpr int64_t ROW_BINLOG_UPDATE = 1;
+static constexpr int64_t ROW_BINLOG_DELETE = 2;
+
 constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
 constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
+constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
+
+constexpr int64_t kBinlogLsnAutoIncId = -1;
+// used in file directory
+constexpr std::string_view FDRowBinlogSuffix = "_row_binlog";
 
 inline auto make_binlog_meta_key(const std::string_view tablet, int64_t version,
                                  const std::string_view rowset) {
@@ -95,4 +123,120 @@ inline std::string get_binlog_data_key_from_meta_key(const std::string_view meta
     // like "binlog_meta_6943f1585fe834b5-e542c2b83a21d0b7" => "binlog_data-6943f1585fe834b5-e542c2b83a21d0b7"
     return fmt::format("{}data_{}", kBinlogPrefix, meta_key.substr(kBinlogMetaPrefix.length()));
 }
+
+inline auto make_row_binlog_key_prefix(const TabletUid& tablet_uid, const RowsetId& rowset_id) {
+    return fmt::format("{}{}_{}_", kRowBinlogPrefix, tablet_uid.to_string(), rowset_id.to_string());
+}
+
+inline auto make_row_binlog_key(const TabletUid& tablet_uid, const RowsetId& rowset_id,
+                                const RowsetId& binlog_rowset_id) {
+    return fmt::format("{}{}_{}_{}", kRowBinlogPrefix, tablet_uid.to_string(),
+                       rowset_id.to_string(), binlog_rowset_id.to_string());
+}
+
+// Allocate per-row LSNs for row-binlog data.
+// The caller must provide a valid auto-inc buffer (typically from GlobalAutoIncBuffers).
+inline Status allocate_binlog_lsn(const std::shared_ptr<AutoIncIDBuffer>& lsn_buffer,
+                                  size_t num_rows, std::vector<int64_t>& lsn_ids) {
+    if (lsn_buffer == nullptr) {
+        return Status::InternalError("binlog<row> try to get lsn buffer but null");
+    }
+    DCHECK(num_rows > 0);
+
+    std::vector<std::pair<int64_t, size_t>> ranges;
+    RETURN_IF_ERROR(lsn_buffer->sync_request_ids(num_rows, &ranges));
+
+    lsn_ids.clear();
+    lsn_ids.reserve(num_rows);
+    for (const auto& [start, length] : ranges) {
+        for (size_t i = 0; i < length; ++i) {
+            DCHECK_LE(start, std::numeric_limits<int64_t>::max() - static_cast<int64_t>(i));
+            lsn_ids.push_back(start + static_cast<int64_t>(i));
+        }
+    }
+    DCHECK_EQ(lsn_ids.size(), num_rows);
+    return Status::OK();
+}
+
+constexpr int64_t kTsoLogicalBits = 18;
+
+inline int64_t extract_tso_physical_time(int64_t tso) {
+    return tso <= 0 ? 0 : tso >> kTsoLogicalBits;
+}
+
+namespace segment_v2 {
+
+class SegmentWriteBinlogLsnMap {
+public:
+    void insert_seg_lsn(int64_t seg_id, std::shared_ptr<std::vector<int64_t>> lsn_ids) {
+        std::lock_guard<std::mutex> l(_mutex);
+        _seg_id_to_lsn_ids.emplace(seg_id, std::move(lsn_ids));
+    }
+
+    void remove_seg(int64_t seg_id) {
+        std::lock_guard<std::mutex> l(_mutex);
+        _seg_id_to_lsn_ids.erase(seg_id);
+    }
+
+    std::shared_ptr<const std::vector<int64_t>> get_seg_lsn(int64_t seg_id) const {
+        std::lock_guard<std::mutex> l(_mutex);
+        auto it = _seg_id_to_lsn_ids.find(seg_id);
+        CHECK(it != _seg_id_to_lsn_ids.end())
+                << "SegmentWriteBinlogLsnMap::get_seg_lsn missing seg_id=" << seg_id
+                << ", existing_seg_ids=[" << ([&] {
+                       std::string s;
+                       for (const auto& [id, _] : _seg_id_to_lsn_ids) {
+                           if (!s.empty()) {
+                               s.push_back(',');
+                           }
+                           s.append(std::to_string(id));
+                       }
+                       return s;
+                   }())
+                << "]";
+        return it->second;
+    }
+
+private:
+    mutable std::mutex _mutex;
+    std::map<int64_t, std::shared_ptr<std::vector<int64_t>>> _seg_id_to_lsn_ids;
+};
+
+struct SegmentWriteBinlogOptions {
+public:
+    bool write_before = false;
+
+    // source context, used for retrieving historical row and building binlog<row> block
+    struct SourceWriteDataOptions {
+        TabletSchemaSPtr tablet_schema = nullptr;
+        std::shared_ptr<PartialUpdateInfo> partial_update_info;
+        std::shared_ptr<MowContext> mow_context;
+        bool is_transient_rowset_writer = false;
+        DataWriteType source_write_type = DataWriteType::TYPE_DEFAULT;
+        // input rowset's row-binlog, read LSN from it at publish time
+        RowsetSharedPtr row_binlog_rowset = nullptr;
+    } source;
+
+    void insert_seg_lsn(int64_t seg_id, std::shared_ptr<std::vector<int64_t>> lsn_ids) {
+        DCHECK(lsn_map != nullptr);
+        lsn_map->insert_seg_lsn(seg_id, std::move(lsn_ids));
+    }
+
+    void remove_seg(int64_t seg_id) {
+        DCHECK(lsn_map != nullptr);
+        lsn_map->remove_seg(seg_id);
+    }
+
+    std::shared_ptr<const std::vector<int64_t>> get_seg_lsn(int64_t seg_id) const {
+        DCHECK(lsn_map != nullptr);
+        return lsn_map->get_seg_lsn(seg_id);
+    }
+
+    // Shared LSN storage for row-binlog writers.
+    // Keep it as a pointer so SegmentWriteBinlogOptions stays copyable.
+    std::shared_ptr<SegmentWriteBinlogLsnMap> lsn_map =
+            std::make_shared<SegmentWriteBinlogLsnMap>();
+};
+} // namespace segment_v2
+
 } // namespace doris

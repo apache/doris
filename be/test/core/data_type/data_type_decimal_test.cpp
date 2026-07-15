@@ -28,16 +28,24 @@
 #include <limits>
 #include <type_traits>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "core/types.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "storage/tablet/tablet_schema.h"
 #include "testutil/test_util.h"
 
 namespace doris {
@@ -446,6 +454,7 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
     test_func(dt_decimal256_2, *column_decimal256_2, BeExecVersionManager::max_be_exec_version);
     test_func(dt_decimal256_3, *column_decimal256_3, BeExecVersionManager::max_be_exec_version);
 }
+
 TEST_F(DataTypeDecimalTest, to_pb_column_meta) {
     auto test_func = [](auto dt, PGenericType_TypeId expected_type) {
         auto col_meta = std::make_shared<PColumnMeta>();
@@ -459,20 +468,6 @@ TEST_F(DataTypeDecimalTest, to_pb_column_meta) {
     test_func(dt_decimal128v2, PGenericType::DECIMAL128);
     test_func(dt_decimal128v3_1, PGenericType::DECIMAL128I);
     test_func(dt_decimal256_1, PGenericType::DECIMAL256);
-}
-TEST_F(DataTypeDecimalTest, get_default) {
-    auto test_func = [](auto dt) {
-        using DataType = decltype(dt);
-        using ColumnType = typename DataType::ColumnType;
-        auto default_field = dt.get_default();
-        auto decimal_field = default_field.template get<DataType::PType>();
-        EXPECT_EQ(decimal_field, typename ColumnType::value_type());
-    };
-    test_func(dt_decimal32_1);
-    test_func(dt_decimal64_1);
-    test_func(dt_decimal128v2);
-    test_func(dt_decimal128v3_1);
-    test_func(dt_decimal256_1);
 }
 TEST_F(DataTypeDecimalTest, get_field) {
     TExprNode expr_node;
@@ -534,7 +529,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
         std::cout << "test datatype to string: " << dt.get_family_name() << std::endl;
         using DataType = decltype(dt);
         using ColumnType = typename std::remove_reference<DataType>::type::ColumnType;
-        const auto* col_with_type = assert_cast<const ColumnType*>(&source_column);
+        const auto* col_with_type = &source_column;
 
         size_t row_count = source_column.size();
         {

@@ -41,6 +41,7 @@ namespace doris {
 class Schema;
 class SlotDescriptor;
 class TabletSchema;
+struct TabletAddRowsPayload;
 class TupleDescriptor;
 enum KeysType : int;
 
@@ -52,11 +53,14 @@ enum MemType { ACTIVE = 0, WRITE_FINISHED = 1, FLUSH = 2 };
 // row pos in _input_mutable_block
 struct RowInBlock {
     size_t _row_pos;
+    int64_t _row_binlog_lsn = 0;
     char* _agg_mem = nullptr;
     size_t* _agg_state_offset = nullptr;
     bool _has_init_agg;
 
     RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
+    RowInBlock(size_t row, int64_t row_binlog_lsn)
+            : _row_pos(row), _row_binlog_lsn(row_binlog_lsn), _has_init_agg(false) {}
 
     void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
         _has_init_agg = true;
@@ -174,14 +178,15 @@ public:
     MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-             const std::shared_ptr<ResourceContext>& resource_ctx);
+             const std::shared_ptr<ResourceContext>& resource_ctx,
+             bool need_row_binlog_lsn = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     size_t get_flush_reserve_memory_size() const;
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    Status insert(const Block* block, const DorisVector<uint32_t>& row_idxs);
+    Status insert(const Block* block, const TabletAddRowsPayload& rows);
 
     void shrink_memtable_by_agg();
 
@@ -190,6 +195,8 @@ public:
     bool need_agg() const;
 
     Status to_block(std::unique_ptr<Block>* res);
+
+    const DorisVector<int64_t>& row_binlog_lsns() const { return _output_row_binlog_lsns; }
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
 
@@ -212,6 +219,13 @@ private:
     template <bool has_skip_bitmap_col>
     void _aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
+
+    // Merge row-binlog LSN sidecar only when MemTable merges two RowInBlock objects.
+    // Table models that require complex merge semantics, such as AGG tables and unique key
+    // merge-on-read tables, do not support row-binlog LSN now and are rejected in insert().
+    void _merge_row_binlog_lsn(RowInBlock* src_row, RowInBlock* dst_row);
+
+    void _append_output_row_binlog_lsn(RowInBlock* row);
 
     void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block, RowInBlock* new_row,
                                               RowInBlock* row_in_skiplist);
@@ -253,6 +267,8 @@ private:
     //for vectorized
     MutableBlock _input_mutable_block;
     MutableBlock _output_mutable_block;
+    DorisVector<int64_t> _output_row_binlog_lsns;
+    bool _need_row_binlog_lsn = false;
     size_t _last_sorted_pos = 0;
     size_t _last_agg_pos = 0;
 
@@ -262,7 +278,7 @@ private:
     void _sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in_blocks, Tie& tie,
                           std::function<int(RowInBlock*, RowInBlock*)> cmp);
     template <bool is_final>
-    void _finalize_one_row(RowInBlock* row, const ColumnsWithTypeAndName& block_data, int row_pos);
+    void _finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, int row_pos);
     void _init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block);
     void _clear_row_agg(RowInBlock* row);
 
@@ -271,12 +287,12 @@ private:
 
     template <bool is_final>
     void _aggregate_for_flexible_partial_update_without_seq_col(
-            const ColumnsWithTypeAndName& block_data, MutableBlock& mutable_block,
+            MutableBlock& mutable_block,
             DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
 
     template <bool is_final>
     void _aggregate_for_flexible_partial_update_with_seq_col(
-            const ColumnsWithTypeAndName& block_data, MutableBlock& mutable_block,
+            MutableBlock& mutable_block,
             DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
 
     Status _put_into_output(Block& in_block);

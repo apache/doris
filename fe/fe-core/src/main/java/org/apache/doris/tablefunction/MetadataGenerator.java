@@ -23,6 +23,7 @@ import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DataSizeDisplayUtil;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -46,6 +47,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -737,6 +739,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getCardinality()));
             trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getGlobal()));
             trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getEnable()));
+            trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getRequirePartitionFilter()));
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getBlockCount().getValue()));
             Snapshot snapshot = sqlBlockRule.getTryBlockHistogram().getSnapshot();
             trow.addToColumnValue(new TCell().setLongVal((long) snapshot.getMean()));
@@ -1827,6 +1830,7 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setDoubleVal(
                             entryStats.getAverageLoadPenaltyNanos() / TimeUnit.MILLISECONDS.toNanos(1)));
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getEvictionCount())); // EVICTION_COUNT
+                    trow.addToColumnValue(new TCell().setDoubleVal(entryStats.getEvictionRate())); // EVICTION_RATE
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getInvalidateCount())); // INVALIDATE_COUNT
                     trow.addToColumnValue(new TCell().setStringVal(
                             formatMetaCacheTime(entryStats.getLastLoadSuccessTimeMs(), timeZone)));
@@ -1912,24 +1916,30 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal("")); // NODEGROUP (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // TABLESPACE_NAME (not available)
 
-                    Pair<Double, String> sizePair = DebugUtil.getByteUint(partition.getDataSize(false));
+                    Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(partition);
+                    long localDataSize = displayDataSize.first;
+                    long remoteDataSize = displayDataSize.second;
+                    Pair<Double, String> sizePair = DebugUtil.getByteUint(localDataSize);
                     String readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize));  // LOCAL_DATA_SIZE
-                    sizePair = DebugUtil.getByteUint(partition.getRemoteDataSize());
+                    sizePair = DebugUtil.getByteUint(remoteDataSize);
                     readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize)); // REMOTE_DATA_SIZE
                     trow.addToColumnValue(new TCell().setStringVal(partition.getState().toString())); // STATE
-                    trow.addToColumnValue(new TCell().setStringVal(partitionInfo.getReplicaAllocation(partitionId)
-                            .toCreateStmt())); // REPLICA_ALLOCATION
+                    String replicaAllocation = getPartitionsReplicaAllocationDisplay(
+                            PartitionsProcDir.getReplicaAllocationDisplay(partitionInfo.getReplicaAllocation(
+                                    partitionId).toCreateStmt()));
+                    trow.addToColumnValue(new TCell().setStringVal(replicaAllocation)); // REPLICA_ALLOCATION
                     trow.addToColumnValue(new TCell().setIntVal(partitionInfo.getReplicaAllocation(partitionId)
                             .getTotalReplicaNum())); // REPLICA_NUM
                     trow.addToColumnValue(new TCell().setStringVal(partitionInfo
                             .getStoragePolicy(partitionId))); // STORAGE_POLICY
                     DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
-                    trow.addToColumnValue(new TCell().setStringVal(dataProperty.getStorageMedium()
-                            .name())); // STORAGE_MEDIUM
+                    String storageMedium = PartitionsProcDir
+                            .getStorageMediumDisplay(dataProperty.getStorageMedium().name());
+                    trow.addToColumnValue(new TCell().setStringVal(storageMedium)); // STORAGE_MEDIUM
                     trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(dataProperty
                             .getCooldownTimeMs()))); // COOLDOWN_TIME_MS
                     trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(partition
@@ -1983,6 +1993,10 @@ public class MetadataGenerator {
                 olapTable.readUnlock();
             }
         } // for table
+    }
+
+    private static String getPartitionsReplicaAllocationDisplay(String replicaAllocation) {
+        return FeConstants.null_string.equals(replicaAllocation) ? "NULL" : replicaAllocation;
     }
 
     private static void partitionsForExternalCatalog(UserIdentity currentUserIdentity,
@@ -2102,9 +2116,9 @@ public class MetadataGenerator {
 
         HiveExternalMetaCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
                 MvccUtil.getSnapshotFromContext(tbl));
-        Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
+        Map<String, List<String>> valuesMap = hivePartitionValues.getNameToPartitionValues();
         List<TRow> dataBatch = Lists.newArrayList();
-        for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : valuesMap.entrySet()) {
             TRow trow = new TRow();
             List<String> values = entry.getValue();
             if (values.size() != partitionCols.size()) {

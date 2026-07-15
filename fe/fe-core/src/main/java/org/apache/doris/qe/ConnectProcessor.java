@@ -50,7 +50,8 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -100,6 +101,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -155,12 +157,20 @@ public abstract class ConnectProcessor {
     }
 
     protected void handleResetConnection() {
-        ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
-        ctx.clearLastDBOfCatalog();
-        ctx.getState().setOk();
+        try {
+            ctx.resetConnection();
+            ctx.getState().setOk();
+        } catch (UserException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        }
     }
 
-    protected void handleStmtReset() {
+    protected void handleStmtResetById(int stmtId) {
+        if (ctx.getPreparedStementContext(String.valueOf(stmtId)) == null) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
+                    String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_reset", stmtId));
+            return;
+        }
         ctx.getState().setOk();
     }
 
@@ -384,7 +394,7 @@ public abstract class ConnectProcessor {
                             true);
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
-                            && ctx.executor != null && ctx.executor.isForwardToMaster()
+                            && ctx.executor != null && ctx.executor.hasForwardedToMaster()
                             && ctx.executor.getProxyStatusCode() != 0)) {
                         break;
                     }
@@ -632,7 +642,7 @@ public abstract class ConnectProcessor {
         LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId));
         Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
         ByteBuffer packet;
-        if (executor != null && executor.isForwardToMaster()
+        if (executor != null && executor.hasForwardedToMaster()
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
@@ -701,6 +711,7 @@ public abstract class ConnectProcessor {
         if (request.isSetConnectAttributes()) {
             ctx.setConnectAttributes(request.getConnectAttributes());
         }
+        restoreForwardedSessionContext(ctx, request);
 
         // set compute group
         ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
@@ -819,6 +830,24 @@ public abstract class ConnectProcessor {
         return result;
     }
 
+    static void restoreForwardedSessionContext(ConnectContext context, TMasterOpRequest request) {
+        if (!request.isSetDelegatedCredentialToken()) {
+            return;
+        }
+        Preconditions.checkState(request.isSetDelegatedCredentialType(),
+                "delegated credential type is required");
+        Preconditions.checkState(request.isSetDelegatedCredentialSessionId(),
+                "delegated credential session id is required");
+        OptionalLong expiresAtMillis = request.isSetDelegatedCredentialExpiresAtMillis()
+                ? OptionalLong.of(request.getDelegatedCredentialExpiresAtMillis())
+                : OptionalLong.empty();
+        String sessionId = request.getDelegatedCredentialSessionId();
+        context.setSessionContext(SessionContext.of(sessionId, new DelegatedCredential(
+                DelegatedCredential.Type.valueOf(request.getDelegatedCredentialType()),
+                request.getDelegatedCredentialToken(),
+                expiresAtMillis)));
+    }
+
     // only Mysql protocol
     public void processOnce() throws IOException, NotImplementedException {
         throw new NotImplementedException("Not Impl processOnce");
@@ -862,4 +891,3 @@ public abstract class ConnectProcessor {
         throw new NotSupportedException("Just MysqlConnectProcessor support execute");
     }
 }
-

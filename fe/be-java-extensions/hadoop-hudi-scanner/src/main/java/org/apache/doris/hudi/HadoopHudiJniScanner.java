@@ -168,7 +168,7 @@ public class HadoopHudiJniScanner extends JniScanner {
                 ArrayWritable value = reader.createValue();
                 long startTime = System.nanoTime();
                 int numRows = 0;
-                for (; numRows < fetchSize; numRows++) {
+                for (; numRows < batchSize; numRows++) {
                     if (!reader.next(key, value)) {
                         break;
                     }

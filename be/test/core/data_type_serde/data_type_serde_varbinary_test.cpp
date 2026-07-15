@@ -65,7 +65,7 @@ TEST_F(DataTypeVarbinarySerDeTest, Name) {
 TEST_F(DataTypeVarbinarySerDeTest, JsonTextBehavior) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
     std::vector<std::string> vals = {make_bytes(0), make_bytes(5), std::string("ABC", 3)};
     for (auto& v : vals) {
         vb->insert_data(v.data(), v.size());
@@ -80,8 +80,8 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonTextBehavior) {
         auto st = serde.serialize_one_cell_to_json(*col, 1, bw, opt);
         EXPECT_TRUE(st.ok()) << st.to_string();
         bw.commit();
-        auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
-        auto original = assert_cast<ColumnVarbinary&>(*col).get_data_at(1);
+        auto written = out->get_data_at(0);
+        auto original = col->get_data_at(1);
         EXPECT_EQ(written.size, original.size);
         EXPECT_EQ(memcmp(written.data, original.data, original.size), 0);
     }
@@ -118,7 +118,7 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonTextBehavior) {
 TEST_F(DataTypeVarbinarySerDeTest, ProtobufNotSupported) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
     std::string v = make_bytes(4);
     vb->insert_data(v.data(), v.size());
 
@@ -133,7 +133,7 @@ TEST_F(DataTypeVarbinarySerDeTest, ProtobufNotSupported) {
 TEST_F(DataTypeVarbinarySerDeTest, JsonbThrows) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
     std::string v = make_bytes(6);
     vb->insert_data(v.data(), v.size());
 
@@ -151,7 +151,7 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonbThrows) {
 TEST_F(DataTypeVarbinarySerDeTest, MysqlTextAndBinaryAndConst) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
     std::vector<std::string> vals = {make_bytes(1, 0x11), make_bytes(3, 0x22), make_bytes(5, 0x33)};
     for (auto& v : vals) {
         vb->insert_data(v.data(), v.size());
@@ -173,7 +173,7 @@ TEST_F(DataTypeVarbinarySerDeTest, MysqlTextAndBinaryAndConst) {
 TEST_F(DataTypeVarbinarySerDeTest, ArrowWriteSupportedReadNotImplemented) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
     std::string v = make_bytes(2);
     vb->insert_data(v.data(), v.size());
 
@@ -201,7 +201,7 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowWriteSupportedReadNotImplemented) {
 TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
     std::string v = make_bytes(3);
     vb->insert_data(v.data(), v.size());
 
@@ -227,7 +227,7 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
 TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryAndStringWithNullsAndInvalidType) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
     std::vector<std::string> vals = {std::string("A", 1), std::string("BC", 2),
                                      std::string("XYZ", 3)};
     for (auto& v : vals) {
@@ -281,6 +281,24 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryAndStringWithNullsAndInvalidType) 
         }
     }
 
+    // LargeBinaryBuilder path (no nulls)
+    {
+        auto builder = std::make_shared<arrow::LargeBinaryBuilder>();
+        auto st = serde.write_column_to_arrow(*col, nullptr, builder.get(), 0, vals.size(), tz);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        std::shared_ptr<arrow::Array> arr;
+        ASSERT_TRUE(builder->Finish(&arr).ok());
+        auto* bin = dynamic_cast<arrow::LargeBinaryArray*>(arr.get());
+        ASSERT_NE(bin, nullptr);
+        ASSERT_EQ(bin->length(), static_cast<int>(vals.size()));
+        for (int i = 0; i < bin->length(); ++i) {
+            ASSERT_FALSE(bin->IsNull(i));
+            ASSERT_EQ(bin->value_length(i), static_cast<int64_t>(vals[i].size()));
+            const uint8_t* raw = bin->value_data()->data() + bin->value_offset(i);
+            EXPECT_EQ(memcmp(raw, vals[i].data(), vals[i].size()), 0);
+        }
+    }
+
     // Unsupported builder type
     {
         arrow::Int32Builder ib;
@@ -292,7 +310,7 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryAndStringWithNullsAndInvalidType) 
 TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
     std::vector<std::string> vals = {std::string("aa", 2), std::string("bbb", 3),
                                      std::string("cccc", 4)};
     for (auto& v : vals) {
@@ -329,7 +347,7 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) 
 TEST_F(DataTypeVarbinarySerDeTest, SerializeOneCellToJsonWithRawBytes) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
 
     // Test binary data with embedded NUL character
     std::string v = std::string("A\0B", 3);
@@ -342,7 +360,7 @@ TEST_F(DataTypeVarbinarySerDeTest, SerializeOneCellToJsonWithRawBytes) {
     EXPECT_TRUE(st.ok()) << st.to_string();
     bw.commit();
 
-    auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
+    auto written = out->get_data_at(0);
     EXPECT_EQ(written.size, v.size());
     EXPECT_EQ(memcmp(written.data, v.data(), v.size()), 0);
 }
@@ -350,7 +368,7 @@ TEST_F(DataTypeVarbinarySerDeTest, SerializeOneCellToJsonWithRawBytes) {
 TEST_F(DataTypeVarbinarySerDeTest, DeserializeOneCellFromJsonWithRawBytes) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
-    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    auto* vb = col.get();
 
     // Test 1: String with quotes and backslash, inserted as-is
     {

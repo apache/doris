@@ -54,10 +54,10 @@ protected:
         column_dict_data = ColumnString::create();
         column_dict_indices = ColumnInt32::create();
 
-        column_dict_char = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+        column_dict_char = ColumnDictI32::create();
         EXPECT_TRUE(column_dict_char->is_dict_empty());
-        column_dict_varchar = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_STRING);
-        column_dict_str = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_STRING);
+        column_dict_varchar = ColumnDictI32::create();
+        column_dict_str = ColumnDictI32::create();
 
         load_columns_data();
     }
@@ -184,7 +184,7 @@ TEST_F(ColumnDictionaryTest, insert_default) {
 }
 */
 TEST_F(ColumnDictionaryTest, clear) {
-    auto target_column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    auto target_column = ColumnDictI32::create();
     target_column->insert_many_dict_data(dict_array.data(), dict_array.size());
 
     target_column->clear();
@@ -197,9 +197,7 @@ TEST_F(ColumnDictionaryTest, allocated_bytes) {
     EXPECT_EQ(column_dict_char->allocated_bytes(), column_dict_char->size() * 4);
 }
 TEST_F(ColumnDictionaryTest, has_enough_capacity) {
-    EXPECT_THROW(column_dict_char->has_enough_capacity(
-                         ColumnDictI32(FieldType::OLAP_FIELD_TYPE_VARCHAR)),
-                 Exception);
+    EXPECT_THROW(column_dict_char->has_enough_capacity(*ColumnDictI32::create()), Exception);
 }
 TEST_F(ColumnDictionaryTest, pop_back) {
     EXPECT_THROW(column_dict_char->pop_back(9), Exception);
@@ -217,8 +215,7 @@ TEST_F(ColumnDictionaryTest, insert) {
 }
 TEST_F(ColumnDictionaryTest, field) {
     auto count = column_dict_char->size();
-    auto* col_vec = assert_cast<ColumnDictI32*>(column_dict_char.get());
-    const auto& codes_data = col_vec->get_data();
+    const auto& codes_data = column_dict_char->get_data();
     for (size_t i = 0; i != count; ++i) {
         Field f;
         column_dict_char->get(i, f);
@@ -251,8 +248,9 @@ TEST_F(ColumnDictionaryTest, permute) {
 }
 TEST_F(ColumnDictionaryTest, filter_by_selector) {
     auto test_func = [&](const auto& source_column) {
-        auto src_size = source_column->size();
-        const auto& codes_data = source_column->get_data();
+        const auto& source = *source_column;
+        auto src_size = source.size();
+        const auto& codes_data = source.get_data();
         EXPECT_TRUE(src_size <= UINT16_MAX);
 
         auto target_column = ColumnString::create();
@@ -265,13 +263,12 @@ TEST_F(ColumnDictionaryTest, filter_by_selector) {
         size_t sel_size = src_size / 2;
         indices.resize(sel_size);
 
-        auto status =
-                source_column->filter_by_selector(indices.data(), sel_size, target_column.get());
+        auto status = source.filter_by_selector(indices.data(), sel_size, target_column.get());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(target_column->size(), sel_size);
         for (size_t i = 0; i != sel_size; ++i) {
             auto real_data = target_column->get_data_at(i);
-            auto expect_data = source_column->get_value(codes_data[indices[i]]);
+            auto expect_data = source.get_value(codes_data[indices[i]]);
             if (real_data != expect_data) {
                 std::cout << "index: " << i << ", real_data: " << real_data.to_string()
                           << "\nexpect_data: " << expect_data.to_string() << std::endl;
@@ -282,8 +279,7 @@ TEST_F(ColumnDictionaryTest, filter_by_selector) {
     test_func(column_dict_char);
 }
 TEST_F(ColumnDictionaryTest, insert_many_dict_data) {
-    ColumnDictI32::MutablePtr tmp_column_dict =
-            ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    ColumnDictI32::MutablePtr tmp_column_dict = ColumnDictI32::create();
     tmp_column_dict->insert_many_dict_data(dict_array.data(), dict_array.size());
     for (size_t i = 0; i != dict_array.size(); ++i) {
         EXPECT_EQ(tmp_column_dict->get_value(i), dict_array[i]);
@@ -291,8 +287,7 @@ TEST_F(ColumnDictionaryTest, insert_many_dict_data) {
 }
 TEST_F(ColumnDictionaryTest, convert_dict_codes_if_necessary) {
     {
-        ColumnDictI32::MutablePtr tmp_column_dict =
-                ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+        ColumnDictI32::MutablePtr tmp_column_dict = ColumnDictI32::create();
         tmp_column_dict->convert_dict_codes_if_necessary();
         EXPECT_FALSE(tmp_column_dict->is_dict_sorted());
         EXPECT_FALSE(tmp_column_dict->is_dict_code_converted());
@@ -317,7 +312,7 @@ TEST_F(ColumnDictionaryTest, find_code) {
 /*
 TEST_F(ColumnDictionaryTest, initialize_hash_values_for_runtime_filter) {
     ColumnDictI32::MutablePtr tmp_column_dict =
-            ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+            ColumnDictI32::create();
     auto dict_data_row_count = column_dict_data->size();
     auto dict_indices_row_count = column_dict_indices->size();
     tmp_column_dict->reserve(dict_indices_row_count);
@@ -345,8 +340,7 @@ TEST_F(ColumnDictionaryTest, rowset_segment_id) {
     EXPECT_EQ(ids.second, segment_id);
 }
 TEST_F(ColumnDictionaryTest, convert_to_predicate_column_if_dictionary) {
-    ColumnDictI32::MutablePtr tmp_column_dict =
-            ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    ColumnDictI32::MutablePtr tmp_column_dict = ColumnDictI32::create();
     auto dict_data_row_count = column_dict_data->size();
     auto dict_indices_row_count = column_dict_indices->size();
     tmp_column_dict->reserve(dict_indices_row_count);

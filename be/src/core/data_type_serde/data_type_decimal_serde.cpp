@@ -22,15 +22,19 @@
 #include <arrow/builder.h>
 #include <arrow/util/decimal.h>
 
+#include <limits>
 #include <type_traits>
 
 #include "arrow/type.h"
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
 #include "exprs/function/cast/cast_to_decimal.h"
@@ -43,6 +47,139 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
+namespace {
+
+template <typename NativeType>
+NativeType decode_big_endian_signed_integer(const uint8_t* data, int length) {
+    if constexpr (std::is_same_v<NativeType, wide::Int256>) {
+        NativeType value = data != nullptr && length > 0 && (data[0] & 0x80) != 0 ? NativeType(-1)
+                                                                                  : NativeType(0);
+        for (int i = 0; i < length; ++i) {
+            value = (value << 8) + NativeType(data[i]);
+        }
+        return value;
+    } else {
+        using UnsignedNativeType =
+                std::conditional_t<std::is_same_v<NativeType, Int128>, unsigned __int128,
+                                   std::make_unsigned_t<NativeType>>;
+        UnsignedNativeType value = data != nullptr && length > 0 && (data[0] & 0x80) != 0
+                                           ? static_cast<UnsignedNativeType>(-1)
+                                           : 0;
+        for (int i = 0; i < length; ++i) {
+            value = static_cast<UnsignedNativeType>((value << 8) | data[i]);
+        }
+        return static_cast<NativeType>(value);
+    }
+}
+
+template <PrimitiveType T>
+bool decoded_decimal_value_fits(const typename PrimitiveTypeTraits<T>::CppType::NativeType& value,
+                                UInt32 precision) {
+    return value >= min_decimal_value<T>(precision).value &&
+           value <= max_decimal_value<T>(precision).value;
+}
+
+template <PrimitiveType T>
+bool decoded_decimal_int_value_fits(Int128 value, UInt32 precision) {
+    using NativeType = typename PrimitiveTypeTraits<T>::CppType::NativeType;
+    if constexpr (std::is_same_v<NativeType, wide::Int256>) {
+        const auto wide_value = wide::Int256(value);
+        return decoded_decimal_value_fits<T>(wide_value, precision);
+    } else {
+        return value >= static_cast<Int128>(min_decimal_value<T>(precision).value) &&
+               value <= static_cast<Int128>(max_decimal_value<T>(precision).value);
+    }
+}
+
+template <PrimitiveType T>
+Status read_decimal_decoded_value(const DecodedColumnView& view, UInt32 precision, int64_t row,
+                                  typename PrimitiveTypeTraits<T>::CppType* result) {
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
+    using NativeType = typename FieldType::NativeType;
+    NativeType native_value;
+    if (view.value_kind == DecodedValueKind::INT32) {
+        const auto* values = reinterpret_cast<const int32_t*>(view.values);
+        const auto value = static_cast<Int128>(values[row]);
+        if (!decoded_decimal_int_value_fits<T>(value, precision)) {
+            return Status::DataQualityError("Decoded decimal value is out of range");
+        }
+        native_value = NativeType(value);
+    } else if (view.value_kind == DecodedValueKind::INT64) {
+        const auto* values = reinterpret_cast<const int64_t*>(view.values);
+        const auto value = static_cast<Int128>(values[row]);
+        if (!decoded_decimal_int_value_fits<T>(value, precision)) {
+            return Status::DataQualityError("Decoded decimal value is out of range");
+        }
+        native_value = NativeType(value);
+    } else {
+        const auto& value = (*view.binary_values)[row];
+        const auto length = view.value_kind == DecodedValueKind::FIXED_BINARY
+                                    ? view.fixed_length
+                                    : cast_set<int, size_t, false>(value.size);
+        if (length > static_cast<int>(sizeof(NativeType))) {
+            return Status::DataQualityError("Decoded decimal binary value is too wide: length={}",
+                                            length);
+        }
+        native_value = decode_big_endian_signed_integer<NativeType>(
+                reinterpret_cast<const uint8_t*>(value.data), length);
+    }
+    if (!decoded_decimal_value_fits<T>(native_value, precision)) {
+        return Status::DataQualityError("Decoded decimal value is out of range");
+    }
+    *result = FieldType {native_value};
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status read_decimal_decoded_values(IColumn& column, const DecodedColumnView& view,
+                                   UInt32 precision) {
+    if (view.value_kind == DecodedValueKind::INT32 || view.value_kind == DecodedValueKind::INT64) {
+        if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+            return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+        }
+    } else if (view.binary_values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded binary values are null for {}", column.get_name());
+    }
+    auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+    const auto old_size = data.size();
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(typename PrimitiveTypeTraits<T>::CppType());
+            continue;
+        }
+        if (view.value_kind == DecodedValueKind::BINARY ||
+            view.value_kind == DecodedValueKind::FIXED_BINARY) {
+            const auto& value = (*view.binary_values)[row];
+            const auto length = view.value_kind == DecodedValueKind::FIXED_BINARY
+                                        ? view.fixed_length
+                                        : cast_set<int, size_t, false>(value.size);
+            if (value.data == nullptr && length > 0) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
+                return Status::Corruption("Decoded decimal binary value is null for {} at row {}",
+                                          column.get_name(), row);
+            }
+        }
+        typename PrimitiveTypeTraits<T>::CppType value;
+        auto st = read_decimal_decoded_value<T>(view, precision, row, &value);
+        if (!st.ok()) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            st.prepend(fmt::format(
+                    "Failed to decode decimal value for {} at row {}: ", column.get_name(), row));
+            return st;
+        }
+        data.push_back(value);
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
@@ -238,8 +375,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal128Type>(27, 9);
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                                 array_builder->type()->name()));
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
                 continue;
             }
             const auto& data_ref = col.get_data_at(i);
@@ -247,8 +383,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
             int64_t high = (p_value->value) >> 64;
             uint64_t low = cast_set<uint64_t>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
         }
     } else if constexpr (T == TYPE_DECIMAL128I) {
         auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
@@ -256,8 +391,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                                 array_builder->type()->name()));
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
                 continue;
             }
             const auto& data_ref = col.get_data_at(i);
@@ -265,8 +399,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
             int64_t high = (p_value->value) >> 64;
             uint64_t low = cast_set<uint64_t>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
         }
     } else if constexpr (T == TYPE_DECIMAL32) {
         auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
@@ -274,14 +407,12 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal128Type>(8, col.get_scale());
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                                 array_builder->type()->name()));
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
                 continue;
             }
             Int128 p_value = col.get_element(i).value;
             arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
         }
     } else if constexpr (T == TYPE_DECIMAL64) {
         auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
@@ -289,14 +420,12 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal128Type>(18, col.get_scale());
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                                 array_builder->type()->name()));
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
                 continue;
             }
             Int128 p_value = col.get_element(i).value;
             arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
         }
     } else if constexpr (T == TYPE_DECIMAL256) {
         auto& builder = reinterpret_cast<arrow::Decimal256Builder&>(*array_builder);
@@ -304,8 +433,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal256Type>(76, col.get_scale());
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                                 array_builder->type()->name()));
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
                 continue;
             }
             auto p_value = wide::Int256(col.get_element(i));
@@ -317,8 +445,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
 
             std::array<uint64_t, 4> word_array = {a0, a1, a2, a3};
             arrow::Decimal256 value(arrow::Decimal256::LittleEndianArray, word_array);
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
         }
     } else {
         return Status::InvalidArgument("write_column_to_arrow with type " + column.get_name());
@@ -331,6 +458,9 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
     // Decimal<Int128> for decimalv2
     // Decimal<Int128I> for deicmalv3
@@ -341,7 +471,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
         for (auto value_i = start; value_i < end; ++value_i) {
-            auto value = *reinterpret_cast<const Decimal128V2*>(concrete_array->Value(value_i));
+            auto value = unaligned_load<Decimal128V2>(concrete_array->Value(value_i));
             // convert scale to 9;
             if (9 > arrow_scale) {
                 using MaxNativeType = typename Decimal128V2::NativeType;
@@ -365,21 +495,38 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
             const auto* value = concrete_array->Value(value_i);
-            FieldType decimal_value = FieldType {};
-            memcpy(&decimal_value, value, sizeof(FieldType));
+            auto decimal_value = unaligned_load<FieldType>(value);
             column_data.emplace_back(decimal_value);
         }
     } else if constexpr (T == TYPE_DECIMAL256) {
         const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
-            column_data.emplace_back(
-                    *reinterpret_cast<const FieldType*>(concrete_array->Value(value_i)));
+            auto decimal_value = unaligned_load<FieldType>(concrete_array->Value(value_i));
+            column_data.emplace_back(decimal_value);
         }
     } else {
         return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
                              "read_column_from_arrow with type " + column.get_name());
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if constexpr (T == TYPE_DECIMAL32 || T == TYPE_DECIMAL64 || T == TYPE_DECIMAL128I ||
+                  T == TYPE_DECIMAL256) {
+        if (view.value_kind == DecodedValueKind::INT32 ||
+            view.value_kind == DecodedValueKind::INT64 ||
+            view.value_kind == DecodedValueKind::BINARY ||
+            view.value_kind == DecodedValueKind::FIXED_BINARY) {
+            return read_decimal_decoded_values<T>(column, view, precision);
+        }
+    }
+    return decoded_column_view_handle_conversion_failure(
+            column, view,
+            Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                 get_name(), static_cast<int>(view.value_kind)));
 }
 
 template <PrimitiveType T>
@@ -485,17 +632,35 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
     if constexpr (T == TYPE_DECIMALV2) {
         Decimal128V2::NativeType val =
                 *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
-        result.writeInt128(val);
+        if (options.enable_row_store_compact_jsonb && val >= std::numeric_limits<int64_t>::min() &&
+            val <= std::numeric_limits<int64_t>::max()) {
+            result.writeInt(static_cast<int64_t>(val));
+        } else {
+            result.writeInt128(val);
+        }
     } else if constexpr (T == TYPE_DECIMAL128I) {
         Decimal128V3::NativeType val =
                 *reinterpret_cast<const Decimal128V3::NativeType*>(data_ref.data);
-        result.writeInt128(val);
+        if (options.enable_row_store_compact_jsonb && val >= std::numeric_limits<int64_t>::min() &&
+            val <= std::numeric_limits<int64_t>::max()) {
+            result.writeInt(static_cast<int64_t>(val));
+        } else {
+            result.writeInt128(val);
+        }
     } else if constexpr (T == TYPE_DECIMAL32) {
         Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
-        result.writeInt32(val);
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt32(val);
+        }
     } else if constexpr (T == TYPE_DECIMAL64) {
         Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
-        result.writeInt64(val);
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt64(val);
+        }
     } else if constexpr (T == TYPE_DECIMAL256) {
         // use binary type, since jsonb does not support int256
         result.writeStartBinary();
@@ -659,14 +824,20 @@ template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
-    if constexpr (T == TYPE_DECIMALV2) {
-        col.insert_value(DecimalV2Value(arg->unpack<JsonbInt128Val>()->val()));
-    } else if constexpr (T == TYPE_DECIMAL128I) {
-        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
-    } else if constexpr (T == TYPE_DECIMAL32) {
-        col.insert_value(arg->unpack<JsonbInt32Val>()->val());
-    } else if constexpr (T == TYPE_DECIMAL64) {
-        col.insert_value(arg->unpack<JsonbInt64Val>()->val());
+    if constexpr (T == TYPE_DECIMALV2 || T == TYPE_DECIMAL128I || T == TYPE_DECIMAL32 ||
+                  T == TYPE_DECIMAL64) {
+        if (!arg->isInt()) {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "read_one_cell_from_jsonb with type '{}'", arg->typeName());
+        }
+        auto val = arg->int_val();
+        if constexpr (T == TYPE_DECIMALV2) {
+            col.insert_value(DecimalV2Value(static_cast<int128_t>(val)));
+        } else {
+            using NativeType = typename PrimitiveTypeTraits<T>::CppType::NativeType;
+            col.insert_value(
+                    typename PrimitiveTypeTraits<T>::CppType(static_cast<NativeType>(val)));
+        }
     } else if constexpr (T == TYPE_DECIMAL256) {
         // use binary type, since jsonb does not support int256
         const wide::Int256 val =
@@ -731,9 +902,9 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8
 template <PrimitiveType T>
 const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_t* data,
                                                                     Field& field, FieldInfo& info) {
-    const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+    const uint8_t precision = *data;
     data += sizeof(uint8_t);
-    const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+    const uint8_t scale = *data;
     data += sizeof(uint8_t);
     info.precision = static_cast<int>(precision);
     info.scale = static_cast<int>(scale);
@@ -748,14 +919,11 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_
     } else if constexpr (T == TYPE_DECIMAL128I) {
         // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
         // for __int128 load/store. This will cause segment fault.
-        PackedInt128 pack;
-        // use memcpy to avoid unaligned access
-        memcpy(&pack, data, sizeof(PackedInt128));
+        auto pack = unaligned_load<PackedInt128>(data);
         field = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
         data += sizeof(PackedInt128);
     } else if constexpr (T == TYPE_DECIMAL256) {
-        wide::Int256 v;
-        memcpy(&v, data, sizeof(wide::Int256));
+        auto v = unaligned_load<wide::Int256>(data);
         field = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
         data += sizeof(wide::Int256);
     } else {

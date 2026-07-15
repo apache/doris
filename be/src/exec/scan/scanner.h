@@ -71,13 +71,15 @@ public:
     }
 
     virtual Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-    virtual Status prepare() {
-        _has_prepared = true;
-        return Status::OK();
+    Status prepare() {
+        SCOPED_RAW_TIMER(&_per_scanner_timer);
+        SCOPED_RAW_TIMER(&_per_scanner_prepare_timer);
+        return _prepare_impl();
     }
 
     Status open(RuntimeState* state) {
         SCOPED_RAW_TIMER(&_per_scanner_timer);
+        SCOPED_RAW_TIMER(&_per_scanner_open_timer);
         return _open_impl(state);
     }
 
@@ -95,7 +97,24 @@ public:
     // eg, for file scanner, return the current file path.
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
 
+#ifdef BE_TEST
+    static uint64_t TEST_build_condition_cache_digest(uint64_t seed,
+                                                      const VExprContextSPtrs& conjuncts);
+#endif
+
 protected:
+    // Rebuild the condition-cache digest from the scanner's current conjunct snapshot. The local
+    // state's digest is used only as a safety gate: zero means condition cache was disabled during
+    // scan-node open (for example by TopN or an expression without a reliable digest).
+    uint64_t _current_condition_cache_digest() const;
+    static uint64_t _build_condition_cache_digest(uint64_t seed,
+                                                  const VExprContextSPtrs& conjuncts);
+
+    virtual Status _prepare_impl() {
+        _has_prepared = true;
+        return Status::OK();
+    }
+
     virtual Status _open_impl(RuntimeState* state) {
         _block_avg_bytes = state->batch_size() * 8;
         return Status::OK();
@@ -108,14 +127,22 @@ protected:
         if (_padding_block.empty()) {
             _padding_block.swap(_origin_block);
         } else if (_origin_block.rows()) {
-            RETURN_IF_ERROR(
-                    MutableBlock::build_mutable_block(&_padding_block).merge(_origin_block));
+            ScopedMutableBlock scoped_mutable_block(&_padding_block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
+            RETURN_IF_ERROR(mutable_block.merge(_origin_block));
         }
         return Status::OK();
     }
 
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
+
+    // Whether rows filtered/unselected by this scanner should be reported to the load
+    // counters in RuntimeState. Only the scanner reading the load source data should
+    // report, otherwise rows filtered by query predicates (e.g. in INSERT INTO ... SELECT
+    // or DELETE FROM ... WHERE) would be mixed into load counters and make
+    // num_rows_load_success() negative.
+    virtual bool _should_update_load_counters() const { return _is_load; }
 
     // Check if scanner is already closed, if not, mark it as closed.
     // Returns true if the scanner was successfully marked as closed (first time).
@@ -128,13 +155,6 @@ protected:
     Status _do_projections(Block* origin_block, Block* output_block);
 
 private:
-    // Call start_wait_worker_timer() when submit the scanner to the thread pool.
-    // And call update_wait_worker_timer() when it is actually being executed.
-    void _start_wait_worker_timer() {
-        _watch.reset();
-        _watch.start();
-    }
-
     void _start_scan_cpu_timer() {
         _cpu_watch.reset();
         _cpu_watch.start();
@@ -144,20 +164,24 @@ private:
     void _update_scan_cpu_timer();
 
 public:
+    // Call start_wait_worker_timer() when submit the scanner to the thread pool.
+    // And call update_wait_worker_timer() when it is actually being executed.
+    void start_wait_worker_timer() {
+        _watch.reset();
+        _watch.start();
+    }
+
     void resume() {
         _update_wait_worker_timer();
         _start_scan_cpu_timer();
     }
     void pause() {
         _update_scan_cpu_timer();
-        _start_wait_worker_timer();
+        start_wait_worker_timer();
     }
-    // Called when submitting the scanner to the thread pool queue.
-    // Only starts the wait timer without touching the CPU timer, because the CPU
-    // timer uses CLOCK_THREAD_CPUTIME_ID which must be read on the same thread
-    // that started it.
-    void start_queue_wait() { _start_wait_worker_timer(); }
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
+    int64_t get_prepare_time_cost_ns() const { return _per_scanner_prepare_timer; }
+    int64_t get_open_time_cost_ns() const { return _per_scanner_open_timer; }
 
     int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
@@ -180,6 +204,10 @@ public:
     virtual doris::TabletStorageType get_storage_type() {
         return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
+
+    // Returns true if this scanner's partition has been pruned by a runtime filter.
+    // Overridden by OlapScanner to check partition pruning state.
+    virtual bool check_partition_pruned() const { return false; }
 
     bool need_to_close() const { return _need_to_close; }
 
@@ -235,7 +263,6 @@ protected:
     std::vector<VExprContextSPtrs> _intermediate_projections;
     Block _origin_block;
     Block _padding_block;
-    bool _alreay_eos = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
@@ -265,9 +292,15 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+    int64_t _per_scanner_prepare_timer = 0;
+    int64_t _per_scanner_open_timer = 0;
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+
+    // Cached pointer to ScanOperator's remaining-limit counter. Null when
+    // this scanner is on the topn path or the query has no LIMIT.
+    std::atomic<int64_t>* _shared_scan_limit = nullptr;
 };
 
 using ScannerSPtr = std::shared_ptr<Scanner>;

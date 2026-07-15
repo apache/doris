@@ -17,6 +17,7 @@
 
 #include "exec/pipeline/pipeline.h"
 
+#include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
@@ -40,6 +41,8 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/workload_management/query_task_controller.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 
@@ -467,6 +470,36 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     downstream_recvr->close();
 }
 
+TEST_F(PipelineTest, QueryTaskProgressCounters) {
+    // Verify task-level counters are updated via QueryContext and exposed by QueryTaskController.
+    _query_ctx->add_total_task_num(7);
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+
+    auto* query_task_controller =
+            dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(query_task_controller, nullptr);
+    EXPECT_EQ(query_task_controller->get_total_task_num(), 7);
+    EXPECT_EQ(query_task_controller->get_finished_task_num(), 3);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressCountersOutliveQueryContext) {
+    // Verify controller-owned counters still work after QueryContext is destroyed.
+    auto resource_ctx = _query_ctx->resource_ctx();
+    auto* query_task_controller =
+            dynamic_cast<QueryTaskController*>(resource_ctx->task_controller());
+    ASSERT_NE(query_task_controller, nullptr);
+
+    _query_ctx->add_total_task_num(5);
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+
+    _query_ctx.reset();
+    EXPECT_EQ(query_task_controller->get_total_task_num(), 5);
+    EXPECT_EQ(query_task_controller->get_finished_task_num(), 2);
+}
+
 TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
     _reset();
     // Pipeline(ExchangeOperator(id=0, HASH_PARTITIONED) -> ExchangeSinkOperatorX(id=1, UNPARTITIONED))
@@ -476,7 +509,7 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
     DescriptorTbl* desc;
     OperatorPtr op;
     _build_fragment_context();
-    EXPECT_EQ(_runtime_state.front()->enable_local_shuffle(), true);
+    EXPECT_EQ(_runtime_state.front()->plan_local_shuffle(), true);
     auto cur_pipe = _build_pipeline(parallelism);
     {
         auto tnode = TPlanNodeBuilder(_next_node_id(), TPlanNodeType::EXCHANGE_NODE)
@@ -551,11 +584,12 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
     }
     {
         cur_pipe->init_data_distribution(_runtime_state.back().get());
-        EXPECT_EQ(cur_pipe->data_distribution().distribution_type, ExchangeType::HASH_SHUFFLE);
+        EXPECT_EQ(cur_pipe->data_distribution().distribution_type,
+                  TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
         EXPECT_EQ(cur_pipe->sink()
                           ->required_data_distribution(_runtime_state.back().get())
                           .distribution_type,
-                  ExchangeType::NOOP);
+                  TLocalPartitionType::NOOP);
         EXPECT_EQ(cur_pipe->need_to_local_exchange(
                           cur_pipe->sink()->required_data_distribution(_runtime_state.back().get()),
                           1),
@@ -564,11 +598,11 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
     {
         cur_pipe->operators().front()->set_serial_operator();
         cur_pipe->init_data_distribution(_runtime_state.back().get());
-        EXPECT_EQ(cur_pipe->data_distribution().distribution_type, ExchangeType::NOOP);
+        EXPECT_EQ(cur_pipe->data_distribution().distribution_type, TLocalPartitionType::NOOP);
         EXPECT_EQ(cur_pipe->sink()
                           ->required_data_distribution(_runtime_state.back().get())
                           .distribution_type,
-                  ExchangeType::PASSTHROUGH);
+                  TLocalPartitionType::PASSTHROUGH);
         EXPECT_EQ(cur_pipe->need_to_local_exchange(
                           cur_pipe->sink()->required_data_distribution(_runtime_state.back().get()),
                           1),
@@ -587,7 +621,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
     // Build pipeline
     DescriptorTbl* desc;
     _build_fragment_context();
-    EXPECT_EQ(_runtime_state.front()->enable_local_shuffle(), true);
+    EXPECT_EQ(_runtime_state.front()->plan_local_shuffle(), true);
     {
         TTupleDescriptor tuple0 = TTupleDescriptorBuilder().set_id(0).build();
         TSlotDescriptor slot0 =
@@ -870,12 +904,12 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         if (pip_idx == 1) {
             // Pipeline(ExchangeOperator(id=1, HASH_PARTITIONED) -> HashJoinBuildOperator(id=0))
             EXPECT_EQ(_pipelines[pip_idx]->data_distribution().distribution_type,
-                      ExchangeType::HASH_SHUFFLE);
+                      TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]
                               ->sink()
                               ->required_data_distribution(_runtime_state.back().get())
                               .distribution_type,
-                      ExchangeType::HASH_SHUFFLE);
+                      TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
                               _pipelines[pip_idx]->sink()->required_data_distribution(
                                       _runtime_state.back().get()),
@@ -886,7 +920,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             _pipelines[pip_idx]->set_data_distribution(
                     _pipelines[pip_idx]->children().front()->data_distribution());
             EXPECT_EQ(_pipelines[pip_idx]->data_distribution().distribution_type,
-                      ExchangeType::HASH_SHUFFLE);
+                      TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
                               _pipelines[pip_idx]->sink()->required_data_distribution(
                                       _runtime_state.back().get()),
@@ -897,7 +931,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                               .back()
                               ->required_data_distribution(_runtime_state.back().get())
                               .distribution_type,
-                      ExchangeType::HASH_SHUFFLE);
+                      TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
                               _pipelines[pip_idx]->operators().back()->required_data_distribution(
                                       _runtime_state.back().get()),
@@ -1161,6 +1195,98 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         EXPECT_EQ(downstream_recvr->_sender_queues[0]->_num_remaining_senders, 0);
     }
     downstream_recvr->close();
+}
+
+TEST_F(PipelineTest, QueryTaskProgressConcurrentUpdates) {
+    // Verify counters are thread-safe under concurrent updates from multiple threads.
+    auto resource_ctx = _query_ctx->resource_ctx();
+    auto* ctrl = dynamic_cast<QueryTaskController*>(resource_ctx->task_controller());
+    ASSERT_NE(ctrl, nullptr);
+
+    _query_ctx->add_total_task_num(400);
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; i++) {
+        threads.emplace_back([this]() {
+            for (int j = 0; j < 50; j++) {
+                _query_ctx->inc_finished_task_num();
+            }
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(ctrl->get_total_task_num(), 400);
+    EXPECT_EQ(ctrl->get_finished_task_num(), 400);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressThriftSerialization) {
+    // Verify progress counters are correctly serialized to Thrift struct.
+    _query_ctx->add_total_task_num(10);
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+
+    TQueryStatistics tqs;
+    _query_ctx->resource_ctx()->to_thrift_query_statistics(&tqs);
+
+    EXPECT_TRUE(tqs.__isset.total_tasks_num);
+    EXPECT_EQ(tqs.total_tasks_num, 10);
+    EXPECT_TRUE(tqs.__isset.finished_tasks_num);
+    EXPECT_EQ(tqs.finished_tasks_num, 4);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressBoundaryZeroTotal) {
+    // Verify behavior when no tasks have been registered (total = 0).
+    auto* ctrl = dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(ctrl, nullptr);
+
+    // total = 0, finished = 0
+    EXPECT_EQ(ctrl->get_total_task_num(), 0);
+    EXPECT_EQ(ctrl->get_finished_task_num(), 0);
+
+    // inc_finished with no total should still work without crash
+    _query_ctx->inc_finished_task_num();
+    EXPECT_EQ(ctrl->get_finished_task_num(), 1);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressAllFinished) {
+    // Verify 100% progress when all tasks finish.
+    _query_ctx->add_total_task_num(8);
+    for (int i = 0; i < 8; i++) {
+        _query_ctx->inc_finished_task_num();
+    }
+
+    auto* ctrl = dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(ctrl, nullptr);
+    EXPECT_EQ(ctrl->get_total_task_num(), 8);
+    EXPECT_EQ(ctrl->get_finished_task_num(), 8);
+
+    // Verify thrift serialization
+    TQueryStatistics tqs;
+    _query_ctx->resource_ctx()->to_thrift_query_statistics(&tqs);
+    EXPECT_EQ(tqs.total_tasks_num, 8);
+    EXPECT_EQ(tqs.finished_tasks_num, 8);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressCountersSurviveReset) {
+    // Verify that after calling _reset(), fresh counters are initialized to zero.
+    auto* ctrl1 = dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(ctrl1, nullptr);
+    _query_ctx->add_total_task_num(10);
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+    EXPECT_EQ(ctrl1->get_total_task_num(), 10);
+    EXPECT_EQ(ctrl1->get_finished_task_num(), 2);
+
+    // Reset creates a new QueryContext
+    _reset();
+    auto* ctrl2 = dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(ctrl2, nullptr);
+    EXPECT_EQ(ctrl2->get_total_task_num(), 0);
+    EXPECT_EQ(ctrl2->get_finished_task_num(), 0);
 }
 
 } // namespace doris

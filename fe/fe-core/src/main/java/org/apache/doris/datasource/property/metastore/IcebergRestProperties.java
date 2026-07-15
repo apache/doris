@@ -17,7 +17,13 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.iceberg.IcebergDelegatedCredentialUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -27,9 +33,15 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.SessionCatalog;
+import org.apache.iceberg.rest.RESTSessionCatalog;
+import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -37,12 +49,24 @@ import java.util.Map;
 
 public class IcebergRestProperties extends AbstractIcebergProperties {
 
+    private static final Logger LOG = LogManager.getLogger(IcebergRestProperties.class);
+
     // REST catalog property constants
     private static final String PREFIX_PROPERTY = "prefix";
     private static final String VENDED_CREDENTIALS_HEADER = "header.X-Iceberg-Access-Delegation";
     private static final String VENDED_CREDENTIALS_VALUE = "vended-credentials";
+    private static final String ICEBERG_REST_ROLE_ARN = "iceberg.rest.role_arn";
+    private static final String ICEBERG_REST_EXTERNAL_ID = "iceberg.rest.external-id";
 
     private Map<String, String> icebergRestCatalogProperties;
+    private S3Properties s3Properties;
+
+    // The session-aware Iceberg REST catalog. We build a RESTSessionCatalog directly (instead of the
+    // all-in-one RESTCatalog) so that per-user delegated credentials can be attached per request via
+    // asCatalog(SessionContext) / asViewCatalog(SessionContext), without reflecting RESTCatalog's private
+    // sessionCatalog field. This is the single underlying catalog shared by the default and user-session
+    // paths; IcebergMetadataOps reads it via getRestSessionCatalog() and owns no other REST catalog.
+    private RESTSessionCatalog restSessionCatalog;
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
@@ -62,19 +86,18 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.session"},
             required = false,
-            supported = false,
             description = "The session type of the iceberg rest catalog service,"
                     + "optional: (none, user), default: none.")
     private String icebergRestSession = "none";
 
     @ConnectorProperty(names = {"iceberg.rest.session-timeout"},
             required = false,
-            supported = false,
             description = "The session timeout of the iceberg rest catalog service.")
     private String icebergRestSessionTimeout = "0";
 
     @ConnectorProperty(names = {"iceberg.rest.oauth2.token"},
             required = false,
+            sensitive = true,
             description = "The oauth2 token for the iceberg rest catalog service.")
     private String icebergRestOauth2Token;
 
@@ -100,6 +123,13 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     private String icebergRestOauth2TokenRefreshEnabled = String.valueOf(
             OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT);
 
+    @Getter
+    @ConnectorProperty(names = {"iceberg.rest.oauth2.delegated-token-mode"},
+            required = false,
+            description = "How user delegated tokens are passed to the iceberg rest catalog."
+                    + " Supported values are: access_token, token_exchange. Default: access_token.")
+    private String icebergRestOauth2DelegatedTokenMode = DelegatedTokenMode.ACCESS_TOKEN.value;
+
     @ConnectorProperty(names = {"iceberg.rest.vended-credentials-enabled"},
             required = false,
             description = "Enable vended credentials for the iceberg rest catalog service.")
@@ -109,6 +139,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             required = false,
             description = "Enable nested namespace for the iceberg rest catalog service.")
     private String icebergRestNestedNamespaceEnabled = "false";
+
+    @ConnectorProperty(names = {"iceberg.rest.view-enabled"},
+            required = false,
+            description = "Enable view operations for the iceberg rest catalog service.")
+    private String icebergRestViewEnabled = "true";
 
     @ConnectorProperty(names = {"iceberg.rest.case-insensitive-name-matching"},
             required = false,
@@ -149,6 +184,22 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The secret access key for the iceberg rest catalog service.")
     private String icebergRestSecretAccessKey = "";
 
+    @ConnectorProperty(names = {"iceberg.rest.session-token"},
+            required = false,
+            sensitive = true,
+            description = "The session-token for the iceberg rest catalog service.")
+    private String icebergRestSessionToken = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.credentials_provider_type"},
+            required = false,
+            description = "The credentials provider type for AWS authentication. "
+                    + "Options are: DEFAULT, INSTANCE_PROFILE, ENV, SYSTEM_PROPERTIES, "
+                    + "WEB_IDENTITY, CONTAINER. "
+                    + "If not set, defaults to DEFAULT (provider chain).")
+    private String icebergRestCredentialsProviderType = AwsCredentialsProviderMode.DEFAULT.name();
+
+    private AwsCredentialsProviderMode icebergRestCredentialsProviderMode;
+
     @ConnectorProperty(names = {"iceberg.rest.connection-timeout-ms"},
             required = false,
             description = "Connection timeout in milliseconds for the REST catalog HTTP client. Default: 10000 (10s).")
@@ -158,6 +209,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             required = false,
             description = "Socket timeout in milliseconds for the REST catalog HTTP client. Default: 60000 (60s).")
     private String icebergRestSocketTimeoutMs = "60000";
+
+    @Getter
+    private DelegatedTokenMode delegatedTokenMode = DelegatedTokenMode.ACCESS_TOKEN;
 
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
@@ -171,18 +225,75 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList) {
-        catalogProps.putAll(getIcebergRestCatalogProperties());
+        return initCatalog(catalogName, catalogProps, storagePropertiesList, SessionContext.empty());
+    }
+
+    @Override
+    protected Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+            List<StorageProperties> storagePropertiesList, SessionContext sessionContext) {
+        catalogProps.putAll(getIcebergRestCatalogPropertiesForCatalogInit(sessionContext));
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);
-        // 4. Build iceberg catalog
-        return buildIcebergCatalog(catalogName, catalogProps, configuration);
+        // Build the REST catalog as a RESTSessionCatalog rather than the all-in-one RESTCatalog.
+        // RESTSessionCatalog is session-aware: asCatalog(ctx)/asViewCatalog(ctx) attach per-user delegated
+        // credentials per request. RESTCatalog internally does exactly this (its default delegate is
+        // sessionCatalog.asCatalog(empty)), but hides the session catalog behind a private field; building
+        // it ourselves keeps that capability without reflection. The "type" key is dropped because the
+        // Iceberg SDK rejects "type" together with a concrete catalog impl.
+        catalogProps.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
+        this.restSessionCatalog = buildRestSessionCatalog(catalogName, catalogProps, configuration);
+        // The default (non-delegated) Catalog is asCatalog(empty), identical to what RESTCatalog exposes.
+        return restSessionCatalog.asCatalog(SessionCatalog.SessionContext.createEmpty());
+    }
+
+    /**
+     * Builds and initializes the underlying {@link RESTSessionCatalog}. Extracted as a seam so tests can
+     * capture the resolved catalog properties without performing real REST/OAuth network calls.
+     */
+    protected RESTSessionCatalog buildRestSessionCatalog(String catalogName, Map<String, String> catalogProps,
+            Configuration configuration) {
+        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog();
+        CatalogUtil.configureHadoopConf(sessionCatalog, configuration);
+        sessionCatalog.initialize(catalogName, catalogProps);
+        return sessionCatalog;
+    }
+
+    /**
+     * Returns the session-aware Iceberg REST catalog built by {@link #initCatalog}, or {@code null} if the
+     * catalog has not been initialized yet. Callers use it to obtain per-request catalogs via
+     * {@code asCatalog(SessionContext)} / {@code asViewCatalog(SessionContext)}.
+     */
+    public RESTSessionCatalog getRestSessionCatalog() {
+        return restSessionCatalog;
+    }
+
+    /**
+     * Closes the underlying {@link RESTSessionCatalog} and releases its REST client/auth resources.
+     * Safe to call multiple times and before initialization.
+     */
+    public void closeRestSessionCatalog() {
+        if (restSessionCatalog != null) {
+            try {
+                restSessionCatalog.close();
+            } catch (IOException e) {
+                LOG.warn("Failed to close Iceberg REST session catalog", e);
+            }
+            restSessionCatalog = null;
+        }
     }
 
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         validateSecurityType();
+        validateSessionType();
+        delegatedTokenMode = DelegatedTokenMode.fromString(icebergRestOauth2DelegatedTokenMode);
+        icebergRestCredentialsProviderMode =
+                AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
         buildRules().validate();
+        if (shouldUseS3PropertiesForRestCredentials()) {
+            s3Properties = S3Properties.of(origProps);
+        }
         initIcebergRestCatalogProperties();
     }
 
@@ -196,6 +307,18 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid security type: " + icebergRestSecurityType
                     + ". Supported values are: none, oauth2");
+        }
+    }
+
+    private void validateSessionType() {
+        try {
+            Session.valueOf(icebergRestSession.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid session type: " + icebergRestSession
+                    + ". Supported values are: none, user");
+        }
+        if (isIcebergRestUserSessionEnabled() && !"oauth2".equalsIgnoreCase(icebergRestSecurityType)) {
+            throw new IllegalArgumentException("iceberg.rest.session=user requires oauth2 security type");
         }
     }
 
@@ -213,20 +336,35 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if ("oauth2".equalsIgnoreCase(icebergRestSecurityType)) {
             boolean hasCredential = Strings.isNotBlank(icebergRestOauth2Credential);
             boolean hasToken = Strings.isNotBlank(icebergRestOauth2Token);
-            if (!hasCredential && !hasToken) {
+            if (!hasCredential && !hasToken && !isIcebergRestUserSessionEnabled()) {
                 throw new IllegalArgumentException("OAuth2 requires either credential or token");
             }
         }
 
-        // Check for glue rest catalog specific properties
+        // When signing-name is glue or s3tables: require signing-region and sigv4-enabled
         rules.requireIf(icebergRestSigningName, "glue",
-                new String[] {icebergRestSigningRegion,
-                        icebergRestAccessKeyId,
-                        icebergRestSecretAccessKey,
-                        icebergRestSigV4Enabled},
-                "Rest Catalog requires signing-region, access-key-id, secret-access-key "
-                        + "and sigv4-enabled set to true when signing-name is glue");
+                new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is glue");
+        rules.requireIf(icebergRestSigningName, "s3tables",
+                new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is s3tables");
+
+        rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_ROLE_ARN);
+        rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_EXTERNAL_ID);
+
+        // access-key-id and secret-access-key must be set together when either is set
+        rules.requireTogether(new String[] {icebergRestAccessKeyId, icebergRestSecretAccessKey},
+                "iceberg.rest.access-key-id and iceberg.rest.secret-access-key must be set together");
+
         return rules;
+    }
+
+    private void rejectUnsupportedAwsAssumeRoleProperty(String propertyName) {
+        if (Strings.isNotBlank(origProps.get(propertyName))) {
+            throw new IllegalArgumentException(propertyName + " is not supported for Iceberg REST catalog. "
+                    + "Use iceberg.rest.access-key-id and iceberg.rest.secret-access-key, "
+                    + "or iceberg.rest.credentials_provider_type instead");
+        }
     }
 
     private void initIcebergRestCatalogProperties() {
@@ -267,6 +405,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestSocketTimeoutMs)) {
             icebergRestCatalogProperties.put("rest.client.socket-timeout-ms", icebergRestSocketTimeoutMs);
         }
+
+        if (isIcebergRestUserSessionEnabled() && Strings.isNotBlank(icebergRestSessionTimeout)
+                && Long.parseLong(icebergRestSessionTimeout) > 0) {
+            icebergRestCatalogProperties.put(CatalogProperties.AUTH_SESSION_TIMEOUT_MS, icebergRestSessionTimeout);
+        }
     }
 
     private void addAuthenticationProperties() {
@@ -277,6 +420,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     private void addOAuth2Properties() {
+        icebergRestCatalogProperties.put(AuthProperties.AUTH_TYPE, AuthProperties.AUTH_TYPE_OAUTH2);
         if (Strings.isNotBlank(icebergRestOauth2Credential)) {
             // Client Credentials Flow
             icebergRestCatalogProperties.put(OAuth2Properties.CREDENTIAL, icebergRestOauth2Credential);
@@ -288,7 +432,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             }
             icebergRestCatalogProperties.put(OAuth2Properties.TOKEN_REFRESH_ENABLED,
                     icebergRestOauth2TokenRefreshEnabled);
-        } else {
+        } else if (Strings.isNotBlank(icebergRestOauth2Token)) {
             // Pre-configured Token Flow
             icebergRestCatalogProperties.put(OAuth2Properties.TOKEN, icebergRestOauth2Token);
         }
@@ -299,14 +443,47 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             // signing-name is case sensible, do not use lowercase()
             icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName);
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
-            icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
-            icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
+
+            if (shouldUseS3PropertiesForRestCredentials()) {
+                IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
+                        icebergRestCatalogProperties, s3Properties);
+            } else {
+                IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
+                        icebergRestCatalogProperties, icebergRestAccessKeyId,
+                        icebergRestSecretAccessKey, icebergRestSessionToken, icebergRestCredentialsProviderMode);
+            }
         }
+    }
+
+    private boolean shouldUseS3PropertiesForRestCredentials() {
+        return "glue".equals(icebergRestSigningName)
+                || "s3tables".equals(icebergRestSigningName);
     }
 
     public Map<String, String> getIcebergRestCatalogProperties() {
         return Collections.unmodifiableMap(icebergRestCatalogProperties);
+    }
+
+    Map<String, String> getIcebergRestCatalogPropertiesForCatalogInit(SessionContext sessionContext) {
+        Map<String, String> catalogProperties = new HashMap<>(icebergRestCatalogProperties);
+        if (!isIcebergRestUserSessionEnabled() || sessionContext == null
+                || !sessionContext.hasDelegatedCredential()) {
+            return Collections.unmodifiableMap(catalogProperties);
+        }
+
+        DelegatedCredential credential = sessionContext.getDelegatedCredential().get();
+        if (delegatedTokenMode == DelegatedTokenMode.ACCESS_TOKEN) {
+            catalogProperties.remove(OAuth2Properties.CREDENTIAL);
+            catalogProperties.remove(OAuth2Properties.OAUTH2_SERVER_URI);
+            catalogProperties.remove(OAuth2Properties.SCOPE);
+            catalogProperties.remove(OAuth2Properties.TOKEN_REFRESH_ENABLED);
+            catalogProperties.put(OAuth2Properties.TOKEN, credential.getToken());
+        } else {
+            catalogProperties.put(IcebergDelegatedCredentialUtils.credentialKey(credential.getType()),
+                    credential.getToken());
+        }
+        return Collections.unmodifiableMap(catalogProperties);
     }
 
     public boolean isIcebergRestVendedCredentialsEnabled() {
@@ -317,8 +494,42 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         return Boolean.parseBoolean(icebergRestNestedNamespaceEnabled);
     }
 
+    public boolean isIcebergRestViewEnabled() {
+        return Boolean.parseBoolean(icebergRestViewEnabled);
+    }
+
+    public boolean isIcebergRestUserSessionEnabled() {
+        return Session.USER.name().equalsIgnoreCase(icebergRestSession);
+    }
+
     public enum Security {
         NONE,
         OAUTH2,
+    }
+
+    public enum Session {
+        NONE,
+        USER,
+    }
+
+    public enum DelegatedTokenMode {
+        ACCESS_TOKEN("access_token"),
+        TOKEN_EXCHANGE("token_exchange");
+
+        private final String value;
+
+        DelegatedTokenMode(String value) {
+            this.value = value;
+        }
+
+        public static DelegatedTokenMode fromString(String value) {
+            for (DelegatedTokenMode mode : values()) {
+                if (mode.value.equalsIgnoreCase(value)) {
+                    return mode;
+                }
+            }
+            throw new IllegalArgumentException("Invalid delegated token mode: " + value
+                    + ". Supported values are: access_token, token_exchange");
+        }
     }
 }

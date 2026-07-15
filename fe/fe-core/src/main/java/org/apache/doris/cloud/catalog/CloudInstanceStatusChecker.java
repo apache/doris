@@ -205,6 +205,11 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
 
     private void cancelCacheJobs(ComputeGroup vcgInFe, List<String> jobIds) {
         CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
+        if (!jobIds.isEmpty()) {
+            LOG.info("warmup-vcg cancel-cache-jobs vcgName={} activeComputeGroup={} standbyComputeGroup={} "
+                            + "jobIds={}",
+                    vcgInFe.getName(), vcgInFe.getActiveComputeGroup(), vcgInFe.getStandbyComputeGroup(), jobIds);
+        }
         for (String jobId : jobIds) {
             try {
                 if (Env.getCurrentEnv().isMaster()) {
@@ -284,8 +289,16 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
         if (virtualGroupInFe.isNeedRebuildFileCache()) {
             String srcCg = virtualGroupInFe.getActiveComputeGroup();
             String dstCg = virtualGroupInFe.getStandbyComputeGroup();
-            cancelCacheJobs(virtualGroupInFe, jobIdsInMs);
             try {
+                LOG.info("warmup-vcg rebuild-start vcgName={} srcCluster={} dstCluster={} subComputeGroups={} "
+                                + "oldJobIds={}",
+                        virtualGroupInFe.getName(), srcCg, dstCg, virtualGroupInFe.getSubComputeGroups(),
+                        jobIdsInMs);
+                cacheHotspotManager.cancelTableLevelLoadEventWarmUpJobsForVirtualComputeGroup(
+                        virtualGroupInFe.getName(), srcCg, dstCg, virtualGroupInFe.getSubComputeGroups(),
+                        "vcg cancel table-level load-event warm up job before rebuilding file cache jobs");
+                cancelCacheJobs(virtualGroupInFe, jobIdsInMs);
+
                 // all
                 Map<String, String> periodicProperties = new HashMap<>();
                 // "sync_mode" = "periodic", "sync_interval_sec" = "fetch_cluster_cache_hotspot_interval_ms"
@@ -313,10 +326,13 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                 // send jobIds to ms
                 List<String> newJobIds = Arrays.asList(Long.toString(jobIdPeriodic), Long.toString(jobIdEvent));
                 CloudSystemInfoService.updateFileCacheJobIds(virtualGroupInFe, newJobIds);
-                LOG.info("virtual compute group {}, generate new jobIds periodic={}, event={}, and old jobIds {}",
-                        virtualGroupInFe, jobIdPeriodic, jobIdEvent, jobIdsInMs);
+                LOG.info("warmup-vcg rebuild-finish vcgName={} srcCluster={} dstCluster={} "
+                                + "createdPeriodicJobId={} createdEventJobId={} oldJobIds={}",
+                        virtualGroupInFe.getName(), srcCg, dstCg, jobIdPeriodic, jobIdEvent, jobIdsInMs);
             } catch (AnalysisException e) {
-                LOG.warn("virtual compute err, name: {}, analysis error", virtualGroupInFe.getName(), e);
+                LOG.warn("warmup-vcg rebuild-failed vcgName={} srcCluster={} dstCluster={} oldJobIds={} "
+                                + "failureReason={}",
+                        virtualGroupInFe.getName(), srcCg, dstCg, jobIdsInMs, e.getMessage(), e);
                 return;
             }
             virtualGroupInFe.setNeedRebuildFileCache(false);

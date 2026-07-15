@@ -18,6 +18,10 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.auth.certificate.CertificateAuthDecision;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
+import org.apache.doris.auth.certificate.StreamLoadCertificateAuthHelper;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -61,6 +65,8 @@ import java.util.stream.Collectors;
 
 public class StreamLoadHandler {
     private static final Logger LOG = LogManager.getLogger(StreamLoadHandler.class);
+    private static final CertificateRuntimeAuthService CERT_RUNTIME_AUTH_SERVICE =
+            CertificateRuntimeAuthFactory.getInstance();
 
     private TStreamLoadPutRequest request;
     private Boolean isMultiTableRequest;
@@ -91,7 +97,8 @@ public class StreamLoadHandler {
     public static Backend selectBackend(String clusterName) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)
-                .stream().filter(Backend::isLoadAvailable)
+                .stream().filter(backend -> backend.isLoadAvailable() && !backend.isDecommissioned()
+                        && !backend.isDecommissioning())
                 .collect(Collectors.toList());
 
         if (backends.isEmpty()) {
@@ -128,15 +135,7 @@ public class StreamLoadHandler {
         ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
         String userName = request.getUser();
         if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
-            List<UserIdentity> currentUser = Lists.newArrayList();
-            try {
-                Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
-                        request.getUserIp(), request.getPasswd(), currentUser);
-            } catch (AuthenticationException e) {
-                throw new UserException(e.formatErrMsg());
-            }
-            Preconditions.checkState(currentUser.size() == 1);
-            ctx.setCurrentUserIdentity(currentUser.get(0));
+            ctx.setCurrentUserIdentity(resolveCloudLoadUserIdentity(userName));
         }
         if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
             long backendId = request.getBackendId();
@@ -154,6 +153,37 @@ public class StreamLoadHandler {
                 ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
             }
         }
+    }
+
+    private UserIdentity resolveCloudLoadUserIdentity(String userName) throws UserException {
+        CertificateAuthDecision certDecision = StreamLoadCertificateAuthHelper.authenticateForwarded(
+                CERT_RUNTIME_AUTH_SERVICE,
+                userName,
+                request.getUserIp(),
+                StreamLoadCertificateAuthHelper.fromThrift(request.getCertBasedAuth()));
+        if (certDecision.isReject()) {
+            throw new UserException(certDecision.getErrorMessage() == null
+                    ? "TLS certificate verification failed"
+                    : certDecision.getErrorMessage());
+        }
+
+        List<UserIdentity> currentUser = Lists.newArrayList();
+        try {
+            if (certDecision.shouldSkipPasswordVerification()) {
+                return certDecision.getUserIdentity();
+            }
+            if (certDecision.isVerified()) {
+                Env.getCurrentEnv().getAuth().checkPlainPasswordForUserIdentity(
+                        certDecision.getUserIdentity(), request.getPasswd(), currentUser);
+            } else {
+                Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
+                        request.getUserIp(), request.getPasswd(), currentUser);
+            }
+        } catch (AuthenticationException e) {
+            throw new UserException(e.formatErrMsg());
+        }
+        Preconditions.checkState(currentUser.size() == 1);
+        return currentUser.get(0);
     }
 
     private void setDbAndTable() throws UserException, MetaNotFoundException {

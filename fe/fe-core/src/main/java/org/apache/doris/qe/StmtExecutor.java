@@ -62,6 +62,7 @@ import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
@@ -101,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
+import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -108,6 +110,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitScanNode;
@@ -166,7 +169,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
@@ -185,10 +187,14 @@ public class StmtExecutor {
 
     private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
-    private final StatementContext statementContext;
+    private StatementContext statementContext;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
+    // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
+    // reverted, so the audit log (built after execute() returns) can reflect the values that
+    // were actually in effect for this statement. Null when no SET_VAR hint was used.
+    private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
     @Setter
@@ -475,6 +481,16 @@ public class StmtExecutor {
         }
     }
 
+    /**
+     * Whether this executor has actually forwarded to master and created a {@link MasterOpExecutor}.
+     *
+     * <p>Do not confuse with {@link #isForwardToMaster()} which is a decision (may be re-evaluated)
+     * based on current statement shape / redirect status.
+     */
+    public boolean hasForwardedToMaster() {
+        return masterOpExecutor != null;
+    }
+
     public ShowResultSet getProxyShowResultSet() {
         return proxyShowResultSet;
     }
@@ -541,6 +557,20 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
+    public List<List<String>> getChangedSessionVarsForAudit() {
+        return changedSessionVarsForAudit;
+    }
+
+    /**
+     * Replace the executor statement context and synchronize it to the owning ConnectContext.
+     */
+    public void setStatementContext(StatementContext statementContext) {
+        this.statementContext = statementContext;
+        this.statementContext.setConnectContext(context);
+        this.statementContext.setOriginStatement(originStmt);
+        this.context.setStatementContext(statementContext);
+    }
+
     public boolean isHandleQueryInFe() {
         return isHandleQueryInFe;
     }
@@ -551,8 +581,7 @@ public class StmtExecutor {
 
     // query with a random sql
     public void execute() throws Exception {
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
                     DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
@@ -562,9 +591,9 @@ public class StmtExecutor {
 
     public void queryRetry(TUniqueId queryId) throws Exception {
         TUniqueId firstQueryId = queryId;
-        UUID uuid;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        boolean disableCloudVersionCacheOnRetry = false;
         // If the query is an `outfile` statement,
         // we execute it only once to avoid exporting redundant data.
         if (parsedStmt instanceof Queriable) {
@@ -572,7 +601,11 @@ public class StmtExecutor {
         }
         for (int i = 1; i <= retryTime; i++) {
             try {
-                execute(queryId);
+                if (disableCloudVersionCacheOnRetry) {
+                    executeWithVersionCacheDisabled(queryId);
+                } else {
+                    execute(queryId);
+                }
                 return;
             } catch (UserException e) {
                 if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
@@ -584,9 +617,9 @@ public class StmtExecutor {
                 if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
+                disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
                 TUniqueId lastQueryId = queryId;
-                uuid = UUID.randomUUID();
-                queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                queryId = UniqueIdUtils.fastUniqueId();
                 int randomMillis = 10 + (int) (Math.random() * 10);
                 if (i > retryTime / 2) {
                     randomMillis = 20 + (int) (Math.random() * 10);
@@ -603,6 +636,34 @@ public class StmtExecutor {
                 throw e;
             }
         }
+    }
+
+    // Temporarily disable the cloud version cache for this single attempt so that the retry
+    // re-fetches the visible version from meta-service, then restore the user-set TTLs.
+    private void executeWithVersionCacheDisabled(TUniqueId queryId) throws Exception {
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long oldPartitionTtl = sessionVariable.cloudPartitionVersionCacheTtlMs;
+        long oldTableTtl = sessionVariable.cloudTableVersionCacheTtlMs;
+        try {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = 0;
+            sessionVariable.cloudTableVersionCacheTtlMs = 0;
+            LOG.info("temporarily set {} from {} to 0 and {} from {} to 0 before retry. {}",
+                    SessionVariable.CLOUD_PARTITION_VERSION_CACHE_TTL_MS, oldPartitionTtl,
+                    SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS, oldTableTtl,
+                    context.getQueryIdentifier());
+            execute(queryId);
+        } finally {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = oldPartitionTtl;
+            sessionVariable.cloudTableVersionCacheTtlMs = oldTableTtl;
+        }
+    }
+
+    boolean shouldDisableCloudVersionCacheOnRetry(String errorMessage) {
+        return Config.isCloudMode()
+                && errorMessage != null
+                && errorMessage.contains(SystemInfoService.ERROR_E230)
+                && (context.getSessionVariable().cloudPartitionVersionCacheTtlMs != 0
+                || context.getSessionVariable().cloudTableVersionCacheTtlMs != 0);
     }
 
     public void execute(TUniqueId queryId) throws Exception {
@@ -633,6 +694,17 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
+            // so the audit log (logged after execute() returns, i.e. after the revert below) can
+            // reflect what was actually in effect for this statement instead of the reverted values.
+            if (sessionVariable.getIsSingleSetVar()) {
+                try {
+                    changedSessionVarsForAudit = VariableMgr.dumpChangedVars(sessionVariable);
+                } catch (Throwable t) {
+                    LOG.warn("failed to snapshot changed session variables for audit. {}",
+                            context.getQueryIdentifier(), t);
+                }
+            }
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -670,6 +742,8 @@ public class StmtExecutor {
                         scanNode.getSelectedPartitionNum(),
                         scanNode.getSelectedSplitNum(),
                         scanNode.getCardinality(),
+                        scanNode.isPartitionedTable(),
+                        scanNode.hasPartitionPredicate(),
                         context.getQualifiedUser());
 
             }
@@ -941,6 +1015,16 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
+        // In the proxy flow (multi-FE forwarding), the StatementContext is created fresh
+        // without a parsedStatement. Propagate it so that downstream code like
+        // canUseNereidsDistributePlanner can correctly identify the Nereids execution
+        // context, ensuring EnvFactory creates a NereidsCoordinator instead of a legacy
+        // Coordinator (which would fail with "fragment has no children").
+        // Only do this when isProxy is true, because other code paths like
+        // executeInternalQuery() rely on legacy Coordinator behavior with mock backends.
+        if (isProxy) {
+            this.context.getStatementContext().setParsedStatement(parsedStmt);
+        }
     }
 
     public void finalizeQuery() {
@@ -959,9 +1043,7 @@ public class StmtExecutor {
             try {
                 // reset query id for each retry
                 if (i > 0) {
-                    UUID uuid = UUID.randomUUID();
-                    TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
-                            uuid.getLeastSignificantBits());
+                    TUniqueId newQueryId = UniqueIdUtils.fastUniqueId();
                     AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                     context.setQueryId(newQueryId);
@@ -1099,12 +1181,19 @@ public class StmtExecutor {
             return true;
         }
 
+        // Computed DML profiles are currently only supported for OLAP target tables.
+        if (plan instanceof SupportProfile && ((SupportProfile) plan).isTargetTableOlap(context)) {
+            return true;
+        }
+
         // Generate profile for:
         // 1. CreateTableCommand(mainly for create as select).
         // 2. LoadCommand.
         // 3. InsertOverwriteTableCommand.
+        // 4. MergeIntoCommand (merge into ... using ...).
         if ((plan instanceof Command) && !(plan instanceof LoadCommand)
-                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)) {
+                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)
+                && !(plan instanceof MergeIntoCommand)) {
             // Commands like SHOW QUERY PROFILE will not have profile.
             return false;
         } else {
@@ -1852,6 +1941,9 @@ public class StmtExecutor {
                 if (item != null && !item.equals(FeConstants.null_string)) {
                     Column col = metaData.getColumn(i);
                     switch (col.getType().getPrimitiveType()) {
+                        case BOOLEAN:
+                            serializer.writeInt1(parseBooleanResultValue(item));
+                            break;
                         case INT:
                             serializer.writeInt4(Integer.parseInt(item));
                             break;
@@ -1860,7 +1952,6 @@ public class StmtExecutor {
                             break;
                         case DATETIME:
                         case DATETIMEV2:
-                        case TIMESTAMPTZ:
                             DateTimeV2Literal datetime = new DateTimeV2Literal(item);
                             long microSecond = datetime.getMicroSecond();
                             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
@@ -1883,6 +1974,16 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
+    }
+
+    private static int parseBooleanResultValue(String item) {
+        if ("1".equals(item) || "true".equalsIgnoreCase(item)) {
+            return 1;
+        }
+        if ("0".equals(item) || "false".equalsIgnoreCase(item)) {
+            return 0;
+        }
+        throw new IllegalArgumentException("Invalid boolean result value: " + item);
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
@@ -1997,12 +2098,15 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
         }
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         context.setQueryId(queryId);
         if (originStmt.originStmt != null) {
             context.setSqlHash(DigestUtils.md5Hex(originStmt.originStmt));
         }
+        // Mark state up front so audit log records this as an internal query even if parse/plan fails.
+        context.getState().setNereids(true);
+        context.getState().setIsQuery(true);
+        context.getState().setInternal(true);
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
@@ -2010,9 +2114,6 @@ public class StmtExecutor {
                 Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                         "Nereids only process LogicalPlanAdapter,"
                                 + " but parsedStmt is " + parsedStmt.getClass().getName());
-                context.getState().setNereids(true);
-                context.getState().setIsQuery(true);
-                context.getState().setInternal(true);
                 planner = new NereidsPlanner(statementContext);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
             } catch (Exception e) {
@@ -2068,6 +2169,16 @@ public class StmtExecutor {
             } catch (Exception e) {
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             }
+        } catch (Exception e) {
+            // Surface failure into ConnectContext state so AuditLogHelper records ERR instead of OK.
+            if (context.getState().getStateType() != MysqlStateType.ERR) {
+                String msg = e.getMessage();
+                if (Strings.isNullOrEmpty(msg)) {
+                    msg = Util.getRootCauseMessage(e);
+                }
+                context.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, msg);
+            }
+            throw e;
         } finally {
             if (coord != null) {
                 coord.close();

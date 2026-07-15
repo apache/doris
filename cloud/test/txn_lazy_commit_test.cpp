@@ -101,9 +101,6 @@ int main(int argc, char** argv) {
 
     // Initialize FDB
     get_fdb_txn_kv();
-    DORIS_CLOUD_DEFER {
-        txn_kv.reset();
-    };
 
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     s3_producer_pool->start();
@@ -116,7 +113,10 @@ int main(int argc, char** argv) {
             RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
                                     std::move(group_recycle_function_pool));
 
-    return RUN_ALL_TESTS();
+    int ret = RUN_ALL_TESTS();
+    thread_group = RecyclerThreadPoolGroup();
+    txn_kv.reset();
+    return ret;
 }
 namespace doris::cloud {
 

@@ -74,6 +74,9 @@ class ClusterOptions {
     // environment variables, each environment should be 'name=value'
     List<String> environments = []
 
+    // cloud store overrides for cloud docker clusters, each item should be 'name=value'
+    List<String> cloudStoreConfigs = []
+
     boolean connectToFollower = false
 
     // 1. cloudMode = true, only create cloud cluster.
@@ -97,6 +100,10 @@ class ClusterOptions {
 
     String tdeAk = "";
     String tdeSk = "";
+    String tdeAwsAk = "";
+    String tdeAwsSk = "";
+    String tdeAliyunAk = "";
+    String tdeAliyunSk = "";
 
     // Use external meta service cluster (shared MS/FDB)
     // Specify the cluster name that provides MS/FDB services
@@ -113,6 +120,10 @@ class ClusterOptions {
     // with --cluster_snapshot parameter. Only effective on first startup.
     // Example: clusterSnapshot = '{"cloud_unique_id":"1:instance_id:xxx"}'
     String clusterSnapshot = null;
+
+    // Create cloud instance in storage-vault mode instead of legacy obj_info mode.
+    // Docker framework will also create a default storage vault automatically for new clusters.
+    Boolean enableStorageVault = false;
 
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
@@ -372,9 +383,17 @@ class SuiteCluster {
             cmd += ['--extra-hosts']
             cmd += options.extraHosts
         }
-        if (!options.environments.isEmpty()) {
+        def envs = new ArrayList<String>(options.environments)
+        if (options.enableStorageVault) {
+            envs.add('ENABLE_STORAGE_VAULT=1')
+        }
+        if (!envs.isEmpty()) {
             cmd += ['--env']
-            cmd += options.environments
+            cmd += envs
+        }
+        if (!options.cloudStoreConfigs.isEmpty()) {
+            cmd += ['--cloud-config']
+            cmd += options.cloudStoreConfigs
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
@@ -405,6 +424,26 @@ class SuiteCluster {
         if (options.tdeSk != null && options.tdeSk != "") {
             cmd += ['--tde-sk']
             cmd += options.tdeSk
+        }
+
+        if (options.tdeAwsAk != null && options.tdeAwsAk != "") {
+            cmd += ['--tde-aws-ak']
+            cmd += options.tdeAwsAk
+        }
+
+        if (options.tdeAwsSk != null && options.tdeAwsSk != "") {
+            cmd += ['--tde-aws-sk']
+            cmd += options.tdeAwsSk
+        }
+
+        if (options.tdeAliyunAk != null && options.tdeAliyunAk != "") {
+            cmd += ['--tde-aliyun-ak']
+            cmd += options.tdeAliyunAk
+        }
+
+        if (options.tdeAliyunSk != null && options.tdeAliyunSk != "") {
+            cmd += ['--tde-aliyun-sk']
+            cmd += options.tdeAliyunSk
         }
 
         if (options.externalMsCluster != null && options.externalMsCluster != "") {
@@ -582,7 +621,7 @@ class SuiteCluster {
     }
 
     List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
-        def result = add(0, num, '', false, null)
+        def result = add(num, 0, '', followerMode, null)
         return result.first
     }
 
@@ -670,6 +709,18 @@ class SuiteCluster {
     }
 
     // indices start from 1, not 0
+    // if not specific meta-service indices, then start all meta services
+    void startMetaServices(int... indices) {
+        runMsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
+    // indices start from 1, not 0
+    // if not specific recycler indices, then start all recyclers
+    void startRecyclers(int... indices) {
+        runRecyclerCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
+    // indices start from 1, not 0
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
         runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
@@ -680,6 +731,20 @@ class SuiteCluster {
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
         runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
+        waitHbChanged()
+    }
+
+    // indices start from 1, not 0
+    // if not specific meta-service indices, then stop all meta services
+    void stopMetaServices(int... indices) {
+        runMsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
+        waitHbChanged()
+    }
+
+    // indices start from 1, not 0
+    // if not specific recycler indices, then stop all recyclers
+    void stopRecyclers(int... indices) {
+        runRecyclerCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
@@ -873,9 +938,34 @@ class SuiteCluster {
     }
 
     // Execute command with proper argument list to avoid shell escaping issues
+    private static List<String> maskSensitiveArgs(List<String> cmdList) {
+        Set<String> sensitiveOptions = [
+                '--tde-ak',
+                '--tde-sk',
+                '--tde-aws-ak',
+                '--tde-aws-sk',
+                '--tde-aliyun-ak',
+                '--tde-aliyun-sk'
+        ] as Set
+        List<String> masked = []
+        boolean maskNext = false
+        for (String arg : cmdList) {
+            if (maskNext) {
+                masked += '***'
+                maskNext = false
+                continue
+            }
+            masked += arg
+            if (sensitiveOptions.contains(arg)) {
+                maskNext = true
+            }
+        }
+        return masked
+    }
+
     private Object runCmdList(List<String> cmdList, int timeoutSecond = 60) throws Exception {
         def fullCmdList = ['python', '-W', 'ignore', config.dorisComposePath] + cmdList + ['-v', '--output-json']
-        logger.info('Run doris compose cmd: {}', fullCmdList.join(' '))
+        logger.info('Run doris compose cmd: {}', maskSensitiveArgs(fullCmdList).join(' '))
         def proc = fullCmdList.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()

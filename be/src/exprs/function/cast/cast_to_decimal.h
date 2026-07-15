@@ -684,31 +684,30 @@ template <CastModeType Mode, typename ToDataType>
     requires(IsDataTypeDecimal<ToDataType>)
 class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
+                        uint32_t result, size_t /*input_rows_count*/,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
 
         auto to_type = block.get_by_position(result).type;
-        auto serde = remove_nullable(to_type)->get_serde();
-
-        // by default framework, to_type is already unwrapped nullable
-        MutableColumnPtr column_to = to_type->create_column();
-        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
-                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
+        auto nested_to_type = remove_nullable(to_type);
+        auto serde = nested_to_type->get_serde();
 
         if constexpr (Mode == CastModeType::NonStrictMode) {
+            auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             // may write nulls to nullable_col_to
             RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, {}));
+            block.get_by_position(result).column = std::move(nullable_col_to);
         } else if constexpr (Mode == CastModeType::StrictMode) {
-            // WON'T write nulls to nullable_col_to, just raise errors. null_map is only used to skip invalid rows
-            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(
-                    *col_from, nullable_col_to->get_nested_column(), {}, null_map));
+            MutableColumnPtr column_to = nested_to_type->create_column();
+            // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
+            RETURN_IF_ERROR(
+                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
+            block.get_by_position(result).column = std::move(column_to);
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
 
-        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };
@@ -780,6 +779,17 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
+
+        if constexpr (IsDataTypeDecimalV3<ToDataType>) {
+            if (to_scale == 0 && !narrow_integral) {
+                for (size_t i = 0; i < size; i++) {
+                    vec_to_data[i].value =
+                            static_cast<typename ToFieldType::NativeType>(vec_from_data[i]);
+                }
+                block.get_by_position(result).column = std::move(col_to);
+                return Status::OK();
+            }
+        }
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {

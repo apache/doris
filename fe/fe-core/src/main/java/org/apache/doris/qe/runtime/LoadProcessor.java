@@ -30,7 +30,6 @@ import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.LoadContext;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TReportExecStatusParams;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -53,7 +52,6 @@ public class LoadProcessor extends AbstractJobProcessor {
     //  key: fragmentId, value: backendId
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> latch;
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> topFragmentLatch;
-    private volatile List<SingleFragmentPipelineTask> topFragmentTasks;
 
     public LoadProcessor(CoordinatorContext coordinatorContext, long jobId) {
         super(coordinatorContext);
@@ -75,8 +73,6 @@ public class LoadProcessor extends AbstractJobProcessor {
         Env.getCurrentEnv().getProgressManager().addTotalScanNums(
                 String.valueOf(jobId), coordinatorContext.scanRangeNum.get()
         );
-
-        topFragmentTasks = Lists.newArrayList();
 
         LOG.info("dispatch load job: {} to {}",
                 DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet()
@@ -105,8 +101,6 @@ public class LoadProcessor extends AbstractJobProcessor {
                 }
             }
         }
-        this.topFragmentTasks = topFragmentTasks;
-
         // only wait top fragments
         MarkedCountDownLatch<Integer, Long> topFragmentLatch = new MarkedCountDownLatch<>(topFragmentTasks.size());
         for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
@@ -170,6 +164,12 @@ public class LoadProcessor extends AbstractJobProcessor {
     @Override
     protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
         if (params.isSetLoadedRows() && jobId != -1) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("doProcessReportExecStatus: forwarding load progress to LoadManager, "
+                                + "jobId={}, beId={}, queryId={}, loadedRows={}, loadedBytes={}, isDone={}",
+                        jobId, params.getBackendId(), DebugUtil.printId(params.getQueryId()),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+            }
             if (params.isSetFragmentInstanceReports()) {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
                     Env.getCurrentEnv().getLoadManager().updateJobProgress(
@@ -255,16 +255,14 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
     }
 
-    /*
-     * Check the state of backends in needCheckBackendExecStates.
-     * return true if all of them are OK. Otherwise, return false.
-     */
+    // Check backend health for every unfinished load fragment task.
     private boolean checkHealthy() {
-        for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
-            if (!topFragmentTask.isBackendHealthy(jobId)) {
-                long backendId = topFragmentTask.getBackend().getId();
-                Status unhealthyStatus = new Status(
-                        TStatusCode.INTERNAL_ERROR, "backend " + backendId + " is down");
+        for (SingleFragmentPipelineTask fragmentTask : backendFragmentTasks.get().values()) {
+            if (fragmentTask.isDone()) {
+                continue;
+            }
+            Status unhealthyStatus = fragmentTask.getBackendHealthStatus(jobId);
+            if (!unhealthyStatus.ok()) {
                 coordinatorContext.updateStatusIfOk(unhealthyStatus);
                 return false;
             }

@@ -55,10 +55,6 @@ public:
     }
     PrimitiveType get_primitive_type() const override { return _primitive_type; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_STRING;
-    }
-
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
@@ -66,8 +62,6 @@ public:
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
-
-    Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);

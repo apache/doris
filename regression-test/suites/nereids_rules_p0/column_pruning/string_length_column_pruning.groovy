@@ -32,6 +32,11 @@
 // the plain string column should appear.
 
 suite("string_length_column_pruning") {
+    // fe_debug performs strict nullability-change assertions in AdjustNullable.
+    // The IF/ORDER BY shape below can hit that pre-existing debug assertion before
+    // NestedColumnPruning runs, so keep this suite independent of global fe_debug.
+    sql "set fe_debug=false"
+
     sql """ DROP TABLE IF EXISTS slcp_str_tbl """
     sql """
         CREATE TABLE slcp_str_tbl (
@@ -40,7 +45,8 @@ suite("string_length_column_pruning") {
             struct_col STRUCT<f1: INT, f3: STRING>,
             arr_col  ARRAY<INT>,
             map_col  MAP<STRING, STRING>,
-            map_arr_col MAP<STRING, ARRAY<INT>>
+            map_arr_col MAP<STRING, ARRAY<INT>>,
+            map_arr_struct_col MAP<STRING, ARRAY<STRUCT<verified: BOOLEAN, value: INT>>>
         ) ENGINE = OLAP
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -48,7 +54,9 @@ suite("string_length_column_pruning") {
     """
     sql """
         INSERT INTO slcp_str_tbl VALUES
-            (1, 'hello', named_struct('f1', 10, 'f3', 'world'), [1, 2, 3], {'a': 'x', 'b': 'y'}, {'a': [1, 2], 'b': [3]})
+            (1, 'hello', named_struct('f1', 10, 'f3', 'world'), [1, 2, 3], {'a': 'x', 'b': 'y'},
+              {'a': [1, 2], 'b': [3]},
+              map('a', array(named_struct('verified', true, 'value', 10))))
     """
 
     // ─── Optimizable cases ──────────────────────────────────────────────────────
@@ -62,14 +70,25 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
     sql "select length(str_col) from slcp_str_tbl"
-    // Struct string field: length(struct_element) is the only use
+
+    // [str_col, OFFSET] strips [str_col, NULL].
     explain {
-        sql "select length(struct_element(struct_col, 'f3')) from slcp_str_tbl"
+        sql "select if(length(str_col) >= 5, true, false) a from slcp_str_tbl order by id"
+        contains "nested columns"
+        contains "str_col.OFFSET"
+        contains "str_col.NULL"
+        notContains "all access paths: [id]"
+    }
+    sql "select if(length(str_col) >= 5, true, false) a from slcp_str_tbl order by id"
+
+    // Struct string field: length(element_at) is the only use
+    explain {
+        sql "select length(element_at(struct_col, 'f3')) from slcp_str_tbl"
         contains "nested columns"
         contains "OFFSET"
         notContains "type=bigint"
     }
-    sql "select length(struct_element(struct_col, 'f3')) from slcp_str_tbl"
+    sql "select length(element_at(struct_col, 'f3')) from slcp_str_tbl"
     // length() in both SELECT and WHERE: predicate must remain length(str_col) > 1,
     // never be rewritten to CAST(str_col AS int) > 1. Slot type must stay varchar.
     explain {
@@ -127,12 +146,29 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
     sql "select sum(cardinality(arr_col)) from slcp_str_tbl"
-    // arr_col also accessed via element_at → full element data needed, OFFSET suppressed.
+    // arr_col is also accessed via element_at, so full element data is needed. Keep OFFSET
+    // as well because cardinality(arr_col) still needs array offset metadata.
     explain {
         sql "select cardinality(arr_col), arr_col[1] from slcp_str_tbl"
-        notContains "OFFSET"
+        contains "arr_col.*"
+        contains "arr_col.OFFSET"
         notContains "type=bigint"
     }
+
+    // [arr_col] strips [arr_col, OFFSET].
+    explain {
+        sql "select id, cardinality(arr_col), arr_col from slcp_str_tbl"
+        contains "nested columns"
+        contains "all access paths: [arr_col]"
+        notContains "arr_col.OFFSET"
+        notContains "predicate access paths:"
+        notContains "type=bigint"
+    }
+
+    order_qt_array_full_access_strips_offset """
+        select id, cardinality(arr_col), arr_col from slcp_str_tbl
+        order by id
+    """
 
     // ─── Map column cases ────────────────────────────────────────────────────────
 
@@ -208,9 +244,7 @@ suite("string_length_column_pruning") {
 
     // ─── Map with complex value cases ────────────────────────────────────────────
 
-    // cardinality(map_arr_col['a']): value is ARRAY<INT>.
-    // Keys read in full (element lookup); values need only the OFFSET array (array size).
-    // Expected paths: map_arr_col.KEYS + map_arr_col.VALUES.OFFSET
+    // Expected paths: [map_arr_col, KEYS] + [map_arr_col, VALUES, OFFSET]
     explain {
         sql "select cardinality(map_arr_col['a']) from slcp_str_tbl"
         contains "nested columns"
@@ -230,11 +264,67 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
 
-    // value also accessed directly (arr[0]) → full VALUES needed, OFFSET suppressed
+    // Value is also accessed directly (arr[0]), so full VALUES element data is needed. Keep
+    // VALUES.OFFSET as well because cardinality(map_arr_col['a']) still needs array offset metadata.
     explain {
         sql "select cardinality(map_arr_col['a']), map_arr_col['b'][0] from slcp_str_tbl"
-        notContains "OFFSET"
+        contains "map_arr_col.KEYS"
+        contains "map_arr_col.VALUES.*"
+        contains "map_arr_col.VALUES.OFFSET"
         notContains "type=bigint"
+    }
+
+    // The struct field is also accessed directly, so keep only the required verified field data.
+    // VALUES.OFFSET is still needed by cardinality(map_arr_struct_col['a']).
+    explain {
+        sql "select cardinality(map_arr_struct_col['a']), map_arr_struct_col['a'][1].verified from slcp_str_tbl"
+        contains "nested columns"
+        contains "map_arr_struct_col.KEYS"
+        contains "map_arr_struct_col.VALUES.*.verified"
+        contains "map_arr_struct_col.VALUES.OFFSET"
+        notContains "type=bigint"
+    }
+
+    // Returning map_arr_col['a'] needs full VALUES data. Keep VALUES.OFFSET too because
+    // cardinality(map_arr_col['a']) also reads the selected value-array offsets.
+    explain {
+        sql "select id, cardinality(map_arr_col['a']), map_arr_col['a'] from slcp_str_tbl"
+        contains "nested columns"
+        contains "map_arr_col.KEYS"
+        contains "map_arr_col.VALUES"
+        contains "map_arr_col.VALUES.OFFSET"
+        notContains "predicate access paths:"
+        notContains "type=bigint"
+    }
+
+    order_qt_map_element_full_access_strips_offset """
+        select id, cardinality(map_arr_col['a']), map_arr_col['a'] from slcp_str_tbl
+        order by id
+    """
+
+    // Keep the value-array offset in predicate paths: predicate evaluation needs it for
+    // cardinality(), and lazy materialization still needs the verified field after filtering.
+    explain {
+        sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where cardinality(map_arr_struct_col['a']) > 0"
+        contains "nested columns"
+        contains "all access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.*.verified, map_arr_struct_col.VALUES.OFFSET]"
+        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.OFFSET]"
+        notContains "type=bigint"
+    }
+
+    order_qt_map_value_array_predicate_offset_covered """
+        select map_arr_struct_col['a'][1].verified from slcp_str_tbl
+        where cardinality(map_arr_struct_col['a']) > 0
+        order by 1
+    """
+
+    // Predicate keeps the value-array NULL path so IS NULL can read the value-array null map
+    // during predicate evaluation, while allAccessPaths keeps the data paths used by projection.
+    explain {
+        sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where map_arr_struct_col['a'] is null"
+        contains "nested columns"
+        contains "all access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.*.verified, map_arr_struct_col.VALUES.NULL]"
+        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.NULL]"
     }
 
     // ─── Non-optimizable cases ──────────────────────────────────────────────────
@@ -324,13 +414,12 @@ suite("string_length_column_pruning") {
     // The struct's nested-columns entry still appears (partial struct pruning),
     // but the pruned field type must remain text (not bigint).
     explain {
-        sql "select length(struct_element(struct_col, 'f3')), struct_element(struct_col, 'f3') from slcp_str_tbl"
+        sql "select length(element_at(struct_col, 'f3')), element_at(struct_col, 'f3') from slcp_str_tbl"
         contains "nested columns"
         notContains "bigint"
     }
 
-    // length(map_col['a']): keys read fully for element lookup, values accessed offset-only.
-    // Expect access paths: map_col.KEYS (full) + map_col.VALUES.OFFSET
+    // Expected paths: [map_col, KEYS] + [map_col, VALUES, OFFSET]
     explain {
         sql "select length(map_col['a']) from slcp_str_tbl"
         contains "nested columns"
@@ -350,10 +439,238 @@ suite("string_length_column_pruning") {
         notContains "bigint"
     }
 
-    // length(map_col['a']) + direct map access → OFFSET suppressed, full VALUES needed
+    // length(map_col['a']) + direct map value access still needs full VALUES data.
+    // Keep VALUES.OFFSET as the length() access on map value still depends on the map value offsets.
     explain {
         sql "select length(map_col['a']), map_col['b'] from slcp_str_tbl"
-        notContains "OFFSET"
+        contains "map_col.KEYS"
+        contains "map_col.VALUES"
+        contains "map_col.VALUES.OFFSET"
         notContains "bigint"
     }
+
+    // ─── Array<Struct> mixed field access (Bug fix: OFFSET dedup per field, not per slot) ──
+
+    sql """ DROP TABLE IF EXISTS slcp_arr_struct_tbl """
+    sql """
+        CREATE TABLE slcp_arr_struct_tbl (
+            id       INT,
+            arr_struct ARRAY<STRUCT<str_field: STRING, int_field: INT>>
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO slcp_arr_struct_tbl SELECT 1,
+            array(named_struct('str_field', 'hello', 'int_field', 10),
+                  named_struct('str_field', 'world', 'int_field', 20))
+    """
+    sql """
+        INSERT INTO slcp_arr_struct_tbl SELECT 2,
+            array(named_struct('str_field', 'foo', 'int_field', 30))
+    """
+    sql """
+        INSERT INTO slcp_arr_struct_tbl SELECT 3, NULL
+    """
+
+    // LENGTH on one struct field + direct access on a sibling field.
+    // The OFFSET path for str_field must NOT be stripped by the non-OFFSET path for int_field.
+    order_qt_arr_struct_mixed """
+        SELECT id,
+               array_match_all(x -> length(element_at(x, 'str_field')) > 0, arr_struct),
+               element_at(element_at(arr_struct, 1), 'int_field')
+        FROM slcp_arr_struct_tbl ORDER BY id
+    """
+
+    // Verify the OFFSET path is preserved in the explain plan
+    explain {
+        sql """
+            SELECT id,
+                   array_match_all(x -> length(element_at(x, 'str_field')) > 0, arr_struct),
+                   element_at(element_at(arr_struct, 1), 'int_field')
+            FROM slcp_arr_struct_tbl
+        """
+        contains "OFFSET"
+    }
+
+    // ─── Nested array/map under STRUCT root slot ──────────────────────────────────
+
+    sql """ DROP TABLE IF EXISTS slcp_struct_root_tbl """
+    sql """
+        CREATE TABLE slcp_struct_root_tbl (
+            id INT,
+            s STRUCT<
+                arr: ARRAY<STRUCT<str_field: STRING, int_field: INT>>,
+                m: MAP<STRING, STRING>
+            >
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO slcp_struct_root_tbl VALUES (
+            1,
+            named_struct(
+                'arr', array(
+                    named_struct('str_field', 'hello', 'int_field', 10),
+                    named_struct('str_field', 'world', 'int_field', 20)
+                ),
+                'm', {'a': 'x', 'b': 'y'}
+            )
+        )
+    """
+
+    explain {
+        sql """
+            SELECT cardinality(element_at(s, 'arr')),
+                   element_at(element_at(element_at(s, 'arr'), 1), 'int_field')
+            FROM slcp_struct_root_tbl
+        """
+        contains "s.arr.*.int_field"
+        // cardinality(element_at(s, 'arr')) still needs the nested array offsets,
+        // while the selected element field needs the int_field data.
+        contains "s.arr.OFFSET"
+    }
+
+    explain {
+        sql """
+            SELECT length(element_at(element_at(s, 'm'), 'a')),
+                   element_at(map_values(element_at(s, 'm')), 1)
+            FROM slcp_struct_root_tbl
+        """
+        contains "s.m.KEYS"
+        contains "s.m.VALUES"
+        // The length() on a map value needs value-string offsets even though the query
+        // also directly reads map values.
+        contains "s.m.VALUES.OFFSET"
+    }
+
+    // ─── Map element_at + map_values mixed access ─────────────────────────────────
+
+    // Full VALUES data is still needed for map_values(), while the length() access on a
+    // map value keeps VALUES.OFFSET. KEYS is kept for element_at lookup.
+    order_qt_map_element_with_map_values """
+        select length(map_col['a']), map_values(map_col)[1] from slcp_str_tbl
+    """
+
+    explain {
+        sql "select length(map_col['a']), map_values(map_col)[1] from slcp_str_tbl"
+        contains "nested columns"
+        contains "KEYS"
+        contains "VALUES"
+        contains "map_col.VALUES.OFFSET"
+        notContains "bigint"
+    }
+
+    // Full VALUES data is needed for map_col['a']; length(map_values(map_col)[1]) keeps
+    // VALUES.OFFSET for value-string offsets.
+    explain {
+        sql "select length(map_values(map_col)[1]), map_col['a'] from slcp_str_tbl"
+        contains "map_col.KEYS"
+        contains "map_col.VALUES"
+        contains "map_col.VALUES.OFFSET"
+        notContains "bigint"
+    }
+
+    // ─── CHAR(N) correctness ────────────────────────────────────────────────────
+    //
+    // CHAR(N) is stored padded to N bytes per row on BE
+    // (OlapColumnDataConvertorChar::clone_and_padding). The per-row length recorded
+    // in dict word info / page headers is therefore always the padded length N,
+    // never the logical post-trim length expected by length(). Also, when the BE
+    // SegmentIterator runs shrink_char_type_column_suffix_zero on a CHAR column
+    // that was read in OFFSET_ONLY mode, it scans the (only-resized, never-
+    // initialized) chars buffer with strnlen() and corrupts the offsets with
+    // non-deterministic values.
+    //
+    // Therefore the FE must NOT emit the OFFSET access path for CHAR columns,
+    // top-level or nested (struct.char_field, map<X, char>['k'], array<char>[i]).
+    // The BE additionally hard-fails (Status::InternalError) if a CHAR column
+    // ever receives an OFFSET access path, to catch planner regressions.
+
+    sql """ DROP TABLE IF EXISTS slcp_char_tbl """
+    sql """
+        CREATE TABLE slcp_char_tbl (
+            id        INT,
+            char_col  CHAR(25) NOT NULL,
+            str_col   STRING,
+            struct_col STRUCT<f1: INT, f3: CHAR(10)>,
+            arr_char  ARRAY<CHAR(8)>,
+            map_col_char MAP<STRING, CHAR(12)>
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO slcp_char_tbl VALUES
+            (1, 'a',     'a',     named_struct('f1', 10, 'f3', 'aa'),   ['x',   'yy'],   {'k1': 'v1'}),
+            (2, 'bb',    'bb',    named_struct('f1', 20, 'f3', 'bbb'),  ['xxx', 'yy'],   {'k2': 'vv2'}),
+            (3, 'ccc',   'ccc',   named_struct('f1', 30, 'f3', 'cccc'), ['x'],           {'k3': 'vvv'}),
+            (4, 'dddd',  'dddd',  named_struct('f1', 40, 'f3', 'ddd'),  ['xx',  'y'],    {'k4': 'v4'}),
+            (5, 'eeeee', 'eeeee', named_struct('f1', 50, 'f3', 'ee'),   ['xxxx'],        {'k5': 'vv'})
+    """
+
+    // Top-level CHAR: length() must NOT use the OFFSET path (FE source-level filter).
+    explain {
+        sql "select length(char_col) from slcp_char_tbl"
+        notContains "OFFSET"
+    }
+    // Top-level CHAR: result must equal the logical post-trim length, not the
+    // padded length 25. Compare against length() applied to the equivalent
+    // STRING column to exercise the same rows.
+    order_qt_length_top_char "select length(char_col), length(str_col) from slcp_char_tbl"
+    order_qt_length_top_char_only "select length(char_col) from slcp_char_tbl"
+    order_qt_length_top_char_groupby """
+        select length(char_col), count(*) from slcp_char_tbl group by length(char_col)
+    """
+
+    // Nested CHAR inside a STRUCT: length(struct.char_field) must also skip OFFSET.
+    explain {
+        sql "select length(element_at(struct_col, 'f3')) from slcp_char_tbl"
+        notContains "OFFSET"
+    }
+    order_qt_length_struct_char """
+        select length(element_at(struct_col, 'f3')) from slcp_char_tbl
+    """
+
+    // Nested CHAR as MAP value: length(map<X, char>['k']) must also skip OFFSET.
+    explain {
+        sql "select length(map_col_char['k1']) from slcp_char_tbl"
+        notContains "OFFSET"
+    }
+    order_qt_length_map_char_value """
+        select length(map_col_char[concat('k', cast(id as string))]) from slcp_char_tbl
+    """
+
+    // Nested CHAR as ARRAY element: length(array<char>[i]) must also skip OFFSET.
+    explain {
+        sql "select length(arr_char[1]) from slcp_char_tbl"
+        notContains "OFFSET"
+    }
+    order_qt_length_array_char_element """
+        select length(arr_char[1]) from slcp_char_tbl
+    """
+
+    // VARCHAR / STRING are not padded; the OFFSET optimization remains active and
+    // results stay correct. (Existing tests above already cover plain STRING; this
+    // case asserts they still produce the right values alongside the CHAR fix.)
+    sql """ DROP TABLE IF EXISTS slcp_varchar_tbl """
+    sql """
+        CREATE TABLE slcp_varchar_tbl (
+            id  INT,
+            v   VARCHAR(25) NOT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """ INSERT INTO slcp_varchar_tbl VALUES (1,'a'), (2,'bb'), (3,'ccc'), (4,'dddd'), (5,'eeeee') """
+    explain {
+        sql "select length(v) from slcp_varchar_tbl"
+        contains "OFFSET"
+    }
+    order_qt_length_varchar "select length(v) from slcp_varchar_tbl"
 }

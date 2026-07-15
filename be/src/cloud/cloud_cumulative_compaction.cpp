@@ -434,7 +434,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 DBUG_BLOCK);
         auto status = _engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
                 *cloud_tablet(), pre_rowsets_delete_bitmap.get(), pre_rowset_to_versions,
-                _output_rowset->start_version(), _output_rowset->end_version());
+                cloud_tablet()->table_id(), _output_rowset->start_version(),
+                _output_rowset->end_version());
         if (!status.ok()) {
             LOG(WARNING) << "failed to agg pre rowsets delete bitmap to ms. tablet_id="
                          << _tablet->tablet_id() << ", pre rowset num=" << pre_rowsets.size()
@@ -502,7 +503,7 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                 std::max(cloud_tablet()->cumulative_layer_point(), _max_conflict_version + 1),
                 cloud_tablet()->alter_version() + 1);
         // Get all rowsets whose version >= `candidate_version` as candidate rowsets
-        cloud_tablet()->traverse_rowsets(
+        cloud_tablet()->traverse_rowsets_unlocked(
                 [&candidate_rowsets, candidate_version](const RowsetSharedPtr& rs) {
                     if (rs->start_version() >= candidate_version) {
                         candidate_rowsets.push_back(rs);

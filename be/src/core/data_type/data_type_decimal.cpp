@@ -197,18 +197,13 @@ template <PrimitiveType T>
 void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     if constexpr (T == TYPE_DECIMALV2) {
-        const auto* real_type_t = assert_cast<const DataTypeDecimalV2*>(this);
+        const auto* real_type_t = this;
         col_meta->mutable_decimal_param()->set_precision(real_type_t->get_original_precision());
         col_meta->mutable_decimal_param()->set_scale(real_type_t->get_original_scale());
     } else {
         col_meta->mutable_decimal_param()->set_precision(precision);
         col_meta->mutable_decimal_param()->set_scale(scale);
     }
-}
-
-template <PrimitiveType T>
-Field DataTypeDecimal<T>::get_default() const {
-    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType());
 }
 
 template <PrimitiveType T>
@@ -244,7 +239,7 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
                                min_decimal_precision(), max_precision);
     }
 
-    if (static_cast<UInt64>(scale_value) > precision_value) {
+    if (scale_value > precision_value) {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Negative scales and scales larger than precision are not "
                                "supported, scale_value: {}, precision_value: {}",

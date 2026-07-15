@@ -288,9 +288,6 @@ protected:
     // Points to the shared remaining limit on ScanOperatorX, shared across all
     // parallel instances and their scanners. -1 means no limit.
     std::atomic<int64_t>* _shared_scan_limit = nullptr;
-    // Atomically acquire up to `desired` rows. Returns actual granted count (0 = exhausted).
-    int64_t acquire_limit_quota(int64_t desired);
-    int64_t remaining_limit() const { return _shared_scan_limit->load(std::memory_order_acquire); }
 
     int64_t _max_bytes_in_queue = 0;
     // _transfer_lock protects _completed_tasks, _pending_tasks, and all other shared state
@@ -339,6 +336,7 @@ protected:
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<Dependency> _dependency = nullptr;
     std::shared_ptr<doris::TaskHandle> _task_handle;
+    std::weak_ptr<doris::TaskExecutor> _task_executor;
 
     std::atomic<int64_t> _block_memory_usage = 0;
 

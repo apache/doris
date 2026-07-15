@@ -20,8 +20,11 @@
 
 #pragma once
 
+#include <string>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/status.h"
@@ -29,6 +32,7 @@
 #include "core/column/column_complex.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_buffer.hpp"
@@ -46,6 +50,7 @@ struct AggregateFunctionAttr {
     bool is_window_function {false};
     bool is_foreach {false};
     bool enable_aggregate_function_null_v2 {false};
+    bool new_version_percentile {false};
     std::vector<std::string> column_names;
 };
 
@@ -187,6 +192,8 @@ public:
 
     /// Inserts results into a column.
     // todo: Consider whether this passes a ConstAggregateDataPtr
+    // Hot path. Callers must validate `to` with check_result_column_type() before calling
+    // insert_result_into()/insert_result_into_vec()/insert_result_into_range().
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
 
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
@@ -224,6 +231,19 @@ public:
 
     virtual void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                                    const size_t num_rows, Arena&) const = 0;
+
+    virtual void check_input_columns_type(const IColumn** columns) const {
+        check_columns_type(argument_types, columns);
+    }
+
+    virtual void check_result_column_type(const IColumn& column) const {
+        auto status = get_return_type()->check_column(column);
+        if (UNLIKELY(!status.ok())) {
+            throw doris::Exception(
+                    Status::InternalError("Aggregate function {} result type check failed: {}",
+                                          get_name(), status.msg()));
+        }
+    }
 
     const DataTypes& get_argument_types() const { return argument_types; }
 
@@ -299,6 +319,39 @@ public:
     }
 
 protected:
+    void check_columns_type(const DataTypes& types, const IColumn** columns) const {
+        for (size_t i = 0; i < types.size(); ++i) {
+            auto status = types[i]->check_column(*columns[i]);
+            if (UNLIKELY(!status.ok())) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} argument {} type check failed: {}", get_name(), i,
+                        status.msg()));
+            }
+        }
+    }
+
+    template <typename ColumnType>
+    void check_argument_column_type(const IColumn* column) const {
+        if (UNLIKELY(check_and_get_column<ColumnType>(*column) == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} argument type check failed: Column type {} ({}) does "
+                    "not match expected physical column type {}",
+                    get_name(), column->get_name(), typeid(*column).name(),
+                    typeid(ColumnType).name()));
+        }
+    }
+
+    template <typename ColumnType>
+    void check_result_column_type_as(const IColumn& column) const {
+        if (UNLIKELY(check_and_get_column<ColumnType>(column) == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Column type {} ({}) does not "
+                    "match expected physical column type {}",
+                    get_name(), column.get_name(), typeid(column).name(),
+                    typeid(ColumnType).name()));
+        }
+    }
+
     DataTypes argument_types;
     int version {};
 };
@@ -480,19 +533,21 @@ public:
                          size_t num_rows) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto place = places + size_of_data * i;
                 VectorBufferReader buffer_reader(column->get_data_at(i));
                 derived->create(place);
+                ++created_count;
                 derived->deserialize(place, buffer_reader, arena);
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = places + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = places + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
     }
 
@@ -503,19 +558,21 @@ public:
         const auto size_of_data = derived->size_of_data();
         const auto* column_string = assert_cast<const ColumnString*>(column);
 
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto rhs_place = rhs + size_of_data * i;
                 VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 derived->create(rhs_place);
+                ++created_count;
                 derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader, arena);
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = rhs + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = rhs + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
 
         derived->destroy_vec(rhs, num_rows);
@@ -527,22 +584,24 @@ public:
         const auto* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
         const auto* column_string = assert_cast<const ColumnString*>(column);
-        for (size_t i = 0; i != num_rows; ++i) {
-            try {
+        size_t created_count = 0;
+        try {
+            for (size_t i = 0; i != num_rows; ++i) {
                 auto rhs_place = rhs + size_of_data * i;
                 VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 derived->create(rhs_place);
+                ++created_count;
                 if (places[i]) {
                     derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader,
                                                    arena);
                 }
-            } catch (...) {
-                for (int j = 0; j < i; ++j) {
-                    auto place = rhs + size_of_data * j;
-                    derived->destroy(place);
-                }
-                throw;
             }
+        } catch (...) {
+            for (size_t j = 0; j < created_count; ++j) {
+                auto place = rhs + size_of_data * j;
+                derived->destroy(place);
+            }
+            throw;
         }
         derived->destroy_vec(rhs, num_rows);
     }

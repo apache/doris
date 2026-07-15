@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -255,6 +256,24 @@ public class Group {
     }
 
     /**
+     * extract the best physical plan's corresponding logical plan
+     */
+    public Plan getBestLogicalPlan(GroupExpression groupExpression) {
+        List<Group> childrenGroups = groupExpression.children();
+        for (GroupExpression logicalExpression : logicalExpressions) {
+            if (childrenGroups.equals(logicalExpression.children())) {
+                return logicalExpression.getPlan();
+            }
+        }
+        if (groupExpression.getPlan() instanceof PhysicalDistribute
+                || groupExpression.getPlan() instanceof PhysicalQuickSort || logicalExpressions.isEmpty()) {
+            return null;
+        } else {
+            return getLogicalExpression().getPlan();
+        }
+    }
+
+    /**
      * add a new enforcer to this group.
      */
     public void addEnforcer(GroupExpression enforcer) {
@@ -287,6 +306,10 @@ public class Group {
         } else {
             lowestCostPlans.put(properties, Pair.of(cost, expression));
         }
+    }
+
+    public void putBestPlan(GroupExpression expression, Cost cost, PhysicalProperties properties) {
+        setBestPlan(expression, cost, properties);
     }
 
     /**

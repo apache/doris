@@ -19,9 +19,11 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <cerrno> // IWYU pragma: keep
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <sstream>
+#include <thread>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -38,13 +40,17 @@
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type.h"
 #include "core/types.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_writer.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset_writer.h" // SegmentStatistics
+#include "storage/segment/row_binlog_segment_writer.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/segment/segment_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/json/json_parser.h"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
@@ -66,7 +72,9 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     }
     Block flush_block(*block);
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
-    if (config::enable_vertical_segment_writer) {
+    bool use_vertical_segment_writer =
+            config::enable_vertical_segment_writer && !_context.write_binlog_opt().enable;
+    if (use_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
@@ -82,8 +90,25 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
 
 Status SegmentFlusher::close() {
     RETURN_IF_ERROR(_seg_files.close());
+    RETURN_IF_ERROR(_preload_segment_indexes_to_file_cache());
     RETURN_IF_ERROR(_idx_files.finish_close());
     return Status::OK();
+}
+
+void SegmentFlusher::_record_segment_index_file_cache_preload(
+        uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info) {
+    std::lock_guard lock(_segment_index_file_cache_preloads_lock);
+    _segment_index_file_cache_preloads.push_back({segment_id, info});
+}
+
+Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
+    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> tasks;
+    {
+        std::lock_guard lock(_segment_index_file_cache_preloads_lock);
+        tasks.swap(_segment_index_file_cache_preloads);
+    }
+    return segment_v2::SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache(_context,
+                                                                                          tasks);
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
@@ -121,9 +146,16 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
         writer_options.compression_type = NO_COMPRESSION;
     }
 
-    writer = std::make_unique<segment_v2::SegmentWriter>(
-            segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, index_file_writer.get());
+    if (_context.write_binlog_opt().enable) {
+        writer = std::make_unique<segment_v2::RowBinlogSegmentWriter>(
+                segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+                _context.data_dir, writer_options,
+                _context.write_binlog_opt().write_binlog_config());
+    } else {
+        writer = std::make_unique<segment_v2::SegmentWriter>(
+                segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+                _context.data_dir, writer_options, index_file_writer.get());
+    }
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
@@ -196,12 +228,16 @@ Status SegmentFlusher::_flush_segment_writer(
     finalize_timer.start();
     uint64_t segment_file_size;
     uint64_t common_index_size;
-    Status s = writer->finalize(&segment_file_size, &common_index_size);
+    segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
+    Status s = writer->finalize(&segment_file_size, &common_index_size, &index_file_cache_info);
     finalize_timer.stop();
 
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
+
+    DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); });
 
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();
@@ -221,6 +257,7 @@ Status SegmentFlusher::_flush_segment_writer(
     key_bounds.set_max_key(max_key.to_string());
 
     uint32_t segment_id = writer->segment_id();
+    TEST_SYNC_POINT_CALLBACK("SegmentFlusher::flush_vertical_segment_writer", &segment_id);
     SegmentStatistics segstat;
     segstat.row_num = row_num;
     segstat.data_size = segment_file_size;
@@ -228,6 +265,7 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.key_bounds = key_bounds;
 
     writer.reset();
+    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
 
     MonotonicStopWatch collector_timer;
     collector_timer.start();
@@ -271,12 +309,16 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     finalize_timer.start();
     uint64_t segment_file_size;
     uint64_t common_index_size;
-    Status s = writer->finalize(&segment_file_size, &common_index_size);
+    segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
+    Status s = writer->finalize(&segment_file_size, &common_index_size, &index_file_cache_info);
     finalize_timer.stop();
 
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
+
+    DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); });
 
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();
@@ -303,6 +345,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.key_bounds = key_bounds;
 
     writer.reset();
+    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
 
     MonotonicStopWatch collector_timer;
     collector_timer.start();

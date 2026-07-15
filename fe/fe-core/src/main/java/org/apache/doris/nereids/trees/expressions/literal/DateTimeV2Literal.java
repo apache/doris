@@ -64,6 +64,36 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         roundMicroSecond(dateType.getScale());
     }
 
+    /** Date difference rounded toward zero by time part. */
+    public static long dateDiffInDaysRoundToZeroByTime(DateLiteral lhs, DateLiteral rhs) {
+        long days = DateV2Literal.dateDiffInDays(lhs, rhs);
+        long microSecondDiff = timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
+        if (days > 0 && microSecondDiff < 0) {
+            days--;
+        } else if (days < 0 && microSecondDiff > 0) {
+            days++;
+        }
+        return days;
+    }
+
+    /** Datetime difference in seconds rounded toward zero by microsecond part. */
+    public static long datetimeDiffInSecondsRoundToZeroByMicroSecond(DateLiteral lhs, DateLiteral rhs) {
+        return datetimeDiffInMicroSeconds(lhs, rhs) / 1000L / 1000L;
+    }
+
+    /** Datetime difference in microseconds. */
+    public static long datetimeDiffInMicroSeconds(DateLiteral lhs, DateLiteral rhs) {
+        return DateV2Literal.dateDiffInDays(lhs, rhs) * 24L * 60L * 60L * 1000L * 1000L
+                + timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
+    }
+
+    private static long timePartToMicroSecond(DateLiteral date) {
+        if (date instanceof DateTimeLiteral) {
+            return ((DateTimeLiteral) date).timePartToMicroSecond();
+        }
+        return 0;
+    }
+
     @Override
     public DateTimeV2Type getDataType() throws UnboundException {
         return (DateTimeV2Type) super.getDataType();

@@ -17,6 +17,7 @@
 
 #include "io/fs/local_file_system.h"
 
+#include <butil/iobuf.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -34,6 +35,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_writer.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -135,6 +137,141 @@ TEST_F(LocalFileSystemTest, WriteRead) {
     }
 }
 
+TEST_F(LocalFileSystemTest, WriteReadIOBuf) {
+    auto fname = fmt::format("{}/append_iobuf", test_dir);
+    io::FileWriterPtr file_writer;
+    auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+
+    auto* local_writer = dynamic_cast<io::LocalFileWriter*>(file_writer.get());
+    ASSERT_NE(local_writer, nullptr);
+
+    butil::IOBuf payload;
+    payload.append("ab", 2);
+    payload.append("cdef", 4);
+    payload.append("gh", 2);
+    st = local_writer->append_iobuf(payload);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(file_writer->bytes_appended(), 8);
+
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
+
+    int64_t fsize = 0;
+    st = io::global_local_filesystem()->file_size(fname, &fsize);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(fsize, 8);
+
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(fname, &file_reader);
+    ASSERT_TRUE(st.ok()) << st;
+
+    char buf[8];
+    size_t bytes_read = 0;
+    st = file_reader->read_at(0, {buf, sizeof(buf)}, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, sizeof(buf));
+    EXPECT_EQ(std::string_view(buf, sizeof(buf)), "abcdefgh");
+
+    butil::IOBuf read_buf;
+    st = file_reader->read_at_iobuf(2, 4, &read_buf, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, 4);
+    EXPECT_EQ(read_buf.to_string(), "cdef");
+}
+
+TEST_F(LocalFileSystemTest, AppendEmptyIOBuf) {
+    auto fname = fmt::format("{}/append_empty_iobuf", test_dir);
+    io::FileWriterPtr file_writer;
+    auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+
+    auto* local_writer = dynamic_cast<io::LocalFileWriter*>(file_writer.get());
+    ASSERT_NE(local_writer, nullptr);
+
+    butil::IOBuf payload;
+    st = local_writer->append_iobuf(payload);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(file_writer->bytes_appended(), 0);
+
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
+
+    int64_t fsize = -1;
+    st = io::global_local_filesystem()->file_size(fname, &fsize);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(fsize, 0);
+}
+
+TEST_F(LocalFileSystemTest, AppendIOBufToClosedWriter) {
+    auto fname = fmt::format("{}/append_iobuf_closed", test_dir);
+    io::FileWriterPtr file_writer;
+    auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+
+    auto* local_writer = dynamic_cast<io::LocalFileWriter*>(file_writer.get());
+    ASSERT_NE(local_writer, nullptr);
+
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
+
+    butil::IOBuf payload;
+    payload.append("ab", 2);
+    st = local_writer->append_iobuf(payload);
+    ASSERT_FALSE(st.ok()) << st;
+}
+
+TEST_F(LocalFileSystemTest, AppendIOBufRetriesOnEintr) {
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+
+    auto fname = fmt::format("{}/append_iobuf_eintr", test_dir);
+    io::FileWriterPtr file_writer;
+    auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+
+    auto* local_writer = dynamic_cast<io::LocalFileWriter*>(file_writer.get());
+    ASSERT_NE(local_writer, nullptr);
+
+    int retry = 2;
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "LocalFileWriter::cut_into_file_descriptor",
+            [&retry](auto&& args) {
+                if (retry-- > 0) {
+                    auto* ret = try_any_cast_ret<ssize_t>(args);
+                    ret->first = -1;
+                    ret->second = true;
+                    errno = EINTR;
+                } else {
+                    auto* ret = try_any_cast_ret<ssize_t>(args);
+                    ret->second = false;
+                }
+            },
+            &guard1);
+
+    butil::IOBuf payload;
+    payload.append("ab", 2);
+    payload.append("cd", 2);
+    st = local_writer->append_iobuf(payload);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(file_writer->bytes_appended(), 4);
+
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
+
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(fname, &file_reader);
+    ASSERT_TRUE(st.ok()) << st;
+
+    char buf[4];
+    size_t bytes_read = 0;
+    st = file_reader->read_at(0, {buf, sizeof(buf)}, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, sizeof(buf));
+    EXPECT_EQ(std::string_view(buf, sizeof(buf)), "abcd");
+}
+
 TEST_F(LocalFileSystemTest, Exist) {
     auto fname = fmt::format("{}/abc", test_dir);
     ASSERT_FALSE(check_exist(fname));
@@ -210,6 +347,30 @@ TEST_F(LocalFileSystemTest, Delete) {
     st = io::global_local_filesystem()->delete_directory(dname);
     ASSERT_TRUE(st.ok()) << st;                                     // Delete non-existed dir is ok
     ASSERT_TRUE(check_exist(fmt::format("{}/dir/dir1", test_dir))); // Parent should exist
+}
+
+TEST_F(LocalFileSystemTest, DeleteEmptyDirectory) {
+    auto empty_dir = fmt::format("{}/empty_dir", test_dir);
+    auto st = io::global_local_filesystem()->create_directory(empty_dir);
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = io::global_local_filesystem()->delete_empty_directory(empty_dir);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_FALSE(check_exist(empty_dir));
+    st = io::global_local_filesystem()->delete_empty_directory(empty_dir);
+    ASSERT_TRUE(st.ok()) << st;
+
+    auto non_empty_dir = fmt::format("{}/non_empty_dir", test_dir);
+    auto child_file = fmt::format("{}/child", non_empty_dir);
+    st = io::global_local_filesystem()->create_directory(non_empty_dir);
+    ASSERT_TRUE(st.ok()) << st;
+    st = save_string_file(child_file, "abc");
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = io::global_local_filesystem()->delete_empty_directory(non_empty_dir);
+    ASSERT_FALSE(st.ok()) << st;
+    ASSERT_TRUE(check_exist(non_empty_dir));
+    ASSERT_TRUE(check_exist(child_file));
 }
 
 TEST_F(LocalFileSystemTest, AbnormalFileWriter) {

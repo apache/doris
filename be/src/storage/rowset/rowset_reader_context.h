@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include <optional>
+#include <set>
 #include <vector>
 
 #include "exprs/score_runtime.h"
@@ -47,14 +49,18 @@ struct RowsetReaderContext {
     bool need_ordered_result = true;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
+    // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+    // For example, use lower rowset version / segment id first.
+    bool use_insert_order_when_same = false;
+    bool force_key_ordered_read = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // limit of rows for read_orderby_key
     size_t read_orderby_key_limit = 0;
-    // filter_block arguments
-    VExprContextSPtrs filter_block_conjuncts;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
+    // TSO predicate column that is absent from return_columns but must be read by storage.
+    std::optional<ColumnId> tso_predicate_column_id;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
@@ -68,11 +74,13 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
-    std::vector<VExprSPtr> remaining_conjunct_roots;
     VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;
+    // Effective adaptive batch size byte budget. 0 means disabled internally.
+    size_t preferred_block_size_bytes = 8388608UL;
+
     bool is_unique = false;
     //record row num merged in generic iterator
     uint64_t* merged_rows = nullptr;
@@ -83,14 +91,13 @@ struct RowsetReaderContext {
     RowIdConversion* rowid_conversion = nullptr;
     bool is_key_column_group = false;
     const std::set<int32_t>* output_columns = nullptr;
+    std::set<ColumnId> extra_columns;
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
-    std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
-    std::map<size_t, DataTypePtr> vir_col_idx_to_type;
 
     std::map<int32_t, TColumnAccessPaths> all_access_paths;
     std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
@@ -104,8 +111,7 @@ struct RowsetReaderContext {
     // When true, push down value predicates for MOR tables
     bool enable_mor_value_predicate_pushdown = false;
 
-    // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
-    // Propagated from ReaderParams.general_read_limit.
+    // General LIMIT budget forwarded to SegmentIterator.
     int64_t general_read_limit = -1;
 };
 

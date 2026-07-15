@@ -168,6 +168,22 @@ download_func() {
     return "${STATUS}"
 }
 
+download_with_fallbacks() {
+    local FILENAME="$1"
+    local DESC_DIR="$2"
+    local MD5SUM="$3"
+    shift 3
+
+    local DOWNLOAD_URL=""
+    for DOWNLOAD_URL in "$@"; do
+        [[ -n "${DOWNLOAD_URL}" ]] || continue
+        if download_func "${FILENAME}" "${DOWNLOAD_URL}" "${DESC_DIR}" "${MD5SUM}"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # download thirdparty archives
 echo "===== Downloading thirdparty archives..."
 for TP_ARCH in "${TP_ARCHIVES[@]}"; do
@@ -177,22 +193,19 @@ for TP_ARCH in "${TP_ARCHIVES[@]}"; do
     fi
     NAME="${TP_ARCH}_NAME"
     MD5SUM="${TP_ARCH}_MD5SUM"
-    if [[ -z "${REPOSITORY_URL}" ]]; then
-        URL="${TP_ARCH}_DOWNLOAD"
-        if ! download_func "${!NAME}" "${!URL}" "${TP_SOURCE_DIR}" "${!MD5SUM}"; then
-            echo "Failed to download ${!NAME}"
-            exit 1
-        fi
-    else
-        URL="${REPOSITORY_URL}/${!NAME}"
-        if ! download_func "${!NAME}" "${URL}" "${TP_SOURCE_DIR}" "${!MD5SUM}"; then
-            #try to download from home
-            URL="${TP_ARCH}_DOWNLOAD"
-            if ! download_func "${!NAME}" "${!URL}" "${TP_SOURCE_DIR}" "${!MD5SUM}"; then
-                echo "Failed to download ${!NAME}"
-                exit 1 # download failed again exit.
-            fi
-        fi
+    URL="${TP_ARCH}_DOWNLOAD"
+    FALLBACK_URL="${TP_ARCH}_FALLBACK_DOWNLOAD"
+    DOWNLOAD_URLS=()
+    if [[ -n "${REPOSITORY_URL}" ]]; then
+        DOWNLOAD_URLS+=("${REPOSITORY_URL%/}/${!NAME}")
+    fi
+    DOWNLOAD_URLS+=("${!URL}")
+    if [[ -n "${!FALLBACK_URL}" ]]; then
+        DOWNLOAD_URLS+=("${!FALLBACK_URL}")
+    fi
+    if ! download_with_fallbacks "${!NAME}" "${TP_SOURCE_DIR}" "${!MD5SUM}" "${DOWNLOAD_URLS[@]}"; then
+        echo "Failed to download ${!NAME}"
+        exit 1
     fi
 done
 echo "===== Downloading thirdparty archives...done"
@@ -435,6 +448,9 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
             # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+
+            # Add Parquet LZO page decompression support used by file scanner v2.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -466,6 +482,20 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " JEMALLOC_DORIS " ]]; then
         cd -
     fi
     echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
+fi
+
+# patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
+# without changing ordinary dl_iterate_phdr callers.
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
+    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.6.2" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.6.2-doris-phdr-cache.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBUNWIND_SOURCE}"
 fi
 
 # patch hyperscan

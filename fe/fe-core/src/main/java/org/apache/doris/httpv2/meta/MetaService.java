@@ -163,7 +163,10 @@ public class MetaService extends RestBaseController {
                 clientHost, clientPort, machine, portStr);
 
         clientHost = Strings.isNullOrEmpty(clientHost) ? machine : clientHost;
-        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(clientHost, Integer.valueOf(portStr))
+        // Use the master-supplied port: Checkpoint sends getHttpPort() (https_port when
+        // enable_https=true), so scheme and port must stay consistent.
+        String scheme = Config.enable_https ? "https" : "http";
+        String url = scheme + "://" + NetUtils.getHostPortInAccessibleFormat(clientHost, port)
                 + "/image?version=" + versionStr;
 
         String filename = Storage.IMAGE + "." + versionStr;

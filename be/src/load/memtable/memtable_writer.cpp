@@ -37,6 +37,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/backend_options.h"
 #include "storage/rowset/beta_rowset_writer.h"
+#include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/schema_change/schema_change.h"
 #include "storage/storage_engine.h"
@@ -72,6 +73,27 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
     _resource_ctx = thread_context()->resource_ctx();
+    _need_row_binlog_lsn = false;
+    if (_req.table_schema_param != nullptr) {
+        for (const auto* index_schema : _req.table_schema_param->indexes()) {
+            if (index_schema->index_id == _req.index_id) {
+                _need_row_binlog_lsn = index_schema->row_binlog_id > 0;
+                break;
+            }
+        }
+    }
+    if (_need_row_binlog_lsn) {
+        const auto keys_type = _tablet_schema->keys_type();
+        if (keys_type == KeysType::AGG_KEYS ||
+            (keys_type == KeysType::UNIQUE_KEYS && !_unique_key_mow)) {
+            // Row-binlog LSN sidecar does not support MemTable aggregation now. For AGG tables
+            // and unique key merge-on-read tables, multiple input rows can be merged into one
+            // output row in MemTable, so their output LSN semantics should be implemented
+            // explicitly before enabling row-binlog LSNs on these table types.
+            return Status::NotSupported(
+                    "row binlog lsn does not support AGG table or unique key merge-on-read table");
+        }
+    }
 
     _reset_mem_table();
 
@@ -80,14 +102,20 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     // we can make sure same keys sort in the same order in all replicas.
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->create_flush_token(
-                    _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr));
+                    _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr,
+                    _req.table_schema_param));
 
     _is_init = true;
     return Status::OK();
 }
 
-Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
-    if (UNLIKELY(row_idxs.empty())) {
+Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& rows,
+                             bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
+    if (UNLIKELY(rows.row_idxs.empty())) {
+        DCHECK(rows.row_binlog_lsns.empty());
         return Status::OK();
     }
     _lock_watch.start();
@@ -104,17 +132,29 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
                                              _req.tablet_id, _req.load_id.hi(), _req.load_id.lo());
     }
 
+    if (_need_row_binlog_lsn) {
+        if (rows.row_binlog_lsns.empty()) {
+            return Status::InternalError(
+                    "row binlog lsn is missing for tablet_id={}, index_id={}, load_id={}-{}",
+                    _req.tablet_id, _req.index_id, _req.load_id.hi(), _req.load_id.lo());
+        }
+        DCHECK(rows.row_binlog_lsns.size() == rows.row_idxs.size());
+    }
+
     // Flush and reset memtable if it is raw rows great than int32_t.
     int64_t raw_rows = _mem_table->raw_rows();
     DBUG_EXECUTE_IF("MemTableWriter.too_many_raws",
                     { raw_rows = std::numeric_limits<int32_t>::max(); });
-    if (raw_rows + row_idxs.size() > std::numeric_limits<int32_t>::max()) {
+    if (raw_rows + rows.row_idxs.size() > std::numeric_limits<int32_t>::max()) {
         g_flush_cuz_rowscnt_oveflow << 1;
         RETURN_IF_ERROR(_flush_memtable());
+        if (memtable_flushed != nullptr) {
+            *memtable_flushed = true;
+        }
     }
 
-    _total_received_rows += row_idxs.size();
-    auto st = _mem_table->insert(block, row_idxs);
+    _total_received_rows += rows.row_idxs.size();
+    auto st = _mem_table->insert(block, rows);
 
     // Reset memtable immediately after insert failure to prevent potential flush operations.
     // This is a defensive measure because:
@@ -138,6 +178,9 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
     }
     if (UNLIKELY(_mem_table->need_flush())) {
         RETURN_IF_ERROR(_flush_memtable());
+        if (memtable_flushed != nullptr) {
+            *memtable_flushed = true;
+        }
     }
 
     return Status::OK();
@@ -171,7 +214,6 @@ Status MemTableWriter::flush_async() {
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
     // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -183,6 +225,9 @@ Status MemTableWriter::flush_async() {
     if (_is_cancelled) {
         return _cancel_status;
     }
+
+    DCHECK(_resource_ctx != nullptr);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
                 << PrettyPrinter::print_bytes(_mem_table->memory_usage())
@@ -213,7 +258,8 @@ void MemTableWriter::_reset_mem_table() {
     {
         std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
         _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema, _req.slots, _req.tuple_desc,
-                                      _unique_key_mow, _partial_update_info.get(), _resource_ctx));
+                                      _unique_key_mow, _partial_update_info.get(), _resource_ctx,
+                                      _need_row_binlog_lsn));
     }
 
     _segment_num++;
@@ -289,6 +335,9 @@ Status MemTableWriter::_do_close_wait() {
 }
 
 void MemTableWriter::_update_profile(RuntimeProfile* profile) {
+    if (!profile) {
+        return;
+    }
     // NOTE: MemTableWriter may be accessed when profile is out of scope, in MemTableMemoryLimiter.
     // To avoid accessing dangling pointers, we cannot make profile as a member of MemTableWriter.
     auto child =
@@ -353,6 +402,27 @@ const FlushStatistic& MemTableWriter::get_flush_token_stats() {
 
 uint64_t MemTableWriter::flush_running_count() const {
     return _flush_token == nullptr ? 0 : _flush_token->get_stats().flush_running_count.load();
+}
+
+int64_t MemTableWriter::table_id() const {
+    DORIS_CHECK(_req.table_schema_param != nullptr);
+    return _req.table_schema_param->table_id();
+}
+
+int64_t MemTableWriter::flush_pending_memtable_count() {
+    std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
+    int64_t memtable_count = 0;
+    for (const auto& mem_table : _freezed_mem_tables) {
+        auto mem_table_sptr = mem_table.lock();
+        if (mem_table_sptr == nullptr) {
+            continue;
+        }
+        auto mem_type = mem_table_sptr->get_mem_type();
+        if (mem_type == MemType::WRITE_FINISHED || mem_type == MemType::FLUSH) {
+            memtable_count++;
+        }
+    }
+    return memtable_count;
 }
 
 int64_t MemTableWriter::mem_consumption(MemType mem) {

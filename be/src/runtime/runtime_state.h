@@ -138,7 +138,35 @@ public:
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
-    MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
+
+    // Row-count limit for output blocks. Clamp to [1, 65535].
+    // Adaptive byte budgeting still uses this as the hard row ceiling.
+    MOCK_FUNCTION int batch_size() const {
+        static constexpr int kMax = 65535;
+        auto v = _query_options.batch_size;
+        return std::min(std::max(1, v), kMax);
+    }
+
+    // Target byte budget per output block (default 8MB when adaptive is enabled).
+    // The public FE/session contract is [1MB, 512MB]; this accessor still clamps any direct
+    // thrift or mixed-version out-of-range value into that range. Returns `kMax` when adaptive
+    // is disabled by BE config so the value is always a legal byte budget; callers that need
+    // to know whether adaptive batch size is active should test
+    // `config::enable_adaptive_batch_size` explicitly.
+    MOCK_FUNCTION size_t preferred_block_size_bytes() const {
+        static constexpr int64_t kDefault = 8388608L; // 8MB
+        static constexpr int64_t kMax = 536870912L;   // 512MB
+        static constexpr int64_t kMin = 1048576L;     // 1MB
+        if (!config::enable_adaptive_batch_size) [[unlikely]] {
+            return kMax;
+        }
+        if (_query_options.__isset.preferred_block_size_bytes) [[likely]] {
+            return std::max<int64_t>(
+                    kMin, std::min<int64_t>(_query_options.preferred_block_size_bytes, kMax));
+        }
+        return kDefault;
+    }
+
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }
     int max_errors() const { return _query_options.max_errors; }
     int execution_timeout() const {
@@ -185,7 +213,6 @@ public:
         TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     }
     const std::string& lc_time_names() const { return _lc_time_names; }
-    const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     // should only be called in pipeline engine
@@ -215,16 +242,10 @@ public:
         return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
-    bool enable_common_expr_pushdown() const {
-        return _query_options.__isset.enable_common_expr_pushdown &&
-               _query_options.enable_common_expr_pushdown;
+    bool enable_segment_limit_pushdown() const {
+        return !_query_options.__isset.enable_segment_limit_pushdown ||
+               _query_options.enable_segment_limit_pushdown;
     }
-
-    bool enable_common_expr_pushdown_for_inverted_index() const {
-        return enable_common_expr_pushdown() &&
-               _query_options.__isset.enable_common_expr_pushdown_for_inverted_index &&
-               _query_options.enable_common_expr_pushdown_for_inverted_index;
-    };
 
     bool mysql_row_binary_format() const {
         return _query_options.__isset.mysql_row_binary_format &&
@@ -393,8 +414,11 @@ public:
                BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
     }
-    bool enable_local_shuffle() const {
-        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
+    bool plan_local_shuffle() const {
+        // If local shuffle is enabled and not planned by local shuffle planner, we should plan local shuffle in BE.
+        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle &&
+               (!_query_options.__isset.enable_local_shuffle_planner ||
+                !_query_options.enable_local_shuffle_planner);
     }
 
     MOCK_FUNCTION bool enable_local_exchange() const {
@@ -591,6 +615,11 @@ public:
     bool enable_aggregate_function_null_v2() const {
         return _query_options.__isset.enable_aggregate_function_null_v2 &&
                _query_options.enable_aggregate_function_null_v2;
+    }
+
+    bool enable_prune_nested_column() const {
+        return _query_options.__isset.enable_prune_nested_column &&
+               _query_options.enable_prune_nested_column;
     }
 
     bool is_read_csv_empty_line_as_null() const {
@@ -821,6 +850,14 @@ public:
         params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
         params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
         params.ivf_nprobe = _query_options.ivf_nprobe;
+        params.ann_index_candidate_rows_threshold =
+                _query_options.__isset.ann_index_candidate_rows_threshold
+                        ? _query_options.ann_index_candidate_rows_threshold
+                        : 0;
+        params.ann_index_candidate_rows_percent_threshold =
+                _query_options.__isset.ann_index_candidate_rows_percent_threshold
+                        ? _query_options.ann_index_candidate_rows_percent_threshold
+                        : 0.3;
         return params;
     }
 
@@ -870,9 +907,6 @@ private:
 
     // _error_log[_unreported_error_idx+] has been not reported to the coordinator.
     int _unreported_error_idx;
-
-    // Username of user that is executing the query to which this RuntimeState belongs.
-    std::string _user;
 
     //Query-global timestamp_ms
     int64_t _timestamp_ms;

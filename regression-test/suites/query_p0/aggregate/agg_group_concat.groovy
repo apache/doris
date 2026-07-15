@@ -100,6 +100,21 @@ suite("agg_group_concat") {
     sql """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table group by kbint order by 1,2;"""
     sql """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table group by kbint order by 1,2;"""
 
+    order_qt_group_concat_order_by_window """
+        select group_concat(k order by row_number() over(order by k)) as s
+        from (select 1 as k union all select 2) t;
+    """
+
+    order_qt_group_concat_order_by_subquery """
+        select group_concat(kint order by (select 1), kint) as s
+        from agg_group_concat_table;
+    """
+
+    order_qt_group_concat_distinct_order_by_expr """
+        select group_concat(distinct kstr order by kint + kbint) as s
+        from agg_group_concat_table;
+    """
+
     sql "drop table if exists test_distinct_multi"
     sql """
     create table test_distinct_multi(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1'); 
@@ -108,4 +123,13 @@ suite("agg_group_concat") {
     insert into test_distinct_multi values(1,2,3,'abc','2024-01-02'),(1,2,4,'abc','2024-01-03'),(2,2,4,'abcd','2024-01-02'),(1,2,3,'abcd','2024-01-04'),(1,2,4,'eee','2024-02-02'),(2,2,4,'abc','2024-01-02'); 
     """
     qt_test "select group_concat( distinct d order by d) from test_distinct_multi order by 1; "
+
+    test {
+        sql "select multi_distinct_GROUP_CONCAT(a, c) from test_distinct_multi group by b; "
+        exception "separator must be a constant"
+    }
+    test {
+        sql "select GROUP_CONCAT(a, c order by c) from test_distinct_multi group by b; "
+        exception "separator must be a constant"
+    }
 }

@@ -108,6 +108,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @SerializedName(value = "ctc")
     protected AtomicLong canceledTaskCount = new AtomicLong(0);
 
+    @SerializedName(value = "ltst")
+    protected long lastTaskSuccessTime = 0;
+
     public AbstractJob() {
     }
 
@@ -363,6 +366,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onTaskSuccess(T task) throws JobException {
         succeedTaskCount.incrementAndGet();
+        lastTaskSuccessTime = System.currentTimeMillis();
         updateJobStatusIfEnd(true, task.getTaskType());
         runningTasks.remove(task);
         logUpdateOperation();

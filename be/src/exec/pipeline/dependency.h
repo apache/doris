@@ -23,6 +23,7 @@
 #endif
 
 #include <concurrentqueue.h>
+#include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <sqltypes.h>
 
@@ -35,6 +36,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/thread_safety_annotations.h"
 #include "core/block/block.h"
 #include "core/types.h"
 #include "exec/common/agg_utils.h"
@@ -194,6 +196,13 @@ public:
 
     void sub() {
         std::unique_lock<std::mutex> l(_mtx);
+        // _counter is unsigned: a stray sub() when counter is already 0 would
+        // underflow to UINT32_MAX and the dependency would never become ready,
+        // hanging the query forever. Fail loudly instead.
+        if (_counter == 0) [[unlikely]] {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "CountedFinishDependency::sub() underflow on {}", debug_string());
+        }
         _counter--;
         if (!_counter) {
             set_ready();
@@ -598,7 +607,7 @@ struct PartitionedAggSharedState : public BasicSharedState,
     ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
 
     PartitionedAggSharedState() = default;
-    ~PartitionedAggSharedState() override = default;
+    ~PartitionedAggSharedState() override { close(); }
 
     void close();
 
@@ -607,6 +616,10 @@ struct PartitionedAggSharedState : public BasicSharedState,
 
     // partition count is no longer stored in shared state; operators maintain their own
     std::atomic<bool> _is_spilled = false;
+    // This state is shared by the partitioned agg sink and source pipelines. Spill files left
+    // here are owned by the shared state until the source moves them into its local queue, so the
+    // cleanup must be tied to the shared state's lifetime and must be idempotent.
+    std::atomic_bool is_closed = false;
     std::deque<SpillFileSPtr> _spill_partitions;
 };
 
@@ -678,10 +691,10 @@ struct AnalyticSharedState : public BasicSharedState {
 
 public:
     AnalyticSharedState() = default;
-    std::queue<Block> blocks_buffer;
-    std::mutex buffer_mutex;
-    bool sink_eos = false;
-    std::mutex sink_eos_lock;
+    std::queue<Block> blocks_buffer GUARDED_BY(buffer_mutex);
+    AnnotatedMutex buffer_mutex;
+    bool sink_eos GUARDED_BY(sink_eos_lock) = false;
+    AnnotatedMutex sink_eos_lock;
     Arena agg_arena_pool;
 };
 
@@ -769,12 +782,12 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
 struct PartitionSortNodeSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(PartitionSortNodeSharedState)
 public:
-    std::queue<Block> blocks_buffer;
-    std::mutex buffer_mutex;
+    std::queue<Block> blocks_buffer GUARDED_BY(buffer_mutex);
+    AnnotatedMutex buffer_mutex;
     std::vector<std::unique_ptr<PartitionSorter>> partition_sorts;
-    bool sink_eos = false;
-    std::mutex sink_eos_lock;
-    std::mutex prepared_finish_lock;
+    bool sink_eos GUARDED_BY(sink_eos_lock) = false;
+    AnnotatedMutex sink_eos_lock;
+    AnnotatedMutex prepared_finish_lock;
 };
 
 struct SetSharedState : public BasicSharedState {
@@ -820,50 +833,44 @@ public:
     Status hash_table_init();
 };
 
-enum class ExchangeType : uint8_t {
-    NOOP = 0,
-    // Shuffle data by Crc32CHashPartitioner
-    HASH_SHUFFLE = 1,
-    // Round-robin passthrough data blocks.
-    PASSTHROUGH = 2,
-    // Shuffle data by Crc32HashPartitioner<ShuffleChannelIds> (e.g. same as storage engine).
-    BUCKET_HASH_SHUFFLE = 3,
-    // Passthrough data blocks to all channels.
-    BROADCAST = 4,
-    // Passthrough data to channels evenly in an adaptive way.
-    ADAPTIVE_PASSTHROUGH = 5,
-    // Send all data to the first channel.
-    PASS_TO_ONE = 6,
-};
+inline bool is_shuffled_exchange(TLocalPartitionType::type idx) {
+    return idx == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE ||
+           idx == TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE ||
+           idx == TLocalPartitionType::BUCKET_HASH_SHUFFLE;
+}
 
-inline std::string get_exchange_type_name(ExchangeType idx) {
+inline std::string get_exchange_type_name(TLocalPartitionType::type idx) {
     switch (idx) {
-    case ExchangeType::NOOP:
+    case TLocalPartitionType::NOOP:
         return "NOOP";
-    case ExchangeType::HASH_SHUFFLE:
-        return "HASH_SHUFFLE";
-    case ExchangeType::PASSTHROUGH:
+    case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
+        return "GLOBAL_HASH_SHUFFLE";
+    case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
+        return "LOCAL_HASH_SHUFFLE";
+    case TLocalPartitionType::PASSTHROUGH:
         return "PASSTHROUGH";
-    case ExchangeType::BUCKET_HASH_SHUFFLE:
+    case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
         return "BUCKET_HASH_SHUFFLE";
-    case ExchangeType::BROADCAST:
+    case TLocalPartitionType::BROADCAST:
         return "BROADCAST";
-    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+    case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
         return "ADAPTIVE_PASSTHROUGH";
-    case ExchangeType::PASS_TO_ONE:
+    case TLocalPartitionType::PASS_TO_ONE:
         return "PASS_TO_ONE";
+    case TLocalPartitionType::LOCAL_MERGE_SORT:
+        return "LOCAL_MERGE_SORT";
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 struct DataDistribution {
-    DataDistribution(ExchangeType type) : distribution_type(type) {}
-    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
+    DataDistribution(TLocalPartitionType::type type) : distribution_type(type) {}
+    DataDistribution(TLocalPartitionType::type type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
     DataDistribution(const DataDistribution& other) = default;
-    bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
+    bool need_local_exchange() const { return distribution_type != TLocalPartitionType::NOOP; }
     DataDistribution& operator=(const DataDistribution& other) = default;
-    ExchangeType distribution_type;
+    TLocalPartitionType::type distribution_type;
     std::vector<TExpr> partition_exprs;
 };
 
@@ -915,7 +922,8 @@ public:
 
     void sub_total_mem_usage(size_t delta) {
         auto prev_usage = mem_usage.fetch_sub(delta);
-        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
+        DCHECK_GE(prev_usage, cast_set<int64_t>(delta))
+                << "prev_usage: " << prev_usage << " delta: " << delta;
         if (cast_set<int64_t>(prev_usage - delta) <= _buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }

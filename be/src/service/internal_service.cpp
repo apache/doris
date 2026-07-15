@@ -66,6 +66,7 @@
 #include "exec/common/variant_util.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/rowid_fetcher.h"
+#include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/function/dictionary_factory.h"
@@ -78,9 +79,6 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
-#ifdef BUILD_RUST_READERS
-#include "format/lance/lance_rust_reader.h"
-#endif
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -97,6 +95,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/query_context.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_profile.h"
@@ -147,13 +146,17 @@ using namespace ErrorCode;
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_active_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_active_threads, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_max_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_max_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_max_threads, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_queue_size, MetricUnit::NOUNIT);
@@ -167,6 +170,17 @@ bthread_key_t btls_key;
 
 static void thread_context_deleter(void* d) {
     delete static_cast<ThreadContext*>(d);
+}
+
+static int32_t resolved_brpc_peer_fetch_pool_threads() {
+    return config::brpc_peer_fetch_pool_threads != -1 ? config::brpc_peer_fetch_pool_threads
+                                                      : std::max(64, CpuInfo::num_cores() * 2);
+}
+
+static int32_t resolved_brpc_peer_fetch_pool_max_queue_size() {
+    return config::brpc_peer_fetch_pool_max_queue_size != -1
+                   ? config::brpc_peer_fetch_pool_max_queue_size
+                   : std::max(4096, CpuInfo::num_cores() * 128);
 }
 
 template <typename T>
@@ -222,6 +236,9 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
+          // peer fetch threadpool isolates fetch_peer_data from heavy load traffic to avoid peer reads starving imports.
+          _peer_fetch_pool(resolved_brpc_peer_fetch_pool_threads(),
+                           resolved_brpc_peer_fetch_pool_max_queue_size(), "brpc_peer_fetch"),
 
           // light threadpool should be only used in query processing logic. All hanlers should be very light, not locked, not access disk.
           _light_work_pool(config::brpc_light_work_pool_threads != -1
@@ -240,19 +257,27 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                   "brpc_arrow_flight") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size,
+                         [this]() { return _peer_fetch_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
                          [this]() { return _light_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(heavy_work_active_threads,
                          [this]() { return _heavy_work_pool.get_active_threads(); });
+    REGISTER_HOOK_METRIC(peer_fetch_work_active_threads,
+                         [this]() { return _peer_fetch_pool.get_active_threads(); });
     REGISTER_HOOK_METRIC(light_work_active_threads,
                          [this]() { return _light_work_pool.get_active_threads(); });
 
     REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
                          []() { return config::brpc_heavy_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(peer_fetch_work_pool_max_queue_size,
+                         []() { return resolved_brpc_peer_fetch_pool_max_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
                          []() { return config::brpc_light_work_pool_max_queue_size; });
     REGISTER_HOOK_METRIC(heavy_work_max_threads,
                          []() { return config::brpc_heavy_work_pool_threads; });
+    REGISTER_HOOK_METRIC(peer_fetch_work_max_threads,
+                         []() { return resolved_brpc_peer_fetch_pool_threads(); });
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
 
@@ -278,13 +303,17 @@ PInternalServiceImpl::~PInternalServiceImpl() = default;
 
 PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_active_threads);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_active_threads);
     DEREGISTER_HOOK_METRIC(light_work_active_threads);
 
     DEREGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_max_threads);
     DEREGISTER_HOOK_METRIC(light_work_max_threads);
 
     DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size);
@@ -831,6 +860,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
         io_ctx->file_cache_stats = file_cache_statis.get();
         io_ctx->file_reader_stats = file_reader_stats.get();
+        constexpr size_t fetch_schema_batch_size = 4064;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -843,12 +873,13 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                              file_slots, io_ctx.get(), io_ctx);
+                                              file_slots, fetch_schema_batch_size, io_ctx.get(),
+                                              io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
             reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                               file_slots, io_ctx.get());
+                                               file_slots, fetch_schema_batch_size, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
@@ -856,7 +887,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = OrcReader::create_unique(params, range, "", io_ctx);
+            reader = OrcReader::create_unique(params, range, fetch_schema_batch_size, "", io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
@@ -866,15 +897,9 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         case TFileFormatType::FORMAT_JSON: {
             reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
-                                                  io_ctx.get(), io_ctx);
+                                                  fetch_schema_batch_size, io_ctx.get(), io_ctx);
             break;
         }
-#ifdef BUILD_RUST_READERS
-        case TFileFormatType::FORMAT_LANCE: {
-            reader = LanceRustReader::create_unique(params, range, io_ctx.get());
-            break;
-        }
-#endif
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
@@ -961,6 +986,9 @@ Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* reque
                                             PTabletKeyLookupResponse* response) {
     PointQueryExecutor executor;
     RETURN_IF_ERROR(executor.init(request, response));
+    if (response->has_need_resend_query_context() && response->need_resend_query_context()) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(executor.lookup_up());
     executor.print_profile();
     return Status::OK();
@@ -986,6 +1014,13 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                                             const PJdbcTestConnectionRequest* request,
                                             PJdbcTestConnectionResult* result,
                                             google::protobuf::Closure* done) {
+    if (!doris::config::enable_java_support) {
+        doris::Status status = doris::Status::InternalError(
+                "you can change be config enable_java_support to true and restart be.");
+        status.to_protobuf(result->mutable_status());
+        done->Run();
+        return;
+    }
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
         VLOG_RPC << "test jdbc connection";
         brpc::ClosureGuard closure_guard(done);
@@ -1426,6 +1461,19 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
                 return;
             }
         }
+        if (request->has_kinesis_meta_request()) {
+            std::vector<std::string> shard_ids;
+            Status st = _exec_env->routine_load_task_executor()->get_kinesis_shard_meta(
+                    request->kinesis_meta_request(), &shard_ids);
+            if (st.ok()) {
+                PKinesisMetaProxyResult* kinesis_result = response->mutable_kinesis_meta_result();
+                for (const auto& shard_id : shard_ids) {
+                    kinesis_result->add_shard_ids(shard_id);
+                }
+            }
+            st.to_protobuf(response->mutable_status());
+            return;
+        }
         Status::OK().to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1545,8 +1593,11 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
-        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
-        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
+        const butil::IOBuf& request_attachment =
+                static_cast<brpc::Controller*>(controller)->request_attachment();
+        butil::IOBuf apply_attachment = request_attachment;
+        butil::IOBuf forward_attachment = request_attachment;
+        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(apply_attachment);
         VLOG_NOTICE << "rpc apply_filterv2 recv";
         Status st;
         try {
@@ -1556,6 +1607,20 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
         }
         if (!st.ok()) {
             LOG(WARNING) << "apply filter meet error: " << st.to_string();
+        }
+        std::weak_ptr<QueryContext> forward_ctx;
+        if (auto query_ctx = _exec_env->fragment_mgr()->get_query_ctx(
+                    UniqueId(request->query_id()).to_thrift())) {
+            if (!query_ctx->ignore_runtime_filter_error()) {
+                forward_ctx = query_ctx;
+            }
+        }
+        Status forward_st = forward_runtime_filter(*request, forward_attachment, forward_ctx);
+        if (!forward_st.ok()) {
+            LOG(WARNING) << "forward runtime filter meet error: " << forward_st.to_string();
+            if (st.ok()) {
+                st = std::move(forward_st);
+            }
         }
         st.to_protobuf(response->mutable_status());
     });

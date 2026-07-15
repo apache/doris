@@ -59,7 +59,6 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
 #include "util/jsonb_document.h"
-#include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
@@ -216,13 +215,11 @@ public:
         }
 
         const ColumnString* col_from_string = nullptr;
-        if (col_from->is_nullable()) {
-            const auto& nullable_col = assert_cast<const ColumnNullable&>(*col_from);
-
+        if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col_from.get())) {
             VectorizedUtils::update_null_map(null_map->get_data(),
-                                             nullable_col.get_null_map_data());
+                                             nullable_col->get_null_map_data(), col_from_is_const);
             col_from_string =
-                    assert_cast<const ColumnString*>(nullable_col.get_nested_column_ptr().get());
+                    assert_cast<const ColumnString*>(nullable_col->get_nested_column_ptr().get());
         } else {
             col_from_string = assert_cast<const ColumnString*>(col_from.get());
         }
@@ -261,12 +258,11 @@ public:
                         constant_default_value = data;
                     }
                 } else {
-                    if (default_value_col->is_nullable()) {
-                        const auto& nullable_col =
-                                assert_cast<const ColumnNullable&>(*default_value_col);
+                    if (const auto* nullable_col =
+                                check_and_get_column<ColumnNullable>(default_value_col.get())) {
                         default_value_str_col = assert_cast<const ColumnString*>(
-                                nullable_col.get_nested_column_ptr().get());
-                        default_value_nullmap = &(nullable_col.get_null_map_data());
+                                nullable_col->get_nested_column_ptr().get());
+                        default_value_nullmap = &(nullable_col->get_null_map_data());
                     } else {
                         default_value_str_col =
                                 assert_cast<const ColumnString*>(default_value_col.get());
@@ -374,7 +370,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 2);
+        DORIS_CHECK_GE(arguments.size(), 2);
 
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
@@ -390,10 +386,10 @@ public:
         // prepare jsonb data column
         std::tie(jsonb_data_column, jsonb_data_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-        if (jsonb_data_column->is_nullable()) {
-            const auto& nullable_column = assert_cast<const ColumnNullable&>(*jsonb_data_column);
-            jsonb_data_column = nullable_column.get_nested_column_ptr();
-            data_null_map = &nullable_column.get_null_map_data();
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(jsonb_data_column.get())) {
+            jsonb_data_column = nullable_column->get_nested_column_ptr();
+            data_null_map = &nullable_column->get_null_map_data();
         }
         const auto& ldata = assert_cast<const ColumnString*>(jsonb_data_column.get())->get_chars();
         const auto& loffsets =
@@ -409,10 +405,10 @@ public:
             std::tie(path_column, is_const) =
                     unpack_if_const(block.get_by_position(arguments[i + 1]).column);
             path_const[i] = is_const;
-            if (path_column->is_nullable()) {
-                const auto& nullable_column = assert_cast<const ColumnNullable&>(*path_column);
-                path_column = nullable_column.get_nested_column_ptr();
-                path_null_maps[i] = &nullable_column.get_null_map_data();
+            if (const auto* nullable_column =
+                        check_and_get_column<ColumnNullable>(path_column.get())) {
+                path_column = nullable_column->get_nested_column_ptr();
+                path_null_maps[i] = &nullable_column->get_null_map_data();
             }
             jsonb_path_columns.push_back(assert_cast<const ColumnString*>(path_column.get()));
         }
@@ -430,7 +426,7 @@ public:
                     path_null_maps, path_const, res_data, res_offsets, null_map->get_data()));
         } else {
             // not support other extract type for now (e.g. int, double, ...)
-            DCHECK_EQ(jsonb_path_columns.size(), 1);
+            DORIS_CHECK_EQ(jsonb_path_columns.size(), 1);
             const auto& rdata = jsonb_path_columns[0]->get_chars();
             const auto& roffsets = jsonb_path_columns[0]->get_offsets();
 
@@ -491,8 +487,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 1);
-        DCHECK(arguments.size() == 1 || arguments.size() == 2)
+        DORIS_CHECK_GE(arguments.size(), 1);
+        DORIS_CHECK(arguments.size() == 1 || arguments.size() == 2)
                 << "json_keys should have 1 or 2 arguments, but got " << arguments.size();
 
         const NullMap* data_null_map = nullptr;
@@ -500,8 +496,7 @@ public:
         // prepare jsonb data column
         auto&& [jsonb_data_column, json_data_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-        if (jsonb_data_column->is_nullable()) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get())) {
             col_from_string =
                     assert_cast<const ColumnString*>(nullable->get_nested_column_ptr().get());
             data_null_map = &nullable->get_null_map_data();
@@ -518,9 +513,8 @@ public:
             // we have should have a ColumnString for path
             std::tie(jsonb_path_column, path_const) =
                     unpack_if_const(block.get_by_position(arguments[1]).column);
-            if (jsonb_path_column->is_nullable()) {
-                const auto* nullable =
-                        check_and_get_column<ColumnNullable>(jsonb_path_column.get());
+            if (const auto* nullable =
+                        check_and_get_column<ColumnNullable>(jsonb_path_column.get())) {
                 jsonb_path_column = nullable->get_nested_column_ptr();
                 path_null_map = &nullable->get_null_map_data();
             }
@@ -569,7 +563,7 @@ private:
                                                r_raw_ref.to_string());
             }
 
-            if (const_path.is_wildcard()) {
+            if (const_path.is_wildcard() || const_path.is_supper_wildcard()) {
                 return Status::InvalidJsonPath(
                         "In this situation, path expressions may not contain the * and ** tokens "
                         "or an array range.");
@@ -611,7 +605,7 @@ private:
                                 std::string_view(data.data, data.size), i);
                     }
 
-                    if (path.is_wildcard()) {
+                    if (path.is_wildcard() || path.is_supper_wildcard()) {
                         return Status::InvalidJsonPath(
                                 "In this situation, path expressions may not contain the * and ** "
                                 "tokens "
@@ -673,8 +667,7 @@ public:
 
         const NullMap* data_null_map = nullptr;
         const ColumnString* data_col = nullptr;
-        if (jsonb_data_column->is_nullable()) {
-            const auto* nullable = assert_cast<const ColumnNullable*>(jsonb_data_column.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get())) {
             data_col = assert_cast<const ColumnString*>(nullable->get_nested_column_ptr().get());
             data_null_map = &nullable->get_null_map_data();
         } else {
@@ -689,15 +682,14 @@ public:
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         const ColumnString* path_col = nullptr;
         const NullMap* path_null_map = nullptr;
-        if (path_column->is_nullable()) {
-            const auto* nullable = assert_cast<const ColumnNullable*>(path_column.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(path_column.get())) {
             path_col = assert_cast<const ColumnString*>(nullable->get_nested_column_ptr().get());
             path_null_map = &nullable->get_null_map_data();
         } else {
             path_col = assert_cast<const ColumnString*>(path_column.get());
         }
 
-        DCHECK(!(jsonb_data_const && path_const))
+        DORIS_CHECK(!(jsonb_data_const && path_const))
                 << "jsonb_data_const and path_const should not be both const";
 
         auto create_all_null_result = [&]() {
@@ -710,11 +702,11 @@ public:
             return Status::OK();
         };
 
-        MutableColumnPtr result_null_map_column;
+        ColumnUInt8::MutablePtr result_null_map_column;
         NullMap* result_null_map = nullptr;
         if (data_null_map || path_null_map) {
             result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-            result_null_map = &assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+            result_null_map = &result_null_map_column->get_data();
 
             if (data_null_map) {
                 VectorizedUtils::update_null_map(*result_null_map, *data_null_map,
@@ -870,7 +862,6 @@ private:
     static ALWAYS_INLINE void inner_loop_impl(JsonbWriter* writer, size_t i,
                                               ColumnString::Chars& res_data,
                                               ColumnString::Offsets& res_offsets, NullMap& null_map,
-                                              std::unique_ptr<JsonbToJson>& formater,
                                               const char* l_raw, size_t l_size, JsonbPath& path) {
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
         const JsonbDocument* doc = nullptr;
@@ -931,7 +922,6 @@ public:
         res_offsets.resize(input_rows_count);
 
         auto writer = std::make_unique<JsonbWriter>();
-        std::unique_ptr<JsonbToJson> formater;
 
         // reuseable json path list, espacially for const path
         std::vector<JsonbPath> json_path_list;
@@ -995,8 +985,8 @@ public:
                 }
 
                 writer->reset();
-                inner_loop_impl(writer.get(), i, res_data, res_offsets, null_map, formater, l_raw,
-                                l_size, json_path_list[0]);
+                inner_loop_impl(writer.get(), i, res_data, res_offsets, null_map, l_raw, l_size,
+                                json_path_list[0]);
             } else { // will make array string to user
                 writer->reset();
                 bool has_value = false;
@@ -1061,8 +1051,6 @@ public:
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
 
-        std::unique_ptr<JsonbToJson> formater;
-
         JsonbWriter writer;
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (l_null_map && (*l_null_map)[i]) {
@@ -1089,8 +1077,7 @@ public:
             }
 
             writer.reset();
-            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, formater, l_raw, l_size,
-                            path);
+            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, l_raw, l_size, path);
         } //for
         return Status::OK();
     } //function
@@ -1101,8 +1088,6 @@ public:
                                 ColumnString::Offsets& res_offsets, NullMap& null_map) {
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
-
-        std::unique_ptr<JsonbToJson> formater;
 
         JsonbPath path;
         if (!path.seek(rdata.data, rdata.size)) {
@@ -1121,8 +1106,7 @@ public:
             const char* l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
             writer.reset();
-            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, formater, l_raw, l_size,
-                            path);
+            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, l_raw, l_size, path);
         } //for
         return Status::OK();
     } //function
@@ -1134,8 +1118,6 @@ public:
                                 NullMap& null_map) {
         size_t input_rows_count = roffsets.size();
         res_offsets.resize(input_rows_count);
-
-        std::unique_ptr<JsonbToJson> formater;
 
         JsonbWriter writer;
 
@@ -1156,8 +1138,8 @@ public:
             }
 
             writer.reset();
-            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, formater, ldata.data,
-                            ldata.size, path);
+            inner_loop_impl(&writer, i, res_data, res_offsets, null_map, ldata.data, ldata.size,
+                            path);
         } //for
         return Status::OK();
     } //function
@@ -1368,7 +1350,7 @@ struct JsonbLengthUtil {
     static Status jsonb_length_execute(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) {
-        DCHECK_GE(arguments.size(), 2);
+        DORIS_CHECK_GE(arguments.size(), 2);
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
         // prepare jsonb data column
@@ -1416,8 +1398,7 @@ struct JsonbLengthUtil {
                 if (!path.seek(path_value.data, path_value.size)) {
                     return Status::InvalidArgument(
                             "Json path error: Invalid Json Path for value: {}",
-                            std::string_view(reinterpret_cast<const char*>(path_value.data),
-                                             path_value.size));
+                            std::string_view(path_value.data, path_value.size));
                 }
             }
             auto jsonb_value = jsonb_data_column->get_data_at(i);
@@ -1483,7 +1464,7 @@ struct JsonbContainsUtil {
     static Status jsonb_contains_execute(FunctionContext* context, Block& block,
                                          const ColumnNumbers& arguments, uint32_t result,
                                          size_t input_rows_count) {
-        DCHECK_GE(arguments.size(), 3);
+        DORIS_CHECK_GE(arguments.size(), 3);
 
         auto jsonb_data1_column = block.get_by_position(arguments[0]).column;
         auto jsonb_data2_column = block.get_by_position(arguments[1]).column;
@@ -1600,12 +1581,10 @@ public:
             for (auto argument : arguments) {
                 auto&& [arg_column, is_const] =
                         unpack_if_const(block.get_by_position(argument).column);
-                if (arg_column->is_nullable()) {
-                    const auto& nullable_column =
-                            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                    *arg_column);
-                    const auto& null_map = nullable_column.get_null_map_data();
-                    const auto& nested_column = nullable_column.get_nested_column();
+                if (const auto* nullable_column =
+                            check_and_get_column<ColumnNullable>(arg_column.get())) {
+                    const auto& null_map = nullable_column->get_null_map_data();
+                    const auto& nested_column = nullable_column->get_nested_column();
                     const auto& jsonb_column =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     nested_column);
@@ -1765,12 +1744,10 @@ public:
                 auto&& [value_column, value_const] =
                         unpack_if_const(block.get_by_position(value_argument).column);
 
-                if (key_column->is_nullable()) {
-                    const auto& nullable_column =
-                            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                    *key_column);
-                    const auto& null_map = nullable_column.get_null_map_data();
-                    const auto& nested_column = nullable_column.get_nested_column();
+                if (const auto* nullable_column =
+                            check_and_get_column<ColumnNullable>(key_column.get())) {
+                    const auto& null_map = nullable_column->get_null_map_data();
+                    const auto& nested_column = nullable_column->get_nested_column();
                     const auto& key_arg_column =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     nested_column);
@@ -1785,12 +1762,10 @@ public:
                             write_key(writer, key_arg_column, key_const, nullptr, arg_idx, i));
                 }
 
-                if (value_column->is_nullable()) {
-                    const auto& nullable_column =
-                            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                    *value_column);
-                    const auto& null_map = nullable_column.get_null_map_data();
-                    const auto& nested_column = nullable_column.get_nested_column();
+                if (const auto* nullable_column =
+                            check_and_get_column<ColumnNullable>(value_column.get())) {
+                    const auto& null_map = nullable_column->get_null_map_data();
+                    const auto& nested_column = nullable_column->get_nested_column();
                     const auto& value_arg_column =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     nested_column);
@@ -1910,10 +1885,10 @@ public:
 
         const NullMap* json_data_null_map = nullptr;
         const ColumnString* json_data_column;
-        if (json_data_arg_column->is_nullable()) {
-            const auto& nullable_column = assert_cast<const ColumnNullable&>(*json_data_arg_column);
-            json_data_null_map = &nullable_column.get_null_map_data();
-            const auto& nested_column = nullable_column.get_nested_column();
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(json_data_arg_column.get())) {
+            json_data_null_map = &nullable_column->get_null_map_data();
+            const auto& nested_column = nullable_column->get_nested_column();
             json_data_column = assert_cast<const ColumnString*>(&nested_column);
         } else {
             json_data_column = assert_cast<const ColumnString*>(json_data_arg_column.get());
@@ -1933,20 +1908,20 @@ public:
             }
 
             json_path_constant[i / 2] = path_const;
-            if (path_column->is_nullable()) {
-                const auto& nullable_column = assert_cast<const ColumnNullable&>(*path_column);
-                json_path_null_maps[i / 2] = &nullable_column.get_null_map_data();
-                const auto& nested_column = nullable_column.get_nested_column();
+            if (const auto* nullable_column =
+                        check_and_get_column<ColumnNullable>(path_column.get())) {
+                json_path_null_maps[i / 2] = &nullable_column->get_null_map_data();
+                const auto& nested_column = nullable_column->get_nested_column();
                 json_path_columns[i / 2] = assert_cast<const ColumnString*>(&nested_column);
             } else {
                 json_path_columns[i / 2] = assert_cast<const ColumnString*>(path_column.get());
             }
 
             json_value_constant[i / 2] = value_const;
-            if (value_column->is_nullable()) {
-                const auto& nullable_column = assert_cast<const ColumnNullable&>(*value_column);
-                json_value_null_maps[i / 2] = &nullable_column.get_null_map_data();
-                const auto& nested_column = nullable_column.get_nested_column();
+            if (const auto* nullable_column =
+                        check_and_get_column<ColumnNullable>(value_column.get())) {
+                json_value_null_maps[i / 2] = &nullable_column->get_null_map_data();
+                const auto& nested_column = nullable_column->get_nested_column();
                 json_value_columns[i / 2] = assert_cast<const ColumnString*>(&nested_column);
             } else {
                 json_value_columns[i / 2] = assert_cast<const ColumnString*>(value_column.get());
@@ -2049,18 +2024,19 @@ public:
 
                 bool replace = false;
                 parents.emplace_back(json_documents[row_idx]->getValue());
+                const auto legs_count = json_path[path_index].get_leg_vector_size();
                 if (find_result.value) {
                     // find target path, replace it with the new value.
                     replace = true;
                     if (!build_parents_by_path(json_documents[row_idx]->getValue(),
                                                json_path[path_index], parents)) {
-                        DCHECK(false);
                         continue;
                     }
                 } else {
                     // does not find target path, insert the new value.
                     JsonbPath new_path;
-                    for (size_t j = 0; j < json_path[path_index].get_leg_vector_size() - 1; ++j) {
+                    DCHECK_GT(legs_count, 0);
+                    for (size_t j = 0; j + 1 < legs_count; ++j) {
                         auto* current_leg = json_path[path_index].get_leg_from_leg_vector(j);
                         std::unique_ptr<leg_info> leg = std::make_unique<leg_info>(
                                 current_leg->leg_ptr, current_leg->leg_len,
@@ -2074,7 +2050,6 @@ public:
                     }
                 }
 
-                const auto legs_count = json_path[path_index].get_leg_vector_size();
                 leg_info* last_leg =
                         legs_count > 0
                                 ? json_path[path_index].get_leg_from_leg_vector(legs_count - 1)
@@ -2138,8 +2113,6 @@ public:
 
         auto find_result = root->findValue(current);
         if (!find_result.value) {
-            std::string path_string;
-            current.to_string(&path_string);
             return false;
         } else if (find_result.value == root) {
             return true;
@@ -2726,8 +2699,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 2);
-
         // Check if arguments count is valid (json_doc + at least one path)
         if (arguments.size() < 2) {
             return Status::InvalidArgument("json_remove requires at least 2 arguments");
@@ -2834,7 +2805,6 @@ public:
             }
 
             std::vector<JsonbPath> paths;
-            std::vector<bool> path_constants_vec;
 
             for (size_t path_idx = 0; path_idx < path_columns.size(); ++path_idx) {
                 size_t idx = index_check_const(row_idx, path_constants[path_idx]);
@@ -2855,7 +2825,6 @@ public:
                 }
 
                 paths.push_back(std::move(path));
-                path_constants_vec.push_back(path_constants[path_idx]);
             }
 
             const JsonbValue* current_value = json_doc->getValue();
@@ -3042,13 +3011,13 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto& arg_column = block.get_by_position(arguments[0]).column;
+        const auto arg_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnString* json_column = nullptr;
         const NullMap* json_null_map = nullptr;
-        if (arg_column->is_nullable()) {
-            const auto& nullable_col = assert_cast<const ColumnNullable&>(*arg_column);
-            json_column = assert_cast<const ColumnString*>(&nullable_col.get_nested_column());
-            json_null_map = &nullable_col.get_null_map_data();
+        if (const auto* nullable_col = check_and_get_column<ColumnNullable>(arg_column.get())) {
+            json_column = assert_cast<const ColumnString*>(&nullable_col->get_nested_column());
+            json_null_map = &nullable_col->get_null_map_data();
         } else {
             json_column = assert_cast<const ColumnString*>(arg_column.get());
         }

@@ -88,7 +88,6 @@ suite("test_mv_case") {
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "enable_mow_light_delete" = "false"
@@ -106,7 +105,6 @@ suite("test_mv_case") {
         "inverted_index_storage_format" = "V1",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "enable_nondeterministic_function" = "true"
@@ -129,7 +127,6 @@ suite("test_mv_case") {
         "inverted_index_storage_format" = "V1",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "enable_nondeterministic_function" = "true"

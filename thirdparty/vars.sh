@@ -48,6 +48,7 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 
 # source of all dependencies, default unuse it
 # export REPOSITORY_URL=
+DORIS_THIRDPARTY_REPOSITORY_URL="${DORIS_THIRDPARTY_REPOSITORY_URL:-https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/thirdparty/juicefs}"
 
 #####################################################
 # Download url, filename and unpaced filename
@@ -134,7 +135,7 @@ BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
-LZO2_DOWNLOAD="https://fossies.org/linux/misc/lzo-2.10.tar.gz"
+LZO2_DOWNLOAD="https://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
 LZO2_NAME=lzo-2.10.tar.gz
 LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
@@ -241,10 +242,10 @@ BROTLI_SOURCE="brotli-1.0.9"
 BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
 
 # flatbuffers
-FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v2.0.0.tar.gz"
-FLATBUFFERS_NAME=flatbuffers-2.0.0.tar.gz
-FLATBUFFERS_SOURCE=flatbuffers-2.0.0
-FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
+FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v23.5.26.tar.gz"
+FLATBUFFERS_NAME=flatbuffers-23.5.26.tar.gz
+FLATBUFFERS_SOURCE=flatbuffers-23.5.26
+FLATBUFFERS_MD5SUM="2ef00eaaa86ab5e9ad5eafe09c2e7b60"
 
 # c-ares
 CARES_DOWNLOAD="https://github.com/c-ares/c-ares/releases/download/cares-1_19_1/c-ares-1.19.1.tar.gz"
@@ -554,7 +555,8 @@ JINDOFS_SOURCE=jindofs-6.10.4-libs-0.1
 JINDOFS_MD5SUM="bd30b4c5fe97c4367eeb3bb228b317d9"
 
 # juicefs
-JUICEFS_DOWNLOAD="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar"
+JUICEFS_DOWNLOAD="${DORIS_THIRDPARTY_REPOSITORY_URL%/}/juicefs-hadoop-1.3.1.jar"
+JUICEFS_FALLBACK_DOWNLOAD="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar"
 JUICEFS_NAME=juicefs-hadoop-1.3.1.jar
 JUICEFS_SOURCE=
 JUICEFS_MD5SUM="f374dfbfbdc4b83417cfea78a6728c54"

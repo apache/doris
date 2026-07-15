@@ -23,7 +23,11 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <vector>
 
+#include "storage/schema.h"
+#include "storage/tablet/tablet_schema_helper.h"
+#include "storage/tablet_info.h"
 #include "util/json/path_in_data.h"
 
 namespace doris {
@@ -32,6 +36,36 @@ class TabletSchemaTest : public testing::Test {
 protected:
     void SetUp() override {}
 };
+
+TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_append_column) {
+    TabletSchema tablet_schema;
+    tablet_schema.append_column(*create_int_key(0, false));
+    EXPECT_EQ(-1, tablet_schema.commit_tso_col_idx());
+
+    tablet_schema.append_column(*create_commit_tso_column(1));
+    EXPECT_EQ(1, tablet_schema.commit_tso_col_idx());
+
+    std::vector<ColumnId> column_ids {0, 1};
+    Schema read_schema(tablet_schema.columns(), column_ids);
+    EXPECT_EQ(1, read_schema.commit_tso_col_idx());
+}
+
+TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_current_index_schema) {
+    TabletSchema ori_schema;
+    ori_schema.append_column(*create_int_key(0, false));
+
+    TabletColumn key_column = *create_int_key(0, false);
+    TabletColumn commit_tso_column = *create_commit_tso_column(1);
+    OlapTableIndexSchema index_schema;
+    index_schema.index_id = 100;
+    index_schema.schema_hash = 200;
+    index_schema.columns.push_back(&key_column);
+    index_schema.columns.push_back(&commit_tso_column);
+
+    TabletSchema current;
+    current.build_current_tablet_schema(index_schema.index_id, 2, &index_schema, ori_schema);
+    EXPECT_EQ(1, current.commit_tso_col_idx());
+}
 
 TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     ColumnPB column_pb;
@@ -862,6 +896,72 @@ TEST_F(TabletSchemaTest, test_tablet_schema_get_index) {
     const auto& ann_col_ids = found_ann->col_unique_ids();
     EXPECT_EQ(1, ann_col_ids.size());
     EXPECT_EQ(14002, ann_col_ids[0]);
+}
+
+// Rolling-upgrade compat: a TabletSchemaPB persisted by an old BE has the three
+// legacy V3-flavor flags but no storage_format. init_from_pb must derive V3.
+TEST_F(TabletSchemaTest, init_from_pb_legacy_flags_derive_v3) {
+    TabletSchemaPB pb;
+    pb.set_keys_type(DUP_KEYS);
+    pb.set_is_external_segment_column_meta_used(true);
+    pb.set_integer_type_default_use_plain_encoding(true);
+    pb.set_binary_plain_encoding_default_impl(BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+    // storage_format is intentionally not set
+    ASSERT_FALSE(pb.has_storage_format());
+
+    TabletSchema schema;
+    schema.init_from_pb(pb);
+    EXPECT_EQ(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3, schema.storage_format());
+}
+
+// PB with neither storage_format nor any of the legacy flags falls back to V2.
+TEST_F(TabletSchemaTest, init_from_pb_no_flags_defaults_v2) {
+    TabletSchemaPB pb;
+    pb.set_keys_type(DUP_KEYS);
+    ASSERT_FALSE(pb.has_storage_format());
+
+    TabletSchema schema;
+    schema.init_from_pb(pb);
+    EXPECT_EQ(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2, schema.storage_format());
+}
+
+// Rolling-downgrade compat: a V3 TabletSchema must redundantly emit the three
+// legacy flags so an old BE rolled back from a new one can still recognize V3.
+TEST_F(TabletSchemaTest, to_schema_pb_v3_emits_legacy_flags) {
+    TabletSchemaPB in;
+    in.set_keys_type(DUP_KEYS);
+    in.set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
+
+    TabletSchema schema;
+    schema.init_from_pb(in);
+    ASSERT_EQ(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3, schema.storage_format());
+
+    TabletSchemaPB out;
+    schema.to_schema_pb(&out);
+    EXPECT_EQ(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3, out.storage_format());
+    EXPECT_TRUE(out.is_external_segment_column_meta_used());
+    EXPECT_TRUE(out.integer_type_default_use_plain_encoding());
+    EXPECT_EQ(BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2,
+              out.binary_plain_encoding_default_impl());
+}
+
+// V2 schemas must NOT emit the V3-flavor legacy flags.
+TEST_F(TabletSchemaTest, to_schema_pb_v2_skips_legacy_flags) {
+    TabletSchemaPB in;
+    in.set_keys_type(DUP_KEYS);
+    in.set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
+
+    TabletSchema schema;
+    schema.init_from_pb(in);
+    ASSERT_EQ(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2, schema.storage_format());
+
+    TabletSchemaPB out;
+    schema.to_schema_pb(&out);
+    EXPECT_EQ(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2, out.storage_format());
+    EXPECT_FALSE(out.is_external_segment_column_meta_used());
+    EXPECT_FALSE(out.integer_type_default_use_plain_encoding());
+    EXPECT_NE(BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2,
+              out.binary_plain_encoding_default_impl());
 }
 
 } // namespace doris

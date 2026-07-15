@@ -1044,7 +1044,7 @@ class UniqueFunctionTest extends SqlTestBase {
                 if (output instanceof Alias) {
                     Alias alias = (Alias) output;
                     exprIdToExpressionMap.put(alias.getExprId(), alias.child());
-                    if (output.containsUniqueFunction()) {
+                    if (output.containsVolatileExpression()) {
                         boolean notExists = uniqueOutputExpressions.add(alias.child());
                         Assertions.assertTrue(notExists);
                     }

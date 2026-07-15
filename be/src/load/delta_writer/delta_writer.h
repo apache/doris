@@ -61,7 +61,8 @@ public:
 
     virtual ~BaseDeltaWriter();
 
-    virtual Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) = 0;
+    virtual Status write(const Block* block, const TabletAddRowsPayload& rows,
+                         bool* memtable_flushed = nullptr) = 0;
 
     // flush the last memtable to flush queue, must call it before build_rowset()
     virtual Status close() = 0;
@@ -81,7 +82,11 @@ public:
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
+    virtual Status flush_memtable_async();
+
     int64_t partition_id() const { return _req.partition_id; }
+
+    int64_t table_id() const;
 
     int64_t tablet_id() const { return _req.tablet_id; }
 
@@ -124,12 +129,18 @@ class DeltaWriter final : public BaseDeltaWriter {
 public:
     DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
                 const UniqueId& load_id);
+    DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_req,
+                const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                RuntimeProfile* profile, const UniqueId& load_id);
 
     ~DeltaWriter() override;
 
-    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) override;
+    Status write(const Block* block, const TabletAddRowsPayload& rows,
+                 bool* memtable_flushed = nullptr) override;
 
     Status close() override;
+
+    Status flush_memtable_async() override;
 
     Status cancel_with_status(const Status& st) override;
 
@@ -149,9 +160,6 @@ private:
     void _init_profile(RuntimeProfile* profile) override;
 
     void _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
-
-    // Convert `_rowset_builder` from `BaseRowsetBuilder` to `RowsetBuilder`
-    RowsetBuilder* rowset_builder();
 
     std::mutex _lock;
 

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exec/common/stringop_substring.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
@@ -215,7 +217,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -272,7 +274,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -338,7 +340,7 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<PT>>(column_ptr.get());
+        const auto* const decimal_col = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
         auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
@@ -390,7 +392,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -451,7 +453,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -514,7 +516,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -588,7 +590,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -654,7 +656,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -732,7 +734,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -794,7 +796,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -863,7 +865,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -932,7 +934,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -1001,7 +1003,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -1070,7 +1072,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -1144,7 +1146,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
@@ -1217,7 +1219,7 @@ public:
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (column_ptr->is_nullable()) {
+        if (is_column_nullable(*column_ptr)) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;

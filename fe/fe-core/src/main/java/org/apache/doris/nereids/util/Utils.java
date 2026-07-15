@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -127,6 +131,22 @@ public class Utils {
     }
 
     /**
+     * Whether {@code a + b} overflows the signed long range. {@code a} and {@code b} are expected to
+     * be non-negative (e.g. a limit and an offset).
+     *
+     * <p>When combining a {@code limit} and an {@code offset} into the number of rows a child must
+     * keep (e.g. pushing a TopN/Limit down, or building a two-phase sort), the raw {@code limit +
+     * offset} can exceed the long range when both are close to {@code BIGINT_MAX}; it then wraps to a
+     * negative number, which is an illegal limit and produces a broken plan. Overflow here means the
+     * child would need more rows than any relation can hold (no relation exceeds {@code
+     * Long.MAX_VALUE} rows), so the optimization cannot reduce anything: callers should skip the
+     * rewrite and fall back to the correct unoptimized execution.
+     */
+    public static boolean addOverflows(long a, long b) {
+        return a > Long.MAX_VALUE - b;
+    }
+
+    /**
      * Wrapper to a function without return value.
      */
     public interface FuncWrapper {
@@ -173,6 +193,18 @@ public class Utils {
             qualifierWithBackquote.add('`' + escapeQualifier + '`');
         }
         return StringUtils.join(qualifierWithBackquote, ".");
+    }
+
+    public static boolean isBelongStableCG(OlapTable olapTable) {
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        return colocateTableIndex.isColocateTable(olapTable.getId())
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))
+                && olapTable.getCatalogId() == Env.getCurrentInternalCatalog().getId();
+    }
+
+    public static boolean isSelectUnpartition(OlapTable olapTable, Collection<Long> selectedPartitionIds) {
+        return olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || selectedPartitionIds.size() == 1;
     }
 
     /**

@@ -293,7 +293,7 @@ struct SubReplaceImpl {
     static Status replace_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) {
         auto res_column = ColumnString::create();
-        auto* result_column = assert_cast<ColumnString*>(res_column.get());
+        auto* result_column = res_column.get();
         auto args_null_map = ColumnUInt8::create(input_rows_count, 0);
         ColumnPtr argument_columns[4];
         bool col_const[4];

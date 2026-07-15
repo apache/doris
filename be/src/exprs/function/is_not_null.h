@@ -37,7 +37,9 @@
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
+#include "exprs/vslot_ref.h"
 
 namespace doris {
 class FunctionContext;
@@ -61,6 +63,15 @@ public:
         return std::make_shared<DataTypeUInt8>();
     }
 
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
+                                                const VExprSPtrs& arguments) const override {
+        return expr_zonemap::eval_null_zonemap(ctx, arguments, false);
+    }
+
+    bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
+        return std::dynamic_pointer_cast<VSlotRef>(arguments[0]) != nullptr;
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& elem = block.get_by_position(arguments[0]);
@@ -68,7 +79,7 @@ public:
             /// Return the negated null map.
             auto res_column = ColumnUInt8::create(input_rows_count);
             const auto* __restrict src_data = nullable->get_null_map_data().data();
-            auto* __restrict res_data = assert_cast<ColumnUInt8&>(*res_column).get_data().data();
+            auto* __restrict res_data = res_column->get_data().data();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] = !src_data[i];

@@ -269,7 +269,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        notContains "PREAGGREGATION: OFF"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: ON"
     }
 
     explain {
@@ -287,7 +289,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        notContains "PREAGGREGATION: OFF"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: ON"
     }
 
     explain {
@@ -307,6 +311,42 @@ suite("set_preagg") {
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
+        contains "(preagg_t3), PREAGGREGATION: OFF"
+    }
+
+    explain {
+        sql("""
+            select cw.k1, cw.k2, cw.v7, cw.v9
+            from preagg_t1 cw
+            inner join (
+                select k1, k2, max(v9) as v9
+                from preagg_t1
+                where k1 in (1, 2)
+                group by k1, k2
+            ) mw on cw.k1 = mw.k1 and cw.v9 = mw.v9;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: OFF. Reason: No valid aggregate on scan."
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Aggregate over limited subquery: Limit between aggregate and scan goes
+    // through generic visitor path, which should block preagg collection
+    // without clearing the aggregate's own frame.
+    explain {
+        sql("""
+            select k1, sum(v7)
+            from (select k1, v7 from preagg_t1 limit 10) s
+            group by k1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Aggregate over non-Olap relation (numbers TVF).
+    // The TVF scan goes through the generic visitor path, which should not
+    // clear the aggregate's frame and cause EmptyStackException.
+    explain {
+        sql("""
+            select count(*) from (select * from numbers("number"="10")) t;
+        """)
     }
 }

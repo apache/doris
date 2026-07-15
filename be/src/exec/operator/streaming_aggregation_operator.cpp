@@ -101,8 +101,8 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
     // Determine whether to use simple count aggregation.
     // StreamingAgg only operates in update + serialize mode: input is raw data, output is serialized intermediate state.
     // The serialization format of count is UInt64 itself, so it can be inlined into the hash table mapped slot.
-    if (_aggregate_evaluators.size() == 1 &&
-        _aggregate_evaluators[0]->function()->is_simple_count() && p._sort_limit == -1) {
+    if (_aggregate_evaluators.size() == 1 && _aggregate_evaluators[0]->is_simple_count() &&
+        p._sort_limit == -1) {
         _use_simple_count = true;
 #ifndef NDEBUG
         // Randomly enable/disable in debug mode to verify correctness of multi-phase agg promotion/demotion.
@@ -330,8 +330,11 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
             in_block->get_by_position(result_column_id).column =
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
+            auto mutable_column =
+                    IColumn::mutate(std::move(in_block->get_by_position(result_column_id).column));
+            mutable_column->replace_float_special_values();
+            in_block->get_by_position(result_column_id).column = std::move(mutable_column);
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -365,17 +368,25 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
         }
         bool mem_reuse = p._make_nullable_keys.empty() && out_block->mem_reuse();
 
+        if (mem_reuse) {
+            auto columns_guard = out_block->mutate_columns_scoped();
+            MutableColumns& columns = columns_guard.mutable_columns();
+            for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
+                SCOPED_TIMER(_insert_values_to_column_timer);
+                RETURN_IF_ERROR(_aggregate_evaluators[i]->streaming_agg_serialize_to_column(
+                        in_block, columns[i + key_size], rows, _agg_arena_pool));
+            }
+            for (int i = 0; i < key_size; ++i) {
+                columns[i]->insert_range_from(*key_columns[i], 0, rows);
+            }
+            return Status::OK();
+        }
+
         std::vector<DataTypePtr> data_types;
         MutableColumns value_columns;
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-            auto data_type = _aggregate_evaluators[i]->function()->get_serialized_type();
-            if (mem_reuse) {
-                value_columns.emplace_back(
-                        std::move(*out_block->get_by_position(i + key_size).column).mutate());
-            } else {
-                value_columns.emplace_back(
-                        _aggregate_evaluators[i]->function()->create_serialize_column());
-            }
+            auto data_type = _aggregate_evaluators[i]->get_serialized_type();
+            value_columns.emplace_back(_aggregate_evaluators[i]->create_serialize_column());
             data_types.emplace_back(data_type);
         }
 
@@ -385,24 +396,16 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
                     in_block, value_columns[i], rows, _agg_arena_pool));
         }
 
-        if (!mem_reuse) {
-            ColumnsWithTypeAndName columns_with_schema;
-            for (int i = 0; i < key_size; ++i) {
-                columns_with_schema.emplace_back(key_columns[i]->clone_resized(rows),
-                                                 _probe_expr_ctxs[i]->root()->data_type(),
-                                                 _probe_expr_ctxs[i]->root()->expr_name());
-            }
-            for (int i = 0; i < value_columns.size(); ++i) {
-                columns_with_schema.emplace_back(std::move(value_columns[i]), data_types[i], "");
-            }
-            out_block->swap(Block(columns_with_schema));
-        } else {
-            for (int i = 0; i < key_size; ++i) {
-                std::move(*out_block->get_by_position(i).column)
-                        .mutate()
-                        ->insert_range_from(*key_columns[i], 0, rows);
-            }
+        ColumnsWithTypeAndName columns_with_schema;
+        for (int i = 0; i < key_size; ++i) {
+            columns_with_schema.emplace_back(key_columns[i]->clone_resized(rows),
+                                             _probe_expr_ctxs[i]->root()->data_type(),
+                                             _probe_expr_ctxs[i]->root()->expr_name());
         }
+        for (int i = 0; i < value_columns.size(); ++i) {
+            columns_with_schema.emplace_back(std::move(value_columns[i]), data_types[i], "");
+        }
+        out_block->swap(Block(columns_with_schema));
     } else {
         bool need_agg = true;
         if (need_do_sort_limit != 1) {
@@ -462,151 +465,154 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
         if (mem_reuse) {
-            key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            key_columns.emplace_back(IColumn::mutate(std::move(block->get_by_position(i).column)));
         } else {
             key_columns.emplace_back(_probe_expr_ctxs[i]->root()->data_type()->create_column());
         }
     }
 
     std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        agg_method.init_iterator();
-                        auto& data = *agg_method.hash_table;
-                        const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
-                        std::vector<KeyType> keys(size);
+            Overload {[&](std::monostate& arg) -> void {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto& agg_method) -> void {
+                          agg_method.init_iterator();
+                          auto& data = *agg_method.hash_table;
+                          const auto size = std::min(data.size(), size_t(state->batch_size()));
+                          using KeyType = std::decay_t<decltype(agg_method)>::Key;
+                          std::vector<KeyType> keys(size);
 
-                        if (_use_simple_count) {
-                            DCHECK_EQ(_aggregate_evaluators.size(), 1);
+                          if (_use_simple_count) {
+                              DCHECK_EQ(_aggregate_evaluators.size(), 1);
 
-                            value_data_types[0] =
-                                    _aggregate_evaluators[0]->function()->get_serialized_type();
-                            if (mem_reuse) {
-                                value_columns[0] =
-                                        std::move(*block->get_by_position(key_size).column)
-                                                .mutate();
-                            } else {
-                                value_columns[0] = _aggregate_evaluators[0]
-                                                           ->function()
-                                                           ->create_serialize_column();
-                            }
+                              value_data_types[0] = _aggregate_evaluators[0]->get_serialized_type();
+                              if (mem_reuse) {
+                                  value_columns[0] = IColumn::mutate(
+                                          std::move(block->get_by_position(key_size).column));
+                              } else {
+                                  value_columns[0] =
+                                          _aggregate_evaluators[0]->create_serialize_column();
+                              }
 
-                            auto& count_col =
-                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
-                            uint32_t num_rows = 0;
-                            {
-                                SCOPED_TIMER(_hash_table_iterate_timer);
-                                auto& it = agg_method.begin;
-                                while (it != agg_method.end && num_rows < state->batch_size()) {
-                                    keys[num_rows] = it.get_first();
-                                    auto inline_count =
-                                            reinterpret_cast<const UInt64&>(it.get_second());
-                                    count_col.insert_data(
-                                            reinterpret_cast<const char*>(&inline_count),
-                                            sizeof(UInt64));
-                                    ++it;
-                                    ++num_rows;
-                                }
-                            }
+                              auto& count_col =
+                                      assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
+                              uint32_t num_rows = 0;
+                              {
+                                  SCOPED_TIMER(_hash_table_iterate_timer);
+                                  auto& it = agg_method.begin;
+                                  while (it != agg_method.end && num_rows < state->batch_size()) {
+                                      keys[num_rows] = it.get_first();
+                                      auto inline_count =
+                                              reinterpret_cast<const UInt64&>(it.get_second());
+                                      count_col.insert_data(
+                                              reinterpret_cast<const char*>(&inline_count),
+                                              sizeof(UInt64));
+                                      ++it;
+                                      ++num_rows;
+                                  }
+                              }
 
-                            {
-                                SCOPED_TIMER(_insert_keys_to_column_timer);
-                                agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                            }
+                              {
+                                  SCOPED_TIMER(_insert_keys_to_column_timer);
+                                  agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                              }
 
-                            // Handle null key if present
-                            if (agg_method.begin == agg_method.end) {
-                                if (agg_method.hash_table->has_null_key_data()) {
-                                    DCHECK(key_columns.size() == 1);
-                                    DCHECK(key_columns[0]->is_nullable());
-                                    if (num_rows < state->batch_size()) {
-                                        key_columns[0]->insert_data(nullptr, 0);
-                                        auto mapped =
-                                                agg_method.hash_table->template get_null_key_data<
-                                                        AggregateDataPtr>();
-                                        count_col.resize(num_rows + 1);
-                                        *reinterpret_cast<UInt64*>(count_col.get_data().data() +
-                                                                   num_rows * sizeof(UInt64)) =
-                                                std::bit_cast<UInt64>(mapped);
-                                        *eos = true;
-                                    }
-                                } else {
-                                    *eos = true;
-                                }
-                            }
-                            return;
-                        }
+                              // Handle null key if present
+                              if (agg_method.begin == agg_method.end) {
+                                  if (agg_method.hash_table->has_null_key_data()) {
+                                      DCHECK(key_columns.size() == 1);
+                                      DCHECK(key_columns[0]->is_nullable());
+                                      if (num_rows < state->batch_size()) {
+                                          key_columns[0]->insert_data(nullptr, 0);
+                                          auto mapped =
+                                                  agg_method.hash_table->template get_null_key_data<
+                                                          AggregateDataPtr>();
+                                          count_col.resize(num_rows + 1);
+                                          *reinterpret_cast<UInt64*>(count_col.get_data().data() +
+                                                                     num_rows * sizeof(UInt64)) =
+                                                  std::bit_cast<UInt64>(mapped);
+                                          *eos = true;
+                                      }
+                                  } else {
+                                      *eos = true;
+                                  }
+                              }
+                              return;
+                          }
 
-                        if (_values.size() < size + 1) {
-                            _values.resize(size + 1);
-                        }
+                          if (_values.size() < size + 1) {
+                              _values.resize(size + 1);
+                          }
 
-                        uint32_t num_rows = 0;
-                        _aggregate_data_container->init_once();
-                        auto& iter = _aggregate_data_container->iterator;
+                          uint32_t num_rows = 0;
+                          _aggregate_data_container->init_once();
+                          auto& iter = _aggregate_data_container->iterator;
 
-                        {
-                            SCOPED_TIMER(_hash_table_iterate_timer);
-                            while (iter != _aggregate_data_container->end() &&
-                                   num_rows < state->batch_size()) {
-                                keys[num_rows] = iter.template get_key<KeyType>();
-                                _values[num_rows] = iter.get_aggregate_data();
-                                ++iter;
-                                ++num_rows;
-                            }
-                        }
+                          {
+                              SCOPED_TIMER(_hash_table_iterate_timer);
+                              while (iter != _aggregate_data_container->end() &&
+                                     num_rows < state->batch_size()) {
+                                  keys[num_rows] = iter.template get_key<KeyType>();
+                                  _values[num_rows] = iter.get_aggregate_data();
+                                  ++iter;
+                                  ++num_rows;
+                              }
+                          }
 
-                        {
-                            SCOPED_TIMER(_insert_keys_to_column_timer);
-                            agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                        }
+                          {
+                              SCOPED_TIMER(_insert_keys_to_column_timer);
+                              agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                          }
 
-                        if (iter == _aggregate_data_container->end()) {
-                            if (agg_method.hash_table->has_null_key_data()) {
-                                // only one key of group by support wrap null key
-                                // here need additional processing logic on the null key / value
-                                DCHECK(key_columns.size() == 1);
-                                DCHECK(key_columns[0]->is_nullable());
-                                if (agg_method.hash_table->has_null_key_data()) {
-                                    key_columns[0]->insert_data(nullptr, 0);
-                                    _values[num_rows] =
-                                            agg_method.hash_table->template get_null_key_data<
-                                                    AggregateDataPtr>();
-                                    ++num_rows;
-                                    *eos = true;
-                                }
-                            } else {
-                                *eos = true;
-                            }
-                        }
+                          if (iter == _aggregate_data_container->end()) {
+                              if (agg_method.hash_table->has_null_key_data()) {
+                                  // only one key of group by support wrap null key
+                                  // here need additional processing logic on the null key / value
+                                  DCHECK(key_columns.size() == 1);
+                                  DCHECK(key_columns[0]->is_nullable());
+                                  if (agg_method.hash_table->has_null_key_data()) {
+                                      key_columns[0]->insert_data(nullptr, 0);
+                                      _values[num_rows] =
+                                              agg_method.hash_table->template get_null_key_data<
+                                                      AggregateDataPtr>();
+                                      ++num_rows;
+                                      *eos = true;
+                                  }
+                              } else {
+                                  *eos = true;
+                              }
+                          }
 
-                        {
-                            SCOPED_TIMER(_insert_values_to_column_timer);
-                            for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-                                value_data_types[i] =
-                                        _aggregate_evaluators[i]->function()->get_serialized_type();
-                                if (mem_reuse) {
-                                    value_columns[i] =
-                                            std::move(*block->get_by_position(i + key_size).column)
-                                                    .mutate();
-                                } else {
-                                    value_columns[i] = _aggregate_evaluators[i]
-                                                               ->function()
-                                                               ->create_serialize_column();
-                                }
-                                _aggregate_evaluators[i]->function()->serialize_to_column(
-                                        _values, p._offsets_of_aggregate_states[i],
-                                        value_columns[i], num_rows);
-                            }
-                        }
-                    }},
+                          {
+                              SCOPED_TIMER(_insert_values_to_column_timer);
+                              for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                  value_data_types[i] =
+                                          _aggregate_evaluators[i]->get_serialized_type();
+                                  if (mem_reuse) {
+                                      value_columns[i] = IColumn::mutate(std::move(
+                                              block->get_by_position(i + key_size).column));
+                                  } else {
+                                      value_columns[i] =
+                                              _aggregate_evaluators[i]->create_serialize_column();
+                                  }
+                                  _aggregate_evaluators[i]->serialize_to_column(
+                                          _values, p._offsets_of_aggregate_states[i],
+                                          value_columns[i], num_rows);
+                              }
+                          }
+                      }},
             _agg_data->method_variant);
 
-    if (!mem_reuse) {
+    if (mem_reuse) {
+        MutableColumns columns(block->columns());
+        for (int i = 0; i < key_size; ++i) {
+            columns[i] = std::move(key_columns[i]);
+        }
+        for (int i = 0; i < agg_size; ++i) {
+            columns[key_size + i] = std::move(value_columns[i]);
+        }
+        block->set_columns(std::move(columns));
+    } else {
         ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             columns_with_schema.emplace_back(std::move(key_columns[i]),
@@ -633,7 +639,7 @@ void StreamingAggLocalState::make_nullable_output_key(Block* block) {
 
 void StreamingAggLocalState::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->function()->destroy(
+        _aggregate_evaluators[i]->destroy(
                 data + _parent->cast<StreamingAggOperatorX>()._offsets_of_aggregate_states[i]);
     }
 }
@@ -1037,15 +1043,14 @@ Status StreamingAggOperatorX::_calc_aggregate_evaluators() {
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
 
-        const auto& agg_function = _aggregate_evaluators[i]->function();
+        const auto* agg_function = _aggregate_evaluators[i];
         // aggreate states are aligned based on maximum requirement
         _align_aggregate_states = std::max(_align_aggregate_states, agg_function->align_of_data());
         _total_size_of_aggregate_states += agg_function->size_of_data();
 
         // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
         if (i + 1 < _aggregate_evaluators.size()) {
-            size_t alignment_of_next_state =
-                    _aggregate_evaluators[i + 1]->function()->align_of_data();
+            size_t alignment_of_next_state = _aggregate_evaluators[i + 1]->align_of_data();
             if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
                 return Status::RuntimeError("Logical error: align_of_data is not 2^N");
             }

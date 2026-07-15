@@ -141,6 +141,7 @@ public:
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const Block* block) override;
+    Status flush_single_block(const Block* block, int32_t segment_id) override;
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 
@@ -168,9 +169,20 @@ public:
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
+    int32_t get_allocated_segment_id() override {
+        return _segment_creator.get_allocated_segment_id();
+    };
+
     void set_segment_start_id(int32_t start_id) override {
         _segment_creator.set_segment_start_id(start_id);
         _segment_start_id = start_id;
+    }
+
+    Status force_rollback() override {
+        DCHECK(_context.is_transient_rowset_writer);
+        DCHECK(_already_built);
+        _already_built = false;
+        return Status::OK();
     }
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
@@ -200,7 +212,7 @@ protected:
     Status _generate_delete_bitmap(int32_t segment_id);
     virtual Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer,
-                               bool is_index_file = false);
+                               FileType file_type = FileType::SEGMENT_FILE);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit(size_t segnum);
     virtual int64_t _num_seg() const;
@@ -317,6 +329,11 @@ private:
     std::condition_variable _segcompacting_cond;
 
     std::atomic<int> _segcompaction_status {ErrorCode::OK};
+};
+
+class RowBinlogRowsetWriter : public BetaRowsetWriter {
+public:
+    RowBinlogRowsetWriter(StorageEngine& engine);
 };
 
 } // namespace doris

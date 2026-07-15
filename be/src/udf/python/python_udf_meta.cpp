@@ -32,7 +32,6 @@ namespace doris {
 
 Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                               std::shared_ptr<arrow::Schema>* schema) {
-    assert(!types.empty());
     arrow::SchemaBuilder builder;
     for (size_t i = 0; i < types.size(); ++i) {
         std::shared_ptr<arrow::DataType> arrow_type;
@@ -56,6 +55,7 @@ Status PythonUDFMeta::serialize_arrow_schema(const std::shared_ptr<arrow::Schema
     json format:
     {
         "name": "xxx",
+        "id": 123,
         "symbol": "xxx",
         "location": "xxx",
         "udf_load_type": 0 or 1,
@@ -72,6 +72,7 @@ Status PythonUDFMeta::serialize_to_json(std::string* json_str) const {
     doc.SetObject();
     auto& allocator = doc.GetAllocator();
     doc.AddMember("name", rapidjson::Value().SetString(name.c_str(), allocator), allocator);
+    doc.AddMember("id", rapidjson::Value().SetInt64(id), allocator);
     doc.AddMember("symbol", rapidjson::Value().SetString(symbol.c_str(), allocator), allocator);
     doc.AddMember("location", rapidjson::Value().SetString(location.c_str(), allocator), allocator);
     doc.AddMember("udf_load_type", rapidjson::Value().SetInt(static_cast<int>(type)), allocator);
@@ -152,8 +153,9 @@ Status PythonUDFMeta::check() const {
         return Status::InvalidArgument("Python UDF runtime version is empty");
     }
 
-    if (input_types.empty()) {
-        return Status::InvalidArgument("Python UDF input types is empty");
+    if (input_types.empty() &&
+        (client_type == PythonClientType::UDAF || type == PythonUDFLoadType::UNKNOWN)) {
+        return Status::InvalidArgument("Python UDAF input types is empty");
     }
 
     if (!return_type) {

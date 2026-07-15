@@ -40,6 +40,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/segment/common.h"
+#include "storage/segment/condition_cache.h"
 #include "util/profile_collector.h"
 
 namespace doris {
@@ -51,16 +52,6 @@ namespace doris {
 class Block;
 class VSlotRef;
 
-// Context passed from FileScanner to readers for condition cache integration.
-// On MISS: readers populate filter_result per-granule during predicate evaluation.
-// On HIT: readers skip granules where filter_result[granule] == false.
-struct ConditionCacheContext {
-    bool is_hit = false;
-    std::shared_ptr<std::vector<bool>> filter_result; // per-granule: true = has surviving rows
-    int64_t base_granule = 0; // global granule index of the first granule in filter_result
-    static constexpr int GRANULE_SIZE = 2048;
-};
-
 /// Base context for the unified init_reader(ReaderInitContext*) template method.
 /// Contains fields shared by ALL reader types. Format-specific readers define
 /// subclasses (ParquetInitContext, OrcInitContext, etc.) with extra fields.
@@ -70,7 +61,7 @@ struct ReaderInitContext {
     virtual ~ReaderInitContext() = default;
 
     // ---- Owned by FileScanner, shared by all readers ----
-    std::vector<ColumnDescriptor>* column_descs = nullptr;
+    const std::vector<ColumnDescriptor>* column_descs = nullptr;
     std::unordered_map<std::string, uint32_t>* col_name_to_block_idx = nullptr;
     RuntimeState* state = nullptr;
     const TupleDescriptor* tuple_descriptor = nullptr;
@@ -125,6 +116,10 @@ public:
         RETURN_IF_ERROR(on_after_read_block(block, read_rows));
         return Status::OK();
     }
+
+    // Override this in readers that can adjust batch size between consecutive reads.
+    virtual void set_batch_size(size_t batch_size) {}
+    virtual size_t get_batch_size() const { return 0; }
 
     // Type is always nullable to process illegal values.
     // Results are cached after the first successful call.
@@ -291,6 +286,7 @@ protected:
     // ---- get_columns cache ----
     bool _get_columns_cached = false;
     std::unordered_map<std::string, DataTypePtr> _cached_name_to_type;
+    const TQueryOptions _default_query_options;
 };
 
 /// Provides an accessor for the current batch's row positions within the file.

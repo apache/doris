@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -36,6 +38,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jline.internal.Nullable;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.HttpEntity;
@@ -43,6 +46,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.view.RedirectView;
 
@@ -52,10 +56,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.stream.Collectors;
+import javax.net.ssl.HttpsURLConnection;
 
 public class RestBaseController extends BaseController {
 
@@ -74,7 +80,7 @@ public class RestBaseController extends BaseController {
                                                         HttpServletResponse response) throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
-        UserIdentity currentUser = checkPassword(authInfo);
+        UserIdentity currentUser = checkPassword(authInfo, request);
 
         // Store UserIdentity in authInfo for convenient parameter passing
         authInfo.userIdentity = currentUser;
@@ -88,36 +94,49 @@ public class RestBaseController extends BaseController {
         return authInfo;
     }
 
-    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
-        RedirectView redirectView = new RedirectView(getRedirectUrL(request, addr));
-        redirectView.setContentType("text/html;charset=utf-8");
-        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
-        return redirectView;
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr) {
+        return buildRedirectUrl(request, addr, request.getRequestURI(), request.getQueryString());
     }
 
-    public String getRedirectUrL(HttpServletRequest request, TNetworkAddress addr) {
-        URI urlObj = null;
-        URI resultUriObj = null;
-        String urlStr = request.getRequestURI();
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr, String requestPath,
+            String queryString) {
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             userInfo = authInfo.fullUserName + ":" + authInfo.password;
         }
         try {
-            urlObj = new URI(urlStr);
-            resultUriObj = new URI(request.getScheme(), userInfo, addr.getHostname(),
-                    addr.getPort(), urlObj.getPath(), "", null);
+            // Preserve the original request path to avoid re-encoding an already encoded URI path.
+            URI authorityUri = new URI(request.getScheme(), userInfo, addr.getHostname(),
+                    addr.getPort(), null, null, null);
+            String redirectUrl = authorityUri.toASCIIString() + requestPath;
+            if (!Strings.isNullOrEmpty(queryString)) {
+                redirectUrl += "?" + queryString;
+            }
+            LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
+                    + addr.getPort() + requestPath);
+            return redirectUrl;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        String redirectUrl = resultUriObj.toASCIIString();
-        if (!Strings.isNullOrEmpty(request.getQueryString())) {
-            redirectUrl += request.getQueryString();
-        }
-        LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
-                + addr.getPort() + urlObj.getPath());
-        return redirectUrl;
+    }
+
+    protected void writeTemporaryRedirect(HttpServletResponse response, String redirectUrl) throws IOException {
+        response.setContentType("text/html;charset=utf-8");
+        response.setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
+        response.setHeader("Location", redirectUrl);
+        response.flushBuffer();
+    }
+
+    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
+        RedirectView redirectView = new RedirectView(buildRedirectUrl(request, addr));
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    public String getRedirectUrL(HttpServletRequest request, TNetworkAddress addr) {
+        return buildRedirectUrl(request, addr);
     }
 
     public RedirectView redirectToObj(String sign) throws URISyntaxException {
@@ -258,8 +277,8 @@ public class RestBaseController extends BaseController {
                 redirectUrl =
                         getRedirectUrL(request, new TNetworkAddress(request.getServerName(), request.getServerPort()));
             } else {
-                redirectUrl = getRedirectUrL(request,
-                        new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
+                redirectUrl = HttpURLUtil.buildInternalFeUrl(
+                        env.getMasterHost(), request.getRequestURI(), request.getQueryString());
             }
             String method = request.getMethod();
 
@@ -279,7 +298,25 @@ public class RestBaseController extends BaseController {
 
             HttpEntity<Object> entity = new HttpEntity<>(body, headers);
 
-            RestTemplate restTemplate = new RestTemplate();
+            RestTemplate restTemplate;
+            if (Config.enable_https) {
+                SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+                    @Override
+                    protected void prepareConnection(HttpURLConnection conn, String httpMethod)
+                            throws IOException {
+                        if (conn instanceof HttpsURLConnection) {
+                            HttpsURLConnection https = (HttpsURLConnection) conn;
+                            https.setSSLSocketFactory(
+                                    InternalHttpsUtils.getSslContext().getSocketFactory());
+                            https.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
+                        }
+                        super.prepareConnection(conn, httpMethod);
+                    }
+                };
+                restTemplate = new RestTemplate(factory);
+            } else {
+                restTemplate = new RestTemplate();
+            }
 
             ResponseEntity<Object> responseEntity;
             switch (method) {

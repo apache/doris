@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
 #include <stddef.h>
 
 #include <functional>
@@ -30,8 +31,8 @@
 
 namespace doris {
 
-class TypeInfo;
 enum class FieldType;
+class TabletColumn;
 
 namespace segment_v2 {
 
@@ -52,15 +53,22 @@ public:
 
 class EncodingInfo {
 public:
-    // Get EncodingInfo for TypeInfo and EncodingTypePB
-    static Status get(FieldType type, EncodingTypePB encoding_type,
-                      EncodingPreference encoding_preference, const EncodingInfo** encoding);
+    // Look up the EncodingInfo for an already-resolved (type, encoding) pair.
+    // Read paths use this directly; write paths first resolve a default via the
+    // get_*_default_encoding helpers below.
+    static Status get(FieldType type, EncodingTypePB encoding_type, const EncodingInfo** encoding);
 
-    // optimize_value_search: whether the encoding scheme should optimize for ordered data
-    // and support fast value seek operation
-    static EncodingTypePB get_default_encoding(FieldType type,
-                                               EncodingPreference encoding_preference,
-                                               bool optimize_value_seek);
+    // Default encoding for IndexedColumn writers (PK index, variant ext meta key writer)
+    // that need fast value-seek via BinaryPrefixPage.
+    static EncodingTypePB get_index_column_encoding(FieldType type);
+
+    // Resolve the default encoding for one column when populating a fresh ColumnMetaPB.
+    // All write paths (top-level segment writer, aux child writers for null bitmap /
+    // array length / map length, struct subcolumns, variant subcolumns) should route the
+    // encoding decision through this helper. Centralizing it here means future
+    // per-storage-format or per-column encoding policy lives in one place.
+    static EncodingTypePB resolve_default_encoding(TabletStorageFormatPB storage_format,
+                                                   const TabletColumn& column);
 
     Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) const {
         return _create_builder_func(opts, builder);
@@ -80,6 +88,14 @@ public:
 
 private:
     friend class EncodingInfoResolver;
+    friend class EncodingInfoTest;
+    friend class ColumnReaderCacheTest;
+
+    // Per-storage-format defaults are an internal lookup table. Production write paths
+    // go through resolve_default_encoding(); other callers (e.g., zone map index) hardcode
+    // the encoding they want. Tests use the friend declarations above to read these tables.
+    static EncodingTypePB get_v2_default_encoding(FieldType type);
+    static EncodingTypePB get_v3_default_encoding(FieldType type);
 
     template <typename TypeEncodingTraits>
     explicit EncodingInfo(TypeEncodingTraits traits);
@@ -108,21 +124,43 @@ public:
     EncodingInfoResolver();
     ~EncodingInfoResolver();
 
-    EncodingTypePB get_default_encoding(FieldType type, EncodingPreference encoding_preference,
-                                        bool optimize_value_seek) const;
+    EncodingTypePB get_v2_default_encoding(FieldType type) const;
+    EncodingTypePB get_v3_default_encoding(FieldType type) const;
+    EncodingTypePB get_index_column_encoding(FieldType type) const;
 
-    Status get(FieldType data_type, EncodingTypePB encoding_type,
-               EncodingPreference encoding_preference, const EncodingInfo** out);
+    Status get(FieldType data_type, EncodingTypePB encoding_type, const EncodingInfo** out);
 
 private:
-    // Not thread-safe
-    template <FieldType type, EncodingTypePB encoding_type, bool optimize_value_seek = false>
-    void _add_map();
+    // Registration helpers used by the constructor. Not thread-safe.
+    //
+    // _register_supported_encoding: declare that this (type, encoding) is a supported combination,
+    //                               inserting one EncodingInfo* into _encoding_map. CHECK-fails on
+    //                               duplicate registration of the same key.
+    // _set_v2_default:              mark this (type, encoding) as the default for the V2 (V1/V2)
+    //                               write path. Only writes _v2_default_map; the caller must have
+    //                               already _register_supported_encoding'd the same key, otherwise
+    //                               EncodingInfo::get will return InternalError when first asked
+    //                               about this combination.
+    // _set_v3_default:              same, for the V3 write path.
+    // _set_index_column_encoding:   same, for IndexedColumn value-seek writers (PK index).
+    template <FieldType type, EncodingTypePB encoding>
+    void _register_supported_encoding();
+    template <FieldType type, EncodingTypePB encoding>
+    void _set_v2_default();
+    template <FieldType type, EncodingTypePB encoding>
+    void _set_v3_default();
+    template <FieldType type, EncodingTypePB encoding>
+    void _set_index_column_encoding();
 
-    std::unordered_map<FieldType, EncodingTypePB, EncodingMapHash> _default_encoding_type_map;
+    static EncodingTypePB _lookup(
+            const std::unordered_map<FieldType, EncodingTypePB, EncodingMapHash>& m, FieldType t) {
+        auto it = m.find(t);
+        return it != m.end() ? it->second : UNKNOWN_ENCODING;
+    }
 
-    // default encoding for each type which optimizes value seek
-    std::unordered_map<FieldType, EncodingTypePB, EncodingMapHash> _value_seek_encoding_map;
+    std::unordered_map<FieldType, EncodingTypePB, EncodingMapHash> _v2_default_map;
+    std::unordered_map<FieldType, EncodingTypePB, EncodingMapHash> _v3_default_map;
+    std::unordered_map<FieldType, EncodingTypePB, EncodingMapHash> _index_column_encoding_map;
 
     std::unordered_map<std::pair<FieldType, EncodingTypePB>, EncodingInfo*, EncodingMapHash>
             _encoding_map;
@@ -139,23 +177,39 @@ struct EncodingTraits : TypeEncodingTraits<field_type, encoding_type,
     static const EncodingTypePB encoding = encoding_type;
 };
 
-template <FieldType type, EncodingTypePB encoding_type, bool optimize_value_seek>
-void EncodingInfoResolver::_add_map() {
-    EncodingTraits<type, encoding_type> traits;
-    std::unique_ptr<EncodingInfo> encoding(new EncodingInfo(traits));
-    if (_default_encoding_type_map.find(type) == std::end(_default_encoding_type_map)) {
-        _default_encoding_type_map[type] = encoding_type;
-    }
-    if (optimize_value_seek &&
-        _value_seek_encoding_map.find(type) == _value_seek_encoding_map.end()) {
-        _value_seek_encoding_map[type] = encoding_type;
-    }
-    auto key = std::make_pair(type, encoding_type);
-    auto it = _encoding_map.find(key);
-    if (it != _encoding_map.end()) {
-        return;
-    }
-    _encoding_map.emplace(key, encoding.release());
+template <FieldType type, EncodingTypePB encoding>
+void EncodingInfoResolver::_register_supported_encoding() {
+    auto key = std::make_pair(type, encoding);
+    CHECK(_encoding_map.find(key) == _encoding_map.end())
+            << "duplicate _register_supported_encoding for (type=" << int(type)
+            << ", encoding=" << encoding << ")";
+    EncodingTraits<type, encoding> traits;
+    _encoding_map.emplace(key, new EncodingInfo(traits));
+}
+
+// The _set_*_default helpers only write to the corresponding default map. The caller must
+// _register_supported_encoding the same (type, encoding) separately; if not, EncodingInfo::get
+// will return InternalError when that combination is first looked up.
+
+template <FieldType type, EncodingTypePB encoding>
+void EncodingInfoResolver::_set_v2_default() {
+    DCHECK(_v2_default_map.find(type) == _v2_default_map.end())
+            << "duplicate v2 default for type " << int(type);
+    _v2_default_map[type] = encoding;
+}
+
+template <FieldType type, EncodingTypePB encoding>
+void EncodingInfoResolver::_set_v3_default() {
+    DCHECK(_v3_default_map.find(type) == _v3_default_map.end())
+            << "duplicate v3 default for type " << int(type);
+    _v3_default_map[type] = encoding;
+}
+
+template <FieldType type, EncodingTypePB encoding>
+void EncodingInfoResolver::_set_index_column_encoding() {
+    DCHECK(_index_column_encoding_map.find(type) == _index_column_encoding_map.end())
+            << "duplicate index_column_encoding for type " << int(type);
+    _index_column_encoding_map[type] = encoding;
 }
 
 } // namespace segment_v2

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
@@ -49,7 +50,7 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
         for (Expression expr : expressions) {
             if (expr instanceof Match) {
                 Match matchExpression = (Match) expr;
-                SlotReference slotReference = getSlotFromSlotOrCastChain(matchExpression.left());
+                SlotReference slotReference = getSlotFromSlotCastOrAliasChain(matchExpression.left());
                 if (slotReference == null
                         || !(matchExpression.right() instanceof Literal)) {
                     throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
@@ -65,9 +66,9 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
         return filter;
     }
 
-    private SlotReference getSlotFromSlotOrCastChain(Expression expression) {
+    private SlotReference getSlotFromSlotCastOrAliasChain(Expression expression) {
         Expression current = expression;
-        while (current instanceof Cast) {
+        while (current instanceof Cast || current instanceof Alias) {
             current = current.child(0);
         }
         return current instanceof SlotReference ? (SlotReference) current : null;

@@ -229,6 +229,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                      .is_foreach = is_foreach,
                      .enable_aggregate_function_null_v2 =
                              state->enable_aggregate_function_null_v2(),
+                     .new_version_percentile =
+                             state->query_options().__isset.new_version_percentile &&
+                             state->query_options().new_version_percentile,
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
@@ -238,6 +241,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                      .is_foreach = is_foreach,
                      .enable_aggregate_function_null_v2 =
                              state->enable_aggregate_function_null_v2(),
+                     .new_version_percentile =
+                             state->query_options().__isset.new_version_percentile &&
+                             state->query_options().new_version_percentile,
                      .column_names = std::move(column_names)});
         }
     }
@@ -281,6 +287,7 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
+    _function->check_input_columns_type(_agg_columns.data());
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
 }
@@ -288,6 +295,7 @@ Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                                          Arena& arena, bool agg_many) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
+    _function->check_input_columns_type(_agg_columns.data());
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
 }
@@ -295,6 +303,7 @@ Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateD
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
+    _function->check_input_columns_type(_agg_columns.data());
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
 }
@@ -302,17 +311,46 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                                          const size_t num_rows, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
+    _function->check_input_columns_type(_agg_columns.data());
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();
 }
 
+void AggFnEvaluator::add_range_single_place(int64_t partition_start, int64_t partition_end,
+                                            int64_t frame_start, int64_t frame_end,
+                                            AggregateDataPtr place, const IColumn** columns,
+                                            Arena& arena, UInt8* use_null_result,
+                                            UInt8* could_use_previous_result) {
+    _function->check_input_columns_type(columns);
+    _function->add_range_single_place(partition_start, partition_end, frame_start, frame_end, place,
+                                      columns, arena, use_null_result, could_use_previous_result);
+}
+
+void AggFnEvaluator::execute_function_with_incremental(
+        int64_t partition_start, int64_t partition_end, int64_t frame_start, int64_t frame_end,
+        AggregateDataPtr place, const IColumn** columns, Arena& arena, bool previous_is_nul,
+        bool end_is_nul, bool has_null, UInt8* use_null_result, UInt8* could_use_previous_result) {
+    _function->check_input_columns_type(columns);
+    _function->execute_function_with_incremental(
+            partition_start, partition_end, frame_start, frame_end, place, columns, arena,
+            previous_is_nul, end_is_nul, has_null, use_null_result, could_use_previous_result);
+}
+
 void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column) {
+    _function->check_result_column_type(*column);
     _function->insert_result_into(place, *column);
 }
 
 void AggFnEvaluator::insert_result_info_vec(const std::vector<AggregateDataPtr>& places,
                                             size_t offset, IColumn* column, const size_t num_rows) {
+    _function->check_result_column_type(*column);
     _function->insert_result_into_vec(places, offset, *column, num_rows);
+}
+
+void AggFnEvaluator::insert_result_info_range(ConstAggregateDataPtr place, IColumn* column,
+                                              size_t start, size_t end) {
+    _function->check_result_column_type(*column);
+    _function->insert_result_into_range(place, *column, start, end);
 }
 
 void AggFnEvaluator::reset(AggregateDataPtr place) {
@@ -401,7 +439,7 @@ Status AggFnEvaluator::check_agg_fn_output(uint32_t key_size,
     auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);
     for (uint32_t i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
         auto&& [name, column_type] = name_and_types[i];
-        auto agg_return_type = agg_fn[j]->function()->get_return_type();
+        auto agg_return_type = agg_fn[j]->get_return_type();
         if (!column_type->equals(*agg_return_type)) {
             if (!column_type->is_nullable() || agg_return_type->is_nullable() ||
                 !remove_nullable(column_type)->equals(*agg_return_type)) {

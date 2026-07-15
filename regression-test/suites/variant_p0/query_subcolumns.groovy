@@ -30,12 +30,12 @@ suite("regression_test_query_subcolumns", "nonConcurrent"){
     sql """DROP TABLE IF EXISTS query_subcolumns"""
 
     // query must use inverted index for match operator
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     sql "set enable_match_without_inverted_index = false"
     sql "set default_variant_enable_doc_mode = false"
     for (int i = 0; i < 5; i++) {
         int max_subcolumns_count = Math.floor(Math.random() * 10)
-        // int max_subcolumns_count =1 
+        // int max_subcolumns_count =1
         def var = """variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")>,
                     INDEX idx_v (v) USING INVERTED PROPERTIES("parser" = "english") """
         if (max_subcolumns_count % 2 == 0) {
@@ -81,7 +81,7 @@ suite("regression_test_query_subcolumns", "nonConcurrent"){
         // }
 
         // triger compaction
-        trigger_and_wait_compaction("query_subcolumns", "full", 1800)        
+        trigger_and_wait_compaction("query_subcolumns", "full", 1800)
 
         qt_sql "select v['a'] from query_subcolumns where cast(v['a'] as int) is not null order by k"
         qt_sql "select v['b'] from query_subcolumns where cast(v['b'] as int) is not null order by k"

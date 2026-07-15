@@ -19,12 +19,9 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <string.h>
 
 #include <memory>
 #include <ostream>
-#include <string>
-#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -37,6 +34,7 @@
 #include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -92,87 +90,30 @@ public:
     }
 
 private:
-    template <typename NestedColumnType, typename RightColumnType>
-    ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
-                              const IColumn& right_column, const UInt8* nested_null_map,
-                              const UInt8* right_nested_null_map,
-                              const ColumnUInt8* array_null_map) const {
-        // check array nested column type and get data
-        const auto& src_data = reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
-
-        // check target column type and get data
-        const auto& target_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
-
-        PaddedPODArray<UInt8>* dst_null_map = nullptr;
-        MutableColumnPtr array_nested_column = nullptr;
-        IColumn* dst_column = nullptr;
-        if (nested_null_map) {
-            auto dst_nested_column =
-                    ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
-            array_nested_column = dst_nested_column->get_ptr();
-            dst_column = dst_nested_column->get_nested_column_ptr().get();
-            dst_null_map = &dst_nested_column->get_null_map_data();
-            dst_null_map->reserve(offsets.back());
-        } else {
-            auto dst_nested_column = nested_column.clone_empty();
-            array_nested_column = dst_nested_column->get_ptr();
-            dst_column = dst_nested_column.get();
-        }
-
-        auto& dst_data = reinterpret_cast<NestedColumnType&>(*dst_column).get_data();
-        dst_data.reserve(offsets.back());
+    template <PrimitiveType PType>
+    ColumnPtr _execute_view(const IColumn& array_data_column,
+                            const ColumnArrayView<PType>& array_view,
+                            const ColumnView<PType>& right_view) const {
+        auto array_nested_column = array_data_column.clone_empty();
+        array_nested_column->reserve(array_data_column.size());
 
         auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
         auto& dst_offsets = dst_offsets_column->get_data();
-        dst_offsets.reserve(offsets.size());
+        dst_offsets.reserve(array_view.size());
 
         size_t cur = 0;
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-
-            if (len == 0) {
-                // case: array:[], target:1 ==> []
-                dst_offsets.push_back(cur);
-                continue;
-            }
-
+        for (size_t row = 0; row < array_view.size(); ++row) {
+            const auto array_data = array_view[row];
             size_t cur_count = 0;
-            for (size_t pos = 0; pos < len; ++pos) {
-                // left is null, right is null
-                if (nested_null_map && nested_null_map[off + pos] && right_nested_null_map &&
-                    right_nested_null_map[row]) {
+            for (size_t pos = 0; pos < array_data.size(); ++pos) {
+                // Keep null values unless the remove target is also null.
+                if (array_data.is_null_at(pos) && right_view.is_null_at(row)) {
                     continue;
                 }
-
-                // left is null, right is not null
-                if (nested_null_map && nested_null_map[off + pos]) {
-                    // case: array:[Null], target:1 ==> [Null]
-                    dst_data.push_back(typename NestedColumnType::value_type());
+                if (array_data.is_null_at(pos) || right_view.is_null_at(row) ||
+                    !(array_data.value_at(pos) == right_view.value_at(row))) {
+                    array_nested_column->insert_from(array_data_column, array_data.offset + pos);
                     ++cur_count;
-                    dst_null_map->push_back(1);
-                    continue;
-                }
-
-                // left is not null, right is null
-                if (right_nested_null_map && right_nested_null_map[row]) {
-                    dst_data.push_back(src_data[off + pos]);
-                    ++cur_count;
-                    if (nested_null_map) {
-                        dst_null_map->push_back(0);
-                    }
-                    continue;
-                }
-
-                // left is not null, right is not null
-                if (src_data[off + pos] == target_data[row]) {
-                    continue;
-                } else {
-                    dst_data.push_back(src_data[off + pos]);
-                    ++cur_count;
-                    if (nested_null_map) {
-                        dst_null_map->push_back(0);
-                    }
                 }
             }
 
@@ -182,238 +123,53 @@ private:
 
         auto dst =
                 ColumnArray::create(std::move(array_nested_column), std::move(dst_offsets_column));
-        if (array_null_map) {
-            auto dst_null_column = ColumnUInt8::create();
-            dst_null_column->insert_range_from(*array_null_map, 0, offsets.size());
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-        } else {
+        if (!array_view.is_nullable()) {
             return dst;
         }
-    }
 
-    ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
-                              const IColumn& right_column, const UInt8* nested_null_map,
-                              const UInt8* right_nested_null_map,
-                              const ColumnUInt8* array_null_map) const {
-        // check array nested column type and get data
-        const auto& src_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
-        const auto& src_chars = reinterpret_cast<const ColumnString&>(nested_column).get_chars();
-
-        // check right column type and get data
-        const auto& target_offs = reinterpret_cast<const ColumnString&>(right_column).get_offsets();
-        const auto& target_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
-
-        PaddedPODArray<UInt8>* dst_null_map = nullptr;
-        MutableColumnPtr array_nested_column = nullptr;
-        IColumn* dst_column = nullptr;
-        if (nested_null_map) {
-            auto dst_nested_column =
-                    ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
-            array_nested_column = dst_nested_column->get_ptr();
-            dst_column = dst_nested_column->get_nested_column_ptr().get();
-            dst_null_map = &dst_nested_column->get_null_map_data();
-            dst_null_map->reserve(offsets.back());
-        } else {
-            auto dst_nested_column = nested_column.clone_empty();
-            array_nested_column = dst_nested_column->get_ptr();
-            dst_column = dst_nested_column.get();
+        auto dst_null_column = ColumnUInt8::create(array_view.size(), 0);
+        auto& dst_null_map = dst_null_column->get_data();
+        for (size_t row = 0; row < array_view.size(); ++row) {
+            dst_null_map[row] = array_view.is_null_at(row);
         }
-
-        auto& dst_offs = reinterpret_cast<ColumnString&>(*dst_column).get_offsets();
-        auto& dst_chars = reinterpret_cast<ColumnString&>(*dst_column).get_chars();
-        dst_offs.reserve(src_offs.size());
-        dst_chars.reserve(src_offs.back());
-
-        auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
-        auto& dst_offsets = dst_offsets_column->get_data();
-        dst_offsets.reserve(offsets.size());
-
-        size_t cur = 0;
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-
-            if (len == 0) {
-                // case: array:[], target:'str' ==> []
-                dst_offsets.push_back(cur);
-                continue;
-            }
-
-            size_t target_off = target_offs[row - 1];
-            size_t target_len = target_offs[row] - target_off;
-
-            size_t cur_count = 0;
-            for (size_t pos = 0; pos < len; ++pos) {
-                // left is null, right is null
-                if (nested_null_map && nested_null_map[off + pos] && right_nested_null_map &&
-                    right_nested_null_map[row]) {
-                    continue;
-                }
-
-                // left is null, right is not null
-                if (nested_null_map && nested_null_map[off + pos]) {
-                    // case: array:[Null], target:'str' ==> [Null]
-                    // dst_chars.push_back(0);
-                    dst_offs.push_back(dst_offs.back());
-                    ++cur_count;
-                    dst_null_map->push_back(1);
-                    continue;
-                }
-                size_t src_pos = src_offs[pos + off - 1];
-                size_t src_len = src_offs[pos + off] - src_pos;
-
-                // left is not null, right is null
-                if (right_nested_null_map && right_nested_null_map[row]) {
-                    const size_t old_size = dst_chars.size();
-                    const size_t new_size = old_size + src_len;
-                    dst_chars.resize(new_size);
-                    memcpy(&dst_chars[old_size], &src_chars[src_pos], src_len);
-                    dst_offs.push_back(new_size);
-                    ++cur_count;
-                    if (nested_null_map) {
-                        dst_null_map->push_back(0);
-                    }
-                    continue;
-                }
-
-                // left is not null, right is not null
-                const char* src_raw_v = reinterpret_cast<const char*>(&src_chars[src_pos]);
-                const char* target_raw_v = reinterpret_cast<const char*>(&target_chars[target_off]);
-
-                if (std::string_view(src_raw_v, src_len) ==
-                    std::string_view(target_raw_v, target_len)) {
-                    continue;
-                } else {
-                    const size_t old_size = dst_chars.size();
-                    const size_t new_size = old_size + src_len;
-                    dst_chars.resize(new_size);
-                    memcpy(&dst_chars[old_size], &src_chars[src_pos], src_len);
-                    dst_offs.push_back(new_size);
-                    ++cur_count;
-                    if (nested_null_map) {
-                        dst_null_map->push_back(0);
-                    }
-                }
-            }
-
-            cur += cur_count;
-            dst_offsets.push_back(cur);
-        }
-
-        auto dst =
-                ColumnArray::create(std::move(array_nested_column), std::move(dst_offsets_column));
-        if (array_null_map) {
-            auto dst_null_column = ColumnUInt8::create();
-            dst_null_column->insert_range_from(*array_null_map, 0, offsets.size());
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-        } else {
-            return dst;
-        }
-    }
-
-    template <typename NestedColumnType>
-    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
-                                       const IColumn& nested_column, const IColumn& right_column,
-                                       const UInt8* nested_null_map,
-                                       const UInt8* right_nested_null_map,
-                                       const ColumnUInt8* array_null_map) const {
-        if (is_column<NestedColumnType>(right_column)) {
-            return _execute_number<NestedColumnType, NestedColumnType>(
-                    offsets, nested_column, right_column, nested_null_map, right_nested_null_map,
-                    array_null_map);
-        }
-        return nullptr;
+        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
     }
 
     ColumnPtr _execute_dispatch(const ColumnsWithTypeAndName& arguments,
                                 size_t input_rows_count) const {
         // check array nested column type and get data
-        auto left_column = arguments[0].column->convert_to_full_column_if_const();
+        const auto& [left_column, is_const] = unpack_if_const(arguments[0].column);
         const ColumnArray* array_column = nullptr;
-        const ColumnUInt8* array_null_map = nullptr;
-        if (left_column->is_nullable()) {
-            auto nullable_array = reinterpret_cast<const ColumnNullable*>(left_column.get());
+        if (const auto* nullable_array = check_and_get_column<ColumnNullable>(left_column.get())) {
             array_column =
                     reinterpret_cast<const ColumnArray*>(&nullable_array->get_nested_column());
-            array_null_map = &nullable_array->get_null_map_column();
             nullable_array->sanity_check();
         } else {
             array_column = reinterpret_cast<const ColumnArray*>(left_column.get());
         }
-        const auto& offsets = array_column->get_offsets();
-        const UInt8* nested_null_map = nullptr;
-        ColumnPtr nested_column = nullptr;
-        if (array_column->get_data().is_nullable()) {
-            const auto& nested_null_column =
-                    reinterpret_cast<const ColumnNullable&>(array_column->get_data());
-            nested_null_column.sanity_check();
-            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
-            nested_column = nested_null_column.get_nested_column_ptr();
-        } else {
-            nested_column = array_column->get_data_ptr();
-        }
-
-        // get right column
-        ColumnPtr right_full_column = arguments[1].column->convert_to_full_column_if_const();
-        ColumnPtr right_column = right_full_column;
-        const UInt8* right_nested_null_map = nullptr;
-        if (right_column->is_nullable()) {
-            const auto& nested_null_column = assert_cast<const ColumnNullable&>(*right_full_column);
-            right_column = nested_null_column.get_nested_column_ptr();
-            right_nested_null_map = nested_null_column.get_null_map_column().get_data().data();
-        }
+        DCHECK(is_const ? array_column->get_offsets().size() == 1
+                        : array_column->get_offsets().size() == input_rows_count);
         // execute
         auto array_type = remove_nullable(arguments[0].type);
-        auto left_element_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray*>(array_type.get())->get_nested_type());
         auto right_type = remove_nullable(arguments[1].type);
 
+        auto left_element_primitive_type = left_element_type->get_primitive_type();
+        auto right_primitive_type = right_type->get_primitive_type();
         ColumnPtr res = nullptr;
-        if (is_string_type(right_type->get_primitive_type()) &&
-            is_string_type(left_element_type->get_primitive_type())) {
-            res = _execute_string(offsets, *nested_column, *right_column, nested_null_map,
-                                  right_nested_null_map, array_null_map);
-        } else if (is_number(right_type->get_primitive_type()) &&
-                   is_number(left_element_type->get_primitive_type())) {
+        if (right_primitive_type == left_element_primitive_type ||
+            (is_string_type(right_primitive_type) && is_string_type(left_element_primitive_type))) {
             auto call = [&](const auto& type) -> bool {
                 using DispatchType = std::decay_t<decltype(type)>;
-                res = _execute_number_expanded<typename DispatchType::ColumnType>(
-                        offsets, *nested_column, *right_column, nested_null_map,
-                        right_nested_null_map, array_null_map);
+                constexpr PrimitiveType PType = DispatchType::PType;
+                auto array_view = ColumnArrayView<PType>::create(arguments[0].column);
+                auto right_view = ColumnView<PType>::create(arguments[1].column);
+                res = _execute_view(array_column->get_data(), array_view, right_view);
                 return true;
             };
 
-            if (!dispatch_switch_number(left_element_type->get_primitive_type(), call)) {
-                throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                       "not support left type " + left_element_type->get_name());
-            }
-        } else if (is_date_v2_or_datetime_v2(right_type->get_primitive_type()) &&
-                   is_date_v2_or_datetime_v2(left_element_type->get_primitive_type())) {
-            if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {
-                res = _execute_number_expanded<ColumnDateV2>(offsets, *nested_column, *right_column,
-                                                             nested_null_map, right_nested_null_map,
-                                                             array_null_map);
-            } else if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2) {
-                res = _execute_number_expanded<ColumnDateTimeV2>(
-                        offsets, *nested_column, *right_column, nested_null_map,
-                        right_nested_null_map, array_null_map);
-            }
-        } else if (is_timestamptz_type(right_type->get_primitive_type()) &&
-                   is_timestamptz_type(left_element_type->get_primitive_type())) {
-            res = _execute_number_expanded<ColumnTimeStampTz>(
-                    offsets, *nested_column, *right_column, nested_null_map, right_nested_null_map,
-                    array_null_map);
-        } else if (is_ip(right_type->get_primitive_type()) &&
-                   is_ip(left_element_type->get_primitive_type())) {
-            if (left_element_type->get_primitive_type() == TYPE_IPV4) {
-                res = _execute_number_expanded<ColumnIPv4>(offsets, *nested_column, *right_column,
-                                                           nested_null_map, right_nested_null_map,
-                                                           array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_IPV6) {
-                res = _execute_number_expanded<ColumnIPv6>(offsets, *nested_column, *right_column,
-                                                           nested_null_map, right_nested_null_map,
-                                                           array_null_map);
-            }
+            dispatch_switch_all(left_element_primitive_type, call);
         }
         return res;
     }

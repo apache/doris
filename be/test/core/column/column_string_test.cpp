@@ -33,9 +33,14 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/function/function_string_concat.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 using namespace doris;
 namespace doris {
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
+
 static std::string test_data_dir;
 static std::string test_result_dir;
 static DataTypePtr dt_str =
@@ -185,6 +190,26 @@ TEST_F(ColumnStringTest, is_variable_length) {
     ColumnString64::MutablePtr col64 = ColumnString64::create();
     EXPECT_TRUE(col64->is_variable_length());
 }
+
+TEST(ColumnStringStandaloneTest, insert_range_from_ignore_overflow_to_string64_from_string32) {
+    auto src = ColumnString::create();
+    src->insert_data("a", 1);
+    src->insert_data("bc", 2);
+    src->insert_data("def", 3);
+
+    auto dst = ColumnString64::create();
+    dst->insert_range_from_ignore_overflow(*src, 0, src->size());
+    ASSERT_EQ(dst->size(), 3);
+    EXPECT_EQ(dst->get_data_at(0).to_string(), "a");
+    EXPECT_EQ(dst->get_data_at(1).to_string(), "bc");
+    EXPECT_EQ(dst->get_data_at(2).to_string(), "def");
+
+    dst->insert_range_from_ignore_overflow(*src, 1, 2);
+    ASSERT_EQ(dst->size(), 5);
+    EXPECT_EQ(dst->get_data_at(3).to_string(), "bc");
+    EXPECT_EQ(dst->get_data_at(4).to_string(), "def");
+}
+
 TEST_F(ColumnStringTest, sanity_check) {
     auto test_func = [](auto& col) {
         auto& chars = col->get_chars();
@@ -476,7 +501,7 @@ TEST_F(ColumnStringTest, insert_many_continuous_binary_data) {
     auto test_func = [&](size_t clone_count, auto x, const auto& source_column) {
         using ColumnType = decltype(x);
         auto src_size = source_column->size();
-        auto* col_vec_src = assert_cast<ColumnType*>(source_column.get());
+        auto* col_vec_src = source_column.get();
         size_t actual_clone_count = std::min(clone_count, src_size);
 
         auto target_column = source_column->clone_resized(actual_clone_count);
@@ -973,8 +998,8 @@ TEST_F(ColumnStringTest, filter_by_selector) {
         }
         std::cout << std::endl;
 
-        auto status =
-                source_column->filter_by_selector(indices.data(), sel_size, target_column.get());
+        const auto& source = *source_column;
+        auto status = source.filter_by_selector(indices.data(), sel_size, target_column.get());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(target_column->size(), sel_size);
         for (size_t i = 0; i != sel_size; ++i) {
@@ -1136,6 +1161,15 @@ TEST_F(ColumnStringTest, compare_internal) {
     column_string_common_test(assert_column_vector_compare_internal_callback, false);
 }
 TEST_F(ColumnStringTest, convert_column_if_overflow) {
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
+                                             {{"max_string_size", "10"}});
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
+        config::enable_debug_points = origin_enable_debug_points;
+    });
+
     {
         auto tmp_col = ColumnString::create();
         tmp_col->insert_data("abc", 3);
@@ -1152,7 +1186,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str32 = assert_cast<ColumnString*>(tmp_col.get());
         auto src_size = column_str32->size();
         auto chars_size = column_str32->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str32, 0, column_str32->size());
             chars_size = tmp_col_str32->get_chars().size();
@@ -1173,7 +1207,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str32 = assert_cast<ColumnString*>(tmp_col.get());
         auto src_size = column_str32_json->size();
         auto chars_size = column_str32_json->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str32_json, 0,
                                                        column_str32_json->size());
@@ -1197,7 +1231,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str64 = assert_cast<ColumnString64*>(tmp_col.get());
         auto src_size = column_str64_json->size();
         auto chars_size = column_str64_json->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str64_json, 0,
                                                        column_str64_json->size());
@@ -1311,28 +1345,6 @@ TEST_F(ColumnStringTest, TestStringInsert) {
             EXPECT_EQ(row_data.to_string(), vals_tmp[i % vals_tmp.size()]);
         }
     }
-}
-TEST_F(ColumnStringTest, shrink_padding_chars) {
-    ColumnString::MutablePtr col = ColumnString::create();
-    col->shrink_padding_chars();
-
-    col->insert_data("123\0   ", 7);
-    col->insert_data("456\0xx", 6);
-    col->insert_data("78", 2);
-    col->shrink_padding_chars();
-
-    EXPECT_EQ(col->size(), 3);
-    EXPECT_EQ(col->get_data_at(0), StringRef("123"));
-    EXPECT_EQ(col->get_data_at(0).size, 3);
-    EXPECT_EQ(col->get_data_at(1), StringRef("456"));
-    EXPECT_EQ(col->get_data_at(1).size, 3);
-    EXPECT_EQ(col->get_data_at(2), StringRef("78"));
-    EXPECT_EQ(col->get_data_at(2).size, 2);
-
-    col->insert_data("xyz", 2); // only xy
-
-    EXPECT_EQ(col->size(), 4);
-    EXPECT_EQ(col->get_data_at(3), StringRef("xy"));
 }
 TEST_F(ColumnStringTest, sort_column) {
     column_string_common_test(assert_sort_column_callback, false);

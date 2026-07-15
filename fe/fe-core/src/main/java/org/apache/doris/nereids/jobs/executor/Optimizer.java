@@ -18,19 +18,29 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.CTEInliner;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
+import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
+import org.apache.doris.nereids.stats.MemoStatsAndCostRecomputer;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
@@ -61,6 +71,12 @@ public class Optimizer {
      */
     public void execute() {
         MoreFieldsThread.keepFunctionSignature(() -> {
+            Plan rewritePlan = cascadesContext.getRewritePlan();
+            if (containsCte(rewritePlan)) {
+                Plan normalizedPlan = normalizeCtePlan(rewritePlan);
+                cascadesContext.setRewritePlan(normalizedPlan);
+                refreshCteContext(normalizedPlan);
+            }
             // generate inlined CTE alternative for CBO comparison
             Plan cboInlinedPlan = generateCTEInlineAlternative();
             // init memo
@@ -76,11 +92,13 @@ public class Optimizer {
             if (cascadesContext.getStatementContext().isDpHyp() || isDpHyp(cascadesContext)) {
                 // RightNow, dp hyper can only order 64 join operators
                 dpHypOptimize();
+                cascadesContext.getStatementContext().setDpHyp(false);
+                cascadesContext.getStatementContext().setAfterDpHyper(true);
             }
-            // Cascades optimize
             cascadesContext.pushJob(
                     new OptimizeGroupJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
             cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+
             return null;
         });
     }
@@ -105,7 +123,7 @@ public class Optimizer {
         int continuousJoinNum = Memo.countMaxContinuousJoin(cascadesContext.getRewritePlan());
         cascadesContext.getStatementContext().setMaxContinuousJoin(continuousJoinNum);
         boolean isDpHyp = sessionVariable.enableDPHypOptimizer || continuousJoinNum > maxTableCount;
-        boolean finalEnableDpHyp = !sessionVariable.isDisableJoinReorder()
+        boolean finalEnableDpHyp = continuousJoinNum > 0 && !sessionVariable.isDisableJoinReorder()
                 && !cascadesContext.isLeadingDisableJoinReorder()
                 && continuousJoinNum <= sessionVariable.getMaxJoinNumberOfReorder()
                 && isDpHyp;
@@ -117,6 +135,58 @@ public class Optimizer {
         Group root = cascadesContext.getMemo().getRoot();
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        /*
+        * Re-estimate logical row counts and rebuild physical costs for the entire memo,
+        * then reconstruct the lowest-cost plan table for every group.
+        *
+        * This is called after DPHyp join enumeration which copies projected join
+        * alternatives into the memo.  DPHyp's own cost model is a lightweight
+        * heuristic; once all alternatives are in place the memo needs a full
+        * bottom-up statistics refresh so that the subsequent cascades optimization
+        * phase (OptimizeGroupJob) sees accurate row counts and costs.
+        */
+        MemoStatsAndCostRecomputer.recompute(root, PhysicalProperties.ANY, cascadesContext,
+                MemoStatsAndCostRecomputer.LogicalExpressionRowCountSyncPolicy
+                        .KEEP_INDIVIDUAL_EXPRESSION_ROW_COUNT);
+
+        // 1) copy out logical plan from memo
+        Plan plan = cascadesContext.getMemo().copyOutBestLogicalPlan();
+
+        // 2) run PushDownExpressionsInHashCondition as a plan rewrite on a temporary context
+        org.apache.doris.nereids.CascadesContext tempCtx = CascadesContext.newCurrentTreeContext(cascadesContext);
+        tempCtx.setRewritePlan(plan);
+        RewriteJob pushDownRewrite = AbstractBatchJobExecutor.topDown(new PushDownExpressionsInHashCondition());
+        RewriteJob columnPrune = AbstractBatchJobExecutor.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new);
+        RewriteJob mergeProjects = AbstractBatchJobExecutor.topDown(new MergeProjectable());
+        RewriteJob adjustNullable = AbstractBatchJobExecutor.custom(RuleType.ADJUST_NULLABLE,
+                () -> new AdjustNullable(false));
+        RewriteJob checkAfterRewrite = AbstractBatchJobExecutor.bottomUp(new CheckAfterRewrite());
+        AbstractBatchJobExecutor executor = new AbstractBatchJobExecutor(tempCtx) {
+            @Override
+            public java.util.List<org.apache.doris.nereids.jobs.rewrite.RewriteJob> getJobs() {
+                return com.google.common.collect.ImmutableList.of(pushDownRewrite, columnPrune, mergeProjects,
+                        adjustNullable, checkAfterRewrite);
+            }
+        };
+        boolean oldFeDebugValue = tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug;
+        try {
+            tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug = false;
+            executor.execute();
+        } finally {
+            tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug = oldFeDebugValue;
+        }
+
+        // 3) copy rewritten plan into the main cascades context and rebuild memo
+        Plan rewritten = tempCtx.getRewritePlan();
+        cascadesContext.releaseMemo();
+        cascadesContext.setRewritePlan(rewritten);
+        // init memo
+        cascadesContext.toMemo();
+
+        // stats derive
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression -> cascadesContext.pushJob(
+                new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
@@ -149,9 +219,9 @@ public class Optimizer {
     private Plan generateFullCTEInline() {
         Plan rewritePlan = cascadesContext.getRewritePlan();
         CTEInliner cteInliner = new CTEInliner(cascadesContext.getStatementContext());
-        Plan inlinedPlan = cteInliner.generateInlinedPlan(rewritePlan);
-        if (inlinedPlan != null) {
-            return rewriteInlinedPlan(inlinedPlan);
+        Plan pushedDownInlinedPlan = generateFilterPushedDownInlinedPlan(cteInliner, rewritePlan);
+        if (pushedDownInlinedPlan != null) {
+            return normalizeCtePlan(pushedDownInlinedPlan);
         }
         return null;
     }
@@ -162,22 +232,60 @@ public class Optimizer {
     private Plan generateSelectiveCTEInline() {
         Plan rewritePlan = cascadesContext.getRewritePlan();
         CTEInliner cteInliner = new CTEInliner(cascadesContext.getStatementContext(), true);
-        Plan inlinedPlan = cteInliner.generateInlinedPlan(rewritePlan);
-        if (inlinedPlan != null) {
-            inlinedPlan = rewriteInlinedPlan(inlinedPlan);
-            if (inlinedPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
-                inlinedPlan = eliminateEmptyRelation(inlinedPlan);
-                cascadesContext.setRewritePlan(inlinedPlan);
+        Plan pushedDownInlinedPlan = generateFilterPushedDownInlinedPlan(cteInliner, rewritePlan);
+        if (pushedDownInlinedPlan != null) {
+            if (pushedDownInlinedPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
+                pushedDownInlinedPlan = normalizeCtePlan(pushedDownInlinedPlan);
+                cascadesContext.setRewritePlan(pushedDownInlinedPlan);
+                refreshCteContext(pushedDownInlinedPlan);
                 return null;
             }
         }
         return null;
     }
 
+    private Plan normalizeCtePlan(Plan plan) {
+        Plan currentPlan = plan;
+        while (true) {
+            if (currentPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
+                currentPlan = eliminateEmptyRelation(currentPlan);
+            }
+            CTEInliner cteInliner = new CTEInliner(cascadesContext.getStatementContext());
+            CTEInliner.InlineResult inlineResult = cteInliner.inlineByCurrentConsumerCount(currentPlan);
+            Plan normalizedPlan = inlineResult.getPlan();
+            // Do not use Plan.equals() as a fixpoint check here. Some logical nodes,
+            // e.g. LogicalCTEAnchor and LogicalSubQueryAlias, intentionally ignore
+            // children in equals(), so a child CTE rewrite under a kept parent may be
+            // missed and block cascading consumer-count-based inlining.
+            if (!inlineResult.isChanged()) {
+                return normalizedPlan;
+            }
+            currentPlan = normalizedPlan;
+        }
+    }
+
+    private boolean containsCte(Plan plan) {
+        return plan.anyMatch(p -> p instanceof LogicalCTEAnchor || p instanceof LogicalCTEConsumer);
+    }
+
+    private void refreshCteContext(Plan plan) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        statementContext.clearCteEnvironment();
+        plan.foreach(p -> {
+            if (p instanceof LogicalCTEAnchor) {
+                LogicalCTEAnchor<?, ?> anchor = (LogicalCTEAnchor<?, ?>) p;
+                statementContext.setCteProducer(anchor.getCteId(), (LogicalCTEProducer<?>) anchor.left());
+            } else if (p instanceof LogicalCTEConsumer) {
+                cascadesContext.putCTEIdToConsumer((LogicalCTEConsumer) p);
+            }
+            return false;
+        });
+    }
+
     private Plan eliminateEmptyRelation(Plan plan) {
         CascadesContext ctx = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), plan, PhysicalProperties.ANY);
-        // Use getCteChildrenRewriter for the same reason as rewriteInlinedPlan:
+        // Use getCteChildrenRewriter for the same reason as pushDownFilterAndPruneInlinedPlan:
         // getWholeTreeRewriterWithCustomJobs would invoke RewriteCteChildren which
         // reads stale rewrittenCteConsumer cache from the main Rewriter phase,
         // reverting the inlined CTE subtrees back to the original structure.
@@ -186,6 +294,14 @@ public class Optimizer {
                 Rewriter.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                 Rewriter.custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new))).execute();
         return ctx.getRewritePlan();
+    }
+
+    private Plan generateFilterPushedDownInlinedPlan(CTEInliner cteInliner, Plan rewritePlan) {
+        Plan inlinedPlan = cteInliner.generateInlinedPlan(rewritePlan);
+        if (inlinedPlan == null) {
+            return null;
+        }
+        return pushDownFilterAndPruneInlinedPlan(inlinedPlan);
     }
 
     /**
@@ -200,7 +316,7 @@ public class Optimizer {
      * phase. That cached outer query still contains LogicalCTEConsumer nodes for the inlined CTE,
      * preventing the filter from ever reaching the inlined union body.
      */
-    private Plan rewriteInlinedPlan(Plan inlinedPlan) {
+    private Plan pushDownFilterAndPruneInlinedPlan(Plan inlinedPlan) {
         CascadesContext inlinedContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), inlinedPlan, PhysicalProperties.ANY);
         Rewriter.getCteChildrenRewriter(inlinedContext, ImmutableList.of(

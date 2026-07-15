@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -215,8 +216,11 @@ public class HudiScanRange implements ConnectorScanRange {
                 pathKeys.add(entry.getKey());
                 pathValues.add(entry.getValue());
             }
+            ConnectorPartitionValues.Normalized normalized =
+                    ConnectorPartitionValues.normalize(pathValues);
             rangeDesc.setColumnsFromPathKeys(pathKeys);
-            rangeDesc.setColumnsFromPath(pathValues);
+            rangeDesc.setColumnsFromPath(normalized.getValues());
+            rangeDesc.setColumnsFromPathIsNull(normalized.getIsNull());
         }
     }
 

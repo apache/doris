@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DateLiteralUtils;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -129,6 +130,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
+    public static final long MAX_FILE_CACHE_TTL_SECONDS = Long.MAX_VALUE / 2L;
 
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
@@ -167,10 +169,6 @@ public class PropertyAnalyzer {
     @Deprecated
     public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "deprecated_variant_enable_flatten_nested";
 
-    public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
-
-    public static final String PROPERTIES_ENABLE_TSO = "enable_tso";
-
     public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
             "vertical_compaction_num_columns_per_group";
 
@@ -201,13 +199,14 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
 
-    // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
+    // binlog.*
     public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
     public static final String PROPERTIES_BINLOG_ENABLE = "binlog.enable";
     public static final String PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
     public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
     public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
-
+    public static final String PROPERTIES_BINLOG_FORMAT = "binlog.format";
+    public static final String PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value";
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
             "enable_duplicate_without_keys_by_default";
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
@@ -625,18 +624,29 @@ public class PropertyAnalyzer {
     public static long analyzeTTL(Map<String, String> properties) throws AnalysisException {
         long ttlSeconds = 0;
         if (properties != null && properties.containsKey(PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
-            String ttlSecondsStr = properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS);
-            try {
-                ttlSeconds = Long.parseLong(ttlSecondsStr);
-                if (ttlSeconds < 0) {
-                    throw new NumberFormatException();
-                }
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("The value " + ttlSecondsStr + " formats error or  is out of range "
-                           + "(0 < integer < Long.MAX_VALUE)");
-            }
+            ttlSeconds = analyzeFileCacheTtlSeconds(properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS));
         }
         return ttlSeconds;
+    }
+
+    public static long analyzeFileCacheTtlSeconds(String ttlSecondsStr) throws AnalysisException {
+        long ttlSeconds;
+        try {
+            ttlSeconds = Long.parseLong(ttlSecondsStr);
+        } catch (NumberFormatException e) {
+            throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
+        }
+        if (ttlSeconds < 0 || ttlSeconds > MAX_FILE_CACHE_TTL_SECONDS) {
+            throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
+        }
+        return ttlSeconds;
+    }
+
+    private static AnalysisException invalidFileCacheTtlSecondsException(String ttlSecondsStr) {
+        return new AnalysisException("The value " + ttlSecondsStr + " formats error or is out of range "
+                + "(0 <= integer <= " + MAX_FILE_CACHE_TTL_SECONDS + "). Larger values may overflow in BE "
+                + "and change TTL cache to normal cache; please use " + MAX_FILE_CACHE_TTL_SECONDS
+                + " or a smaller value.");
     }
 
     public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {
@@ -849,47 +859,6 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
                 + " must be `true` or `false`");
-    }
-
-    public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
-            throws AnalysisException {
-        if (properties == null || properties.isEmpty()) {
-            return false;
-        }
-        String value = properties.get(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-        // set enable single replica compaction false by default
-        if (null == value) {
-            return false;
-        }
-        properties.remove(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-        if (value.equalsIgnoreCase("true")) {
-            return true;
-        } else if (value.equalsIgnoreCase("false")) {
-            return false;
-        }
-        throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
-                + " must be `true` or `false`");
-    }
-
-    public static Boolean analyzeEnableTso(Map<String, String> properties) throws AnalysisException {
-        if (properties == null || properties.isEmpty()) {
-            return false;
-        }
-        String value = properties.get(PROPERTIES_ENABLE_TSO);
-        if (null == value) {
-            return false;
-        }
-        properties.remove(PROPERTIES_ENABLE_TSO);
-        if (value.equalsIgnoreCase("true")) {
-            if (!Config.enable_tso_feature) {
-                throw new AnalysisException(PROPERTIES_ENABLE_TSO
-                        + " can not be enabled when experimental_enable_tso_feature is disabled");
-            }
-            return true;
-        } else if (value.equalsIgnoreCase("false")) {
-            return false;
-        }
-        throw new AnalysisException(PROPERTIES_ENABLE_TSO + " must be `true` or `false`");
     }
 
     public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
@@ -1540,6 +1509,30 @@ public class PropertyAnalyzer {
             }
         }
 
+        // check PROPERTIES_BINLOG_FORMAT = "binlog.format";
+        if (properties.containsKey(PROPERTIES_BINLOG_FORMAT)) {
+            String format = properties.get(PROPERTIES_BINLOG_FORMAT);
+            try {
+                BinlogConfig.BinlogFormat.valueOf(format);
+                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, format);
+                properties.remove(PROPERTIES_BINLOG_FORMAT);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog format value: " + format);
+            }
+        }
+
+        // check PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value"
+        if (properties.containsKey(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            String needHistoricalValue = properties.get(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+            if (!StringUtils.equalsAnyIgnoreCase(needHistoricalValue, "true", "false")) {
+                throw new AnalysisException("Invalid binlog need_historical_value value: " + needHistoricalValue);
+            }
+            binlogConfigMap.put(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                    String.valueOf(Boolean.parseBoolean(needHistoricalValue)));
+            properties.remove(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+        }
+
+
         return binlogConfigMap;
     }
 
@@ -2137,11 +2130,11 @@ public class PropertyAnalyzer {
                     properties.get(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
             try {
                 maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
-                if (maxSparseColumnStatisticsSize < 0 || maxSparseColumnStatisticsSize > 50000) {
-                    throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 50000 ");
-                }
-            } catch (Exception e) {
+            } catch (NumberFormatException e) {
                 throw new AnalysisException("variant_max_sparse_column_statistics_size format error:" + e.getMessage());
+            }
+            if (maxSparseColumnStatisticsSize < 1 || maxSparseColumnStatisticsSize > 50000) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size must between 1 and 50000 ");
             }
 
             properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
@@ -2156,8 +2149,8 @@ public class PropertyAnalyzer {
             String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
             try {
                 bucketNum = Integer.parseInt(bucketNumStr);
-                if (bucketNum < 1 || bucketNum > 1024) {
-                    throw new AnalysisException("variant_sparse_hash_shard_count must between 1 and 1024 ");
+                if (bucketNum < 0 || bucketNum > 1024) {
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 0 and 1024 ");
                 }
             } catch (Exception e) {
                 throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());
@@ -2313,18 +2306,18 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static BaseTableStream.StreamConsumeType analyzeStreamType(Map<String, String> properties)
+    public static BaseTableStream.StreamScanType analyzeStreamType(Map<String, String> properties)
             throws AnalysisException {
         if (properties != null && properties.containsKey(PROPERTIES_STREAM_TYPE)) {
             String value = properties.get(PROPERTIES_STREAM_TYPE);
-            BaseTableStream.StreamConsumeType type = BaseTableStream.StreamConsumeType.getType(value);
-            if (type.equals(BaseTableStream.StreamConsumeType.UNKNOWN)) {
+            BaseTableStream.StreamScanType type = BaseTableStream.StreamScanType.getType(value);
+            if (type.equals(BaseTableStream.StreamScanType.UNKNOWN)) {
                 throw new AnalysisException("not supported " + PropertyAnalyzer.PROPERTIES_STREAM_TYPE
                         +  ": " + value);
             }
             properties.remove(PROPERTIES_STREAM_TYPE);
             return type;
         }
-        return BaseTableStream.StreamConsumeType.DEFAULT;
+        return BaseTableStream.StreamScanType.MIN_DELTA;
     }
 }

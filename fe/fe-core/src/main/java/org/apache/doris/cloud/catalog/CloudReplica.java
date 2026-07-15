@@ -17,20 +17,17 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.hash.HashCode;
@@ -38,15 +35,16 @@ import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -110,10 +108,35 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return Env.getCurrentColocateIndex().isColocateTableNoLock(tableId);
     }
 
+    private boolean isDecommissioningOrDecommissioned(Backend be) {
+        boolean decommissioning = be.isDecommissioning();
+        boolean decommissioned = be.isDecommissioned();
+        if ((decommissioning || decommissioned) && LOG.isDebugEnabled()) {
+            LOG.debug("backend {} is filtered by decommission state, decommissioning={}, decommissioned={}, "
+                            + "replica info {}",
+                    be.getId(), decommissioning, decommissioned, this);
+        }
+        return decommissioning || decommissioned;
+    }
+
+    private boolean isQueryAvailableAndNotDecommissioning(Backend be) {
+        return be != null && be.isQueryAvailable() && !isDecommissioningOrDecommissioned(be);
+    }
+
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
+        List<Backend> clusterBackends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getBackendsByClusterId(clusterId);
+        return getColocatedBeId(clusterId, clusterBackends);
+    }
+
+    // Same as getColocatedBeId(clusterId) but reuses an already fetched backend list of
+    // the compute group. Lets callers that resolve many replicas across the same compute
+    // groups (e.g. the colocate proc display) fetch each group's backends only once.
+    public long getColocatedBeId(String clusterId, List<Backend> clusterBackends) throws ComputeGroupException {
         CloudSystemInfoService infoService = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
-        List<Backend> bes = infoService.getBackendsByClusterId(clusterId).stream()
-                .filter(be -> be.isQueryAvailable()).collect(Collectors.toList());
+        // Do not filter by isQueryAvailable() here. Recently-dead BEs must stay in
+        // the hash ring during the grace period to avoid unnecessary full rehash.
+        List<Backend> bes = clusterBackends;
         String clusterName = infoService.getClusterNameByClusterId(clusterId);
         if (bes.isEmpty()) {
             LOG.warn("failed to get available be, cluster: {}-{}", clusterName, clusterId);
@@ -125,7 +148,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         List<Backend> decommissionAvailBes = new ArrayList<>();
         for (Backend be : bes) {
             if (be.isAlive()) {
-                if (be.isDecommissioned()) {
+                if (isDecommissioningOrDecommissioned(be)) {
                     decommissionAvailBes.add(be);
                 } else {
                     availableBes.add(be);
@@ -144,46 +167,77 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         }
 
         GroupId groupId = Env.getCurrentColocateIndex().getGroupNoLock(tableId);
-        HashCode hashCode = Hashing.murmur3_128().hashLong(groupId.grpId);
         if (availableBes.size() != bes.size()) {
-            // some be is dead recently, still hash tablets on all backends.
             long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
             if (bes.stream().anyMatch(be -> !be.isAlive() && be.getLastUpdateMs() > needRehashDeadTime)) {
                 List<Backend> beAliveOrDeadShort = bes.stream()
                         .filter(be -> be.isAlive() || be.getLastUpdateMs() > needRehashDeadTime)
                         .collect(Collectors.toList());
-                long index = getIndexByBeNum(hashCode.asLong() + idx, beAliveOrDeadShort.size());
-                Backend be = beAliveOrDeadShort.get((int) index);
-                if (be.isAlive() && !be.isDecommissioned()) {
+                Backend be = pickColocatedBackendForDeadGrace(infoService, groupId, clusterId, beAliveOrDeadShort);
+                if (be.isAlive() && !isDecommissioningOrDecommissioned(be)) {
                     return be.getId();
                 }
             }
         }
 
-        // Tablets with the same idx will be hashed to the same BE, which
-        // meets the requirements of colocated table.
-        long index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
-        long pickedBeId = availableBes.get((int) index).getId();
+        return pickColocatedBackend(infoService, groupId, clusterId, availableBes).getId();
+    }
 
-        return pickedBeId;
+    private Backend pickColocatedBackendForDeadGrace(CloudSystemInfoService infoService, GroupId groupId,
+            String clusterId, List<Backend> availableBes) {
+        if (!Config.enable_cloud_colocate_consistent_hash) {
+            return pickColocatedBackend(infoService, groupId, clusterId, availableBes);
+        }
+        int bucketNum = infoService.getCloudColocateBucketsNum(groupId);
+        CloudSystemInfoService.checkCloudColocateBucketIdx(groupId, clusterId, idx, bucketNum);
+        long[] availableBeIds = availableBes.stream().mapToLong(Backend::getId).toArray();
+        long pickedBeId = CloudColocatePlacement.pickBackendId(groupId.grpId, idx, availableBeIds);
+        return findPickedBackend(pickedBeId, groupId, clusterId, availableBes);
+    }
+
+    Backend pickColocatedBackend(CloudSystemInfoService infoService, GroupId groupId, String clusterId,
+            List<Backend> availableBes) {
+        if (Config.enable_cloud_colocate_consistent_hash) {
+            List<Long> availableBeIds = availableBes.stream().map(Backend::getId).collect(Collectors.toList());
+            long pickedBeId = infoService.getCloudColocateHrwBeId(groupId, clusterId, availableBeIds, idx);
+            return findPickedBackend(pickedBeId, groupId, clusterId, availableBes);
+        }
+
+        HashCode hashCode = Hashing.murmur3_128().hashLong(groupId.grpId);
+        long index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
+        return availableBes.get((int) index);
+    }
+
+    private Backend findPickedBackend(long pickedBeId, GroupId groupId, String clusterId, List<Backend> availableBes) {
+        return availableBes.stream().filter(be -> be.getId() == pickedBeId).findFirst()
+                .orElseThrow(() -> new IllegalStateException(String.format(
+                        "picked colocate backend %s is not in candidate set, group %s, cluster %s, bucket idx %s, "
+                                + "candidate backend ids %s",
+                        pickedBeId, groupId, clusterId, idx,
+                        availableBes.stream().map(Backend::getId).collect(Collectors.toList()))));
     }
 
     @Override
     public long getBackendId() throws ComputeGroupException {
-        return getBackendIdImpl(getCurrentClusterId());
+        return getBackendIdImpl(cloudInfoService().getCurrentClusterId());
+    }
+
+    // Variant for callers that have already resolved the cluster id once per request
+    // and want to skip the per-replica ConnectContext/priv/status/autoStart/existence pipeline.
+    public long getBackendIdWithClusterId(String clusterId) throws ComputeGroupException {
+        return getBackendIdImpl(clusterId);
     }
 
     public long getBackendId(String beEndpoint) {
-        String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByBeAddr(beEndpoint);
-        String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getPhysicalCluster(clusterName);
-
         try {
-            String clusterId = getCloudClusterIdByName(physicalClusterName);
+            CloudSystemInfoService infoService = cloudInfoService();
+            String clusterName = infoService.getClusterNameByBeAddr(beEndpoint);
+            String physicalClusterName = infoService.getPhysicalCluster(clusterName);
+            String clusterId = infoService.resolveClusterIdByName(physicalClusterName);
             return getBackendIdImpl(clusterId);
         } catch (ComputeGroupException e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to get compute group name {}", physicalClusterName, e);
+                LOG.debug("failed to get compute group name for endpoint {}", beEndpoint, e);
             }
             return -1;
         }
@@ -192,7 +246,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     public long getPrimaryBackendId() {
         String clusterId;
         try {
-            clusterId = getCurrentClusterId();
+            clusterId = cloudInfoService().getCurrentClusterId();
         } catch (ComputeGroupException e) {
             return -1L;
         }
@@ -202,6 +256,19 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         }
 
         return getClusterPrimaryBackendId(clusterId);
+    }
+
+    // Returns the CloudSystemInfoService instance, or throws ComputeGroupException when
+    // Env was set up with a base SystemInfoService (typically a unit test that mocks the
+    // base type). Production cloud-mode FE never hits the throw branch.
+    private static CloudSystemInfoService cloudInfoService() throws ComputeGroupException {
+        SystemInfoService info = Env.getCurrentSystemInfo();
+        if (info instanceof CloudSystemInfoService) {
+            return (CloudSystemInfoService) info;
+        }
+        throw new ComputeGroupException(
+                "current system info service is not cloud-aware",
+                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
     }
 
     public long getClusterPrimaryBackendId(String clusterId) {
@@ -216,89 +283,45 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return primaryClusterToBackend.getOrDefault(clusterId, -1L);
     }
 
-    private String getCurrentClusterId() throws ComputeGroupException {
-        // Not in a connect session
-        String cluster = null;
-        ConnectContext context = ConnectContext.get();
-        if (context != null) {
-            // TODO(wb) rethinking whether should update err status.
-            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getPhysicalCluster(context.getCloudCluster());
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get compute group by context {}", cluster);
-            }
-
-            UserIdentity currentUid = context.getCurrentUserIdentity();
-            if (currentUid != null && !StringUtils.isEmpty(currentUid.getQualifiedUser())) {
-                try {
-                    ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
-                } catch (Exception e) {
-                    LOG.warn("check compute group {} for {} auth failed.", cluster,
-                            context.getCurrentUserIdentity().toString());
-                    throw new ComputeGroupException(
-                            String.format("context compute group %s check auth failed, user is %s",
-                                    cluster, context.getCurrentUserIdentity().toString()),
-                            ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+    // For proc display only. In cloud mode a replica is hashed to a different BE in each
+    // compute group, so expose a clusterId -> backendId mapping; the proc display builds
+    // a separate bucket sequence per compute group from it so each group's sequence is
+    // self-consistent. Do not collapse this into a single BE (e.g. the first one):
+    // backends differ across compute groups and would not match.
+    //
+    // ATTN: colocated replicas do NOT use primaryClusterToBackend (see getBackendIdImpl /
+    // getClusterPrimaryBackendId, which short-circuit to getColocatedBeId), so that cache
+    // is empty for them. Resolve their placement per compute group on the fly instead.
+    // This reads CloudSystemInfoService / the colocate index, so callers must invoke it
+    // OUTSIDE any table lock to avoid nested lock acquisition. It does not auto-start any
+    // compute group: getColocatedBeId only reads the already-known backends of a clusterId.
+    // computeGroupBackendCache maps compute group id -> getBackendsByClusterId() result and
+    // is shared across all replicas resolved in a single proc call, so each compute group's
+    // backend list is fetched only once instead of once per replica.
+    @Override
+    public Map<String, Long> getClusterToBackendForProcDisplay(Map<String, List<Backend>> computeGroupBackendCache) {
+        if (!isColocated()) {
+            return new HashMap<>(primaryClusterToBackend);
+        }
+        Map<String, Long> result = new HashMap<>();
+        CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        for (String clusterId : infoService.getCloudClusterIds()) {
+            try {
+                List<Backend> clusterBackends =
+                        computeGroupBackendCache.computeIfAbsent(clusterId, infoService::getBackendsByClusterId);
+                long backendId = getColocatedBeId(clusterId, clusterBackends);
+                if (backendId != -1L) {
+                    result.put(clusterId, backendId);
                 }
-            } else {
-                LOG.info("connect context user is null.");
-                throw new ComputeGroupException("connect context's user is null",
-                        ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+            } catch (ComputeGroupException e) {
+                // Skip compute groups that currently have no available backend.
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip compute group {} for colocate proc display, replica {}",
+                            clusterId, getId(), e);
+                }
             }
-
-            String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getCloudStatusByName(cluster);
-            if (!Strings.isNullOrEmpty(clusterStatus)
-                    && Cloud.ClusterStatus.valueOf(clusterStatus)
-                    == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
-                LOG.warn("auto start compute group {} in manual shutdown status", cluster);
-                throw new ComputeGroupException(
-                        String.format("The current compute group %s has been manually shutdown", cluster),
-                        ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_BEEN_MANUAL_SHUTDOWN);
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("connect context is null in getBackendId");
-            }
-            throw new ComputeGroupException("connect context not set cluster ",
-                    ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
         }
-
-        return getCloudClusterIdByName(cluster);
-    }
-
-    private String getCloudClusterIdByName(String cluster) throws ComputeGroupException {
-        // if cluster is SUSPENDED, wait
-        String wakeUPCluster = "";
-        try {
-            wakeUPCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
-        } catch (DdlException e) {
-            // this function cant throw exception. so just log it
-            LOG.warn("cant resume compute group {}, exception", cluster, e);
-        }
-        if (!Strings.isNullOrEmpty(wakeUPCluster) && !cluster.equals(wakeUPCluster)) {
-            cluster = wakeUPCluster;
-            LOG.warn("get backend input compute group {} useless, so auto start choose a new one compute group {}",
-                    cluster, wakeUPCluster);
-        }
-        // check default compute group valid.
-        if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("failed to get available be, clusterName: {}", cluster);
-            throw new ComputeGroupException("compute group name is empty",
-                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET_COMPUTE_GROUP);
-        }
-        boolean exist = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getCloudClusterNames().contains(cluster);
-        if (!exist) {
-            // can't use this default compute group, plz change another
-            LOG.warn("compute group: {} is not existed", cluster);
-            throw new ComputeGroupException(
-                String.format("The current compute group %s is not registered in the system", cluster),
-                ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NOT_EXIST);
-        }
-
-        return ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(cluster);
+        return result;
     }
 
     private long getBackendIdImpl(String clusterId) throws ComputeGroupException {
@@ -314,6 +337,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             int indexRand = rand.nextInt(Config.cloud_replica_num);
 
             List<Long> res = hashReplicaToBes(clusterId, false, Config.cloud_replica_num);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("rehash multi replica backend, clusterId {}, replica info {}, indexRand {}, hashedBes {}",
+                        clusterId, this, indexRand, res);
+            }
             if (res.size() < indexRand + 1) {
                 if (res.isEmpty()) {
                     return -1;
@@ -327,14 +354,14 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
         // use primaryClusterToBackend, if find be normal
         Backend be = getPrimaryBackend(clusterId, false);
-        if (be != null && be.isQueryAvailable()) {
+        if (isQueryAvailableAndNotDecommissioning(be)) {
             return be.getId();
         }
 
         if (!Config.enable_immediate_be_assign) {
             // use secondaryClusterToBackends, if find be normal
             be = getSecondaryBackend(clusterId);
-            if (be != null && be.isQueryAvailable()) {
+            if (isQueryAvailableAndNotDecommissioning(be)) {
                 return be.getId();
             }
         }
@@ -346,6 +373,12 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
         // be abnormal, rehash it. configure settings to different maps
         long pickBeId = hashReplicaToBe(clusterId, false);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("rehash replica backend, clusterId {}, pickedBeId {}, immediateAssign {}, replica info {}, "
+                            + "primaryBackend {}, secondaryBackend {}",
+                    clusterId, pickBeId, Config.enable_immediate_be_assign, this, getPrimaryBackend(clusterId, false),
+                    getSecondaryBackend(clusterId));
+        }
         if (Config.enable_immediate_be_assign) {
             updateClusterToPrimaryBe(clusterId, pickBeId);
         } else {
@@ -404,7 +437,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         List<Backend> decommissionAvailBes = new ArrayList<>();
         for (Backend be : clusterBes) {
             if (be.isQueryAvailable() && !be.isSmoothUpgradeSrc()) {
-                if (be.isDecommissioned()) {
+                if (isDecommissioningOrDecommissioned(be)) {
                     decommissionAvailBes.add(be);
                 } else {
                     availableBes.add(be);
@@ -470,7 +503,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             // be core or restart must in heartbeat_interval_second
             if ((be.isAlive() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
                     && !be.isSmoothUpgradeSrc()) {
-                if (be.isDecommissioned()) {
+                if (isDecommissioningOrDecommissioned(be)) {
                     decommissionAvailBes.add(be);
                 } else {
                     availableBes.add(be);
@@ -559,6 +592,14 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         secondaryClusterToBackends.remove(cluster);
     }
 
+    /**
+     * Returns the set of compute group IDs that have primary backends for this replica.
+     * Used by lazy fetch path to also collect secondary backends per compute group.
+     */
+    public Set<String> getPrimaryComputeGroupIds() {
+        return primaryClusterToBackend.keySet();
+    }
+
     // ATTN: This func is only used by redundant tablet report clean in bes.
     // Only the master node will do the diff logic,
     // so just only need to clean up secondaryClusterToBackends on the master node.
@@ -580,6 +621,25 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     public List<Backend> getAllPrimaryBes() {
         List<Backend> result = new ArrayList<Backend>();
+        if (isColocated()) {
+            List<String> clusterIds = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIds();
+            for (String clusterId : clusterIds) {
+                try {
+                    long beId = getColocatedBeId(clusterId);
+                    if (beId != -1) {
+                        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                        if (backend != null) {
+                            result.add(backend);
+                        }
+                    }
+                } catch (ComputeGroupException e) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("failed to get colocated be for cluster {}, replica {}", clusterId, this, e);
+                    }
+                }
+            }
+            return result;
+        }
         primaryClusterToBackend.forEach((clusterId, beId) -> {
             if (beId != -1) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(beId);

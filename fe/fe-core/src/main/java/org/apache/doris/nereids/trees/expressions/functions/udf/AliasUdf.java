@@ -22,7 +22,6 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -44,26 +43,28 @@ import java.util.stream.Collectors;
  * alias function
  */
 public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignature {
-    private final UnboundFunction unboundFunction;
+    private final Expression unboundFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
+    private final boolean hasVarArguments;
     private final Map<String, String> sessionVariables;
-
-    /**
-     * constructor
-     */
-    public AliasUdf(String name, List<DataType> argTypes, UnboundFunction unboundFunction,
-            List<String> parameters, Expression... arguments) {
-        this(name, argTypes, unboundFunction, parameters, null, arguments);
-    }
 
     /**
      * constructor with session variables
      */
-    public AliasUdf(String name, List<DataType> argTypes, UnboundFunction unboundFunction,
+    public AliasUdf(String name, List<DataType> argTypes, Expression unboundFunction,
+            List<String> parameters, Map<String, String> sessionVariables, Expression... arguments) {
+        this(name, argTypes, false, unboundFunction, parameters, sessionVariables, arguments);
+    }
+
+    /**
+     * constructor with session variables.
+     */
+    public AliasUdf(String name, List<DataType> argTypes, boolean hasVarArguments, Expression unboundFunction,
             List<String> parameters, Map<String, String> sessionVariables, Expression... arguments) {
         super(name, arguments);
         this.argTypes = argTypes;
+        this.hasVarArguments = hasVarArguments;
         this.unboundFunction = unboundFunction;
         this.parameters = parameters;
         this.sessionVariables = sessionVariables;
@@ -71,14 +72,14 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return ImmutableList.of(FunctionSignature.of(NullType.INSTANCE, argTypes));
+        return ImmutableList.of(FunctionSignature.of(NullType.INSTANCE, hasVarArguments, argTypes));
     }
 
     public List<String> getParameters() {
         return parameters;
     }
 
-    public UnboundFunction getUnboundFunction() {
+    public Expression getUnboundFunction() {
         return unboundFunction;
     }
 
@@ -110,7 +111,8 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
-                ((UnboundFunction) parsedFunction),
+                function.hasVarArgs(),
+                parsedFunction,
                 function.getParameters(),
                 sessionVariables);
 
@@ -125,7 +127,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new AliasUdf(getName(), argTypes, unboundFunction, parameters, sessionVariables,
+        return new AliasUdf(getName(), argTypes, hasVarArguments, unboundFunction, parameters, sessionVariables,
                 children.toArray(new Expression[0]));
     }
 

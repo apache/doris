@@ -61,6 +61,8 @@ public class Column implements GsonPostProcessable {
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     public static final String ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
+    // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with row binlog enabled.
+    public static final String COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
     // table stream columns
     public static final String STREAM_CHANGE_TYPE_COL = "__DORIS_STREAM_CHANGE_TYPE_COL__";
     public static final String STREAM_SEQ_COL = "__DORIS_STREAM_SEQUENCE_COL__";
@@ -69,8 +71,57 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
+    public static final int BINLOG_LSN_AUTO_INC_ID = -1;
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
+    public static final Column STREAM_SEQ_VIRTUAL_COLUMN =
+            new Column(STREAM_SEQ_COL, Type.BIGINT, false, null, true, null, false);
+    public static final Column STREAM_CHANGE_TYPE_VIRTUAL_COLUMN =
+            new Column(STREAM_CHANGE_TYPE_COL, Type.STRING, false, null, true, null, false);
+
+    // columns for binlog schema
+    // explicit columns
+    public static final String BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
+    public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
+    // implicit columns
+    public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
+    public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";
+
+    public static String generateBeforeColName(String colName) {
+        return BINLOG_BEFORE_PREFIX + colName + "__";
+    }
+
+    public static Column generateRowBinlogKeyColumn(Column column) {
+        Column keyColumn = new Column(column);
+        keyColumn.setComment("key (" + column.getName() + ")");
+        return keyColumn;
+    }
+
+    public static Column generateAfterValueColumn(Column column) {
+        Column afterValueColumn = new Column(column);
+        afterValueColumn.setComment("after value (" + column.getName() + ")");
+        afterValueColumn.setAggregationType(AggregateType.NONE, true);
+        afterValueColumn.setIsAllowNull(true);
+        // clear default value
+        afterValueColumn.defaultValue = null;
+        afterValueColumn.defaultValueExprDef = null;
+        afterValueColumn.realDefaultValue = null;
+        return afterValueColumn;
+    }
+
+    public static Column generateBeforeValueColumn(Column column) {
+        Column beforeValueColumn = new Column(column);
+        beforeValueColumn.setName(Column.generateBeforeColName(column.getName()));
+        beforeValueColumn.setComment("before value (" + column.getName() + ")");
+        beforeValueColumn.setIsVisible(true);
+        beforeValueColumn.setAggregationType(AggregateType.NONE, true);
+        beforeValueColumn.setIsAllowNull(true);
+        // clear default value
+        beforeValueColumn.defaultValue = null;
+        beforeValueColumn.defaultValueExprDef = null;
+        beforeValueColumn.realDefaultValue = null;
+        return beforeValueColumn;
+    }
 
     @SerializedName(value = "name")
     private String name;
@@ -201,6 +252,12 @@ public class Column implements GsonPostProcessable {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true, null,
                 COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue, false, null, null,
                 Sets.newHashSet(), null);
+    }
+
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+                  String comment, boolean visible) {
+        this(name, type, isKey, aggregateType, isAllowNull, -1, null, comment, visible, null,
+                COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null, null, Sets.newHashSet(), null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
@@ -448,6 +505,11 @@ public class Column implements GsonPostProcessable {
         return !visible && (aggregationType == AggregateType.REPLACE
                 || aggregationType == AggregateType.NONE || aggregationType == null)
                 && nameEquals(SKIP_BITMAP_COL, true);
+    }
+
+    public boolean isCommitTsoColumn() {
+        // aggregationType is NONE for duplicate table and unique table with merge on write.
+        return !visible && aggregationType == AggregateType.NONE && nameEquals(COMMIT_TSO_COL, true);
     }
 
     // now we only support BloomFilter on (same behavior with BE):

@@ -1645,6 +1645,71 @@ void check_job_key(MetaServiceProxy* meta_service, std::string instance_id, int6
     }
 }
 
+// Regression test for CORE-5964: STOP_TOKEN should not be rejected by the stale tablet
+// cache check even when the BE's cached compaction counts lag behind the meta-service.
+// STOP_TOKEN is a lock marker used by schema change (MOW table) to block concurrent
+// compactions during delete bitmap recalculation -- it does not perform actual compaction
+// work, so verifying compaction count freshness is meaningless for it.
+TEST(MetaServiceJobTest, StopTokenSkipsStaleTabletCacheCheck) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 101;
+
+    // Set up tablet index
+    auto index_key = meta_tablet_idx_key({instance_id, tablet_id});
+    TabletIndexPB idx_pb;
+    idx_pb.set_table_id(table_id);
+    idx_pb.set_index_id(index_id);
+    idx_pb.set_partition_id(partition_id);
+    idx_pb.set_tablet_id(tablet_id);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(index_key, idx_pb.SerializeAsString());
+
+    // Simulate meta-service state where cumulative_compaction_cnt=9 (advanced by another BE)
+    std::string stats_key =
+            stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    TabletStatsPB stats;
+    stats.set_base_compaction_cnt(0);
+    stats.set_cumulative_compaction_cnt(9);
+    txn->put(stats_key, stats.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // A regular CUMULATIVE compaction with stale counts (req=8 < actual=9) must be rejected.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "cumu_job", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/8, TabletCompactionJobPB::CUMULATIVE,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_TABLET_CACHE)
+                << "CUMULATIVE with stale counts should be rejected";
+    }
+
+    // A STOP_TOKEN with the same stale counts must NOT be rejected (CORE-5964 regression).
+    // The BE's cached cumulative_compaction_cnt=8 lags behind the actual value=9 on the
+    // meta-service side, but STOP_TOKEN registration must still succeed.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "stop_token_job", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/8, TabletCompactionJobPB::STOP_TOKEN,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "STOP_TOKEN with stale counts should NOT be rejected; got: "
+                << res.status().msg();
+    }
+}
+
 TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
@@ -4545,6 +4610,221 @@ TEST(MetaServiceJobTest, ParallelCumuCompactionTest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
 
+// Plan A regression test: EMPTY_CUMULATIVE must be considered the same conflict family as
+// CUMULATIVE so that an EMPTY_CUMULATIVE submitted while a real CUMULATIVE is still active on the
+// same tablet is rejected with JOB_TABLET_BUSY. Otherwise EMPTY_CUMULATIVE could advance
+// cumulative_point past the in-flight cumu's input range and let base compaction race with it.
+TEST(MetaServiceJobTest, EmptyCumulativeBlockedByCumulativeTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 1;
+    constexpr int64_t index_id = 2;
+    constexpr int64_t partition_id = 3;
+    constexpr int64_t tablet_id = 4;
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    // Helper to start an EMPTY_CUMULATIVE job. EMPTY_CUMULATIVE has no input_versions and no
+    // expiration (only cumulative_point/cumulative_compaction_cnt are bumped), which lets it
+    // bypass `STALE_TABLET_CACHE` when both sides carry the same cumulative_compaction_cnt.
+    auto start_empty_cumu = [&](const std::string& job_id, const std::string& initiator,
+                                int base_cnt, int cumu_cnt, StartTabletJobResponse& res) {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto* compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_base_compaction_cnt(base_cnt);
+        compaction->set_cumulative_compaction_cnt(cumu_cnt);
+        compaction->set_type(TabletCompactionJobPB::EMPTY_CUMULATIVE);
+        long now = ::time(nullptr);
+        compaction->set_lease(now + 3);
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+    };
+
+    // Step 1: An in-flight CUMULATIVE job [42326-42474] is registered first (mimics the
+    // scenario from the production log).
+    StartTabletJobResponse res;
+    start_compaction_job(meta_service.get(), tablet_id, "cumu1", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res, {42326, 42474});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Step 2: An EMPTY_CUMULATIVE arrives carrying the same cumulative_compaction_cnt as
+    // cumu1. Before the fix this was wrongly accepted because MS only compared raw enum types.
+    // After the fix, EMPTY_CUMULATIVE must be normalized to CUMULATIVE for conflict detection
+    // and rejected as JOB_TABLET_BUSY.
+    res.Clear();
+    start_empty_cumu("empty1", "BE1", 0, 0, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
+    // EMPTY_CUMULATIVE has no input_versions, so BE must NOT receive any version range hint
+    // (the BE retry on `version_in_compaction` is meaningless for EMPTY_CUMULATIVE).
+    EXPECT_EQ(res.version_in_compaction_size(), 0);
+
+    // Step 3: Idempotency check - the same job_id submitted twice should still return OK.
+    res.Clear();
+    start_compaction_job(meta_service.get(), tablet_id, "cumu1", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res, {42326, 42474});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Step 4: A BASE compaction arrives via the same code path used by EMPTY_CUMULATIVE -
+    // i.e. without `input_versions`. Because is_same_conflict_family(BASE, CUMULATIVE) is
+    // false, BASE should still be accepted on this branch (the cross-family conflict is
+    // enforced only on the version-range branch validated by Plan D test below).
+    res.Clear();
+    start_compaction_job(meta_service.get(), tablet_id, "base1", "BE1", 0, 0,
+                         TabletCompactionJobPB::BASE, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Step 5: A second EMPTY_CUMULATIVE should also be rejected by the now-active CUMULATIVE.
+    // (Even though job_pb already contains an EMPTY_CUMULATIVE-equivalent, the same-family
+    // check primarily catches the CUMULATIVE side here.)
+    res.Clear();
+    start_empty_cumu("empty2", "BE2", 0, 0, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
+}
+
+// Plan D regression test: when a CUMULATIVE compaction is already running with `input_versions`
+// and `check_input_versions_range = true`, a BASE compaction whose version range overlaps with
+// the in-flight CUMULATIVE must be rejected with JOB_TABLET_BUSY. Non-overlapping BASE jobs are
+// still allowed, which is the typical safe case (BASE handles [0, cumu_point - 1] while
+// CUMULATIVE handles versions above cumu_point).
+TEST(MetaServiceJobTest, BaseCumulativeCrossTypeConflictTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 1;
+    constexpr int64_t index_id = 2;
+    constexpr int64_t partition_id = 3;
+    constexpr int64_t tablet_id = 4;
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    // Local helper: start a BASE compaction request that carries `input_versions` (matching
+    // production BE behaviour: cloud_base_compaction.cpp always calls add_input_versions).
+    // Note: BASE does NOT call set_check_input_versions_range, so it's left as default false
+    // BUT input_versions is non-empty - this routes the request into the "has input_versions"
+    // branch on MS, which is the branch Plan D guards.
+    auto start_base = [&](const std::string& job_id, const std::string& initiator, int base_cnt,
+                          int cumu_cnt, std::pair<int64_t, int64_t> versions,
+                          StartTabletJobResponse& res) {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto* compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_base_compaction_cnt(base_cnt);
+        compaction->set_cumulative_compaction_cnt(cumu_cnt);
+        compaction->set_type(TabletCompactionJobPB::BASE);
+        long now = ::time(nullptr);
+        compaction->set_expiration(now + 12);
+        compaction->set_lease(now + 3);
+        compaction->add_input_versions(versions.first);
+        compaction->add_input_versions(versions.second);
+        // Intentionally NOT calling set_check_input_versions_range - BASE relies on the
+        // default false to mimic real BE behaviour.
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+    };
+
+    // Step 1: A CUMULATIVE compaction with versions [10, 20] is started with parallel-cumu
+    // mode enabled (check_input_versions_range = true). This routes into the
+    // version-range-aware branch on MS.
+    StartTabletJobResponse res;
+    start_compaction_job(meta_service.get(), tablet_id, "cumu1", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res, {10, 20});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Step 2: BASE [5, 15] overlaps with CUMULATIVE [10, 20]. Plan D requires this to be
+    // rejected. Before the fix it would succeed (because the old `c.type() != compaction.type()`
+    // check skipped the active CUMULATIVE for a BASE submission).
+    res.Clear();
+    start_base("base_overlap_left", "BE1", 0, 0, {5, 15}, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
+
+    // Step 3: BASE [15, 25] also overlaps. Should be rejected.
+    res.Clear();
+    start_base("base_overlap_right", "BE1", 0, 0, {15, 25}, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
+
+    // Step 4: BASE [12, 18] is fully contained inside CUMULATIVE's range. Should be rejected.
+    res.Clear();
+    start_base("base_overlap_inside", "BE1", 0, 0, {12, 18}, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
+
+    // Step 5: BASE [5, 25] fully covers the CUMULATIVE range. Should be rejected.
+    res.Clear();
+    start_base("base_overlap_cover", "BE1", 0, 0, {5, 25}, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
+
+    // Step 6: BASE [0, 9] is BELOW the CUMULATIVE range. This is the typical safe case
+    // (base handles [0, cumu_point - 1]) and must still be accepted after Plan D.
+    res.Clear();
+    start_base("base_safe_below", "BE1", 0, 0, {0, 9}, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    // Step 7: A second BASE [21, 30] is ABOVE the CUMULATIVE range AND non-overlapping with the
+    // already-accepted base_safe_below [0, 9]. This is also a safe non-overlap case - although
+    // unusual in production (BASE rarely operates above cumu_point), MS should accept it.
+    res.Clear();
+    start_base("base_safe_above", "BE2", 0, 0, {21, 30}, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    // Step 8: A new CUMULATIVE [22, 28] overlaps with the just-accepted base_safe_above and
+    // must be rejected. Verifies the conflict is symmetric - CUMULATIVE submissions also
+    // see BASE jobs as conflicting.
+    res.Clear();
+    start_compaction_job(meta_service.get(), tablet_id, "cumu_overlap_base", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res, {22, 28});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
+    // The version_in_compaction notification predicate is kept consistent with the conflict
+    // predicate (`may_conflict_by_type`): every in-flight job in the rowset compaction family
+    // (BASE / CUMULATIVE) is surfaced so BE can pick a non-overlapping range to retry.
+    // Active jobs at this point: cumu1[10,20], base_safe_below[0,9], base_safe_above[21,30].
+    // All three carry concrete input_versions so all three must be reported.
+    ASSERT_EQ(res.version_in_compaction_size(), 6);
+    EXPECT_EQ(res.version_in_compaction(0), 10);
+    EXPECT_EQ(res.version_in_compaction(1), 20);
+    EXPECT_EQ(res.version_in_compaction(2), 0);
+    EXPECT_EQ(res.version_in_compaction(3), 9);
+    EXPECT_EQ(res.version_in_compaction(4), 21);
+    EXPECT_EQ(res.version_in_compaction(5), 30);
+
+    // Step 9: A new CUMULATIVE [30, 35] does not overlap with cumu1 [10, 20] but DOES overlap
+    // with base_safe_above [21, 30] (sharing version 30). Must be rejected.
+    res.Clear();
+    start_compaction_job(meta_service.get(), tablet_id, "cumu_overlap_base2", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res, {30, 35});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
+
+    // Step 10: A new CUMULATIVE [31, 40] is fully above all active jobs and must be accepted.
+    res.Clear();
+    start_compaction_job(meta_service.get(), tablet_id, "cumu_safe_above", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res, {31, 40});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+}
+
 TEST(MetaServiceJobTest, SchemaChangeJobPersistTest) {
     auto meta_service = get_meta_service();
 
@@ -5213,6 +5493,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         streaming_attach->set_job_id(1002);
         streaming_attach->set_offset("test_offset_3");
         streaming_attach->set_scanned_rows(2000);
+        streaming_attach->set_filtered_rows(150);
         streaming_attach->set_load_bytes(10000);
         streaming_attach->set_num_files(20);
         streaming_attach->set_file_bytes(15000);
@@ -5241,6 +5522,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().job_id(), 1002);
         EXPECT_EQ(response.commit_attach().scanned_rows(), 2000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 150);
         EXPECT_EQ(response.commit_attach().load_bytes(), 10000);
         EXPECT_EQ(response.commit_attach().num_files(), 20);
         EXPECT_EQ(response.commit_attach().file_bytes(), 15000);
@@ -5363,6 +5645,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         streaming_attach->set_job_id(job_id);
         streaming_attach->set_offset("original_offset");
         streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_filtered_rows(50);
         streaming_attach->set_load_bytes(5000);
         streaming_attach->set_num_files(10);
         streaming_attach->set_file_bytes(8000);
@@ -5391,6 +5674,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().offset(), "original_offset");
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
     }
 
@@ -5427,6 +5711,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_EQ(response.commit_attach().offset(), "reset_offset");
         // Other fields should remain unchanged
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
         EXPECT_EQ(response.commit_attach().num_files(), 10);
         EXPECT_EQ(response.commit_attach().file_bytes(), 8000);

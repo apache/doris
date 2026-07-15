@@ -501,7 +501,8 @@ Int64 FaissVectorIndex::get_min_train_rows() const {
     // For IVF indexes, the minimum number of training points should be at least
     // equal to the number of clusters (nlist). FAISS requires this for k-means clustering.
     Int64 ivf_min = 0;
-    if (_params.index_type == FaissBuildParameter::IndexType::IVF) {
+    if (_params.index_type == FaissBuildParameter::IndexType::IVF ||
+        _params.index_type == FaissBuildParameter::IndexType::IVF_ON_DISK) {
         ivf_min = _params.ivf_nlist;
     }
 
@@ -691,7 +692,8 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                     "HNSW search parameters should not be null for HNSW index");
         }
         faiss::SearchParametersHNSW* param = new faiss::SearchParametersHNSW();
-        param->efSearch = hnsw_params->ef_search;
+        // efSearch must be >= k to guarantee k results are returned
+        param->efSearch = std::max(hnsw_params->ef_search, k);
         param->check_relative_distance = hnsw_params->check_relative_distance;
         param->bounded_queue = hnsw_params->bounded_queue;
         param->sel = id_sel.get();
@@ -703,7 +705,11 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                     "IVF search parameters should not be null for IVF index");
         }
         faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
-        param->nprobe = ivf_params->nprobe;
+        // FAISS asserts nprobe > 0, so guard the lower bound against nprobe < 1.
+        // Do NOT clamp the upper bound here: FAISS internally caps nprobe at the
+        // index's real nlist, and _params.ivf_nlist is unreliable for loaded indexes
+        // (load() leaves it at the default 1024, see AnnIndexReader::load_index).
+        param->nprobe = std::max(ivf_params->nprobe, 1);
         param->sel = id_sel.get();
         search_param.reset(param);
     } else {
@@ -725,8 +731,8 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
         result.roaring = std::make_shared<roaring::Roaring>();
         update_roaring(labels, k, *result.roaring);
         size_t roaring_cardinality = result.roaring->cardinality();
-        result.distances = std::make_unique<float[]>(roaring_cardinality);
-        result.row_ids = std::make_unique<std::vector<uint64_t>>();
+        result.distances = std::shared_ptr<float[]>(new float[roaring_cardinality]);
+        result.row_ids = std::make_shared<std::vector<uint64_t>>();
         result.row_ids->resize(roaring_cardinality);
 
         if (_metric == AnnIndexMetric::L2) {
@@ -792,7 +798,11 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         {
             // Engine prepare: set search parameters and bind selector
             SCOPED_RAW_TIMER(&result.engine_prepare_ns);
-            param->nprobe = ivf_params->nprobe;
+            // FAISS asserts nprobe > 0, so guard the lower bound against nprobe < 1.
+            // Do NOT clamp the upper bound here: FAISS internally caps nprobe at the
+            // index's real nlist, and _params.ivf_nlist is unreliable for loaded
+            // indexes (load() leaves it at the default 1024, see load_index).
+            param->nprobe = std::max(ivf_params->nprobe, 1);
         }
         search_param.reset(param);
     } else {
@@ -836,17 +846,17 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
 
     size_t begin = native_search_result.lims[0];
     size_t end = native_search_result.lims[1];
-    auto row_ids = std::make_unique<std::vector<uint64_t>>();
+    auto row_ids = std::make_shared<std::vector<uint64_t>>();
     row_ids->resize(end - begin);
     if (params.is_le_or_lt) {
         if (_metric == AnnIndexMetric::L2) {
-            std::unique_ptr<float[]> distances_ptr;
+            std::shared_ptr<float[]> distances_ptr;
             float* distances = nullptr;
             auto roaring = std::make_shared<roaring::Roaring>();
             {
                 // Engine convert: build roaring, row_ids, distances from FAISS result
                 SCOPED_RAW_TIMER(&result.engine_convert_ns);
-                distances_ptr = std::make_unique<float[]>(end - begin);
+                distances_ptr = std::shared_ptr<float[]>(new float[end - begin]);
                 distances = distances_ptr.get();
                 // The distance returned by Faiss is actually the squared distance.
                 // So we need to take the square root of the squared distance.
@@ -856,8 +866,8 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                     distances[i - begin] = sqrt(native_search_result.distances[i]);
                 }
             }
-            result.distances = std::move(distances_ptr);
-            result.row_ids = std::move(row_ids);
+            result.distances = distances_ptr;
+            result.row_ids = row_ids;
             result.roaring = roaring;
 
             DCHECK(result.row_ids->size() == result.roaring->cardinality())
@@ -907,7 +917,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
             // For inner product, we can use the distance directly.
             // range search on ip gets all vectors with inner product greater than or equal to the radius.
             // when query condition is not le_or_lt, we can use the roaring and distance directly.
-            std::unique_ptr<float[]> distances_ptr = std::make_unique<float[]>(end - begin);
+            std::shared_ptr<float[]> distances_ptr(new float[end - begin]);
             float* distances = distances_ptr.get();
             auto roaring = std::make_shared<roaring::Roaring>();
             // The distance returned by Faiss is actually the squared distance.
@@ -917,8 +927,8 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                 roaring->add(cast_set<UInt32>(native_search_result.labels[i]));
                 distances[i - begin] = native_search_result.distances[i];
             }
-            result.distances = std::move(distances_ptr);
-            result.row_ids = std::move(row_ids);
+            result.distances = distances_ptr;
+            result.row_ids = row_ids;
             result.roaring = roaring;
 
             DCHECK(result.row_ids->size() == result.roaring->cardinality())
@@ -982,8 +992,7 @@ doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
                 // Write codes
                 const uint8_t* codes = ails->get_codes(i);
                 size_t codes_bytes = list_size * code_size;
-                ivfdata_output->writeBytes(reinterpret_cast<const uint8_t*>(codes),
-                                           cast_set<Int32>(codes_bytes));
+                ivfdata_output->writeBytes(codes, cast_set<Int32>(codes_bytes));
 
                 // Write ids
                 const faiss::idx_t* ids = ails->get_ids(i);

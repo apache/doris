@@ -189,10 +189,41 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
     }
 
     @Test
+    public void testAliasFunctionWithCastOutermostExpression() throws Exception {
+        // Bug fix: when the outermost expression of an alias function body is a Cast,
+        // AliasUdf.translateToNereidsFunction previously cast parsedFunction to UnboundFunction,
+        // causing ClassCastException. After the fix, parsedFunction is kept as Expression.
+        createFunction(
+                "create alias function f_cast_varchar(int) with parameter(n) as cast(n as varchar(20))");
+
+        Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
+                .findUdfBuilder(connectContext.getDatabase(), "f_cast_varchar").size());
+
+        // Verify the function can be used in a query without error
+        PlanChecker.from(connectContext)
+                .analyze("select f_cast_varchar(42)")
+                .matches(
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().size() == 1)
+                );
+    }
+
+    @Test
+    public void testAliasFunctionWithIllegalExpressionsRejected() throws Exception {
+        // Bug fix: before the fix, alias functions containing aggregate functions in their body
+        // could be created successfully, which is incorrect behavior.
+        // After the fix, they are rejected with a clear error message.
+        Exception e = Assertions.assertThrows(Exception.class, () ->
+                createFunction(
+                        "create alias function f_agg_rejected(int) with parameter(n) as sum(n)"));
+        Assertions.assertTrue(e.getMessage().contains("Alias function only supports scalar functions."));
+    }
+
+    @Test
     public void testReadFromStream() throws Exception {
         createFunction("create global alias function f8(int) with parameter(n) as hours_add(now(3), n)");
         Env.getCurrentEnv().getFunctionRegistry().dropUdf(null, "f8",
-                ImmutableList.of(IntegerType.INSTANCE));
+                ImmutableList.of(IntegerType.INSTANCE), false);
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));

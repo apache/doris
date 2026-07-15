@@ -18,11 +18,15 @@
 #include "paimon_jni_reader.h"
 
 #include <map>
+#include <string_view>
+#include <vector>
 
 #include "core/types.h"
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/string_util.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -32,8 +36,14 @@ class Block;
 
 namespace doris {
 
+namespace {
+constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
+} // namespace
+
 const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon.";
 const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
+const std::string PaimonJniReader::DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
+const std::string PaimonJniReader::DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
 
 PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                                  RuntimeState* state, RuntimeProfile* profile,
@@ -74,6 +84,24 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                               params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
                           }
                       }
+                      const std::string enable_io_manager_key =
+                              PAIMON_OPTION_PREFIX + DORIS_ENABLE_JNI_IO_MANAGER;
+                      const std::string io_manager_tmp_dir_key =
+                              PAIMON_OPTION_PREFIX + DORIS_JNI_IO_MANAGER_TMP_DIR;
+                      auto enable_io_manager_it = params.find(enable_io_manager_key);
+                      if (enable_io_manager_it != params.end() &&
+                          iequal(enable_io_manager_it->second, "true") &&
+                          params.find(io_manager_tmp_dir_key) == params.end()) {
+                          std::vector<std::string> tmp_dirs;
+                          for (const auto& store_path : state->exec_env()->store_paths()) {
+                              tmp_dirs.push_back(store_path.path + "/" +
+                                                 std::string(PAIMON_JNI_SCANNER_IO_TMP_DIR));
+                          }
+                          DORIS_CHECK(!tmp_dirs.empty());
+                          // Paimon's IOManager creates and later removes its own paimon-* child
+                          // directory under these Doris storage-root scoped parent directories.
+                          params[io_manager_tmp_dir_key] = join(tmp_dirs, ":");
+                      }
                       if (range_params->__isset.properties && !range_params->properties.empty()) {
                           for (const auto& kv : range_params->properties) {
                               params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
@@ -105,11 +133,11 @@ Status PaimonJniReader::_do_get_next_block(Block* block, size_t* read_rows, bool
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
         _remaining_table_level_row_count -= rows;
-        auto mutate_columns = block->mutate_columns();
+        auto mutable_columns_guard = block->mutate_columns_scoped();
+        auto& mutate_columns = mutable_columns_guard.mutable_columns();
         for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         if (_remaining_table_level_row_count == 0) {
             *eof = true;
