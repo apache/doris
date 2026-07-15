@@ -121,4 +121,31 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         Assertions.assertDoesNotThrow(() ->
                 PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, null, "db.t"));
     }
+
+    @Test
+    public void rowIdColumnIsExcludedNoThrow() throws UserException {
+        // Topn lazy materialization (LazyMaterializeTopN) injects a reader-synthesized row-id carrying
+        // uniqueId = Integer.MAX_VALUE, which is BY CONSTRUCTION absent from every pinned schema. Without the
+        // carve-out the guard fires on every "pinned version + order by/limit" query -- it took down
+        // test_iceberg_time_travel and iceberg_branch_complex_queries (CI 996541).
+        // MUTATION: dropping the GLOBAL_ROWID_COL carve-out -> red.
+        List<Column> bound = Arrays.asList(col("id", 1),
+                col(Column.GLOBAL_ROWID_COL + "tag_branch_table", Integer.MAX_VALUE));
+        SchemaCacheValue pinned = schema(col("id", 1));
+        Assertions.assertDoesNotThrow(() ->
+                PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, "db.t"));
+    }
+
+    @Test
+    public void rowIdBeforeSkewedColumnStillThrows() throws UserException {
+        // The carve-out must SKIP the row-id and keep checking the rest of the tuple, not abandon the whole
+        // check. MUTATION: writing the carve-out as `return` instead of `continue` -> a real skew on `added`
+        // that sits AFTER the row-id slips through silently -> red.
+        List<Column> bound = Arrays.asList(
+                col(Column.GLOBAL_ROWID_COL + "t", Integer.MAX_VALUE),
+                col("added", 9));
+        SchemaCacheValue pinned = schema(col("id", 1));
+        Assertions.assertThrows(UserException.class,
+                () -> PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, "db.t"));
+    }
 }

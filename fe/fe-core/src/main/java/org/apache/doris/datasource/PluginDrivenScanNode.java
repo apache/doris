@@ -920,7 +920,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * source-name branch): {@code uniqueId >= 0} (iceberg carries the iceberg field-id) matches by field-id
      * (BE matches iceberg columns by id, so a rename that keeps the id is fine, a renumber / added column is
      * caught); {@code uniqueId < 0} (paimon has no top-level field-id) matches by name. A {@code null}
-     * pinnedSchema (latest / {@code @incr} / sys-table / hive reference) is a no-op.</p>
+     * pinnedSchema (latest / {@code @incr} / sys-table / hive reference) is a no-op. Reader-synthesized
+     * row-id columns ({@link Column#GLOBAL_ROWID_COL}) are skipped — they are not table columns and are
+     * absent from every pinned schema by construction.</p>
      */
     static void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
             SchemaCacheValue pinnedSchema, String tableName) throws UserException {
@@ -934,6 +936,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             pinnedNames.add(c.getName().toLowerCase());
         }
         for (Column bound : boundColumns) {
+            if (bound.getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+                // Reader-synthesized row-id injected by topn lazy materialization (LazyMaterializeTopN),
+                // not a table column: it carries uniqueId = Integer.MAX_VALUE, so it is BY CONSTRUCTION
+                // absent from every pinned schema and would make this guard fire on every
+                // "pinned version + order by/limit" query. Excluded exactly like classifyColumn() and
+                // hasTopnLazyMaterializeSlot() already do.
+                continue;
+            }
             boolean resolved = bound.getUniqueId() >= 0
                     ? pinnedFieldIds.contains(bound.getUniqueId())
                     : pinnedNames.contains(bound.getName().toLowerCase());
