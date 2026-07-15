@@ -743,6 +743,34 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.cache_aware_lazy_read_prefetch_ranges);
     COUNTER_UPDATE(local_state->_cache_aware_lazy_read_prefetch_bytes,
                    stats.cache_aware_lazy_read_prefetch_bytes);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_page_collect_timer,
+                   stats.cache_aware_lazy_read_page_collect_ns);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_doris_cache_lookup_timer,
+                   stats.cache_aware_lazy_read_doris_cache_lookup_ns);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_os_page_cache_probe_timer,
+                   stats.cache_aware_lazy_read_os_page_cache_probe_ns);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_preload_timer,
+                   stats.cache_aware_lazy_read_preload_ns);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_range_build_timer,
+                   stats.cache_aware_lazy_read_range_build_ns);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_readahead_timer,
+                   stats.cache_aware_lazy_read_readahead_ns);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_sampled_pages,
+                   stats.cache_aware_lazy_read_sampled_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_enabled_segments,
+                   stats.cache_aware_lazy_read_enabled_segments);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_skipped_low_io_segments,
+                   stats.cache_aware_lazy_read_skipped_low_io_segments);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_skipped_cold_ratio_segments,
+                   stats.cache_aware_lazy_read_skipped_cold_ratio_segments);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_budget_limit_events,
+                   stats.cache_aware_lazy_read_budget_limit_events);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_skipped_prefetch_ranges,
+                   stats.cache_aware_lazy_read_skipped_prefetch_ranges);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_pinned_bytes,
+                   stats.cache_aware_lazy_read_pinned_bytes);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_preloaded_bytes,
+                   stats.cache_aware_lazy_read_preloaded_bytes);
     COUNTER_UPDATE(local_state->_output_col_timer, stats.output_col_ns);
     COUNTER_UPDATE(local_state->_rows_vec_cond_filtered_counter, stats.rows_vec_cond_filtered);
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_filtered_counter,

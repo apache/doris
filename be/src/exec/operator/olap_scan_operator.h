@@ -207,6 +207,20 @@ private:
     RuntimeProfile::Counter* _cache_aware_lazy_read_probe_unsupported_pages = nullptr;
     RuntimeProfile::Counter* _cache_aware_lazy_read_prefetch_ranges = nullptr;
     RuntimeProfile::Counter* _cache_aware_lazy_read_prefetch_bytes = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_page_collect_timer = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_doris_cache_lookup_timer = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_os_page_cache_probe_timer = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_preload_timer = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_range_build_timer = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_readahead_timer = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_sampled_pages = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_enabled_segments = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_skipped_low_io_segments = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_skipped_cold_ratio_segments = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_budget_limit_events = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_skipped_prefetch_ranges = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_pinned_bytes = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_preloaded_bytes = nullptr;
 
     // total pages read
     // used by segment v2

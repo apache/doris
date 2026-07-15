@@ -231,6 +231,34 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "CacheAwareLazyReadPrefetchRanges", TUnit::UNIT);
     _cache_aware_lazy_read_prefetch_bytes =
             ADD_COUNTER(_segment_profile, "CacheAwareLazyReadPrefetchBytes", TUnit::BYTES);
+    _cache_aware_lazy_read_page_collect_timer =
+            ADD_TIMER(_segment_profile, "CacheAwareLazyReadPageCollectTime");
+    _cache_aware_lazy_read_doris_cache_lookup_timer =
+            ADD_TIMER(_segment_profile, "CacheAwareLazyReadDorisCacheLookupTime");
+    _cache_aware_lazy_read_os_page_cache_probe_timer =
+            ADD_TIMER(_segment_profile, "CacheAwareLazyReadOsPageCacheProbeTime");
+    _cache_aware_lazy_read_preload_timer =
+            ADD_TIMER(_segment_profile, "CacheAwareLazyReadPreloadTime");
+    _cache_aware_lazy_read_range_build_timer =
+            ADD_TIMER(_segment_profile, "CacheAwareLazyReadRangeBuildTime");
+    _cache_aware_lazy_read_readahead_timer =
+            ADD_TIMER(_segment_profile, "CacheAwareLazyReadReadaheadTime");
+    _cache_aware_lazy_read_sampled_pages =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadSampledPages", TUnit::UNIT);
+    _cache_aware_lazy_read_enabled_segments =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadEnabledSegments", TUnit::UNIT);
+    _cache_aware_lazy_read_skipped_low_io_segments =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadSkippedLowIoSegments", TUnit::UNIT);
+    _cache_aware_lazy_read_skipped_cold_ratio_segments = ADD_COUNTER(
+            _segment_profile, "CacheAwareLazyReadSkippedColdRatioSegments", TUnit::UNIT);
+    _cache_aware_lazy_read_budget_limit_events =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadBudgetLimitEvents", TUnit::UNIT);
+    _cache_aware_lazy_read_skipped_prefetch_ranges =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadSkippedPrefetchRanges", TUnit::UNIT);
+    _cache_aware_lazy_read_pinned_bytes =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadPinnedBytes", TUnit::BYTES);
+    _cache_aware_lazy_read_preloaded_bytes =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadPreloadedBytes", TUnit::BYTES);
 
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 

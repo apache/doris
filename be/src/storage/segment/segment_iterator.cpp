@@ -114,6 +114,33 @@ namespace segment_v2 {
 
 #include "common/compile_check_begin.h"
 
+namespace {
+
+constexpr int CACHE_AWARE_BASELINE_BATCHES = 2;
+constexpr int64_t CACHE_AWARE_BASELINE_PAGES = 512;
+constexpr int64_t CACHE_AWARE_MIN_BASELINE_PAGES = 64;
+constexpr int64_t CACHE_AWARE_MIN_BASELINE_IO_NS = 5 * 1000 * 1000;
+constexpr int64_t CACHE_AWARE_MIN_IO_NS_PER_PAGE = 20 * 1000;
+constexpr int64_t CACHE_AWARE_MIN_MISS_PERCENT = 15;
+
+constexpr size_t CACHE_AWARE_SAMPLE_PAGES = 512;
+constexpr size_t CACHE_AWARE_MIN_SAMPLE_PAGES = 32;
+constexpr size_t CACHE_AWARE_MAX_PAGES_PER_BATCH = 4096;
+constexpr size_t CACHE_AWARE_MAX_ROWID_COLUMN_LOOKUPS = 1000 * 1000;
+constexpr size_t CACHE_AWARE_MAX_PINNED_BYTES_PER_BATCH = 64 * 1024 * 1024;
+constexpr size_t CACHE_AWARE_SAMPLE_MAX_COLD_PERCENT = 8;
+constexpr size_t CACHE_AWARE_DISABLE_COLD_PERCENT = 12;
+
+constexpr uint64_t CACHE_AWARE_MAX_MERGE_GAP = 64 * 1024;
+constexpr uint64_t CACHE_AWARE_MAX_PREFETCH_RANGE = 1024 * 1024;
+constexpr uint64_t CACHE_AWARE_MAX_READ_AMPLIFICATION_PERCENT = 125;
+constexpr size_t CACHE_AWARE_MIN_PREFETCH_PAGES = 4;
+constexpr uint64_t CACHE_AWARE_MIN_PREFETCH_RANGE = 256 * 1024;
+constexpr size_t CACHE_AWARE_MAX_PREFETCH_RANGES_PER_BATCH = 32;
+constexpr uint64_t CACHE_AWARE_MAX_PREFETCH_BYTES_PER_BATCH = 32 * 1024 * 1024;
+
+} // namespace
+
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
@@ -2468,33 +2495,84 @@ Status SegmentIterator::_prepare_cache_aware_lazy_read(const std::vector<ColumnI
     if (rowids.empty() || _opts.runtime_state == nullptr || !_opts.use_page_cache ||
         _opts.io_ctx.reader_type != ReaderType::READER_QUERY || _file_reader == nullptr ||
         !_file_reader->supports_cache_aware_read() ||
-        !_opts.runtime_state->enable_cache_aware_lazy_read()) {
+        !_opts.runtime_state->enable_cache_aware_lazy_read() ||
+        _cache_aware_lazy_read_state == CacheAwareLazyReadState::OBSERVING ||
+        _cache_aware_lazy_read_state == CacheAwareLazyReadState::DISABLED) {
         return Status::OK();
     }
 
     SCOPED_RAW_TIMER(&_opts.stats->cache_aware_lazy_read_ns);
+    if (!read_column_ids.empty() &&
+        rowids.size() > CACHE_AWARE_MAX_ROWID_COLUMN_LOOKUPS / read_column_ids.size()) {
+        _cache_aware_lazy_read_state = CacheAwareLazyReadState::DISABLED;
+        ++_opts.stats->cache_aware_lazy_read_budget_limit_events;
+        return Status::OK();
+    }
+
     struct PageRequest {
         ColumnIterator* iterator;
         PagePointer page;
     };
+    const bool is_sampling = _cache_aware_lazy_read_state == CacheAwareLazyReadState::SAMPLING;
+    const size_t max_requests =
+            is_sampling ? CACHE_AWARE_SAMPLE_PAGES : CACHE_AWARE_MAX_PAGES_PER_BATCH;
     std::vector<PageRequest> requests;
+    requests.reserve(max_requests);
     std::set<std::pair<uint64_t, uint32_t>> seen_pages;
-    for (auto cid : read_column_ids) {
-        std::vector<PagePointer> pages;
-        Status st = _column_iterators[cid]->collect_data_pages_by_rowids(rowids.data(),
-                                                                         rowids.size(), &pages);
-        if (!st.ok()) {
-            VLOG_DEBUG << "cache-aware lazy-read page collection failed: " << st;
-            continue;
-        }
-        for (const auto& page : pages) {
-            if (seen_pages.emplace(page.offset, page.size).second) {
-                requests.push_back(PageRequest {_column_iterators[cid].get(), page});
+    bool page_budget_reached = false;
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->cache_aware_lazy_read_page_collect_ns);
+        for (auto cid : read_column_ids) {
+            const size_t remaining = max_requests - requests.size();
+            if (remaining == 0) {
+                page_budget_reached = true;
+                break;
+            }
+            const size_t per_column_sample_pages =
+                    (max_requests + read_column_ids.size() - 1) / read_column_ids.size();
+            const size_t column_budget =
+                    is_sampling ? std::min(remaining, per_column_sample_pages) : remaining;
+            std::vector<PagePointer> pages;
+            pages.reserve(column_budget);
+            bool column_limit_reached = false;
+            Status st = _column_iterators[cid]->collect_data_pages_by_rowids(
+                    rowids.data(), rowids.size(), column_budget, &pages, &column_limit_reached);
+            if (!st.ok()) {
+                VLOG_DEBUG << "cache-aware lazy-read page collection failed: " << st;
+                continue;
+            }
+            for (const auto& page : pages) {
+                if (seen_pages.emplace(page.offset, page.size).second) {
+                    requests.push_back(PageRequest {_column_iterators[cid].get(), page});
+                }
+            }
+            if (requests.size() >= max_requests) {
+                page_budget_reached = true;
+                break;
+            }
+            if (column_limit_reached && !is_sampling) {
+                page_budget_reached = true;
+                break;
             }
         }
     }
     _opts.stats->cache_aware_lazy_read_planned_pages += requests.size();
+    if (is_sampling) {
+        _opts.stats->cache_aware_lazy_read_sampled_pages += requests.size();
+    }
+    if (page_budget_reached) {
+        ++_opts.stats->cache_aware_lazy_read_budget_limit_events;
+    }
     if (requests.empty()) {
+        if (is_sampling) {
+            _cache_aware_lazy_read_state = CacheAwareLazyReadState::DISABLED;
+            ++_opts.stats->cache_aware_lazy_read_skipped_low_io_segments;
+        }
+        return Status::OK();
+    }
+    if (is_sampling && requests.size() < CACHE_AWARE_MIN_SAMPLE_PAGES && !page_budget_reached) {
+        _cache_aware_lazy_read_state = CacheAwareLazyReadState::DISABLED;
+        ++_opts.stats->cache_aware_lazy_read_skipped_low_io_segments;
         return Status::OK();
     }
 
@@ -2503,32 +2581,45 @@ Status SegmentIterator::_prepare_cache_aware_lazy_read(const std::vector<ColumnI
         max_page_size = std::max(max_page_size, static_cast<size_t>(request.page.size));
     }
     std::vector<char> probe_buffer(max_page_size);
+    std::vector<PageHandle> doris_cache_pins;
+    doris_cache_pins.reserve(requests.size());
+    std::vector<PageRequest> os_resident_pages;
+    os_resident_pages.reserve(requests.size());
     std::vector<PageRequest> cold_pages;
     cold_pages.reserve(requests.size());
-    pinned_pages->reserve(pinned_pages->size() + requests.size());
     bool probe_supported = true;
-    OlapReaderStatistics preload_stats;
+    size_t pinned_bytes = 0;
 
     for (const auto& request : requests) {
         PageHandle handle;
-        if (request.iterator->try_pin_data_page(request.page, &handle)) {
-            pinned_pages->push_back(std::move(handle));
+        bool doris_cache_hit = false;
+        {
+            SCOPED_RAW_TIMER(&_opts.stats->cache_aware_lazy_read_doris_cache_lookup_ns);
+            doris_cache_hit = request.iterator->try_pin_data_page(request.page, &handle);
+        }
+        if (doris_cache_hit) {
             ++_opts.stats->cache_aware_lazy_read_doris_cache_hit_pages;
+            const size_t page_bytes = handle.data().size;
+            if (pinned_bytes + page_bytes <= CACHE_AWARE_MAX_PINNED_BYTES_PER_BATCH) {
+                pinned_bytes += page_bytes;
+                doris_cache_pins.push_back(std::move(handle));
+            } else {
+                ++_opts.stats->cache_aware_lazy_read_budget_limit_events;
+            }
             continue;
         }
 
         if (probe_supported) {
-            auto probe_result = _file_reader->probe_page_cache(
-                    request.page.offset, Slice(probe_buffer.data(), request.page.size));
+            io::PageCacheProbeResult probe_result;
+            {
+                SCOPED_RAW_TIMER(&_opts.stats->cache_aware_lazy_read_os_page_cache_probe_ns);
+                probe_result = _file_reader->probe_page_cache(
+                        request.page.offset, Slice(probe_buffer.data(), request.page.size));
+            }
             if (probe_result == io::PageCacheProbeResult::RESIDENT) {
-                Status st =
-                        request.iterator->preload_data_page(request.page, &handle, &preload_stats);
-                if (st.ok()) {
-                    pinned_pages->push_back(std::move(handle));
-                    ++_opts.stats->cache_aware_lazy_read_os_cache_hit_pages;
-                    continue;
-                }
-                VLOG_DEBUG << "cache-aware lazy-read hot page preload failed: " << st;
+                ++_opts.stats->cache_aware_lazy_read_os_cache_hit_pages;
+                os_resident_pages.push_back(request);
+                continue;
             } else if (probe_result == io::PageCacheProbeResult::UNSUPPORTED) {
                 probe_supported = false;
             }
@@ -2540,45 +2631,156 @@ Status SegmentIterator::_prepare_cache_aware_lazy_read(const std::vector<ColumnI
     }
     _opts.stats->cache_aware_lazy_read_cold_pages += cold_pages.size();
 
-    std::sort(cold_pages.begin(), cold_pages.end(),
-              [](const auto& lhs, const auto& rhs) { return lhs.page.offset < rhs.page.offset; });
+    const size_t max_cold_percent =
+            is_sampling ? CACHE_AWARE_SAMPLE_MAX_COLD_PERCENT : CACHE_AWARE_DISABLE_COLD_PERCENT;
+    if (!probe_supported || cold_pages.size() * 100 > requests.size() * max_cold_percent) {
+        _cache_aware_lazy_read_state = CacheAwareLazyReadState::DISABLED;
+        ++_opts.stats->cache_aware_lazy_read_skipped_cold_ratio_segments;
+        return Status::OK();
+    }
+
+    if (is_sampling) {
+        _cache_aware_lazy_read_state = CacheAwareLazyReadState::ENABLED;
+        ++_opts.stats->cache_aware_lazy_read_enabled_segments;
+    }
+
+    pinned_pages->reserve(pinned_pages->size() + doris_cache_pins.size() +
+                          os_resident_pages.size());
+    for (auto& handle : doris_cache_pins) {
+        pinned_pages->push_back(std::move(handle));
+    }
+
+    OlapReaderStatistics preload_stats;
+    int64_t preloaded_bytes = 0;
+    for (const auto& request : os_resident_pages) {
+        if (pinned_bytes + request.page.size > CACHE_AWARE_MAX_PINNED_BYTES_PER_BATCH) {
+            ++_opts.stats->cache_aware_lazy_read_budget_limit_events;
+            break;
+        }
+        PageHandle handle;
+        Status st;
+        {
+            SCOPED_RAW_TIMER(&_opts.stats->cache_aware_lazy_read_preload_ns);
+            st = request.iterator->preload_data_page(request.page, &handle, &preload_stats);
+        }
+        if (!st.ok()) {
+            VLOG_DEBUG << "cache-aware lazy-read hot page preload failed: " << st;
+            continue;
+        }
+        const size_t page_bytes = handle.data().size;
+        if (pinned_bytes + page_bytes > CACHE_AWARE_MAX_PINNED_BYTES_PER_BATCH) {
+            ++_opts.stats->cache_aware_lazy_read_budget_limit_events;
+            break;
+        }
+        pinned_bytes += page_bytes;
+        preloaded_bytes += page_bytes;
+        pinned_pages->push_back(std::move(handle));
+    }
+    _opts.stats->cache_aware_lazy_read_pinned_bytes += pinned_bytes;
+    _opts.stats->cache_aware_lazy_read_preloaded_bytes += preloaded_bytes;
+
     struct PrefetchRange {
         uint64_t offset;
         uint64_t end;
         uint64_t requested_bytes;
+        size_t page_count;
     };
     std::vector<PrefetchRange> ranges;
-    constexpr uint64_t MAX_MERGE_GAP = 64 * 1024;
-    constexpr uint64_t MAX_PREFETCH_RANGE = 1024 * 1024;
-    constexpr uint64_t MAX_READ_AMPLIFICATION_PERCENT = 125;
-    for (const auto& request : cold_pages) {
-        const uint64_t page_end = request.page.offset + request.page.size;
-        if (ranges.empty()) {
-            ranges.push_back(PrefetchRange {request.page.offset, page_end, request.page.size});
-            continue;
-        }
-        auto& range = ranges.back();
-        const uint64_t merged_end = std::max(range.end, page_end);
-        const uint64_t merged_span = merged_end - range.offset;
-        const uint64_t merged_requested = range.requested_bytes + request.page.size;
-        const uint64_t gap = request.page.offset > range.end ? request.page.offset - range.end : 0;
-        if (gap <= MAX_MERGE_GAP && merged_span <= MAX_PREFETCH_RANGE &&
-            merged_span * 100 <= merged_requested * MAX_READ_AMPLIFICATION_PERCENT) {
-            range.end = merged_end;
-            range.requested_bytes = merged_requested;
-        } else {
-            ranges.push_back(PrefetchRange {request.page.offset, page_end, request.page.size});
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->cache_aware_lazy_read_range_build_ns);
+        std::sort(cold_pages.begin(), cold_pages.end(), [](const auto& lhs, const auto& rhs) {
+            return lhs.page.offset < rhs.page.offset;
+        });
+        for (const auto& request : cold_pages) {
+            const uint64_t page_end = request.page.offset + request.page.size;
+            if (ranges.empty()) {
+                ranges.push_back(
+                        PrefetchRange {request.page.offset, page_end, request.page.size, 1});
+                continue;
+            }
+            auto& range = ranges.back();
+            const uint64_t merged_end = std::max(range.end, page_end);
+            const uint64_t merged_span = merged_end - range.offset;
+            const uint64_t merged_requested = range.requested_bytes + request.page.size;
+            const uint64_t gap =
+                    request.page.offset > range.end ? request.page.offset - range.end : 0;
+            if (gap <= CACHE_AWARE_MAX_MERGE_GAP && merged_span <= CACHE_AWARE_MAX_PREFETCH_RANGE &&
+                merged_span * 100 <=
+                        merged_requested * CACHE_AWARE_MAX_READ_AMPLIFICATION_PERCENT) {
+                range.end = merged_end;
+                range.requested_bytes = merged_requested;
+                ++range.page_count;
+            } else {
+                ranges.push_back(
+                        PrefetchRange {request.page.offset, page_end, request.page.size, 1});
+            }
         }
     }
 
+    size_t submitted_ranges = 0;
+    uint64_t submitted_bytes = 0;
     for (const auto& range : ranges) {
         const size_t length = range.end - range.offset;
-        if (_file_reader->prefetch(range.offset, length)) {
+        if (range.page_count < CACHE_AWARE_MIN_PREFETCH_PAGES ||
+            length < CACHE_AWARE_MIN_PREFETCH_RANGE) {
+            ++_opts.stats->cache_aware_lazy_read_skipped_prefetch_ranges;
+            continue;
+        }
+        if (submitted_ranges >= CACHE_AWARE_MAX_PREFETCH_RANGES_PER_BATCH ||
+            submitted_bytes + length > CACHE_AWARE_MAX_PREFETCH_BYTES_PER_BATCH) {
+            ++_opts.stats->cache_aware_lazy_read_budget_limit_events;
+            break;
+        }
+        bool prefetched = false;
+        {
+            SCOPED_RAW_TIMER(&_opts.stats->cache_aware_lazy_read_readahead_ns);
+            prefetched = _file_reader->prefetch(range.offset, length);
+        }
+        if (prefetched) {
+            ++submitted_ranges;
+            submitted_bytes += length;
             ++_opts.stats->cache_aware_lazy_read_prefetch_ranges;
             _opts.stats->cache_aware_lazy_read_prefetch_bytes += length;
         }
     }
     return Status::OK();
+}
+
+void SegmentIterator::_update_cache_aware_lazy_read_baseline(int64_t io_ns_before,
+                                                             int64_t pages_before,
+                                                             int64_t cached_pages_before) {
+    if (_cache_aware_lazy_read_state != CacheAwareLazyReadState::OBSERVING) {
+        return;
+    }
+
+    const int64_t io_ns = std::max<int64_t>(0, _opts.stats->io_ns - io_ns_before);
+    const int64_t pages = std::max<int64_t>(0, _opts.stats->total_pages_num - pages_before);
+    const int64_t cached_pages =
+            std::max<int64_t>(0, _opts.stats->cached_pages_num - cached_pages_before);
+    _cache_aware_lazy_read_baseline_io_ns += io_ns;
+    _cache_aware_lazy_read_baseline_pages += pages;
+    _cache_aware_lazy_read_baseline_miss_pages += std::max<int64_t>(0, pages - cached_pages);
+    ++_cache_aware_lazy_read_baseline_batches;
+
+    if (_cache_aware_lazy_read_baseline_batches < CACHE_AWARE_BASELINE_BATCHES &&
+        _cache_aware_lazy_read_baseline_pages < CACHE_AWARE_BASELINE_PAGES) {
+        return;
+    }
+
+    const bool enough_pages =
+            _cache_aware_lazy_read_baseline_pages >= CACHE_AWARE_MIN_BASELINE_PAGES;
+    const bool enough_misses = _cache_aware_lazy_read_baseline_miss_pages * 100 >=
+                               _cache_aware_lazy_read_baseline_pages * CACHE_AWARE_MIN_MISS_PERCENT;
+    const bool enough_io =
+            _cache_aware_lazy_read_baseline_io_ns >= CACHE_AWARE_MIN_BASELINE_IO_NS &&
+            _cache_aware_lazy_read_baseline_io_ns >=
+                    _cache_aware_lazy_read_baseline_pages * CACHE_AWARE_MIN_IO_NS_PER_PAGE;
+    if (enough_pages && enough_misses && enough_io) {
+        _cache_aware_lazy_read_state = CacheAwareLazyReadState::SAMPLING;
+    } else {
+        _cache_aware_lazy_read_state = CacheAwareLazyReadState::DISABLED;
+        ++_opts.stats->cache_aware_lazy_read_skipped_low_io_segments;
+    }
 }
 
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
@@ -2601,6 +2803,17 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
             rowids[i] = rowid_vector[sel_rowid_idx[i]];
         }
     }
+
+    const bool observe_cache_aware_baseline =
+            _cache_aware_lazy_read_state == CacheAwareLazyReadState::OBSERVING &&
+            _opts.runtime_state != nullptr && _opts.use_page_cache &&
+            _opts.io_ctx.reader_type == ReaderType::READER_QUERY && _file_reader != nullptr &&
+            _file_reader->supports_cache_aware_read() &&
+            _opts.runtime_state->enable_cache_aware_lazy_read();
+    const int64_t io_ns_before = observe_cache_aware_baseline ? _opts.stats->io_ns : 0;
+    const int64_t pages_before = observe_cache_aware_baseline ? _opts.stats->total_pages_num : 0;
+    const int64_t cached_pages_before =
+            observe_cache_aware_baseline ? _opts.stats->cached_pages_num : 0;
 
     std::vector<PageHandle> cache_aware_pinned_pages;
     RETURN_IF_ERROR(
@@ -2635,6 +2848,10 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
         }
         RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
                                                                _current_return_columns[cid]));
+    }
+
+    if (observe_cache_aware_baseline) {
+        _update_cache_aware_lazy_read_baseline(io_ns_before, pages_before, cached_pages_before);
     }
 
     return Status::OK();

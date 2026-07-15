@@ -345,7 +345,10 @@ public:
     // Hooks for the scalar-only cache-aware lazy-read POC. Complex column iterators keep the
     // default no-op implementation so their existing read path is unchanged.
     virtual Status collect_data_pages_by_rowids(const rowid_t* rowids, size_t count,
-                                                std::vector<PagePointer>* pages) {
+                                                size_t max_pages, std::vector<PagePointer>* pages,
+                                                bool* limit_reached) {
+        DCHECK(limit_reached != nullptr);
+        *limit_reached = false;
         return Status::OK();
     }
 
@@ -453,8 +456,9 @@ public:
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
 
-    Status collect_data_pages_by_rowids(const rowid_t* rowids, size_t count,
-                                        std::vector<PagePointer>* pages) override;
+    Status collect_data_pages_by_rowids(const rowid_t* rowids, size_t count, size_t max_pages,
+                                        std::vector<PagePointer>* pages,
+                                        bool* limit_reached) override;
 
     bool try_pin_data_page(const PagePointer& page, PageHandle* handle) override;
 

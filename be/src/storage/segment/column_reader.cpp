@@ -2021,20 +2021,36 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::collect_data_pages_by_rowids(const rowid_t* rowids, size_t count,
-                                                        std::vector<PagePointer>* pages) {
-    if (_reading_flag == ReadingFlag::SKIP_READING || count == 0) {
+                                                        size_t max_pages,
+                                                        std::vector<PagePointer>* pages,
+                                                        bool* limit_reached) {
+    DCHECK(limit_reached != nullptr);
+    *limit_reached = false;
+    if (_reading_flag == ReadingFlag::SKIP_READING || count == 0 || max_pages == 0) {
         return Status::OK();
     }
 
     OrdinalIndexReader* ordinal_index = nullptr;
     RETURN_IF_ERROR(_reader->get_ordinal_index_reader(ordinal_index, _opts.stats));
     int32_t previous_page_index = -1;
+    ordinal_t previous_page_first_ordinal = 0;
+    ordinal_t previous_page_last_ordinal = 0;
     for (size_t i = 0; i < count; ++i) {
+        if (previous_page_index >= 0 && rowids[i] >= previous_page_first_ordinal &&
+            rowids[i] <= previous_page_last_ordinal) {
+            continue;
+        }
         auto iter = ordinal_index->seek_at_or_before(rowids[i]);
         if (!iter.valid()) {
             return Status::NotFound("failed to find data page for ordinal {}", rowids[i]);
         }
+        previous_page_first_ordinal = iter.first_ordinal();
+        previous_page_last_ordinal = iter.last_ordinal();
         if (iter.page_index() != previous_page_index) {
+            if (pages->size() >= max_pages) {
+                *limit_reached = true;
+                return Status::OK();
+            }
             pages->push_back(iter.page());
             previous_page_index = iter.page_index();
         }
