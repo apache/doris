@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -171,6 +172,12 @@ public class IvmDeltaRewriter {
                 unionChildren.add(helper.freshPlan(rewrittenPlan).first);
             }
             mergedPlan = helper.buildUnionAll(unionChildren);
+            if (isAgg) {
+                List<Slot> targetOutputs = new ArrayList<>(workPlan.getOutput());
+                targetOutputs.addAll(mergedPlan.getOutput().subList(workPlan.getOutput().size(),
+                        mergedPlan.getOutput().size()));
+                mergedPlan = helper.projectUnionOutputs((LogicalUnion) mergedPlan, targetOutputs);
+            }
         }
 
         if (isAgg) {
