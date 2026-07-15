@@ -140,18 +140,14 @@ Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
             }
         });
 
-        std::unique_ptr<Block> output_block;
-        int child_idx = 0;
-        RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
-                                                                                   &child_idx));
-        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
-        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
-        *eos = !_has_data(state) && local_state._shared_state->data_queue.is_all_finish();
+        auto queue_block = DORIS_TRY(local_state._shared_state->data_queue.get_block_from_queue());
+        *eos = queue_block.eos;
 
-        if (!output_block) {
+        if (!queue_block.block) {
             return Status::OK();
         }
 
+        auto& output_block = queue_block.block;
         if (local_state._need_insert_cache) {
             if (need_clone_empty) {
                 *block = output_block->clone_empty();

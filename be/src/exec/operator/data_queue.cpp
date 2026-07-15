@@ -134,13 +134,16 @@ std::unique_ptr<Block> DataQueue::get_free_block(int child_idx) {
     return Block::create_unique();
 }
 
-void DataQueue::push_free_block(std::unique_ptr<Block> block, int child_idx) {
-    DCHECK(block->rows() == 0);
+void DataQueue::push_free_block(DataQueueBlock&& queue_block) {
+    if (!queue_block.block) {
+        return;
+    }
+    DCHECK(queue_block.block->rows() == 0);
 
     if (!_is_low_memory_mode) {
-        auto& sub = *_sub_queues[child_idx];
+        auto& sub = *_sub_queues[queue_block.child_idx];
         LockGuard l(sub.free_lock);
-        sub.free_blocks.emplace_back(std::move(block));
+        sub.free_blocks.emplace_back(std::move(queue_block.block));
     }
 }
 
@@ -154,70 +157,70 @@ void DataQueue::clear_free_blocks() {
 
 void DataQueue::terminate() {
     for (int i = 0; i < _child_count; ++i) {
-        set_finish(i);
+        mark_finish(i);
         _sub_queues[i]->clear_blocks();
     }
+    _cur_blocks_total_nums = 0;
     clear_free_blocks();
+    set_source_ready();
 }
 
-//check which queue have data, and save the idx in _flag_queue_idx,
-//so next loop, will check the record idx + 1 first
-//maybe it's useful with many queue, others maybe always 0
-bool DataQueue::remaining_has_data() {
-    int count = _child_count;
-    while (--count >= 0) {
-        _flag_queue_idx++;
-        if (_flag_queue_idx == _child_count) {
-            _flag_queue_idx = 0;
+Result<DataQueueBlock> DataQueue::get_block_from_queue() {
+    DataQueueBlock result;
+    const int start_idx = (_flag_queue_idx + 1) % _child_count;
+    for (int offset = 0; offset < _child_count; ++offset) {
+        const int idx = (start_idx + offset) % _child_count;
+        if (_sub_queues[idx]->blocks_in_queue.load() == 0) {
+            continue;
         }
-        if (_sub_queues[_flag_queue_idx]->blocks_in_queue.load() > 0) {
-            return true;
-        }
-    }
-    return false;
-}
 
-//the _flag_queue_idx indicate which queue has data, and in check can_read
-//will be set idx in remaining_has_data function
-Status DataQueue::get_block_from_queue(std::unique_ptr<Block>* output_block, int* child_idx) {
-    const int idx = _flag_queue_idx;
-    auto& sub = *_sub_queues[idx];
-
-    sub.try_pop(output_block);
-    if (*output_block) {
-        if (child_idx) {
-            *child_idx = idx;
+        auto& sub = *_sub_queues[idx];
+        sub.try_pop(&result.block);
+        if (!result.block) {
+            continue;
         }
+        result.child_idx = idx;
+        _flag_queue_idx = idx;
         auto old_total = _cur_blocks_total_nums.fetch_sub(1);
         if (old_total == 1) {
             set_source_block();
         }
+        break;
     }
-    return Status::OK();
+
+    result.eos = !has_more_data() && is_all_finish();
+    return result;
 }
 
-Status DataQueue::push_block(std::unique_ptr<Block> block, int child_idx) {
-    if (!block) {
+Status DataQueue::push_block(std::unique_ptr<Block> block, int child_idx, bool eos) {
+    DCHECK(block || eos);
+    if (!block && !eos) {
         return Status::OK();
     }
-    auto& sub = *_sub_queues[child_idx];
-    // total_counter is incremented inside try_push under queue_lock, only when the
-    // block is actually enqueued. This ensures get_block_from_queue() always observes
-    // _cur_blocks_total_nums >= 1 when it successfully pops a block, with no risk of
-    // underflow or the need for a rollback on failure.
-    if (!sub.try_push(std::move(block), _cur_blocks_total_nums)) {
-        return Status::EndOfFile("SubQueue already finished");
+
+    if (block) {
+        auto& sub = *_sub_queues[child_idx];
+        // total_counter is incremented inside try_push under queue_lock, only when the
+        // block is actually enqueued. This ensures get_block_from_queue() always observes
+        // _cur_blocks_total_nums >= 1 when it successfully pops a block, with no risk of
+        // underflow or the need for a rollback on failure.
+        if (!sub.try_push(std::move(block), _cur_blocks_total_nums)) {
+            return Status::EndOfFile("SubQueue already finished");
+        }
+    }
+
+    if (eos) {
+        mark_finish(child_idx);
     }
     set_source_ready();
     return Status::OK();
 }
 
-void DataQueue::set_finish(int child_idx) {
+void DataQueue::mark_finish(int child_idx) {
     auto& sub = *_sub_queues[child_idx];
     if (!sub.mark_finished(_un_finished_counter, _is_all_finished)) {
         return;
     }
-    set_source_ready();
 }
 
 bool DataQueue::is_all_finish() {
