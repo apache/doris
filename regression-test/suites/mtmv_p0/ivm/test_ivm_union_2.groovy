@@ -21,13 +21,8 @@ import static java.util.concurrent.TimeUnit.SECONDS
 suite("test_ivm_union_2") {
 
     // =========================================================
-    // Part 6: MOW + DUP UNION ALL — mixed determinism, insert-only is fine
-    //
-    // KNOWN LIMITATION: With mock binlog (no real CDC), incremental refresh reads the full
-    // base table as "delta". For DUP tables with non-deterministic row_id (uuid_numeric),
-    // each incremental refresh inserts new rows that don't match existing MV rows, causing
-    // duplicates. The complete_recovery result below confirms the system self-corrects.
-    // When real binlog is used, only actual deltas are read and this duplication does not occur.
+    // Part 6: MOW + DUP UNION ALL
+    // Validate insert-only incremental refresh when one UNION ALL arm is MOW and the other is DUP.
     // =========================================================
     sql """drop materialized view if exists test_ivm_union_2_mow_dup_mv;"""
     sql """drop table if exists test_ivm_union_2_mow_dup_t1;"""
@@ -86,6 +81,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_mow_dup_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_mow_dup_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_mow_dup_mv")
     order_qt_union_mow_dup_after_complete """
         SELECT k1, v1 FROM test_ivm_union_2_mow_dup_mv
     """
@@ -99,6 +95,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_mow_dup_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_mow_dup_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_mow_dup_mv")
     order_qt_union_mow_dup_after_complete_recovery """
         SELECT k1, v1 FROM test_ivm_union_2_mow_dup_mv
     """
@@ -194,6 +191,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_jj_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_jj_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_jj_mv")
     order_qt_union_jj_after_complete """
         SELECT k1, total FROM test_ivm_union_2_jj_mv
     """
@@ -210,6 +208,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_jj_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_jj_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_jj_mv")
     order_qt_union_jj_after_complete_recovery """
         SELECT k1, total FROM test_ivm_union_2_jj_mv
     """
@@ -293,6 +292,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_join_arm_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_join_arm_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_join_arm_mv")
     order_qt_union_join_arm_after_complete """
         SELECT k1, total FROM test_ivm_union_2_join_arm_mv
     """
@@ -308,6 +308,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_join_arm_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_join_arm_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_join_arm_mv")
     order_qt_union_join_arm_after_complete_recovery """
         SELECT k1, total FROM test_ivm_union_2_join_arm_mv
     """
@@ -372,6 +373,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_alias_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_alias_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_alias_mv")
     order_qt_union_alias_after_complete """
         SELECT id, value FROM test_ivm_union_2_alias_mv
     """
@@ -385,6 +387,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_alias_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_alias_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_alias_mv")
     order_qt_union_alias_after_complete_recovery """
         SELECT id, value FROM test_ivm_union_2_alias_mv
     """
@@ -450,6 +453,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_delete_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_delete_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_delete_mv")
     order_qt_union_delete_after_complete """
         SELECT k1, v1 FROM test_ivm_union_2_delete_mv
     """
@@ -467,6 +471,7 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_delete_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_delete_mv")
+    advance_ivm_stream_offset("test_ivm_union_2_delete_mv")
     order_qt_union_delete_after_complete_recovery """
         SELECT k1, v1 FROM test_ivm_union_2_delete_mv
     """
