@@ -74,10 +74,6 @@ public:
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
-        // Non-zero only for query cache incremental merge: read the delta
-        // rowsets in [start_version, version] instead of the full snapshot
-        // [0, version]. The read_source is pre-captured accordingly.
-        int64_t start_version = 0;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);

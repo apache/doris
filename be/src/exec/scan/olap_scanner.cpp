@@ -80,7 +80,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .reader_type = params.read_row_binlog ? ReaderType::READER_BINLOG
                                                                        : ReaderType::READER_QUERY,
                                  .aggregation = params.aggregation,
-                                 .version = {params.start_version, params.version},
+                                 .version = {0, params.version},
                                  .start_key {},
                                  .end_key {},
                                  .predicates {},

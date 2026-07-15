@@ -698,13 +698,12 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     bool read_row_binlog =
             p._olap_scan_node.__isset.read_row_binlog && p._olap_scan_node.read_row_binlog;
     bool has_tso_predicate = _scan_ranges[0]->__isset.start_tso || _scan_ranges[0]->__isset.end_tso;
-    // Query cache incremental merge: the read sources only cover the delta
-    // versions (cached_version, current_version], see prepare().
+    // Query cache incremental merge: the read sources captured in prepare()
+    // only cover the delta versions (cached_version, current_version], which
+    // is all the scanners need; no version plumbing is required here.
     const bool cache_incremental =
             _query_cache_decision != nullptr &&
             _query_cache_decision->mode == QueryCacheInstanceDecision::Mode::INCREMENTAL;
-    const int64_t cache_start_version =
-            cache_incremental ? _query_cache_decision->cached_version + 1 : 0;
 
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
     // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
@@ -714,7 +713,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
     // Incremental merge deltas are small by construction, so the parallel
     // scanner builder (which redistributes rowsets by size) is pointless for
-    // them and would lose the delta version range; use plain scanners instead.
+    // them; use plain scanners instead.
     if (enable_parallel_scan && !cache_incremental && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)
@@ -827,7 +826,6 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   palo_scan_range.__isset.end_tso
                                           ? std::make_optional(palo_scan_range.end_tso)
                                           : std::nullopt,
-                                  cache_start_version,
                           });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));

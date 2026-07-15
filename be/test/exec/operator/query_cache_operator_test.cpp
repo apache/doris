@@ -70,6 +70,10 @@ struct QueryCacheOperatorTest : public ::testing::Test {
         // `state` (local states) and `source`/`sink` (whose QueryCacheRuntime
         // owns the decisions that pin cache entries) would otherwise outlive
         // the cache and release their handles into a destroyed QueryCache.
+        // Local states built manually and never moved into `state` are
+        // released here too, for the same reason.
+        source_local_state_uptr.reset();
+        sink_local_state_uptr.reset();
         state.reset();
         source.reset();
         sink.reset();
@@ -652,7 +656,7 @@ TEST_F(QueryCacheOperatorTest, test_incremental_fallback_reason_in_profile) {
     EXPECT_EQ(*reason, "tablet not found");
 }
 
-TEST_F(QueryCacheOperatorTest, test_missing_runtime_degrades_to_uncached) {
+TEST_F(QueryCacheOperatorTest, test_missing_runtime_fails_init) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
     EXPECT_TRUE(source->set_child(child_op));
@@ -667,28 +671,23 @@ TEST_F(QueryCacheOperatorTest, test_missing_runtime_degrades_to_uncached) {
     cache_param.entry_max_bytes = 1024 * 1024;
     cache_param.entry_max_rows = 1000;
 
-    // No runtime injected: init degrades to an uncached scan, data passes
-    // through and nothing is written back.
+    // No runtime injected: a pass-through here could silently drop data if
+    // the paired scan still made a HIT decision, so init must fail loudly.
     source->_cache_param = cache_param;
-    create_local_state();
-
-    EXPECT_FALSE(source_local_state->_need_insert_cache);
-
-    {
-        auto block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
-        auto st = sink->sink(state.get(), &block, true);
-        EXPECT_TRUE(st.ok()) << st.msg();
-    }
-    {
-        Block block;
-        bool eos = false;
-        auto st = source->get_block(state.get(), &block, &eos);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_TRUE(eos);
-        EXPECT_EQ(block.rows(), 3);
-        EXPECT_TRUE(ColumnHelper::block_equal(
-                block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3})));
-    }
+    shared_state = sink->create_shared_state();
+    source_local_state_uptr = CacheSourceLocalState::create_unique(state.get(), source.get());
+    source_local_state = source_local_state_uptr.get();
+    source_local_state->_global_cache = query_cache;
+    LocalStateInfo info {.parent_profile = &profile,
+                         .scan_ranges = scan_ranges,
+                         .shared_state = shared_state.get(),
+                         .shared_state_map = {},
+                         .task_idx = 0};
+    Status st = source_local_state_uptr->init(state.get(), info);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("query cache runtime is absent at the cache source") !=
+                std::string::npos)
+            << st.to_string();
     EXPECT_EQ(query_cache->get_element_count(), 0);
 }
 

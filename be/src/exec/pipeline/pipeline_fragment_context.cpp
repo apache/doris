@@ -1519,11 +1519,18 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     bool fe_with_old_version = false;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
-        std::shared_ptr<QueryCacheRuntime> query_cache_runtime;
         if (enable_query_cache) {
             if (_query_cache_runtime == nullptr) {
-                _query_cache_runtime =
-                        std::make_shared<QueryCacheRuntime>(_params.fragment.query_cache_param);
+                // The plan tree is built in pre-order and the cache source
+                // sits above the scan, so the runtime it created must already
+                // exist here. Running the scan with its own runtime instead
+                // would silently drop data on a HIT (the scan skips scanning
+                // while no cache source emits the entry), so a malformed plan
+                // shape must fail loudly.
+                return Status::InternalError(
+                        "query cache runtime is absent at the scan node, node_id={}, "
+                        "cache node_id={}",
+                        tnode.node_id, _params.fragment.query_cache_param.node_id);
             }
             if (tnode.olap_scan_node.__isset.read_row_binlog &&
                 tnode.olap_scan_node.read_row_binlog) {
@@ -1531,12 +1538,11 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 // neither serve nor fill the query cache.
                 _query_cache_runtime->disable_for_binlog_scan();
             }
-            query_cache_runtime = _query_cache_runtime;
         }
         op = std::make_shared<OlapScanOperatorX>(
                 pool, tnode, next_operator_id(), descs, _num_instances,
                 enable_query_cache ? _params.fragment.query_cache_param : TQueryCacheParam {},
-                std::move(query_cache_runtime));
+                enable_query_cache ? _query_cache_runtime : nullptr);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;

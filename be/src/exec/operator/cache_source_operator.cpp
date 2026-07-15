@@ -74,12 +74,14 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // operator emits the cached blocks) -- whatever their init order is, and
     // even if the entry gets evicted in between (the decision pins it).
     if (parent._query_cache_runtime == nullptr) {
-        // Should not happen: the fragment context always creates the runtime
-        // together with this operator. Degrade to an uncached scan.
-        LOG(WARNING) << "query cache runtime is absent, node id " << cache_param.node_id;
-        _need_insert_cache = false;
-        custom_profile()->add_info_string("HitCache", "0");
-        return Status::OK();
+        // The fragment context always creates the runtime together with this
+        // operator. Degrading to a pass-through here would silently drop data
+        // if the paired scan operator still made a HIT decision (it skips
+        // scanning while nothing emits the entry), so a broken setup must
+        // fail loudly, mirroring the scan side.
+        return Status::InternalError(
+                "query cache runtime is absent at the cache source, node_id={}",
+                cache_param.node_id);
     }
     _global_cache = parent._query_cache_runtime->cache();
     _cache_decision = parent._query_cache_runtime->get_or_make_decision(scan_ranges);
