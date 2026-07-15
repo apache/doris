@@ -46,6 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
 
       - name: Install ripgrep
         run: |
@@ -104,7 +105,13 @@ jobs:
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_AUTH_OBJECT" "$RUNNER_TEMP/codex-home/auth.json"
+          auth_object="$(printf '%s\n' \
+            'oss://doris-community-ci/codex/auth.json.1' \
+            'oss://doris-community-ci/codex/auth.json.2' \
+            | shuf -n 1)"
+          printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
+          echo "Selected Codex auth object: ${auth_object##*/}"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$RUNNER_TEMP/codex-home/auth.json"
           chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
           test -s "$RUNNER_TEMP/codex-home/auth.json"
           jq -e '
@@ -138,7 +145,6 @@ jobs:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
       - name: Sync Codex memories from OSS
         run: |
@@ -251,6 +257,7 @@ jobs:
           fi
 
       - name: Prepare authoritative PR context and required AGENTS guides
+        id: review_context
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -265,35 +272,6 @@ jobs:
             exit 1
           fi
 
-          retry_to_file() {
-            local output_file="$1"
-            shift
-            local attempt delay=2 tmp_file
-            tmp_file="$(mktemp "${output_file}.tmp.XXXXXX")"
-
-            for attempt in 1 2 3 4; do
-              if "$@" > "$tmp_file"; then
-                mv "$tmp_file" "$output_file"
-                return 0
-              fi
-
-              if [ "$attempt" -lt 4 ]; then
-                echo "Attempt ${attempt}/4 failed while preparing ${output_file}; retrying in ${delay}s..."
-                sleep "$delay"
-                delay=$((delay * 2))
-              fi
-            done
-
-            rm -f "$tmp_file"
-            return 1
-          }
-
-          retry_to_file "$REVIEW_CONTEXT_DIR/pr_changed_files.txt" \
-            gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
-            --jq '.[].filename'
-          retry_to_file "$REVIEW_CONTEXT_DIR/pr.diff" \
-            gh pr diff "$PR_NUMBER" --repo "$REPO" --color=never
-
           live_pr="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
           live_head_sha="$(jq -r '.head.sha' <<<"$live_pr")"
           live_base_sha="$(jq -r '.base.sha' <<<"$live_pr")"
@@ -303,6 +281,25 @@ jobs:
             echo "Current base/head:  $live_base_sha $live_head_sha"
             exit 1
           fi
+
+          if [ "$(git rev-parse --is-shallow-repository)" != "false" ]; then
+            echo "Full history is required to generate an authoritative three-dot PR diff"
+            exit 1
+          fi
+
+          diff_range="${BASE_SHA}...${HEAD_SHA}"
+          merge_base_sha="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          echo "Generating review context from $diff_range (merge base: $merge_base_sha)"
+          git rev-list --count "${merge_base_sha}..${HEAD_SHA}"
+
+          changed_files_tmp="$(mktemp "$REVIEW_CONTEXT_DIR/pr_changed_files.txt.tmp.XXXXXX")"
+          git diff --name-only --no-ext-diff "$diff_range" > "$changed_files_tmp"
+          mv "$changed_files_tmp" "$REVIEW_CONTEXT_DIR/pr_changed_files.txt"
+
+          diff_tmp="$(mktemp "$REVIEW_CONTEXT_DIR/pr.diff.tmp.XXXXXX")"
+          git diff --no-ext-diff --no-color "$diff_range" > "$diff_tmp"
+          mv "$diff_tmp" "$REVIEW_CONTEXT_DIR/pr.diff"
+          git diff --shortstat "$diff_range"
 
           helper="$RUNNER_TEMP/prepare_review_agents.py"
           gh api \
@@ -340,11 +337,12 @@ jobs:
           - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
           - PR changed files: PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt
           - Authoritative aggregate PR diff: PLACEHOLDER_CONTEXT_DIR/pr.diff
+          - PR diff range: merge-base(PLACEHOLDER_BASE_SHA, PLACEHOLDER_HEAD_SHA) to PLACEHOLDER_HEAD_SHA
           - Required AGENTS.md files: PLACEHOLDER_CONTEXT_DIR/required_agents.txt
           - Shared subagent review ledger: PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md
 
           PR diff and path-reading (for all subagents and the main agent):
-          - PLACEHOLDER_CONTEXT_DIR/pr.diff is the authoritative aggregate diff for the whole PR, and PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt is the authoritative changed-path list. Do not obtain the PR diff or changed-path list through other means.
+          - PLACEHOLDER_CONTEXT_DIR/pr.diff and PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt were both generated locally with `git diff PLACEHOLDER_BASE_SHA...PLACEHOLDER_HEAD_SHA` after the live PR base/head were verified. They are the authoritative PR diff and changed-path list: they contain changes from the computed merge base to the PR head. The listed PR Base SHA identifies the target-branch snapshot and is not necessarily the diff's left endpoint. Do not obtain the PR diff or changed-path list through other means.
           - Before reading any file whose exact path is not already confirmed by PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt, PLACEHOLDER_CONTEXT_DIR/pr.diff, or a previous successful command output, you MUST first run `rg --files` to confirm the actual path of the target file.
 
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
@@ -650,6 +648,11 @@ jobs:
       - name: Sync Codex auth back to OSS
         if: ${{ always() }}
         run: |
+          if [ -z "$CODEX_AUTH_OSS_OBJECT" ]; then
+            echo "No selected Codex auth object found; skipping OSS auth sync."
+            exit 0
+          fi
+
           if [ ! -s "$CODEX_HOME/auth.json" ]; then
             echo "No Codex auth file found; skipping OSS auth sync."
             exit 0
@@ -660,22 +663,26 @@ jobs:
             and (.tokens.access_token | type == "string" and length > 0)
             and (.tokens.refresh_token | type == "string" and length > 0)
           ' "$CODEX_HOME/auth.json" >/dev/null
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$OSS_CODEX_AUTH_OBJECT"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
       - name: Comment PR on review failure
-        if: ${{ always() && steps.review.outcome != 'success' }}
+        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          if [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+            error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          else
+            error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          fi
           gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
           Codex automated review failed and did not complete.
 
@@ -687,11 +694,16 @@ jobs:
           )"
 
       - name: Fail workflow if review failed
-        if: ${{ always() && steps.review.outcome != 'success' }}
+        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
         env:
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
-          error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          if [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
+            error_msg="Review context preparation failed before Codex ran; inspect the 'Prepare authoritative PR context and required AGENTS guides' step."
+          else
+            error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          fi
           echo "Codex automated review failed: ${error_msg}"
           exit 1
