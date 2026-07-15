@@ -253,7 +253,12 @@ QueryContext::~QueryContext() {
         ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
     }
     // the only one msg shows query's end. any other msg should append to it if need.
-    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    int64_t elapsed_ms = (now.tv_sec - _query_arrival_timestamp.tv_sec) * 1000LL +
+                         (now.tv_nsec - _query_arrival_timestamp.tv_nsec) / 1000000LL;
+    LOG_INFO("Query {} deconstructed, elapsed_ms: {}, mem_tracker: {}", print_id(this->_query_id),
+             elapsed_ms, mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {
