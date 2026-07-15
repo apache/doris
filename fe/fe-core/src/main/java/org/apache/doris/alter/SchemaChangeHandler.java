@@ -322,9 +322,9 @@ public class SchemaChangeHandler extends AlterHandler {
     private void addColumnRowBinlog(List<Column> rowBinlogSchema, Column newColumn, ColumnPosition columnPos,
                                     Set<String> newColNameSet, boolean needHistoricalValue,
                                     IntSupplier columnUniqueIdSupplier) throws DdlException {
-        if (!newColumn.isVisible()) {
-            // row binlog schema is generated from visible columns only, so schema change must not
-            // sync hidden system columns such as sequence/delete/version/skip-bitmap columns.
+        if (!newColumn.isVisible() && !newColumn.isKey()) {
+            // Row-binlog writes visible columns plus hidden key columns. Skip hidden non-key
+            // system columns such as sequence/delete/version/skip-bitmap columns.
             return;
         }
 
