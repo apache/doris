@@ -191,6 +191,16 @@ public class AlterTableCommandTest {
     }
 
     @Test
+    void testRejectRequiredNestedColumnForIcebergTable() {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> AlterTableCommand.checkColumnOperationsSupported(table,
+                        parseAlter("ALTER TABLE t ADD COLUMN s.required_field INT NOT NULL").getOps()));
+        Assertions.assertTrue(exception.getMessage()
+                .contains("New nested field 's.required_field' must be nullable"));
+    }
+
+    @Test
     void testRejectDefaultMetadataForIcebergModify() throws AnalysisException {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         for (String sql : Arrays.asList(

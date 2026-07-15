@@ -77,7 +77,7 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
         STRUCT(1, CAST(1.1 AS FLOAT), 'abc', MAP(1, 10), ARRAY(1, 2))
     )"""
 
-    // Complex type default value only supports NULL
+    // Iceberg MODIFY COLUMN does not support default metadata
     test {
         sql """
         ALTER TABLE ${table_name} MODIFY COLUMN st STRUCT<
@@ -87,7 +87,7 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
             sm: MAP<INT, INT> COMMENT 'm1',
             sa: ARRAY<INT> COMMENT 'a1'
         > DEFAULT 'x'"""
-        exception "just support null"
+        exception "DEFAULT and ON UPDATE are not supported for Iceberg MODIFY COLUMN"
     }
 
     // Cannot change nullable complex column to not null
@@ -133,10 +133,10 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
         exception "Cannot reduce struct fields"
     }
 
-    // Nested type downgrade is not allowed
+    // Iceberg does not support SMALLINT, including nested types
     test {
         sql """ALTER TABLE ${table_name} MODIFY COLUMN arr_i ARRAY<SMALLINT>"""
-        exception "Cannot change int to smallint in nested types"
+        exception "Type array<smallint> is not supported for Iceberg column arr_i"
     }
 
     // Array element type promotions
