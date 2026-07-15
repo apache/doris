@@ -23,10 +23,14 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.iceberg.aws.AwsClientProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 
@@ -572,6 +576,51 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertNull(opts.get("aws.catalog.credentials.provider.factory.class"),
                 "the factory key was only ever read by the removed thrift-generation Glue client");
         Assertions.assertNull(opts.get("client.factory"), "AK/SK branch must short-circuit the IAM-role branch");
+    }
+
+    @Test
+    public void glueSessionTokenSurvivesToTheResolvedCredential() {
+        // Drives the REAL iceberg plumbing end to end -- emit -> AwsClientProperties strips the
+        // "client.credentials-provider." prefix -> DynMethods reflects into create(Map) -> we read the token.
+        // Asserting the emission alone (see the test above) cannot catch the two halves drifting apart: the
+        // provider used to read only ak/sk, so a supplied token was dropped here and AWS then rejected the
+        // temporary credentials. MUTATION: dropping the token read in create() -> AwsBasicCredentials -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(opts,
+                props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
+                        "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
+                Optional.empty());
+
+        // null ak/sk so iceberg falls back to the named client.credentials-provider (the glue client's path).
+        AwsCredentials resolved = new AwsClientProperties(opts)
+                .credentialsProvider(null, null, null)
+                .resolveCredentials();
+
+        Assertions.assertInstanceOf(AwsSessionCredentials.class, resolved,
+                "a supplied glue session token must yield session credentials, not basic ones");
+        Assertions.assertEquals("GST", ((AwsSessionCredentials) resolved).sessionToken());
+        Assertions.assertEquals("GAK", resolved.accessKeyId());
+        Assertions.assertEquals("GSK", resolved.secretAccessKey());
+    }
+
+    @Test
+    public void glueWithoutSessionTokenStaysBasicCredentials() {
+        // The no-token path must keep today's behaviour. MUTATION: building session credentials unconditionally
+        // -> AwsSessionCredentials.create accepts a blank token silently -> this turns red instead of AWS
+        // rejecting it much later with a confusing 4xx.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(opts,
+                props("glue.access_key", "GAK", "glue.secret_key", "GSK",
+                        "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
+                Optional.empty());
+
+        AwsCredentials resolved = new AwsClientProperties(opts)
+                .credentialsProvider(null, null, null)
+                .resolveCredentials();
+
+        Assertions.assertInstanceOf(AwsBasicCredentials.class, resolved);
+        Assertions.assertEquals("GAK", resolved.accessKeyId());
+        Assertions.assertEquals("GSK", resolved.secretAccessKey());
     }
 
     @Test

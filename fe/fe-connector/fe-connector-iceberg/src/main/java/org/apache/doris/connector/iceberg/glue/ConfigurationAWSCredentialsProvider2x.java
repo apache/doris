@@ -17,9 +17,11 @@
 
 package org.apache.doris.connector.iceberg.glue;
 
+import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 
 import java.util.Map;
 
@@ -34,21 +36,30 @@ import java.util.Map;
  */
 public class ConfigurationAWSCredentialsProvider2x implements AwsCredentialsProvider {
 
-    private AwsBasicCredentials awsBasicCredentials;
+    private AwsCredentials credentials;
 
-    private ConfigurationAWSCredentialsProvider2x(AwsBasicCredentials awsBasicCredentials) {
-        this.awsBasicCredentials = awsBasicCredentials;
+    private ConfigurationAWSCredentialsProvider2x(AwsCredentials credentials) {
+        this.credentials = credentials;
     }
 
     @Override
     public AwsCredentials resolveCredentials() {
-        return awsBasicCredentials;
+        return credentials;
     }
 
+    /**
+     * Keys here are the emitted {@code client.credentials-provider.glue.*} properties minus their prefix:
+     * iceberg's {@code AwsClientProperties} strips it before reflecting into this method.
+     */
     public static AwsCredentialsProvider create(Map<String, String> config) {
         String ak = config.get("glue.access_key");
         String sk = config.get("glue.secret_key");
-        AwsBasicCredentials awsBasicCredentials = AwsBasicCredentials.create(ak, sk);
-        return new ConfigurationAWSCredentialsProvider2x(awsBasicCredentials);
+        String sessionToken = config.get("glue.session_token");
+        // Blank-check rather than null-check: AwsSessionCredentials.create accepts a blank token and only
+        // fails later at AWS. The emitting side guards with putIfNotBlank, so keep the two halves symmetric.
+        if (StringUtils.isBlank(sessionToken)) {
+            return new ConfigurationAWSCredentialsProvider2x(AwsBasicCredentials.create(ak, sk));
+        }
+        return new ConfigurationAWSCredentialsProvider2x(AwsSessionCredentials.create(ak, sk, sessionToken));
     }
 }

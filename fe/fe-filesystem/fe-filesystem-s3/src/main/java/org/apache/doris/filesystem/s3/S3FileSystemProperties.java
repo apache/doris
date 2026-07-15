@@ -126,6 +126,7 @@ public final class S3FileSystemProperties
 
     @Getter
     @ConnectorProperty(names = {SESSION_TOKEN, "AWS_TOKEN", "session_token",
+            "aws.glue.session-token",
             "s3.session-token", "iceberg.rest.session-token", "minio.session_token"},
             required = false,
             sensitive = true,
