@@ -26,7 +26,7 @@
 
 #include "common/check.h"
 #include "common/exception.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/custom_allocator.h"
 
 namespace doris::variant_v2_serde_binary_internal {

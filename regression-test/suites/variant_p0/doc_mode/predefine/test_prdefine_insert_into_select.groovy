@@ -51,14 +51,7 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
     sql """insert into toTable_without_define values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
 
     sql """ insert into toTable_without_define select id, cast(var as string) from fromTable"""
-    boolean findException = false
-    try {
-        sql """ insert into toTable_without_define select * from fromTable"""
-    } catch (Exception e) {
-        logger.info(e.getMessage())
-        findException = true
-    }
-    assertTrue(findException)
+    sql """ insert into toTable_without_define select * from fromTable"""
 
     order_qt_sql """ select * from toTable_without_define"""
 
@@ -75,15 +68,7 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
     sql """insert into toTable_with_define values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
 
     sql """ insert into toTable_with_define select id, cast(var as string) from fromTable"""
-
-    findException = false
-    try {
-        sql """ insert into toTable_with_define select * from fromTable"""
-    } catch (Exception e) {
-        logger.info(e.getMessage())
-        findException = true
-    }
-    assertTrue(findException)
+    sql """ insert into toTable_with_define select * from fromTable"""
 
     order_qt_sql """ select * from toTable_with_define"""
 

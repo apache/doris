@@ -28,8 +28,8 @@
 #include "core/block/block.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant_v2.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
@@ -40,7 +40,7 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
-#include "exprs/function/cast/cast_variant_v2_internal.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function_context.h"
 
 namespace doris::CastWrapper::variant_v2_internal {

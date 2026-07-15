@@ -19,7 +19,7 @@
 
 #include "common/config.h"
 #include "core/column/column_variant.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_variant.h"
 
 namespace doris {

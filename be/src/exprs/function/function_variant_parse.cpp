@@ -23,13 +23,12 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/simple_function_factory.h"
-#include "exprs/variant_v2_execution.h"
 #include "util/json/json_parser.h"
 #include "util/variant/variant_json.h"
 
@@ -74,7 +73,7 @@ public:
         DORIS_CHECK_EQ(result_is_nullable, ERROR_TO_NULL || input_nulls != nullptr);
         auto result_nulls = ColumnUInt8::create(input_rows_count, uint8_t {0});
 
-        if (!variant_v2_enabled()) {
+        if (!config::enable_variant_v2) {
             const auto& variant_type = assert_cast<const DataTypeVariant&>(
                     *remove_nullable(block.get_by_position(result).type));
             const int32_t max_subcolumns_count = variant_type.variant_max_subcolumns_count();

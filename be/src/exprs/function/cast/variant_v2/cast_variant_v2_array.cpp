@@ -21,13 +21,13 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
-#include "exprs/function/cast/cast_variant_v2_internal.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "util/variant/variant_block_builder.h"
 
 namespace doris::CastWrapper::variant_v2_internal {

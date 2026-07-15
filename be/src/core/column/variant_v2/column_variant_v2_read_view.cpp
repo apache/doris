@@ -18,8 +18,8 @@
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant_v2.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 
 namespace doris {
 

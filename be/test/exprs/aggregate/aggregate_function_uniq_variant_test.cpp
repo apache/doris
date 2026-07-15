@@ -23,7 +23,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"

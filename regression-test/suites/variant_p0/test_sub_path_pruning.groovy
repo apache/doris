@@ -90,7 +90,7 @@ suite("test_sub_path_pruning", "variant_type"){
     order_qt_sql """select id, dt['a'] as c1 from pruning_test where dt['e'] > 1;"""
     order_qt_sql """select id, dt['a'] as c1, dt['e'] as c2 from pruning_test where dt['e'] > 1;"""
     order_qt_sql """select id, dt['a'] as c1, dt['e'] as c2 from pruning_test where dt['d']['e'] > 1;"""
-    order_qt_sql """select id, c1, c2 from (select id, dt['a'] as c1, dt['e'] as c2 from pruning_test)tmp where c2 > 1;"""
+    order_qt_sql """select id, c1, c2 from (select id, dt['a'] as c1, dt['e'] as c2 from pruning_test)tmp where cast(c2 as int) > 1;"""
 
 
     // cte

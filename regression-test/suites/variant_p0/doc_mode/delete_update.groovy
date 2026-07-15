@@ -72,7 +72,6 @@ suite("variant_delete_and_update_doc_value", "p0"){
     sql """update var_delete_update_mow set v = '{"updated_nested_value":[{"lalalal": 1.111}]}' where k = 2"""
     qt_sql "select * from var_delete_update_mow order by k"
 
-    sql """delete from ${table_name} where v = 'xxx' or vs = 'yyy'"""
     sql """delete from ${table_name} where vs = 'xxx' or vs = 'yyy'"""
     qt_sql "select * from ${table_name} order by k"
 
