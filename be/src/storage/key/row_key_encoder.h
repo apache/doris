@@ -41,8 +41,9 @@ public:
     std::string full_encode(const std::vector<IOlapColumnDataAccessor*>& key_columns,
                             size_t pos) const;
 
-    // Encode the primary key columns at `pos` with full length, producing the
-    // key stored in and probed against the primary key index.
+    // For a mow table with cluster keys, encode the primary key columns at
+    // `pos` with full length, producing the key stored in and probed against
+    // the primary key index.
     std::string full_encode_primary_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
                                          size_t pos) const;
 
@@ -68,6 +69,9 @@ private:
                                     const std::vector<IOlapColumnDataAccessor*>& key_columns,
                                     size_t pos);
 
+    void _init_mow(const TabletSchema& schema);
+    void _init_non_mow(const TabletSchema& schema);
+    void _add_default_sort_key_columns(const TabletSchema& schema);
     void _add_sort_key_column(const TabletColumn& column);
 
     // The sort-key view: whatever the segment sorts by. Cluster key columns
@@ -75,10 +79,11 @@ private:
     // full_encode() and encode_short_keys().
     std::vector<const KeyCoder*> _sort_key_coders;
     std::vector<uint16_t> _sort_key_index_size;
-    // The primary-key view: always the primary key columns. The primary key
-    // index is built on these even when the segment sorts by cluster keys;
-    // used by full_encode_primary_keys().
+    // The separate primary-key view used by mow tables with cluster keys. The
+    // segment sorts by cluster key columns while its primary key index remains
+    // based on the schema key columns.
     std::vector<const KeyCoder*> _primary_key_coders;
+    // Mow-only suffix coders for the primary key index.
     const KeyCoder* _seq_coder = nullptr;
     const KeyCoder* _rowid_coder = nullptr;
     size_t _seq_col_length = 0;

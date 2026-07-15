@@ -15,23 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// White-box access to TabletColumn/TabletSchema private fields: the test
-// builds schema objects field by field, the same way the existing storage
-// unit tests do (tablet_schema_helper.cpp does the same). The macros wrap
-// only this include and are #undef-ed right away, so gtest, standard and
-// other Doris headers below are parsed with their access specifiers intact.
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wkeyword-macro"
-#endif
-#define private public
-#define protected public
-#include "storage/tablet/tablet_schema.h" // IWYU pragma: keep
-#undef private
-#undef protected
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
+#include "storage/key/row_key_encoder.h"
 
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
@@ -55,8 +39,8 @@
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
 #include "storage/iterator/olap_data_convertor.h"
-#include "storage/key/row_key_encoder.h"
 #include "storage/olap_common.h"
+#include "storage/tablet/tablet_schema.h" // IWYU pragma: keep
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/utils.h"
 #include "testutil/test_util.h"
@@ -70,7 +54,7 @@
 //                       view), full_encode_primary_keys (primary view),
 //                       encode_short_keys (index_length truncation), the null
 //                       value form, and byte-order == logical-order - applied
-//                       per column segment by one loop body.
+//                       through each corresponding production schema path.
 //
 //   SeqSuffix           sequence-column suffix over every seq-eligible type.
 //   RowidSuffix         rowid as the duplicate-PK tie-breaker, including the
@@ -633,7 +617,9 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
 
     // The result file is intentionally exhaustive: one row for every input
     // row in every schema case. Source-row labels make the cluster-key view
-    // split visible without decoding the hex strings during review.
+    // split visible without decoding the hex strings during review. Non-mow
+    // rows use N/A for the primary index key because they only build a short
+    // key index.
     std::vector<std::string> schemas {"schema"};
     std::vector<std::string> physical_rows {"physical_row"};
     std::vector<std::string> sort_data_rows {"sort_data_row"};
@@ -743,8 +729,8 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
         _convertor = std::make_unique<OlapBlockDataConvertor>(_schema.get());
         _convertor->set_source_content(&_block, 0, kAllKeyData.size());
 
-        // 4. Build the data accessors and encode every row into the full,
-        // primary, short-key and primary-index views.
+        // 4. Build the data accessors and encode every row into the applicable
+        // full, primary, short-key and primary-index views.
         std::vector<IOlapColumnDataAccessor*> primary_columns;
         primary_columns.reserve(kNumKeyColumns);
         for (size_t key = 0; key < kNumKeyColumns; ++key) {
@@ -817,31 +803,40 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
         for (size_t row = 0; row < kAllKeyData.size(); ++row) {
             SCOPED_TRACE(row);
             full_keys.push_back(encoder.full_encode(sort_columns, row));
-            primary_keys.push_back(encoder.full_encode_primary_keys(primary_columns, row));
+            if (schema_case.has_cluster_keys) {
+                primary_keys.push_back(encoder.full_encode_primary_keys(primary_columns, row));
+            } else {
+                primary_keys.push_back(full_keys.back());
+            }
             short_keys.push_back(encoder.encode_short_keys(short_key_columns, row));
 
-            std::string primary_index_key = primary_keys.back();
             const size_t primary_source_row =
                     schema_case.has_cluster_keys ? kAllKeyData.size() - 1 - row : row;
-            if (schema_case.has_sequence) {
-                const size_t suffix_offset = primary_index_key.size();
-                encoder.append_seq_suffix(&primary_index_key, sequence_column, row);
-                EXPECT_EQ(primary_index_key.size(),
-                          suffix_offset + 1 + kKeyColumns[kSequenceSourceColumn].length);
-                const uint8_t expected_marker =
-                        kAllKeyData[primary_source_row][kSequenceSourceColumn].has_value()
-                                ? KeyConsts::KEY_NORMAL_MARKER
-                                : KeyConsts::KEY_NULL_FIRST_MARKER;
-                EXPECT_EQ(static_cast<uint8_t>(primary_index_key[suffix_offset]), expected_marker);
+            if (mow) {
+                std::string primary_index_key = primary_keys.back();
+                if (schema_case.has_sequence) {
+                    const size_t suffix_offset = primary_index_key.size();
+                    encoder.append_seq_suffix(&primary_index_key, sequence_column, row);
+                    EXPECT_EQ(primary_index_key.size(),
+                              suffix_offset + 1 + kKeyColumns[kSequenceSourceColumn].length);
+                    const uint8_t expected_marker =
+                            kAllKeyData[primary_source_row][kSequenceSourceColumn].has_value()
+                                    ? KeyConsts::KEY_NORMAL_MARKER
+                                    : KeyConsts::KEY_NULL_FIRST_MARKER;
+                    EXPECT_EQ(static_cast<uint8_t>(primary_index_key[suffix_offset]),
+                              expected_marker);
+                }
+                if (schema_case.has_cluster_keys) {
+                    const size_t suffix_offset = primary_index_key.size();
+                    encoder.append_rowid_suffix(&primary_index_key, static_cast<uint32_t>(row));
+                    EXPECT_EQ(primary_index_key.size(), suffix_offset + 1 + sizeof(uint32_t));
+                    EXPECT_EQ(static_cast<uint8_t>(primary_index_key[suffix_offset]),
+                              KeyConsts::KEY_NORMAL_MARKER);
+                }
+                primary_index_keys.push_back(std::move(primary_index_key));
+            } else {
+                primary_index_keys.emplace_back();
             }
-            if (schema_case.has_cluster_keys) {
-                const size_t suffix_offset = primary_index_key.size();
-                encoder.append_rowid_suffix(&primary_index_key, static_cast<uint32_t>(row));
-                EXPECT_EQ(primary_index_key.size(), suffix_offset + 1 + sizeof(uint32_t));
-                EXPECT_EQ(static_cast<uint8_t>(primary_index_key[suffix_offset]),
-                          KeyConsts::KEY_NORMAL_MARKER);
-            }
-            primary_index_keys.push_back(std::move(primary_index_key));
 
             schemas.emplace_back(schema_case.name);
             physical_rows.push_back(std::to_string(row));
@@ -850,7 +845,7 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
             encoded_full_keys.push_back(to_hex(full_keys.back()));
             encoded_primary_keys.push_back(to_hex(primary_keys.back()));
             encoded_short_keys.push_back(to_hex(short_keys.back()));
-            encoded_primary_index_keys.push_back(to_hex(primary_index_keys.back()));
+            encoded_primary_index_keys.push_back(mow ? to_hex(primary_index_keys.back()) : "N/A");
 
             size_t expected_short_key_size = 0;
             for (size_t position = 0; position < schema_case.num_short_key_columns; ++position) {
@@ -882,7 +877,9 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
                     EXPECT_GT(primary_index_keys[row - 1], primary_index_keys[row]);
                 } else {
                     EXPECT_LT(primary_keys[row - 1], primary_keys[row]);
-                    EXPECT_LT(primary_index_keys[row - 1], primary_index_keys[row]);
+                    if (mow) {
+                        EXPECT_LT(primary_index_keys[row - 1], primary_index_keys[row]);
+                    }
                 }
                 const size_t target_key = row / 3;
                 const bool target_in_short_key =

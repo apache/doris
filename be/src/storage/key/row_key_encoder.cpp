@@ -29,26 +29,44 @@
 
 namespace doris {
 
-RowKeyEncoder::RowKeyEncoder(const TabletSchema& schema, bool mow) {
-    for (size_t cid = 0; cid < schema.num_key_columns(); ++cid) {
-        _primary_key_coders.push_back(get_key_coder(schema.column(cid).type()));
+RowKeyEncoder::RowKeyEncoder(const TabletSchema& schema, bool mow)
+        : _num_short_key_columns(schema.num_short_key_columns()) {
+    if (mow) {
+        _init_mow(schema);
+    } else {
+        _init_non_mow(schema);
     }
-    _num_short_key_columns = schema.num_short_key_columns();
+}
+
+void RowKeyEncoder::_init_mow(const TabletSchema& schema) {
     // encode the sequence id into the primary key index
     if (schema.has_sequence_col()) {
         const auto& column = schema.column(schema.sequence_col_idx());
         _seq_coder = get_key_coder(column.type());
         _seq_col_length = column.length();
     }
-    if (mow && !schema.cluster_key_uids().empty()) {
-        _rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
-        for (auto uid : schema.cluster_key_uids()) {
-            _add_sort_key_column(schema.column_by_uid(uid));
-        }
-    } else {
-        for (size_t cid = 0; cid < schema.num_key_columns(); ++cid) {
-            _add_sort_key_column(schema.column(cid));
-        }
+
+    if (schema.cluster_key_uids().empty()) {
+        _add_default_sort_key_columns(schema);
+        return;
+    }
+
+    for (size_t cid = 0; cid < schema.num_key_columns(); ++cid) {
+        _primary_key_coders.push_back(get_key_coder(schema.column(cid).type()));
+    }
+    _rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+    for (auto uid : schema.cluster_key_uids()) {
+        _add_sort_key_column(schema.column_by_uid(uid));
+    }
+}
+
+void RowKeyEncoder::_init_non_mow(const TabletSchema& schema) {
+    _add_default_sort_key_columns(schema);
+}
+
+void RowKeyEncoder::_add_default_sort_key_columns(const TabletSchema& schema) {
+    for (size_t cid = 0; cid < schema.num_key_columns(); ++cid) {
+        _add_sort_key_column(schema.column(cid));
     }
 }
 
