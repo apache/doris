@@ -125,14 +125,6 @@ suite("test_jdbc_refresh_catalog_schema_refresh_non_blocking", "p0,external") {
         }
     }
 
-    def preheatSchemaCache = { List<String> collisionTableNames ->
-        sql """REFRESH CATALOG ${catalogName}"""
-        collisionTableNames.each { tableName ->
-            sql """DESC ${catalogName}.${remoteDbName}.${tableName}"""
-        }
-        assertEquals(collisionTableCount, getSchemaCacheSize())
-    }
-
     // Read the current schema cache size for this catalog from information_schema.
     def getSchemaCacheSize = {
         def statRows = sql """
@@ -142,6 +134,14 @@ suite("test_jdbc_refresh_catalog_schema_refresh_non_blocking", "p0,external") {
                   AND ENTRY_NAME = 'schema'
             """
         return ((Number) statRows[0][0]).intValue()
+    }
+
+    def preheatSchemaCache = { List<String> collisionTableNames ->
+        sql """REFRESH CATALOG ${catalogName}"""
+        collisionTableNames.each { tableName ->
+            sql """DESC ${catalogName}.${remoteDbName}.${tableName}"""
+        }
+        assertEquals(collisionTableCount, getSchemaCacheSize())
     }
 
     // Run the schema-entry manual miss load path once and assert refresh stays non-blocking.
