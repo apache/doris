@@ -1,3 +1,22 @@
+> # ⛔ SUPERSEDED（2026-07-15）—— 保留作史料，**不要照此施工**
+>
+> 接替者：[`version-aware-schema-binding-design.md`](./version-aware-schema-binding-design.md)。
+>
+> **作废理由**：用户拒绝接受本文 Risk §E 的语义收窄（「删列形状」从碰巧能跑变成 fail-loud 报错），拍板直接做
+> 版本感知重构。而重构一经调研，本文 `:160-171` 判死它的**三条前提全部不成立**（每条已对 HEAD 核实）：
+> ① 「版本必须随对象走、惰性求值判死小改」—— **版本已经随对象走**：`LogicalFileScan:59-60` 的
+> `tableSnapshot`/`scanParams` 是 `final`、ctor 期(`:91-92`)赋值，**早于**惰性求值触发；且 version-aware 查找
+> `MvccUtil.getSnapshotFromContext(t, ts, sp)`(`:58-69`) 是 **key-exact** 的，与 pin 数量、求值时机全无关。
+> ② 「fix locus = `LogicalCatalogRelation.computeOutput:152-164` 调 `getBaseSchema()`」—— **错，会改错文件**：
+> `LogicalFileScan:195-207` override 了 `computeOutput()`，PluginDriven 表走 `computePluginDrivenOutput():210-220`
+> 调的是 `getFullSchema()`。③ 「20 个 blind 调用点」—— 真值 **24**，且绝大多数是 statement-global、无需动。
+>
+> **⇒ 治本不是 2–4 人天的 Nereids 重构，是 5 处接线，且零既有单测被推翻**（本文的 C1-a 反要推翻 2 条）。
+>
+> **本文仍然有效、已被接替者继承的部分**：Problem 的事实核验表、`run11.sql` 版本谱系、
+> 「上游 `containsKey` 守卫 = first-write-wins」（本轮 2 个对抗 agent 复核 SURVIVES，交接文档里那条
+> 「上游实为最后一个赢」的怀疑**被证伪**）、被否决方案表（ThreadLocal / binding-scope / 改 `.out` / 放宽 guard）。
+
 # Problem
 
 CI 996541（`Doris_External_Regression`, commit `fa2fcf4b246`）中 `external_table_p0.iceberg.iceberg_query_tag_branch`

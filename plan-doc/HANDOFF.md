@@ -32,22 +32,39 @@ BE **单次启动、优雅退出**（`be.INFO:593309` `doris_main.cpp:747] All s
 
 ---
 
-# ⏭ T4 = 唯一剩余的失败用例（`iceberg_query_tag_branch`）
+# ⏭ 唯一剩余的失败用例（`iceberg_query_tag_branch`）= **改走版本感知重构，设计待批准**
 
-**用户已签字走 C1（修绑定层），不走 C3（放宽 guard）。** 设计 + 对抗评审均已就位：
-[`tasks/designs/T4-mvcc-version-aware-binding-design.md`](./tasks/designs/T4-mvcc-version-aware-binding-design.md)（选定 **C1-a**）。
+> **2026-07-15 用户拍板**：**拒绝**接受 C1-a 的语义收窄（「删列形状」从碰巧能跑变成 fail-loud 报错），
+> **直接做版本感知重构**。⇒ **C1-a 作废**，`T4-mvcc-version-aware-binding-design.md` 已标 **SUPERSEDED**（保留作史料）。
+>
+> **新权威设计** = [`tasks/designs/version-aware-schema-binding-design.md`](./tasks/designs/version-aware-schema-binding-design.md)
+> （research note + design + 10 步 TODO）。**状态：待用户批准，未施工。**
 
-**机制**：`StatementContext.getSnapshot(TableIf)`（version-**blind**，`:1015-1032`）对「同表两个非默认版本、无默认」判为歧义 → 返回 empty → `PluginDrivenMvccExternalTable.getSchemaCacheValue:494-503` 回退 **LATEST `{c1,c2,c3}`**；而 `pinMvccSnapshot` 的 version-**aware** 查找正确解析 tag t1 → `{c1}` → L17 guard 在 **c2** 上抛。**查询根本没引用 c2**——c2 是「放弃后回退最新」凭空塞进来的。
-**这是本分支 `442a1081e6d` 自造的 skew**：上游 `fbef303da5f:StatementContext.java:730-736` 单 key、有 pin 时**从不返回 empty**；t1/t2 的 schema 同为 `{c1}` ⇒ **上游这条查询零 skew**。guard 只是信使。
+**机制**（不变）：绑定层走 version-**blind** `StatementContext.getSnapshot(TableIf)`（`:1015-1034`），对「同表两个非默认版本、无默认」判歧义 → empty → `PluginDrivenMvccExternalTable.getSchemaCacheValue:497-506` 回退 **LATEST `{c1,c2,c3}`**；扫描层的 version-**aware** 查找正确解析 tag t1 → `{c1}` → L17 guard 在 **c2** 上抛。**查询根本没引用 c2**，它是「放弃后回退最新」凭空塞进来的幽灵列。
 
-## ⚠️ 施工前必须先解决评审留下的 3 点（别照抄设计）
+## ✅ 上一轮那 3 个「施工前必须解决」的点 —— 已全部结清
 
-1. **「第一个 pin 获胜」的顺序承重 —— 复核时发现设计的论证可能站不住，必须先核实**：设计要求把 `StatementContext:272` 的 `snapshots` 从 `HashMap` 改为 `LinkedHashMap`，否则「第一个」不确定。但设计称「取第一个 = 恢复上游行为」——**上游是单 version-blind key，同表两次 pin 会互相覆盖 ⇒ 上游实为「最后一个获胜」，不是第一个**。设计选「第一个」的论证在其 `:127-130`，**下一个 session 必须复核**。（对本失败用例无影响：t1/t2 schema 同为 `{c1}`。）
-2. **语义收窄需确认接受**：C1-a 让「first-pinned schema 比 LATEST 窄 + 查询引用只存在于更宽那侧的列」的查询从**能跑**变成**分析期 Unknown column**（如 `SELECT t1.c1, t2.c3 FROM t@tag(t1) t1 JOIN t@branch(b3) t2`，只需 ADD COLUMN 即可构造）。**上游 master 行为相同**，p0 的 550 通过用例不含该形状。
-3. **null value 处理**：`Optional.of(entry.getValue())` 在 value 为 null 时 NPE；旧码是 `ofNullable(only)`。须与同方法 default 分支的 `!= null` 判据对齐，并在注释里写死。
+1. **「上游实为最后一个获胜」的怀疑 = 证伪**。上游 `StatementContext.java:717` `if (!snapshots.containsKey(...))` 把键冲突变成**丢弃而非覆盖** ⇒ 上游确为 **first-write-wins**。2 个专职对抗 agent 各试 5 条绕过路径（MTMV 无守卫 `setSnapshot`、子查询/视图是否换新上下文、null 值、早退、场景不可达）全部失败，均判 SURVIVES。**附带修正**：上游的"first-wins"实为「**第一个被绑定的引用的参数广播到语句里所有未 pin 的表**」（上游遍历 `tables.values()`）⇒ `ice_a@tag(t1) JOIN ice_b` 在上游会把 t1 错钉到 ice_b —— **那是上游 bug，本分支已修好**（按 `specificTable` 逐表钉）。**新设计不依赖任何上游平价论证**，此条现已无关。
+2. **语义收窄** → **用户拒绝接受** ⇒ 换方案（见上）。新设计下该形状**由构造正确**，不再需要签字。
+3. **null value** → **已核实不存在**：`snapshots` 只有 2 个写入点（`:994`、`:1091`），均追溯到非空。（新设计不改该方法，此条现已无关。）
 
-**`.out` 一律不改**：`iceberg_query_tag_branch.groovy/.out` 与 `run11.sql` 与上游 `fbef303da5f`(#51272) **字节相同**，`1 1` 是上游验证过的正确答案。
-**评审已点名但未逐一核实**：C1-a 会不会打挂 `StatementContext` / MVCC snapshot 相关既有单测 —— **施工时必须先 grep 并跑**。
+## 🔑 新设计的决定性发现（**旧设计判死重构的三条前提全错**，每条已本人核实）
+
+1. **版本已经随对象走**：`LogicalFileScan:59-60` 的 `tableSnapshot`/`scanParams` 是 `final`、ctor 期(`:91-92`)赋值，**早于** `LazyCompute`(`AbstractPlan:91-94`) 触发 ⇒ **惰性求值不构成障碍**。且 version-aware 查找 `MvccUtil.getSnapshotFromContext(t, ts, sp)`(`:58-69`) 是 **key-exact**，与 pin 数量/求值时机全无关。
+2. **fix locus 不是 `LogicalCatalogRelation`（会改错文件）**：`LogicalFileScan:195-207` **override** 了 `computeOutput()`，PluginDriven 表走 `computePluginDrivenOutput():210-220` 调 **`getFullSchema()`**。
+3. **blind 调用点 = 24 不是 20**，且绝大多数是 statement-global（MTMV/preload/dictionary/sink），**无需动**。
+
+**⇒ 治本 = 5 处接线（全在 fe-core，零 SPI、零连接器），不是 2–4 人天 Nereids 重构。**
+**⇒ 且零既有单测被推翻**（C1-a 反要推翻 2 条）—— 因为新设计**不改 blind 语义**，只让 per-reference 消费者不再用它。
+**⇒ 既有范式照抄 `CheckPolicy.java:136-139`**（已在从 relation 取 ts/sp 调 3-arg lookup），勿另起炉灶。
+
+## ⚠️ 下一个 session 的起手式
+
+1. **先跑 TODO 0**（`version-aware-schema-binding-design.md §8`）：grep 确认 Doris 是否支持 `INSERT INTO t@branch(...)`。**支持则须先扩设计**（`PhysicalPlanTranslator:639,698` 的 sink pin 要从 statement-global 升级为 per-reference）。
+2. **两条设计铁律**（违反则本 bug 原样复活且升级为跨 session）：**永不**把版本化 schema 路由进 `ExternalTable.getSchemaCacheValue()` 的缓存分支；**永不**让 `initSchema()` 变 ambient-sensitive。`SchemaCacheKey.equals` 用 `instanceof` 而非 `getClass()` ⇒ 天真的 `VersionedSchemaCacheKey extends SchemaCacheKey` 会与基类 key 及兄弟版本**互相 equals**。**本设计不需要任何版本化缓存 key**（pinned schema 骑在 `MvccSnapshot` 上，pinned 路径今天就绕过缓存）。
+3. **L17 guard 一个字不改**（设计决策 3）。**`.out` 一律不改**：三个 fixture 与 merge-base 逐字节相同（md5 已核），`1 1` 是上游验证过的答案。
+
+**新设计顺带修掉一个至今无人记录的静默错误**：blind 规则 (1)「default key 通吃」对 `t@tag(v1) JOIN t` **也是错的且静默** —— latest 的 pin 赢下**两个**引用的绑定，tag schema 若是兼容子集则**静默通过 guard**（读到被绑错 schema 的数据）。⇒ **「guard 是完整兜底」即使在今天也不成立。**
 
 ---
 
