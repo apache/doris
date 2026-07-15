@@ -215,7 +215,7 @@ suite("test_routine_load_timeout_value","nonConcurrent") {
             sql "stop routine load for ${jobName}"
             sql "DROP TABLE IF EXISTS ${tableName} FORCE"
             // Restore routine_load_adaptive_min_batch_interval_sec to default value
-            sql "ADMIN SET FRONTEND CONFIG ('routine_load_adaptive_min_batch_interval_sec' = '360')"
+            sql "ADMIN SET FRONTEND CONFIG ('routine_load_adaptive_min_batch_interval_sec' = '120')"
         }
     }
 }

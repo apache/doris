@@ -75,11 +75,11 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
                 logger.info("---test adaptively increase---")
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
                 // Drive data each round so an isEof=false task keeps being scheduled. The converged
-                // adaptive timeout (3600) lives on the renewed idle task (txnId == -1), so both checks
+                // adaptive timeout (1200) lives on the renewed idle task (txnId == -1), so both checks
                 // poll by value (task timeout col, and the committed txn's persisted timeout looked up
                 // by task-UUID label) instead of racing a sub-second running task.
-                RoutineLoadTestUtils.checkTaskTimeoutWithData(runSql, producer, kafkaCsvTpoics, job, "3600")
-                RoutineLoadTestUtils.checkTxnTimeoutMatchesTaskTimeout(runSql, producer, kafkaCsvTpoics, job, "3600000")
+                RoutineLoadTestUtils.checkTaskTimeoutWithData(runSql, producer, kafkaCsvTpoics, job, "1200")
+                RoutineLoadTestUtils.checkTxnTimeoutMatchesTaskTimeout(runSql, producer, kafkaCsvTpoics, job, "1200000")
                 RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 2)
             } finally {
                 GetDebugPoint().disableDebugPointForAllFEs(injection)
