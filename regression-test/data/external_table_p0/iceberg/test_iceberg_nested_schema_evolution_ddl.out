@@ -10,4 +10,3 @@ m_scalar	map<string,bigint(20)>
 -- !query_rows --
 1	\N	10	\N	\N	100	\N	\N	1000	\N	\N	7	70
 2	first	20	after_a	c2	200	202	201	2000	2002	2001	8	80
-

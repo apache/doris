@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToExprNameVisitor;
@@ -950,32 +951,39 @@ public class IcebergUtils {
     }
 
     public static Literal<?> parseIcebergLiteral(String value, org.apache.iceberg.types.Type type) {
+        return parseIcebergLiteral(value, null, type);
+    }
+
+    public static Literal<?> parseIcebergLiteral(
+            String value, Type dorisType, org.apache.iceberg.types.Type type) {
         if (value == null) {
             return null;
         }
         switch (type.typeId()) {
             case BOOLEAN:
                 try {
-                    return Literal.of(Boolean.parseBoolean(value));
-                } catch (IllegalArgumentException e) {
+                    return Literal.of(new BoolLiteral(value).getValue());
+                } catch (AnalysisException e) {
                     throw new IllegalArgumentException("Invalid Boolean string: " + value, e);
                 }
             case INTEGER:
-            case DATE:
                 try {
                     return Literal.of(Integer.parseInt(value));
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Int string: " + value, e);
                 }
             case LONG:
-            case TIME:
-            case TIMESTAMP:
-            case TIMESTAMP_NANO:
                 try {
                     return Literal.of(Long.parseLong(value));
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Long string: " + value, e);
                 }
+            case DATE:
+            case TIMESTAMP:
+            case TIMESTAMP_NANO:
+                return parseIcebergDateLiteral(value, dorisType, type);
+            case TIME:
+                return parseIcebergTemporalLiteral(value, value, type);
             case FLOAT:
                 try {
                     return Literal.of(Float.parseFloat(value));
@@ -1009,6 +1017,32 @@ public class IcebergUtils {
                 }
             default:
                 throw new IllegalArgumentException("Cannot parse unknown type: " + type);
+        }
+    }
+
+    private static Literal<?> parseIcebergDateLiteral(
+            String value, Type dorisType, org.apache.iceberg.types.Type type) {
+        String canonicalValue = value;
+        if (dorisType != null) {
+            try {
+                canonicalValue = DateLiteralUtils.createDateLiteral(value, dorisType).getStringValue();
+            } catch (AnalysisException | IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid date or timestamp string: " + value, e);
+            }
+        }
+        return parseIcebergTemporalLiteral(value, canonicalValue.replace(' ', 'T'), type);
+    }
+
+    private static Literal<?> parseIcebergTemporalLiteral(
+            String originalValue, String canonicalValue, org.apache.iceberg.types.Type type) {
+        try {
+            Literal<?> literal = Literal.of(canonicalValue).to(type);
+            if (literal == null) {
+                throw new IllegalArgumentException("Cannot convert value to Iceberg type " + type);
+            }
+            return literal;
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("Invalid temporal string: " + originalValue, e);
         }
     }
 
