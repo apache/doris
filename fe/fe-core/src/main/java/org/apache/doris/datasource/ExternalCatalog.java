@@ -366,6 +366,19 @@ public abstract class ExternalCatalog
     protected abstract List<String> listTableNamesFromRemote(SessionContext ctx, String dbName);
 
     /**
+     * Returns whether the shared table-name cache should be skipped for the current session.
+     *
+     * Catalogs whose remote list result depends on session credentials should bypass the cache so one user's
+     * visible table set is not reused for another user.
+     *
+     * @param ctx session context for the current request
+     * @return true if table names must be fetched from the remote source for this session
+     */
+    protected boolean shouldBypassTableNameCache(SessionContext ctx) {
+        return false;
+    }
+
+    /**
      * check if the specified table exist.
      *
      * @param dbName

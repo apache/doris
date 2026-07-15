@@ -540,14 +540,17 @@ message TabletSchemaPB {
     // storage_format; the fallback path lives in TabletSchema::init_from_pb.
     optional TabletStorageFormatPB storage_format = 36;
 
-    // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
-    optional int32 binlog_timestamp_col_idx = 37 [default = -1];
-
-    // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
-    optional int32 binlog_lsn_col_idx = 38 [default = -1];
-
     // cid of the time-travel commit tso column (__DORIS_COMMIT_TSO_COL__).
     optional int32 commit_tso_col_idx = 39 [default = -1];
+
+    // cid of the binlog tso column (__DORIS_BINLOG_TSO__).
+    optional int32 binlog_tso_col_idx = 40 [default = -1];
+
+    // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
+    optional int32 binlog_lsn_col_idx = 41 [default = -1];
+
+    // cid of the binlog op column (__DORIS_BINLOG_OP__).
+    optional int32 binlog_op_col_idx = 42 [default = -1];
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -596,14 +599,17 @@ message TabletSchemaCloudPB {
     // Persisted TStorageFormat (V2=2, V3=3); see TabletSchemaPB::storage_format.
     optional TabletStorageFormatPB storage_format = 37;
 
-    // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
-    optional int32 binlog_timestamp_col_idx = 38 [default = -1];
-
-    // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
-    optional int32 binlog_lsn_col_idx = 39 [default = -1];
-
     // cid of the time-travel commit tso column (__DORIS_COMMIT_TSO_COL__).
     optional int32 commit_tso_col_idx = 40 [default = -1];
+
+    // cid of the binlog tso column (__DORIS_BINLOG_TSO__).
+    optional int32 binlog_tso_col_idx = 41 [default = -1];
+
+    // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
+    optional int32 binlog_lsn_col_idx = 42 [default = -1];
+
+    // cid of the binlog op column (__DORIS_BINLOG_OP__).
+    optional int32 binlog_op_col_idx = 43 [default = -1];
 
     optional bool is_dynamic_schema = 100 [default=false];
 

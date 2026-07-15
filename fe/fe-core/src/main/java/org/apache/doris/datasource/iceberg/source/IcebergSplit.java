@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg.source;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.thrift.TFileFormatType;
 
 import lombok.Data;
 import org.apache.iceberg.DeleteFile;
@@ -52,6 +53,13 @@ public class IcebergSplit extends FileSplit {
     private Long firstRowId = null;
     private Long lastUpdatedSequenceNumber = null;
     private String serializedSplit;
+    private boolean positionDeleteSystemTableSplit = false;
+    private TFileFormatType positionDeleteFileFormat;
+    private int positionDeleteContent;
+    private String positionDeleteOriginalPath;
+    private String positionDeleteReferencedDataFilePath;
+    private Long positionDeleteContentOffset;
+    private Long positionDeleteContentSizeInBytes;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
@@ -76,6 +84,15 @@ public class IcebergSplit extends FileSplit {
                 Collections.emptyList(), DUMMY_PATH.toStorageLocation().toString());
         split.setSerializedSplit(serializedSplit);
         split.setSelfSplitWeight(Math.max(rowCount, 1L));
+        return split;
+    }
+
+    public static IcebergSplit newPositionDeleteSysTableSplit(LocationPath file, long start, long length,
+            long fileLength, Map<StorageProperties.Type, StorageProperties> config, String originalPath) {
+        IcebergSplit split = new IcebergSplit(file, start, length, fileLength, null, null, config,
+                Collections.emptyList(), originalPath);
+        split.setPositionDeleteSystemTableSplit(true);
+        split.setSelfSplitWeight(Math.max(length, 1L));
         return split;
     }
 }

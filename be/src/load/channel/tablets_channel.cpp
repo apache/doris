@@ -646,20 +646,28 @@ std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key) {
 
 Status BaseTabletsChannel::_write_block_data(
         const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
-        std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
+        std::unordered_map<int64_t, TabletAddRowsPayload>& tablet_to_rows,
         PTabletWriterAddBlockResult* response) {
     Block send_data;
     [[maybe_unused]] size_t uncompressed_size = 0;
     [[maybe_unused]] int64_t uncompressed_time = 0;
     RETURN_IF_ERROR(send_data.deserialize(request.block(), &uncompressed_size, &uncompressed_time));
-    int request_rows = request.is_adaptive_random_bucket() ? request.partition_ids_size()
-                                                           : request.tablet_ids_size();
-    if (send_data.rows() != request_rows) {
+    if (send_data.rows() != request.tablet_ids_size()) {
         return Status::InternalError(
                 "invalid add block request row count, load_id={}, index_id={}, packet_seq={}, "
-                "block_rows={}, request_rows={}",
+                "block_rows={}, tablet_ids_size={}",
                 print_id(_load_id), _index_id, request.packet_seq(), send_data.rows(),
-                request_rows);
+                request.tablet_ids_size());
+    }
+    bool has_row_binlog_lsn = request.row_binlog_lsns_size() > 0;
+    if (has_row_binlog_lsn) {
+        if (send_data.rows() != request.row_binlog_lsns_size()) {
+            return Status::InternalError(
+                    "invalid add block request row-binlog lsn count, load_id={}, index_id={}, "
+                    "packet_seq={}, block_rows={}, row_binlog_lsns_size={}",
+                    print_id(_load_id), _index_id, request.packet_seq(), send_data.rows(),
+                    request.row_binlog_lsns_size());
+        }
     }
 
     g_tablets_channel_send_data_allocated_size << send_data.allocated_bytes();
@@ -702,16 +710,16 @@ Status BaseTabletsChannel::_write_block_data(
 
     SCOPED_TIMER(_write_block_timer);
     auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
-    for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
+    for (const auto& tablet_to_rows_it : tablet_to_rows) {
         bool memtable_flushed = false;
-        RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](BaseDeltaWriter* writer) {
-            return writer->write(&send_data, tablet_to_rowidxs_it.second, &memtable_flushed);
+        RETURN_IF_ERROR(write_tablet_data(tablet_to_rows_it.first, [&](BaseDeltaWriter* writer) {
+            return writer->write(&send_data, tablet_to_rows_it.second, &memtable_flushed);
         }));
 
         BaseDeltaWriter* tablet_writer = nullptr;
         {
             std::lock_guard<std::mutex> l(_tablet_writers_lock);
-            auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
+            auto tablet_writer_it = _tablet_writers.find(tablet_to_rows_it.first);
             if (tablet_writer_it != _tablet_writers.end()) {
                 tablet_writer = tablet_writer_it->second.get();
             }
@@ -814,8 +822,15 @@ Status BaseTabletsChannel::_write_block_data_for_adaptive_random_bucket(
         }
         RETURN_IF_ERROR(_prepare_adaptive_random_bucket_writer(tablet_writer));
 
+        TabletAddRowsPayload rows {.row_idxs = row_idxs};
+        if (request.row_binlog_lsns_size() > 0) {
+            rows.row_binlog_lsns.reserve(row_idxs.size());
+            for (auto row_idx : row_idxs) {
+                rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(row_idx));
+            }
+        }
         bool memtable_flushed = false;
-        Status st = tablet_writer->write(&send_data, row_idxs, &memtable_flushed);
+        Status st = tablet_writer->write(&send_data, rows, &memtable_flushed);
         if (!st.ok()) {
             auto err_msg =
                     fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
@@ -915,10 +930,10 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                                             response);
     }
 
-    std::unordered_map<int64_t /* tablet_id */, DorisVector<uint32_t> /* row index */>
-            tablet_to_rowidxs;
-    _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
-    return _write_block_data(request, cur_seq, tablet_to_rowidxs, response);
+    std::unordered_map<int64_t /* tablet_id */, TabletAddRowsPayload> tablet_to_rows;
+    _build_tablet_to_rows(request, &tablet_to_rows);
+
+    return _write_block_data(request, cur_seq, tablet_to_rows, response);
 }
 
 void BaseTabletsChannel::_add_broken_tablet(int64_t tablet_id) {
@@ -930,17 +945,22 @@ bool BaseTabletsChannel::_is_broken_tablet(int64_t tablet_id) const {
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
 }
 
-void BaseTabletsChannel::_build_tablet_to_rowidxs(
+void BaseTabletsChannel::_build_tablet_to_rows(
         const PTabletWriterAddBlockRequest& request,
-        std::unordered_map<int64_t, DorisVector<uint32_t>>* tablet_to_rowidxs) {
+        std::unordered_map<int64_t, TabletAddRowsPayload>* tablet_to_rows) {
     // just add a coarse-grained read lock here rather than each time when visiting _broken_tablets
     // tests show that a relatively coarse-grained read lock here performs better under multicore scenario
     // see: https://github.com/apache/doris/pull/28552
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+    bool has_row_binlog_lsn = request.row_binlog_lsns_size() > 0;
     if (request.is_single_tablet_block()) {
         // The cloud mode need the tablet ids to prepare rowsets.
         int64_t tablet_id = request.tablet_ids(0);
-        tablet_to_rowidxs->emplace(tablet_id, std::initializer_list<uint32_t> {0});
+        auto& rows = (*tablet_to_rows)[tablet_id];
+        rows.row_idxs.emplace_back(0);
+        if (has_row_binlog_lsn) {
+            rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(0));
+        }
         return;
     }
     for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
@@ -950,11 +970,10 @@ void BaseTabletsChannel::_build_tablet_to_rowidxs(
             VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
             continue;
         }
-        auto it = tablet_to_rowidxs->find(tablet_id);
-        if (it == tablet_to_rowidxs->end()) {
-            tablet_to_rowidxs->emplace(tablet_id, std::initializer_list<uint32_t> {i});
-        } else {
-            it->second.emplace_back(i);
+        auto& rows = (*tablet_to_rows)[tablet_id];
+        rows.row_idxs.emplace_back(i);
+        if (has_row_binlog_lsn) {
+            rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(i));
         }
     }
 }

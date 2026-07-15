@@ -425,6 +425,11 @@ struct TMasterOpRequest {
     1002: optional string sessionId
     // propagate client's CLIENT_DEPRECATE_EOF capability for proxy forwarding
     1003: optional bool clientDeprecatedEOF
+    // delegated credential for datasource user-session requests
+    1004: optional string delegated_credential_type
+    1005: optional string delegated_credential_token
+    1006: optional i64 delegated_credential_expires_at_millis
+    1007: optional string delegated_credential_session_id
 }
 
 struct TColumnDefinition {
@@ -670,6 +675,7 @@ struct TRLTaskTxnCommitAttachment {
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
     12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
+    13: optional string firstErrorMsg
 }
 
 struct TTxnCommitAttachment {
@@ -1663,6 +1669,7 @@ struct TRoutineLoadJob {
     19: optional i32 current_abort_task_num
     20: optional bool is_abnormal_pause
     21: optional string compute_group
+    22: optional string first_error_msg
 }
 
 struct TFetchRoutineLoadJobResult {

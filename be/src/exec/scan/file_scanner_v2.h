@@ -65,6 +65,10 @@ public:
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
+    FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
+                  std::unique_ptr<format::TableReader> table_reader);
+    static Status TEST_validate_scan_range(const TFileScanRangeParams& params,
+                                           const TFileRangeDesc& range);
     static Status TEST_to_file_format(TFileFormatType::type format_type,
                                       format::FileFormat* file_format);
     static bool TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,
@@ -80,6 +84,9 @@ public:
             UncachedReaderBytesStorage uncached_reader_bytes_storage, int64_t* last_read_bytes,
             int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
             int64_t* last_bytes_read_from_remote);
+    static void TEST_report_file_cache_profile(
+            RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
+    static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -101,6 +108,9 @@ protected:
     bool _should_update_load_counters() const override;
 
 private:
+    static Status _validate_scan_range(const TFileScanRangeParams& params,
+                                       const TFileRangeDesc& range);
+    Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
     Status _init_expr_ctxes();
@@ -108,7 +118,9 @@ private:
     Status _init_table_reader(const TFileRangeDesc& range);
     Status _create_table_reader_for_format(const TFileRangeDesc& range,
                                            std::unique_ptr<format::TableReader>* reader) const;
-    Status _prepare_table_reader_split(const TFileRangeDesc& range);
+    Status _prepare_table_reader_split(const TFileRangeDesc& range,
+                                       std::map<std::string, Field> partition_values);
+    static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;
@@ -135,6 +147,8 @@ private:
             int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
             int64_t* last_bytes_read_from_remote);
     static UncachedReaderBytesStorage _uncached_reader_bytes_storage(TFileType::type file_type);
+    static void _report_file_cache_profile(RuntimeProfile* profile,
+                                           const io::FileCacheStatistics& file_cache_statistics);
     void _report_file_reader_predicate_filtered_rows();
     void _report_condition_cache_profile();
 
@@ -167,6 +181,7 @@ private:
     ShardedKVCache* _kv_cache = nullptr;
 
     RuntimeProfile::Counter* _get_block_timer = nullptr;
+    RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;

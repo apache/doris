@@ -33,6 +33,7 @@
 #include "core/block/block.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "storage/binlog.h"
 #include "storage/delete/delete_handler.h"
@@ -218,11 +219,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.topn_filter_target_node_id = _read_context->topn_filter_target_node_id;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
-    int32_t lsn_col_id = _read_context->tablet_schema->binlog_lsn_col_idx();
-    if (lsn_col_id >= 0) {
+    int32_t tso_col_id = _read_context->tablet_schema->binlog_tso_col_idx();
+    if (tso_col_id >= 0) {
         for (size_t i = 0; i < _read_context->return_columns->size(); ++i) {
-            if (_read_context->return_columns->at(i) == static_cast<uint32_t>(lsn_col_id)) {
-                _read_options.binlog_lsn_idx = static_cast<int>(i);
+            if (_read_context->return_columns->at(i) == static_cast<uint32_t>(tso_col_id)) {
+                _read_options.binlog_tso_idx = static_cast<int>(i);
                 break;
             }
         }
@@ -241,6 +242,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_context->runtime_state->query_options().enable_file_cache;
         _read_options.io_ctx.is_disposable =
                 _read_context->runtime_state->query_options().disable_file_cache;
+        auto* query_ctx = _read_context->runtime_state->get_query_ctx();
+        if (_read_context->reader_type == ReaderType::READER_QUERY && query_ctx != nullptr) {
+            _read_options.io_ctx.remote_scan_cache_write_limiter =
+                    query_ctx->remote_scan_cache_write_limiter();
+        }
     }
 
     if (_read_context->condition_cache_digest) {
@@ -345,13 +351,13 @@ Status BetaRowsetReader::_init_iterator() {
                 }
             }
         }
-        if (_read_options.binlog_lsn_idx != -1) {
-            sequence_loc = _read_options.binlog_lsn_idx;
+        if (_read_options.binlog_tso_idx != -1) {
+            sequence_loc = _read_options.binlog_tso_idx;
         }
         _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
                                        _read_context->read_orderby_key_reverse,
                                        _read_context->merged_rows, _output_schema,
-                                       _read_options.binlog_lsn_idx != -1);
+                                       _read_options.binlog_tso_idx != -1);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

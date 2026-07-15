@@ -199,6 +199,13 @@ Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected
     return Status::OK();
 }
 
+Status ParquetColumnReader::select_with_dictionary_filter(const SelectionVector&, uint16_t, int64_t,
+                                                          const IColumn::Filter&, MutableColumnPtr&,
+                                                          IColumn::Filter*, bool*) {
+    return Status::NotSupported("Parquet dictionary filter is not implemented for column {}",
+                                name());
+}
+
 ParquetColumnReaderFactory::ParquetColumnReaderFactory(
         std::shared_ptr<::parquet::RowGroupReader> row_group, int num_leaf_columns,
         const std::map<int, ParquetPageSkipPlan>* page_skip_plans,
@@ -206,6 +213,7 @@ ParquetColumnReaderFactory::ParquetColumnReaderFactory(
         bool enable_strict_mode, ParquetColumnReaderProfile column_reader_profile)
         : _row_group(std::move(row_group)),
           _record_readers(static_cast<size_t>(num_leaf_columns)),
+          _dictionary_record_readers(static_cast<size_t>(num_leaf_columns)),
           _page_skip_plans(page_skip_plans),
           _page_skip_profile(page_skip_profile),
           _timezone(timezone),
@@ -240,7 +248,7 @@ Status ParquetColumnReaderFactory::make_scalar_column_reader(
 }
 
 Status ParquetColumnReaderFactory::create_scalar_column_reader(
-        const ParquetColumnSchema& column_schema, bool is_nested,
+        const ParquetColumnSchema& column_schema, bool is_nested, bool read_dictionary,
         std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
@@ -283,14 +291,15 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
     // page filtering is also installed, those scratch reads can consume the next selected row
     // after a page-index range gap. Keep page filtering on flat scalar readers only.
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
-                                      column_schema.name, !is_nested, &record_reader));
+                                      column_schema.name, !is_nested, read_dictionary,
+                                      &record_reader));
     return make_scalar_column_reader(column_schema, std::move(record_reader), !is_nested, reader);
 }
 
 //   1. RowGroupReader::GetColumnPageReader(leaf_column_id) -> Arrow PageReader
 Status ParquetColumnReaderFactory::get_record_reader(
         int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor, const std::string& name,
-        bool install_page_filter,
+        bool install_page_filter, bool read_dictionary,
         std::shared_ptr<::parquet::internal::RecordReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
@@ -306,7 +315,8 @@ Status ParquetColumnReaderFactory::get_record_reader(
     if (descriptor == nullptr) {
         return Status::InvalidArgument("Parquet column descriptor is null for column {}", name);
     }
-    if (_record_readers[leaf_column_id] == nullptr) {
+    auto& record_readers = read_dictionary ? _dictionary_record_readers : _record_readers;
+    if (record_readers[leaf_column_id] == nullptr) {
         try {
             auto page_reader = _row_group->GetColumnPageReader(leaf_column_id);
             if (install_page_filter) {
@@ -314,11 +324,11 @@ Status ParquetColumnReaderFactory::get_record_reader(
                                          _page_skip_profile);
             }
             const auto level_info = ::parquet::internal::LevelInfo::ComputeLevelInfo(descriptor);
-            _record_readers[leaf_column_id] = ::parquet::internal::RecordReader::Make(
+            record_readers[leaf_column_id] = ::parquet::internal::RecordReader::Make(
                     descriptor, level_info, ::arrow::default_memory_pool(),
-                    /*read_dictionary=*/false,
+                    /*read_dictionary=*/read_dictionary,
                     /*read_dense_for_nullable=*/false);
-            _record_readers[leaf_column_id]->SetPageReader(std::move(page_reader));
+            record_readers[leaf_column_id]->SetPageReader(std::move(page_reader));
         } catch (const ::parquet::ParquetException& e) {
             return Status::Corruption("Failed to create parquet record reader for column {}: {}",
                                       name, e.what());
@@ -327,10 +337,10 @@ Status ParquetColumnReaderFactory::get_record_reader(
                                          name, e.what());
         }
     }
-    if (_record_readers[leaf_column_id] == nullptr) {
+    if (record_readers[leaf_column_id] == nullptr) {
         return Status::Corruption("Failed to create parquet record reader for column {}", name);
     }
-    *reader = _record_readers[leaf_column_id];
+    *reader = record_readers[leaf_column_id];
     return Status::OK();
 }
 
@@ -354,7 +364,8 @@ Status ParquetColumnReaderFactory::create_struct_column_reader(
             continue;
         }
         std::unique_ptr<ParquetColumnReader> child_reader;
-        RETURN_IF_ERROR(create_column_reader(*child_schema, child_projection, true, &child_reader));
+        RETURN_IF_ERROR(
+                create_column_reader(*child_schema, child_projection, true, false, &child_reader));
         child_output_indices.push_back(static_cast<int>(projected_child_types.size()));
         projected_child_types.push_back(make_nullable(child_reader->type()));
         projected_child_names.push_back(child_reader->name());
@@ -402,7 +413,7 @@ Status ParquetColumnReaderFactory::create_list_column_reader(
                                     column_schema.name);
     }
     RETURN_IF_ERROR(
-            create_column_reader(element_schema, element_projection, true, &element_reader));
+            create_column_reader(element_schema, element_projection, true, false, &element_reader));
     DataTypePtr type = column_schema.type;
     if (format::is_partial_projection(element_projection)) {
         type = std::make_shared<DataTypeArray>(element_reader->type());
@@ -447,9 +458,10 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
     std::unique_ptr<ParquetColumnReader> key_reader;
     // MAP materialization always needs the full key stream. It owns entry existence, offsets and
     // key equality semantics, so MAP projection is defined only as value-subtree pruning.
-    RETURN_IF_ERROR(create_column_reader(key_schema, nullptr, true, &key_reader));
+    RETURN_IF_ERROR(create_column_reader(key_schema, nullptr, true, false, &key_reader));
     std::unique_ptr<ParquetColumnReader> value_reader;
-    RETURN_IF_ERROR(create_column_reader(value_schema, value_projection, true, &value_reader));
+    RETURN_IF_ERROR(
+            create_column_reader(value_schema, value_projection, true, false, &value_reader));
     DataTypePtr type = column_schema.type;
     if (format::is_partial_projection(value_projection)) {
         type = std::make_shared<DataTypeMap>(make_nullable(key_reader->type()),
@@ -466,8 +478,9 @@ Status ParquetColumnReaderFactory::create_map_column_reader(
 
 Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_schema,
                                           const format::LocalColumnIndex* projection,
-                                          std::unique_ptr<ParquetColumnReader>* reader) const {
-    return create_column_reader(column_schema, projection, false, reader);
+                                          std::unique_ptr<ParquetColumnReader>* reader,
+                                          bool read_dictionary) const {
+    return create_column_reader(column_schema, projection, false, read_dictionary, reader);
 }
 
 Status ParquetColumnReaderFactory::create_count_shape_reader(
@@ -488,7 +501,7 @@ Status ParquetColumnReaderFactory::create_count_shape_reader_impl(
             return Status::InvalidArgument("Parquet COUNT projection is invalid for column {}",
                                            column_schema.name);
         }
-        return create_scalar_column_reader(column_schema, is_nested, reader);
+        return create_scalar_column_reader(column_schema, is_nested, false, reader);
     case ParquetColumnSchemaKind::STRUCT: {
         if (column_schema.children.empty()) {
             return Status::NotSupported("Parquet COUNT shape reader found empty STRUCT column {}",
@@ -541,7 +554,7 @@ Status ParquetColumnReaderFactory::create_count_shape_reader_impl(
 
 Status ParquetColumnReaderFactory::create_column_reader(
         const ParquetColumnSchema& column_schema, const format::LocalColumnIndex* projection,
-        bool is_nested, std::unique_ptr<ParquetColumnReader>* reader) const {
+        bool is_nested, bool read_dictionary, std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
@@ -552,9 +565,9 @@ Status ParquetColumnReaderFactory::create_column_reader(
                 return Status::InvalidArgument("Parquet scalar projection is invalid for column {}",
                                                column_schema.name);
             }
-            return create_scalar_column_reader(column_schema, true, reader);
+            return create_scalar_column_reader(column_schema, true, false, reader);
         }
-        return create_scalar_column_reader(column_schema, false, reader);
+        return create_scalar_column_reader(column_schema, false, read_dictionary, reader);
     case ParquetColumnSchemaKind::STRUCT:
         return create_struct_column_reader(column_schema, projection, reader);
     case ParquetColumnSchemaKind::LIST:
@@ -593,14 +606,34 @@ Status ParquetColumnReader::build_nested_column(int64_t, MutableColumnPtr&, int6
                                 _name);
 }
 
-Status ParquetColumnReader::skip_nested_column(int64_t rows) {
-    auto scratch_column = _type->create_column();
-    int64_t values_read = 0;
-    RETURN_IF_ERROR(build_nested_column(rows, scratch_column, &values_read));
-    if (values_read != rows) {
-        return Status::Corruption("Failed to skip nested parquet column {}: skipped {} of {} rows",
-                                  _name, values_read, rows);
+Status ParquetColumnReader::consume_nested_column(int64_t, int64_t*) {
+    return Status::NotSupported("Parquet nested column consume is not supported for column {}",
+                                _name);
+}
+
+Status ParquetColumnReader::skip_nested_rows(int64_t rows) {
+    if (rows <= 0) {
+        return Status::OK();
     }
+
+    // A nested parent row may expand to many child values. Capping the number of parent rows per
+    // loaded batch bounds that amplification for large holes. The consume interface advances the
+    // loaded definition/repetition levels recursively without constructing a discarded Column.
+    constexpr int64_t MAX_NESTED_SKIP_BATCH_SIZE = 4096;
+    int64_t remaining_rows = rows;
+    while (remaining_rows > 0) {
+        const int64_t batch_rows = std::min(remaining_rows, MAX_NESTED_SKIP_BATCH_SIZE);
+        RETURN_IF_ERROR(load_nested_levels_batch(batch_rows));
+        int64_t rows_consumed = 0;
+        RETURN_IF_ERROR(consume_nested_column(batch_rows, &rows_consumed));
+        if (rows_consumed != batch_rows) {
+            return Status::Corruption(
+                    "Failed to skip nested parquet column {}: skipped {} of {} rows in batch",
+                    _name, rows_consumed, batch_rows);
+        }
+        remaining_rows -= batch_rows;
+    }
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

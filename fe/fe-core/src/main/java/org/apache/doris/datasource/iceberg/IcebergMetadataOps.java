@@ -42,9 +42,9 @@ import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
@@ -72,6 +72,7 @@ import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
@@ -79,6 +80,7 @@ import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
@@ -108,6 +110,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
+    // The view catalog used by the non-delegated (default) path. For REST this is the session catalog's
+    // asViewCatalog(empty) (the default Catalog from asCatalog() is not itself a ViewCatalog); for other
+    // catalog types it is the catalog itself when it implements ViewCatalog. Empty when views are unsupported
+    // or disabled.
+    private final Optional<ViewCatalog> defaultViewCatalog;
+    // Non-null only when the backing catalog supports per-user dynamic session (an Iceberg REST catalog with
+    // iceberg.rest.session=user). Captured once at construction; the per-request decision is delegated to it so
+    // this class never re-checks the catalog type or reads REST properties directly.
+    private final IcebergUserSessionCatalog userSessionCatalog;
+    private IcebergSessionCatalogAdapter sessionCatalogAdapter;
     private ExecutionAuthenticator executionAuthenticator;
     // Generally, there should be only two levels under the catalog, namely <database>.<table>,
     // but the REST type catalog is obtained from an external server,
@@ -119,7 +131,23 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public IcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
+        // Session-aware behavior exists only when the backing catalog advertises the IcebergUserSessionCatalog
+        // capability (an Iceberg REST catalog with dynamic identity). Capture it once and read what we need
+        // from the capability, so no call-time path has to know about the concrete REST catalog or its
+        // properties. For any other catalog type this is null (session disabled).
+        this.userSessionCatalog = dorisCatalog instanceof IcebergUserSessionCatalog
+                ? (IcebergUserSessionCatalog) dorisCatalog : null;
+        RESTSessionCatalog restSessionCatalog =
+                userSessionCatalog == null ? null : userSessionCatalog.getRestSessionCatalog();
+        IcebergRestProperties.DelegatedTokenMode delegatedTokenMode =
+                userSessionCatalog == null ? IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN
+                        : userSessionCatalog.getDelegatedTokenMode();
+        boolean viewEnabled = userSessionCatalog != null && userSessionCatalog.isViewEnabled();
+
+        this.sessionCatalogAdapter =
+                new IcebergSessionCatalogAdapter(catalog, restSessionCatalog, delegatedTokenMode);
         nsCatalog = (SupportsNamespaces) catalog;
+        this.defaultViewCatalog = resolveDefaultViewCatalog(catalog, restSessionCatalog, viewEnabled);
         this.executionAuthenticator = dorisCatalog.getExecutionAuthenticator();
 
         if (dorisCatalog.getProperties().containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
@@ -145,24 +173,39 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean tableExist(String dbName, String tblName) {
+        return tableExist(SessionContext.empty(), dbName, tblName);
+    }
+
+    public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         try {
-            return executionAuthenticator.execute(() -> catalog.tableExists(getTableIdentifier(dbName, tblName)));
+            Catalog activeCatalog = catalog(ctx);
+            return executionAuthenticator.execute(() -> activeCatalog.tableExists(getTableIdentifier(dbName, tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check table exist, error message is:" + e.getMessage(), e);
         }
     }
 
     public boolean databaseExist(String dbName) {
+        return databaseExist(SessionContext.empty(), dbName);
+    }
+
+    public boolean databaseExist(SessionContext ctx, String dbName) {
         try {
-            return executionAuthenticator.execute(() -> nsCatalog.namespaceExists(getNamespace(dbName)));
+            SupportsNamespaces activeNsCatalog = namespaces(ctx);
+            return executionAuthenticator.execute(() -> activeNsCatalog.namespaceExists(getNamespace(dbName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
         }
     }
 
     public List<String> listDatabaseNames() {
+        return listDatabaseNames(SessionContext.empty());
+    }
+
+    public List<String> listDatabaseNames(SessionContext ctx) {
         try {
-            return executionAuthenticator.execute(() -> listNestedNamespaces(getNamespace()));
+            SupportsNamespaces activeNsCatalog = namespaces(ctx);
+            return executionAuthenticator.execute(() -> listNestedNamespaces(activeNsCatalog, getNamespace()));
         } catch (Exception e) {
             LOG.warn("failed to list database names in catalog {}, root cause: {}",
                     dorisCatalog.getName(), Util.getRootCauseMessage(e), e);
@@ -171,24 +214,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @NotNull
-    private List<String> listNestedNamespaces(Namespace parentNs) {
+    private List<String> listNestedNamespaces(SupportsNamespaces activeNsCatalog, Namespace parentNs) {
         // Handle nested namespaces for Iceberg REST catalog,
         // only if "iceberg.rest.nested-namespace-enabled" is true.
-        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
-            IcebergRestExternalCatalog restCatalog = (IcebergRestExternalCatalog) dorisCatalog;
-            MetastoreProperties metaProps = restCatalog.getCatalogProperty().getMetastoreProperties();
-            if (metaProps instanceof IcebergRestProperties
-                    && ((IcebergRestProperties) metaProps).isIcebergRestNestedNamespaceEnabled()) {
-                return nsCatalog.listNamespaces(parentNs)
-                        .stream()
-                        .flatMap(childNs -> Stream.concat(
-                                Stream.of(childNs.toString()),
-                                listNestedNamespaces(childNs).stream()
-                        )).collect(Collectors.toList());
-            }
+        if (userSessionCatalog != null && userSessionCatalog.isNestedNamespaceEnabled()) {
+            return activeNsCatalog.listNamespaces(parentNs)
+                    .stream()
+                    .flatMap(childNs -> Stream.concat(
+                            Stream.of(childNs.toString()),
+                            listNestedNamespaces(activeNsCatalog, childNs).stream()
+                    )).collect(Collectors.toList());
         }
 
-        return nsCatalog.listNamespaces(parentNs)
+        return activeNsCatalog.listNamespaces(parentNs)
                 .stream()
                 .map(n -> n.level(n.length() - 1))
                 .collect(Collectors.toList());
@@ -196,20 +234,22 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public List<String> listTableNames(String dbName) {
+        return listTableNames(SessionContext.empty(), dbName);
+    }
+
+    public List<String> listTableNames(SessionContext ctx, String dbName) {
         try {
             return executionAuthenticator.execute(() -> {
-                List<TableIdentifier> tableIdentifiers = catalog.listTables(getNamespace(dbName));
+                Catalog activeCatalog = catalog(ctx);
+                List<TableIdentifier> tableIdentifiers = activeCatalog.listTables(getNamespace(dbName));
                 List<String> views;
                 // Our original intention was simply to clearly define the responsibilities of ViewCatalog and Catalog.
                 // IcebergMetadataOps handles listTableNames and listViewNames separately.
                 // listTableNames should only focus on the table type,
                 // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
-                if (isViewCatalogEnabled()) {
-                    views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
-                            .stream().map(TableIdentifier::name).collect(Collectors.toList());
-                } else {
-                    views = Collections.emptyList();
-                }
+                views = viewCatalog(ctx).map(viewCatalog -> viewCatalog.listViews(getNamespace(dbName))
+                        .stream().map(TableIdentifier::name).collect(Collectors.toList()))
+                        .orElseGet(Collections::emptyList);
                 if (views.isEmpty()) {
                     return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
                 } else {
@@ -229,8 +269,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
+        SessionContext sessionContext = SessionContext.current();
         try {
-            return executionAuthenticator.execute(() -> performCreateDb(dbName, ifNotExists, properties));
+            return executionAuthenticator.execute(
+                    () -> performCreateDb(sessionContext, dbName, ifNotExists, properties));
         } catch (Exception e) {
             throw new DdlException("Failed to create database: "
                     + dbName + ": " + Util.getRootCauseMessage(e), e);
@@ -242,10 +284,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         dorisCatalog.resetMetaCacheNames();
     }
 
-    private boolean performCreateDb(String dbName, boolean ifNotExists, Map<String, String> properties)
-            throws DdlException {
-        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
-        if (databaseExist(dbName)) {
+    private boolean performCreateDb(SessionContext ctx, String dbName, boolean ifNotExists,
+            Map<String, String> properties) throws DdlException {
+        SupportsNamespaces activeNsCatalog = namespaces(ctx);
+        if (databaseExist(ctx, dbName)) {
             if (ifNotExists) {
                 LOG.info("create database[{}] which already exists", dbName);
                 return true;
@@ -260,15 +302,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
             }
         }
-        nsCatalog.createNamespace(getNamespace(dbName), properties);
+        activeNsCatalog.createNamespace(getNamespace(dbName), properties);
         return false;
     }
 
     @Override
     public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        SessionContext sessionContext = SessionContext.current();
         try {
             executionAuthenticator.execute(() -> {
-                performDropDb(dbName, ifExists, force);
+                performDropDb(sessionContext, dbName, ifExists, force);
                 return null;
             });
         } catch (Exception e) {
@@ -277,7 +320,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private void performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+    private void performDropDb(SessionContext ctx, String dbName, boolean ifExists, boolean force) throws DdlException {
         ExternalDatabase dorisDb = dorisCatalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
@@ -290,17 +333,17 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (force) {
             try {
                 // try to drop all tables in the database
-                List<String> remoteTableNames = listTableNames(dorisDb.getRemoteName());
+                List<String> remoteTableNames = listTableNames(ctx, dorisDb.getRemoteName());
                 for (String remoteTableName : remoteTableNames) {
-                    performDropTable(dorisDb.getRemoteName(), remoteTableName, true);
+                    performDropTable(ctx, dorisDb.getRemoteName(), remoteTableName, true);
                 }
                 if (!remoteTableNames.isEmpty()) {
                     LOG.info("drop database[{}] with force, drop all tables, num: {}", dbName, remoteTableNames.size());
                 }
                 // try to drop all views in the database
-                List<String> remoteViewNames = listViewNames(dorisDb.getRemoteName());
+                List<String> remoteViewNames = listViewNames(ctx, dorisDb.getRemoteName());
                 for (String remoteViewName : remoteViewNames) {
-                    performDropView(dorisDb.getRemoteName(), remoteViewName);
+                    performDropView(ctx, dorisDb.getRemoteName(), remoteViewName);
                 }
                 if (!remoteViewNames.isEmpty()) {
                     LOG.info("drop database[{}] with force, drop all views, num: {}", dbName, remoteViewNames.size());
@@ -314,7 +357,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Namespace namespace = getNamespace(dorisDb.getRemoteName());
         Optional<String> namespaceLocation = shouldCleanupManagedLocation()
                 ? loadNamespaceLocation(namespace) : Optional.empty();
-        nsCatalog.dropNamespace(namespace);
+        namespaces(ctx).dropNamespace(namespace);
         namespaceLocation.ifPresent(location -> cleanupEmptyLocation(location, "database", dbName, false));
     }
 
@@ -325,8 +368,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
+        SessionContext sessionContext = SessionContext.current();
         try {
-            return executionAuthenticator.execute(() -> performCreateTable(createTableInfo));
+            return executionAuthenticator.execute(() -> performCreateTable(sessionContext, createTableInfo));
         } catch (Exception e) {
             throw new DdlException(
                 "Failed to create table: " + createTableInfo.getTableName() + ", error message is:" + e.getMessage(),
@@ -335,6 +379,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public boolean performCreateTable(CreateTableInfo createTableInfo) throws UserException {
+        return performCreateTable(SessionContext.current(), createTableInfo);
+    }
+
+    private boolean performCreateTable(SessionContext ctx, CreateTableInfo createTableInfo) throws UserException {
         String dbName = createTableInfo.getDbName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
@@ -342,7 +390,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         String tableName = createTableInfo.getTableName();
         // 1. first, check if table exist in remote
-        if (tableExist(db.getRemoteName(), tableName)) {
+        if (tableExist(ctx, db.getRemoteName(), tableName)) {
             if (createTableInfo.isIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
                 return true;
@@ -371,8 +419,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
                 .collect(Collectors.toList());
         StructType structType = new StructType(new ArrayList<>(collect));
-        Type visit =
-                DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
+        List<String> rootFieldNames = columns.stream().map(Column::getName).collect(Collectors.toList());
+        Type visit = DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType, rootFieldNames));
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = createTableInfo.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
@@ -390,14 +438,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 schema);
         // Build and create table with optional sort order
         org.apache.iceberg.SortOrder sortOrder = buildSortOrder(createTableInfo.getSortOrderFields(), schema);
+        Catalog activeCatalog = catalog(ctx);
         if (sortOrder != null && !sortOrder.isUnsorted()) {
-            catalog.buildTable(getTableIdentifier(dbName, tableName), schema)
+            activeCatalog.buildTable(getTableIdentifier(dbName, tableName), schema)
                     .withPartitionSpec(partitionSpec)
                     .withProperties(properties)
                     .withSortOrder(sortOrder)
                     .create();
         } else {
-            catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
+            activeCatalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
         }
         return false;
     }
@@ -414,13 +463,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropTableImpl(ExternalTable dorisTable, boolean ifExists) throws DdlException {
+        SessionContext sessionContext = SessionContext.current();
         try {
             executionAuthenticator.execute(() -> {
-                if (getExternalCatalog().getMetadataOps()
-                        .viewExists(dorisTable.getRemoteDbName(), dorisTable.getRemoteName())) {
-                    performDropView(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+                if (viewExists(sessionContext, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())) {
+                    performDropView(sessionContext, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
                 } else {
-                    performDropTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(), ifExists);
+                    performDropTable(sessionContext, dorisTable.getRemoteDbName(),
+                            dorisTable.getRemoteName(), ifExists);
                 }
                 return null;
             });
@@ -440,8 +490,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 dorisCatalog.getName(), dbName, tblName, db.isPresent());
     }
 
-    private void performDropTable(String remoteDbName, String remoteTblName, boolean ifExists) throws DdlException {
-        if (!tableExist(remoteDbName, remoteTblName)) {
+    private void performDropTable(SessionContext ctx, String remoteDbName, String remoteTblName, boolean ifExists)
+            throws DdlException {
+        if (!tableExist(ctx, remoteDbName, remoteTblName)) {
             if (ifExists) {
                 LOG.info("drop table[{}] which does not exist", remoteTblName);
                 return;
@@ -452,7 +503,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         TableIdentifier tableIdentifier = getTableIdentifier(remoteDbName, remoteTblName);
         Optional<String> tableLocation = shouldCleanupManagedLocation()
                 ? loadTableLocation(tableIdentifier) : Optional.empty();
-        catalog.dropTable(tableIdentifier, true);
+        catalog(ctx).dropTable(tableIdentifier, true);
         tableLocation.ifPresent(location ->
                 cleanupEmptyLocation(location, "table", remoteDbName + "." + remoteTblName, true));
     }
@@ -549,9 +600,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
+        SessionContext sessionContext = SessionContext.current();
         try {
             executionAuthenticator.execute(() -> {
-                catalog.renameTable(getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
+                catalog(sessionContext).renameTable(
+                        getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
                 return null;
             });
         } catch (Exception e) {
@@ -1604,8 +1657,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public Table loadTable(String dbName, String tblName) {
+        return loadTable(SessionContext.empty(), dbName, tblName);
+    }
+
+    public Table loadTable(SessionContext ctx, String dbName, String tblName) {
         try {
-            return executionAuthenticator.execute(() -> catalog.loadTable(getTableIdentifier(dbName, tblName)));
+            Catalog activeCatalog = catalog(ctx);
+            return executionAuthenticator.execute(() -> activeCatalog.loadTable(getTableIdentifier(dbName, tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
         }
@@ -1613,12 +1671,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean viewExists(String remoteDbName, String remoteViewName) {
-        if (!isViewCatalogEnabled()) {
-            return false;
-        }
+        return viewExists(SessionContext.empty(), remoteDbName, remoteViewName);
+    }
+
+    public boolean viewExists(SessionContext ctx, String remoteDbName, String remoteViewName) {
+        Optional<ViewCatalog> viewCatalog = viewCatalog(ctx);
         try {
-            return executionAuthenticator.execute(() ->
-                    ((ViewCatalog) catalog).viewExists(getTableIdentifier(remoteDbName, remoteViewName)));
+            return viewCatalog.isPresent() && executionAuthenticator.execute(() ->
+                    viewCatalog.get().viewExists(getTableIdentifier(remoteDbName, remoteViewName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check view exist, error message is:" + e.getMessage(), e);
 
@@ -1627,13 +1687,17 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public Object loadView(String dbName, String tblName) {
-        if (!isViewCatalogEnabled()) {
+        return loadView(SessionContext.empty(), dbName, tblName);
+    }
+
+    public Object loadView(SessionContext ctx, String dbName, String tblName) {
+        Optional<ViewCatalog> viewCatalog = viewCatalog(ctx);
+        if (!viewCatalog.isPresent()) {
             return null;
         }
         try {
-            ViewCatalog viewCatalog = (ViewCatalog) catalog;
             return executionAuthenticator.execute(
-                    () -> viewCatalog.loadView(TableIdentifier.of(getNamespace(dbName), tblName)));
+                    () -> viewCatalog.get().loadView(TableIdentifier.of(getNamespace(dbName), tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load view, error message is:" + e.getMessage(), e);
         }
@@ -1641,12 +1705,17 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public List<String> listViewNames(String db) {
-        if (!isViewCatalogEnabled()) {
+        return listViewNames(SessionContext.empty(), db);
+    }
+
+    public List<String> listViewNames(SessionContext ctx, String db) {
+        Optional<ViewCatalog> viewCatalog = viewCatalog(ctx);
+        if (!viewCatalog.isPresent()) {
             return Collections.emptyList();
         }
         try {
             return executionAuthenticator.execute(() ->
-                    ((ViewCatalog) catalog).listViews(getNamespace(db))
+                    viewCatalog.get().listViews(getNamespace(db))
                             .stream().map(TableIdentifier::name).collect(Collectors.toList()));
         } catch (RuntimeException e) {
             // We want to catch real exception like NoSuchNamespaceException and throw it directly
@@ -1654,6 +1723,53 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new RuntimeException("Failed to list view names, error message is:" + e.getMessage(), e);
         }
+    }
+
+    private Catalog catalog(SessionContext ctx) {
+        if (useSessionCatalog(ctx)) {
+            return sessionCatalogAdapter.delegatedCatalog(ctx);
+        }
+        return catalog;
+    }
+
+    private SupportsNamespaces namespaces(SessionContext ctx) {
+        if (useSessionCatalog(ctx)) {
+            return sessionCatalogAdapter.delegatedNamespaces(ctx);
+        }
+        return nsCatalog;
+    }
+
+    private Optional<ViewCatalog> viewCatalog(SessionContext ctx) {
+        if (!isViewCatalogEnabled()) {
+            return Optional.empty();
+        }
+        if (useSessionCatalog(ctx)) {
+            return sessionCatalogAdapter.delegatedViewCatalog(ctx);
+        }
+        return defaultViewCatalog;
+    }
+
+    private Optional<ViewCatalog> resolveDefaultViewCatalog(Catalog catalog, RESTSessionCatalog restSessionCatalog,
+            boolean viewEnabled) {
+        // Branch on whether this is a REST (session-aware) catalog, not on whether restSessionCatalog happens to
+        // be built: for REST the default Catalog (asCatalog) is not a ViewCatalog, so views must come from the
+        // session catalog's asViewCatalog, gated on the REST view-enabled flag.
+        if (userSessionCatalog != null) {
+            if (!viewEnabled || restSessionCatalog == null) {
+                return Optional.empty();
+            }
+            return Optional.of(restSessionCatalog.asViewCatalog(SessionCatalog.SessionContext.createEmpty()));
+        }
+        return catalog instanceof ViewCatalog ? Optional.of((ViewCatalog) catalog) : Optional.empty();
+    }
+
+    /**
+     * Whether the current request should use a per-user session catalog. The decision (delegated credential
+     * present + dynamic identity enabled) is owned by the catalog via {@link IcebergUserSessionCatalog}; non
+     * session-aware catalogs never take this path.
+     */
+    private boolean useSessionCatalog(SessionContext ctx) {
+        return userSessionCatalog != null && userSessionCatalog.useSessionCatalog(ctx);
     }
 
     private TableIdentifier getTableIdentifier(String dbName, String tblName) {
@@ -1680,28 +1796,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private boolean isViewCatalogEnabled() {
-        if (!(catalog instanceof ViewCatalog)) {
-            return false;
-        }
-        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
-            MetastoreProperties metaProps = dorisCatalog.getCatalogProperty().getMetastoreProperties();
-            if (metaProps instanceof IcebergRestProperties) {
-                return ((IcebergRestProperties) metaProps).isIcebergRestViewEnabled();
-            }
-        }
-        return true;
+        return defaultViewCatalog.isPresent();
     }
 
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
         return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
-    private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {
-        if (!isViewCatalogEnabled()) {
+    private void performDropView(SessionContext ctx, String remoteDbName, String remoteViewName) throws DdlException {
+        Optional<ViewCatalog> activeViewCatalog = viewCatalog(ctx);
+        if (!activeViewCatalog.isPresent()) {
             throw new DdlException("Drop Iceberg view is not supported with not view catalog.");
         }
-        ViewCatalog viewCatalog = (ViewCatalog) catalog;
-        viewCatalog.dropView(getTableIdentifier(remoteDbName, remoteViewName));
+        activeViewCatalog.get().dropView(getTableIdentifier(remoteDbName, remoteViewName));
     }
 
     /**
@@ -1714,7 +1821,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
         org.apache.iceberg.SortOrder.Builder builder = org.apache.iceberg.SortOrder.builderFor(schema);
         for (SortFieldInfo sortField : sortFields) {
-            String columnName = sortField.getColumnName();
+            String columnName = getIcebergColumnName(schema, sortField.getColumnName());
             if (sortField.isAscending()) {
                 if (sortField.isNullFirst()) {
                     builder.asc(columnName, org.apache.iceberg.NullOrder.NULLS_FIRST);
@@ -1730,5 +1837,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         return builder.build();
+    }
+
+    private static String getIcebergColumnName(Schema schema, String columnName) {
+        NestedField field = schema.caseInsensitiveFindField(columnName);
+        return field == null ? columnName : field.name();
     }
 }

@@ -17,6 +17,10 @@
 
 #include "format_v2/table/hive_reader.h"
 
+#include <algorithm>
+#include <cctype>
+#include <string_view>
+
 #include "common/consts.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/file_reader.h"
@@ -40,6 +44,8 @@ bool use_column_position_mapping(const format::ProjectedColumnBuildContext& cont
     switch (format_type_from_context(context)) {
     case TFileFormatType::FORMAT_PARQUET:
         return !context.runtime_state->query_options().hive_parquet_use_column_names;
+    case TFileFormatType::FORMAT_ORC:
+        return !context.runtime_state->query_options().hive_orc_use_column_names;
     default:
         return false;
     }
@@ -55,6 +61,42 @@ bool is_file_column_position_slot(const TFileScanSlotInfo& slot_info,
         return slot_info.is_file_slot;
     }
     return !slot_info.__isset.category || slot_info.category != TColumnCategory::PARTITION_KEY;
+}
+
+bool is_hive1_orc_column_name(std::string_view name) {
+    if (name.size() <= 4 || name.substr(0, 4) != "_col") {
+        return false;
+    }
+    return std::ranges::all_of(name.substr(4), [](unsigned char c) { return std::isdigit(c); });
+}
+
+bool is_hive1_orc_file_schema(const std::vector<format::ColumnDefinition>& file_schema) {
+    bool has_data_column = false;
+    for (const auto& field : file_schema) {
+        if (field.column_type != format::ColumnType::DATA_COLUMN) {
+            continue;
+        }
+        has_data_column = true;
+        if (!is_hive1_orc_column_name(field.name)) {
+            return false;
+        }
+    }
+    return has_data_column;
+}
+
+bool is_file_column_for_hive1_position_mapping(const format::ColumnDefinition& column) {
+    if (column.column_type != format::ColumnType::DATA_COLUMN || column.is_partition_key) {
+        return false;
+    }
+    return !column.name.starts_with(BeConsts::GLOBAL_ROWID_COL) &&
+           column.name != BeConsts::ICEBERG_ROWID_COL;
+}
+
+void add_name_mapping(std::vector<std::string>* name_mapping, const std::string& alias) {
+    DORIS_CHECK(name_mapping != nullptr);
+    if (std::ranges::find(*name_mapping, alias) == name_mapping->end()) {
+        name_mapping->push_back(alias);
+    }
 }
 
 } // namespace
@@ -143,6 +185,60 @@ Status HiveReader::validate_projected_columns(
                 "Hive positional column mapping has unused file indexes: consumed={}, "
                 "column_idxs_size={}",
                 context.next_file_column_idx, context.scan_params->column_idxs.size());
+    }
+    return Status::OK();
+}
+
+Status HiveReader::annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) {
+    DORIS_CHECK(file_schema != nullptr);
+    if (_format != format::FileFormat::ORC || _runtime_state == nullptr ||
+        !_runtime_state->query_options().hive_orc_use_column_names ||
+        !is_hive1_orc_file_schema(*file_schema)) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_scan_params != nullptr);
+    if (!_scan_params->__isset.column_idxs) {
+        return Status::InvalidArgument(
+                "Hive ORC Hive1-style name mapping is missing positional column indexes");
+    }
+
+    size_t next_file_column_idx = 0;
+    for (const auto& table_column : _projected_columns) {
+        if (!is_file_column_for_hive1_position_mapping(table_column)) {
+            continue;
+        }
+        if (next_file_column_idx >= _scan_params->column_idxs.size()) {
+            return Status::InvalidArgument(
+                    "Hive ORC Hive1-style name mapping is missing file index for column '{}', "
+                    "required file slot ordinal={}, column_idxs_size={}",
+                    table_column.name, next_file_column_idx, _scan_params->column_idxs.size());
+        }
+        const auto file_index = _scan_params->column_idxs[next_file_column_idx];
+        if (file_index < 0) {
+            return Status::InvalidArgument(
+                    "Hive ORC Hive1-style name mapping has negative file index {} for column '{}'",
+                    file_index, table_column.name);
+        }
+        ++next_file_column_idx;
+        if (static_cast<size_t>(file_index) >= file_schema->size()) {
+            continue;
+        }
+
+        auto& file_column = (*file_schema)[static_cast<size_t>(file_index)];
+        add_name_mapping(&file_column.name_mapping, table_column.name);
+        if (table_column.has_identifier_name()) {
+            add_name_mapping(&file_column.name_mapping, table_column.get_identifier_name());
+        }
+        for (const auto& alias : table_column.name_mapping) {
+            add_name_mapping(&file_column.name_mapping, alias);
+        }
+    }
+    if (next_file_column_idx != _scan_params->column_idxs.size()) {
+        return Status::InvalidArgument(
+                "Hive ORC Hive1-style name mapping has unused file indexes: consumed={}, "
+                "column_idxs_size={}",
+                next_file_column_idx, _scan_params->column_idxs.size());
     }
     return Status::OK();
 }

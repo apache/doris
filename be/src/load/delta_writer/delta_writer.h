@@ -61,7 +61,7 @@ public:
 
     virtual ~BaseDeltaWriter();
 
-    virtual Status write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+    virtual Status write(const Block* block, const TabletAddRowsPayload& rows,
                          bool* memtable_flushed = nullptr) = 0;
 
     // flush the last memtable to flush queue, must call it before build_rowset()
@@ -135,7 +135,7 @@ public:
 
     ~DeltaWriter() override;
 
-    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+    Status write(const Block* block, const TabletAddRowsPayload& rows,
                  bool* memtable_flushed = nullptr) override;
 
     Status close() override;
