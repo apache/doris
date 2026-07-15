@@ -38,6 +38,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -206,7 +211,7 @@ public class ResourceMgrTest {
     }
 
     @Test
-    public void testConcurrentAlterResourceLogsOrderedDetachedSnapshots() throws Exception {
+    public void testSynchronousAlterSubmitLogsOrderedDetachedSnapshots() throws Exception {
         Env env = Mockito.mock(Env.class);
         EditLog editLog = Mockito.mock(EditLog.class);
         EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
@@ -219,9 +224,11 @@ public class ResourceMgrTest {
         CountDownLatch firstSubmitEntered = new CountDownLatch(1);
         CountDownLatch releaseFirstSubmit = new CountDownLatch(1);
         AtomicInteger submitCount = new AtomicInteger();
+        List<Resource> synchronouslySerializedResources = new ArrayList<>();
         Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE), Mockito.any(Resource.class)))
                 .thenAnswer(invocation -> {
                     Assert.assertTrue(Thread.holdsLock(resource.getAlterLock()));
+                    synchronouslySerializedResources.add(copyResource(invocation.getArgument(1)));
                     if (submitCount.getAndIncrement() == 0) {
                         firstSubmitEntered.countDown();
                         Assert.assertTrue(releaseFirstSubmit.await(5, TimeUnit.SECONDS));
@@ -265,6 +272,74 @@ public class ResourceMgrTest {
                 loggedResources.get(0).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
         Assert.assertEquals("hdfs://second",
                 loggedResources.get(1).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+        Assert.assertEquals("hdfs://first",
+                synchronouslySerializedResources.get(0).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+        Assert.assertEquals("hdfs://second",
+                synchronouslySerializedResources.get(1).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+    }
+
+    @Test
+    public void testBatchAlterSerializesQueuedSnapshotsAfterLaterAlter() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        EditLog.EditLogItem firstLogItem = Mockito.mock(EditLog.EditLogItem.class);
+        EditLog.EditLogItem secondLogItem = Mockito.mock(EditLog.EditLogItem.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+        ResourceMgr mgr = new ResourceMgr();
+        HdfsResource resource = createHdfsResource("hdfs0", "hdfs://initial");
+        mgr.createResource(resource, false);
+
+        List<Resource> queuedResources = new ArrayList<>();
+        Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE), Mockito.any(Resource.class)))
+                .thenAnswer(invocation -> {
+                    Assert.assertTrue(Thread.holdsLock(resource.getAlterLock()));
+                    queuedResources.add(invocation.getArgument(1));
+                    return queuedResources.size() == 1 ? firstLogItem : secondLogItem;
+                });
+
+        CountDownLatch firstAwaitEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirstAwait = new CountDownLatch(1);
+        Mockito.when(firstLogItem.await()).thenAnswer(invocation -> {
+            Assert.assertFalse(Thread.holdsLock(resource.getAlterLock()));
+            firstAwaitEntered.countDown();
+            Assert.assertTrue(releaseFirstAwait.await(5, TimeUnit.SECONDS));
+            return 1L;
+        });
+        Mockito.when(secondLogItem.await()).thenAnswer(invocation -> {
+            Assert.assertFalse(Thread.holdsLock(resource.getAlterLock()));
+            return 2L;
+        });
+
+        Future<Void> firstAlter = submitAndWaitUntilStarted(() -> {
+            alterResourceWithEnv(mgr, env, "hdfs0", hdfsProperties("hdfs://first"));
+            return null;
+        });
+        Assert.assertTrue(firstAwaitEntered.await(5, TimeUnit.SECONDS));
+
+        Future<Void> secondAlter = submitAndWaitUntilStarted(() -> {
+            alterResourceWithEnv(mgr, env, "hdfs0", hdfsProperties("hdfs://second"));
+            return null;
+        });
+        try {
+            secondAlter.get(1, TimeUnit.SECONDS);
+            Assert.assertEquals(2, queuedResources.size());
+            Assert.assertNotSame(resource, queuedResources.get(0));
+            Assert.assertNotSame(queuedResources.get(0), queuedResources.get(1));
+
+            Resource firstSerialized = copyResource(queuedResources.get(0));
+            Resource secondSerialized = copyResource(queuedResources.get(1));
+            Assert.assertEquals("hdfs://first",
+                    firstSerialized.getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+            Assert.assertEquals("hdfs://second",
+                    secondSerialized.getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+        } finally {
+            releaseFirstAwait.countDown();
+        }
+        firstAlter.get(5, TimeUnit.SECONDS);
+
+        Mockito.verify(firstLogItem).await();
+        Mockito.verify(secondLogItem).await();
     }
 
     @Test
@@ -357,6 +432,16 @@ public class ResourceMgrTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             mgr.alterResource(resourceName, properties);
+        }
+    }
+
+    private Resource copyResource(Resource resource) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            resource.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return Resource.read(in);
         }
     }
 
