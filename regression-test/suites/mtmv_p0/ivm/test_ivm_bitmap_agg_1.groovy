@@ -61,6 +61,7 @@ suite("test_ivm_bitmap_agg_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_1_mv")
+    advance_ivm_stream_offset("test_ivm_bitmap_agg_1_mv")
     order_qt_bitmap_complete """
         SELECT k, bitmap_to_string(bu), buc
         FROM test_ivm_bitmap_agg_1_mv
@@ -93,6 +94,7 @@ suite("test_ivm_bitmap_agg_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_1_mv")
+    advance_ivm_stream_offset("test_ivm_bitmap_agg_1_mv")
     order_qt_bitmap_complete2 """
         SELECT k, bitmap_to_string(bu), buc
         FROM test_ivm_bitmap_agg_1_mv
@@ -118,6 +120,7 @@ suite("test_ivm_bitmap_agg_1") {
     sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (3, 2, bitmap_from_string('10'), 1);"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_1_mv")
+    advance_ivm_stream_offset("test_ivm_bitmap_agg_1_mv")
     order_qt_bitmap_delete_group_complete """
         SELECT k, bitmap_to_string(bu), buc
         FROM test_ivm_bitmap_agg_1_mv
@@ -196,6 +199,7 @@ suite("test_ivm_bitmap_agg_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_1_mv")
+    advance_ivm_stream_offset("test_ivm_bitmap_agg_1_mv")
     order_qt_bitmap_delete_fallback """
         SELECT k, bitmap_to_string(bu), buc
         FROM test_ivm_bitmap_agg_1_mv

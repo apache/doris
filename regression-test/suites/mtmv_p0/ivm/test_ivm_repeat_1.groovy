@@ -62,6 +62,7 @@ suite("test_ivm_repeat_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_repeat_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_repeat_1_mv")
+    advance_ivm_stream_offset("test_ivm_repeat_1_mv")
     order_qt_repeat_complete """
         SELECT region, product, g_region, g_product, gid, cnt, total_amount
         FROM test_ivm_repeat_1_mv
@@ -110,6 +111,7 @@ suite("test_ivm_repeat_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_repeat_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_repeat_1_mv")
+    advance_ivm_stream_offset("test_ivm_repeat_1_mv")
     order_qt_repeat_complete2 """
         SELECT region, product, g_region, g_product, gid, cnt, total_amount
         FROM test_ivm_repeat_1_mv

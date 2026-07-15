@@ -19,12 +19,13 @@ west	book	0	0	0	1	30
 \N	\N	1	1	3	3	60
 
 -- !repeat_incr --
-\N	\N	1	1	3	3	60
+\N	\N	1	1	3	4	100
 east	\N	0	1	1	2	30
 east	book	0	0	0	1	10
 east	toy	0	0	0	1	20
-west	\N	0	1	1	1	30
+west	\N	0	1	1	2	70
 west	book	0	0	0	1	30
+west	toy	0	0	0	1	40
 
 -- !repeat_incr_source --
 \N	\N	1	1	3	4	100
@@ -36,7 +37,7 @@ west	book	0	0	0	1	30
 west	toy	0	0	0	1	40
 
 -- !repeat_incr_empty_group --
-\N	\N	1	1	3	3	60
+\N	\N	1	1	3	4	100
 
 -- !repeat_complete2 --
 \N	\N	1	1	3	4	100
