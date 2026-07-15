@@ -18,10 +18,7 @@
 suite("test_ivm_outer_join_4") {
 
     // =========================================================
-    // Part 1: FULL OUTER JOIN incremental refresh under the current mock-full-scan delta.
-    // Covers unmatched rows retained by either side. When a later row makes an old
-    // null-side row matched, the mock delta cannot retract that old row because it
-    // reads the current base table instead of a real binlog stream/pre-refresh snapshot.
+    // Part 1: FULL OUTER JOIN incremental refresh covering unmatched rows on both sides.
     // =========================================================
     sql """drop materialized view if exists test_ivm_outer_join_4_mv;"""
     sql """drop table if exists test_ivm_outer_join_4_l;"""
@@ -80,6 +77,7 @@ suite("test_ivm_outer_join_4") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_4_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_4_mv")
+    advance_ivm_stream_offset("test_ivm_outer_join_4_mv")
     order_qt_after_complete """
         SELECT left_k1, right_k1, left_v1, right_v2
         FROM test_ivm_outer_join_4_mv
@@ -97,8 +95,6 @@ suite("test_ivm_outer_join_4") {
         ORDER BY IFNULL(left_k1, right_k1), left_k1, right_k1, left_v1, right_v2
     """
 
-    // Right delta matches an old left-only row. Under the current mock-full-scan
-    // delta, the matched full row is added while the old left-only row remains.
     sql """INSERT INTO test_ivm_outer_join_4_r VALUES (1, 100);"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_4_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_4_mv")
@@ -119,8 +115,6 @@ suite("test_ivm_outer_join_4") {
         ORDER BY IFNULL(left_k1, right_k1), left_k1, right_k1, left_v1, right_v2
     """
 
-    // Left delta matches an old right-only row. This is the symmetric full outer
-    // join case under the same mock-full-scan delta limitation.
     sql """INSERT INTO test_ivm_outer_join_4_l VALUES (3, 30);"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_4_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_4_mv")
