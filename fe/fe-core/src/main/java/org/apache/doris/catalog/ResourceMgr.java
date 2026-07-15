@@ -156,7 +156,7 @@ public class ResourceMgr implements Writable {
         EditLog.EditLogItem logItem;
         synchronized (resource.getAlterLock()) {
             resource.modifyProperties(properties);
-            // Snapshot and enqueue under the same lock to preserve concurrent ALTER order.
+            // Keep mutation, snapshot, and submission ordered without holding the resource state lock.
             logResource = getAlterLogResource(resource);
             logItem = Env.getCurrentEnv().getEditLog().submitEdit(OperationType.OP_ALTER_RESOURCE, logResource);
         }
@@ -239,7 +239,7 @@ public class ResourceMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(getCopiedResourceMgr());
+        String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
     }
 
@@ -251,14 +251,6 @@ public class ResourceMgr implements Writable {
             System.exit(-1);
             throw new IllegalStateException(t);
         }
-    }
-
-    private ResourceMgr getCopiedResourceMgr() {
-        ResourceMgr copied = new ResourceMgr();
-        for (Map.Entry<String, Resource> entry : nameToResource.entrySet()) {
-            copied.nameToResource.put(entry.getKey(), entry.getValue().getCopiedResourceSnapshot());
-        }
-        return copied;
     }
 
     public static ResourceMgr read(DataInput in) throws IOException {

@@ -38,10 +38,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +48,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ResourceMgrTest {
     // s3 resource
@@ -89,7 +86,7 @@ public class ResourceMgrTest {
         s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
         s3Properties.put("AWS_BUCKET", "test-bucket");
         s3Properties.put("s3_validity_check", "false");
-        executor = Executors.newSingleThreadExecutor();
+        executor = Executors.newFixedThreadPool(2);
     }
 
     @After
@@ -182,6 +179,17 @@ public class ResourceMgrTest {
         }
         procFuture.get(5, TimeUnit.SECONDS);
 
+        resource.writeLock();
+        Future<Resource> snapshotFuture = null;
+        try {
+            snapshotFuture = submitAndWaitUntilStarted(resource::getCopiedResourceSnapshot);
+            assertFutureBlocked(snapshotFuture);
+        } finally {
+            resource.writeUnlock();
+        }
+        Assert.assertEquals("hdfs://first",
+                snapshotFuture.get(5, TimeUnit.SECONDS).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+
         resource.readLock();
         Future<Void> modifyFuture = null;
         try {
@@ -198,74 +206,137 @@ public class ResourceMgrTest {
     }
 
     @Test
-    public void testAlterResourceLogsDetachedSnapshots() throws Exception {
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            EditLog editLog = Mockito.mock(EditLog.class);
-            EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getEditLog()).thenReturn(editLog);
-            Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE), Mockito.any(Resource.class)))
-                    .thenReturn(logItem);
+    public void testConcurrentAlterResourceLogsOrderedDetachedSnapshots() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-            ResourceMgr mgr = new ResourceMgr();
-            mgr.createResource(createHdfsResource("hdfs0", "hdfs://initial"), false);
-            mgr.alterResource("hdfs0", hdfsProperties("hdfs://first"));
-            mgr.alterResource("hdfs0", hdfsProperties("hdfs://second"));
-
-            ArgumentCaptor<Resource> logResourceCaptor = ArgumentCaptor.forClass(Resource.class);
-            Mockito.verify(editLog, Mockito.times(2)).submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE),
-                    logResourceCaptor.capture());
-            Mockito.verify(logItem, Mockito.times(2)).await();
-            List<Resource> loggedResources = logResourceCaptor.getAllValues();
-
-            Assert.assertNotSame(mgr.getResource("hdfs0"), loggedResources.get(0));
-            Assert.assertNotSame(loggedResources.get(0), loggedResources.get(1));
-            Assert.assertEquals("hdfs://first",
-                    loggedResources.get(0).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
-            Assert.assertEquals("hdfs://second",
-                    loggedResources.get(1).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
-        }
-    }
-
-    @Test
-    public void testResourceMgrWriteUsesDetachedResourceSnapshots() throws Exception {
         ResourceMgr mgr = new ResourceMgr();
-        HdfsResource resource = createHdfsResource("hdfs0", "hdfs://first");
+        HdfsResource resource = createHdfsResource("hdfs0", "hdfs://initial");
         mgr.createResource(resource, false);
 
-        resource.writeLock();
-        Future<ResourceMgr> copiedMgrFuture = null;
+        CountDownLatch firstSubmitEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirstSubmit = new CountDownLatch(1);
+        AtomicInteger submitCount = new AtomicInteger();
+        Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE), Mockito.any(Resource.class)))
+                .thenAnswer(invocation -> {
+                    Assert.assertTrue(Thread.holdsLock(resource.getAlterLock()));
+                    if (submitCount.getAndIncrement() == 0) {
+                        firstSubmitEntered.countDown();
+                        Assert.assertTrue(releaseFirstSubmit.await(5, TimeUnit.SECONDS));
+                    }
+                    return logItem;
+                });
+        Mockito.when(logItem.await()).thenAnswer(invocation -> {
+            Assert.assertFalse(Thread.holdsLock(resource.getAlterLock()));
+            return 0L;
+        });
+
+        Future<Void> firstAlter = submitAndWaitUntilStarted(() -> {
+            alterResourceWithEnv(mgr, env, "hdfs0", hdfsProperties("hdfs://first"));
+            return null;
+        });
+        Assert.assertTrue(firstSubmitEntered.await(5, TimeUnit.SECONDS));
+
+        Future<Void> secondAlter = submitAndWaitUntilStarted(() -> {
+            alterResourceWithEnv(mgr, env, "hdfs0", hdfsProperties("hdfs://second"));
+            return null;
+        });
         try {
-            copiedMgrFuture = submitAndWaitUntilStarted(() -> copyResourceMgr(mgr));
-            assertFutureBlocked(copiedMgrFuture);
+            assertFutureBlocked(secondAlter);
+            Assert.assertEquals("hdfs://first",
+                    resource.getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
         } finally {
-            resource.writeUnlock();
+            releaseFirstSubmit.countDown();
         }
+        firstAlter.get(5, TimeUnit.SECONDS);
+        secondAlter.get(5, TimeUnit.SECONDS);
 
-        ResourceMgr copiedMgr = copiedMgrFuture.get(5, TimeUnit.SECONDS);
-        resource.modifyProperties(hdfsProperties("hdfs://second"));
+        ArgumentCaptor<Resource> logResourceCaptor = ArgumentCaptor.forClass(Resource.class);
+        Mockito.verify(editLog, Mockito.times(2)).submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE),
+                logResourceCaptor.capture());
+        Mockito.verify(logItem, Mockito.times(2)).await();
+        List<Resource> loggedResources = logResourceCaptor.getAllValues();
 
+        Assert.assertNotSame(resource, loggedResources.get(0));
+        Assert.assertNotSame(loggedResources.get(0), loggedResources.get(1));
         Assert.assertEquals("hdfs://first",
-                copiedMgr.getResource("hdfs0").getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+                loggedResources.get(0).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
         Assert.assertEquals("hdfs://second",
-                resource.getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+                loggedResources.get(1).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
     }
 
     @Test
-    public void testCopiedResourceKeepsReferenceSnapshot() throws Exception {
-        HdfsResource resource = createHdfsResource("hdfs0", "hdfs://first");
-        resource.addReference("tbl", Resource.ReferenceType.POLICY);
+    public void testS3ValidityCheckDoesNotHoldResourceStateLock() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE), Mockito.any(Resource.class)))
+                .thenReturn(logItem);
 
-        Resource copied = resource.getCopiedResourceSnapshot();
-        resource.removeReference("tbl", Resource.ReferenceType.POLICY);
+        ResourceMgr mgr = new ResourceMgr();
+        S3Resource resource = new S3Resource("s30");
+        resource.setProperties(ImmutableMap.copyOf(s3Properties));
+        mgr.createResource(resource, false);
+
+        CountDownLatch pingEntered = new CountDownLatch(1);
+        CountDownLatch releasePing = new CountDownLatch(1);
+        Future<Void> alterFuture = submitAndWaitUntilStarted(() -> {
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                    MockedStatic<S3Resource> mockedS3 = Mockito.mockStatic(S3Resource.class, Mockito.CALLS_REAL_METHODS)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                mockedS3.when(() -> S3Resource.pingS3(
+                        Mockito.anyString(), Mockito.anyString(), Mockito.anyMap())).thenAnswer(invocation -> {
+                            pingEntered.countDown();
+                            Assert.assertTrue(releasePing.await(5, TimeUnit.SECONDS));
+                            return null;
+                        });
+                mgr.alterResource("s30", Maps.newHashMap(ImmutableMap.of("s3_validity_check", "true")));
+            }
+            return null;
+        });
+        Assert.assertTrue(pingEntered.await(5, TimeUnit.SECONDS));
+
+        Future<Void> readerFuture = submitAndWaitUntilStarted(() -> {
+            resource.readLock();
+            try {
+                return null;
+            } finally {
+                resource.readUnlock();
+            }
+        });
+        try {
+            readerFuture.get(1, TimeUnit.SECONDS);
+        } finally {
+            releasePing.countDown();
+        }
+        alterFuture.get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    public void testResourceSnapshotCoordinatesReferenceUpdates() throws Exception {
+        HdfsResource resource = createHdfsResource("hdfs0", "hdfs://first");
+        resource.addReference("first", Resource.ReferenceType.POLICY);
+
+        Future<Resource> copiedFuture;
+        synchronized (resource) {
+            copiedFuture = submitAndWaitUntilStarted(resource::getCopiedResourceSnapshot);
+            assertFutureBlocked(copiedFuture);
+            resource.removeReference("first", Resource.ReferenceType.POLICY);
+            resource.addReference("second", Resource.ReferenceType.POLICY);
+        }
+        Resource copied = copiedFuture.get(5, TimeUnit.SECONDS);
 
         try {
             copied.dropResource();
-            Assert.fail("copied resource should keep the original reference");
+            Assert.fail("copied resource should contain a complete reference snapshot");
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("tbl"));
+            Assert.assertFalse(e.getMessage().contains("first"));
+            Assert.assertTrue(e.getMessage().contains("second"));
         }
+        resource.removeReference("second", Resource.ReferenceType.POLICY);
         resource.dropResource();
     }
 
@@ -281,14 +352,11 @@ public class ResourceMgrTest {
         return properties;
     }
 
-    private ResourceMgr copyResourceMgr(ResourceMgr mgr) throws Exception {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        try (DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream)) {
-            mgr.write(dataOutputStream);
-        }
-        try (DataInputStream dataInputStream = new DataInputStream(
-                new ByteArrayInputStream(byteArrayOutputStream.toByteArray()))) {
-            return ResourceMgr.read(dataInputStream);
+    private void alterResourceWithEnv(ResourceMgr mgr, Env env, String resourceName,
+            Map<String, String> properties) throws DdlException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mgr.alterResource(resourceName, properties);
         }
     }
 

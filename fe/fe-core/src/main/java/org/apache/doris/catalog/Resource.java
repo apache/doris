@@ -265,12 +265,13 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     @Override
     public String toString() {
-        return toJson();
+        return GsonUtils.GSON.toJson(this);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, toJson());
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static Resource read(DataInput in) throws IOException {
@@ -357,20 +358,16 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     }
 
     final Resource getCopiedResourceSnapshot() {
-        return GsonUtils.GSON.fromJson(toJson(), Resource.class);
-    }
-
-    private String toJson() {
-        synchronized (alterLock) {
-            readLock();
-            try {
-                synchronized (this) {
-                    return GsonUtils.GSON.toJson(this);
-                }
-            } finally {
-                readUnlock();
+        String json;
+        readLock();
+        try {
+            synchronized (this) {
+                json = GsonUtils.GSON.toJson(this);
             }
+        } finally {
+            readUnlock();
         }
+        return GsonUtils.GSON.fromJson(json, Resource.class);
     }
 
     private void notifyUpdate(Map<String, String> properties) {
