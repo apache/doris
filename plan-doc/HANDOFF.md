@@ -24,9 +24,41 @@
 
 ---
 
-# 🎯 最新（2026-07-10 续²）= **P6.6-C6 #63068 OIDC 会话凭证迁移：Tasks 0–7 全部 DONE + 三层 commit stack + clean-room 复审通过（未 push）**
+# 🎯 最新（2026-07-15）= **rebase 到 upstream `30a44d61a8a`（23/23 重放干净）+ 新增翻闸 BLOCKER：upstream #65135 的 iceberg `$position_deletes` 未在连接器实现**
 
-> ⚠️ 本段最新，**取代下方所有 🎯 历史**。**三层 commit stack（未 push，[DEC-FLIP-1] 铁律）**：SPI `55c991d0e87`（fe-connector-api：中立 DTO + 能力位）→ FE `930e4778064`（fe-core：能力位门控注入 + 缓存旁路 + 2 测）→ 连接器 `a07216ef102`（iceberg：per-user 路由 + 适配器 + 属性校验 + 4 测）。设计权威 = `plan-doc/P6.6-C6-oidc-session-migration-design.md` 第 12 节 + `...-research-notes.md`。
+> ⚠️ 本段最新，**取代下方所有 🎯 历史**（下方 2026-07-10 续² 的 P6.6-C6 OIDC 段仍是有效的实现现状，只是不再是"最新一轮"）。备份 tag=`backup/pre-rebase-2026-07-15`（旧 HEAD `e0c392b9be0`；新 HEAD `c215c4c77c5`，**未 push**）。超越 `catalog-spi-rebase-2026-07-14`。
+
+## rebase 事实
+- `git pull --rebase upstream-apache master` → base=`30a44d61a8a`（upstream 23 新 commit / 我方 23 重放 → behind0/ahead23 干净线性）。
+- **冲突 5 处，全部来自同一个 upstream commit `0814e49bea7` = #65135「Support Iceberg position deletes system table」**（2026-07-14 合入，比本次 rebase 早一天）。停在 commit 11/23 = P6 iceberg（`ec3a0cd55f4`）。
+- 其余 22 个 upstream commit **零语义碰撞**（已逐条核）：#65525 LoadProcessor（改 checkHealthy，我方 P4 改 updateFragmentExecStatus，方法不相交）、#64133 BindRelation（`BINLOG_TIMESTAMP_COL`→`BINLOG_TSO_COL` 单行 rename，与我方 view arm 不相交）、#65570 Ranger / #65325 streaming-job / #65517 pom java17 均在我方未动文件。
+- **哨兵已验**：`BINLOG_TSO_COL`(1) / `getBackendHealthStatus`(1) / Ranger `SingletonHolder`(2) / fe-authentication-api pom java17(1) 全存活。
+
+## 冲突逐条裁决（why + 正确性）
+| 文件 | 裁决 | 理由 |
+|---|---|---|
+| `iceberg/IcebergExternalTable.java` | `git rm`（保 P6 删除） | modify/delete。upstream 的改动**只是删掉 findSysTable override**；整类已被 P6 删。 |
+| `iceberg/source/IcebergScanNode.java` | `git checkout --theirs`（整取 P6 版） | #65135 是**唯一**碰该文件的 upstream commit（已验），故整取不丢任何其它 upstream 修复；其 280 行全挂 `isSystemTable` 分支（P6 已删 → 部分不可编译，其余是死码+无用 import 会踩 checkstyle）。该文件在我方仅服务 **HMS-iceberg**，而 HMS-iceberg 系统表**两侧都抛**（`IcebergSysTable.createSysExternalTable` 对非 `IcebergExternalTable` 源恒抛），故**零活行为损失**。 |
+| `systable/IcebergSysTable.java` | **手写**（不可整取任一侧） | `SUPPORTED_SYS_TABLES` 那段已自动合并成 upstream 版（去 filter、**去 `supported` 字段**）→ P6 侧的 `if (!supported)` 引用已不存在的字段。裁决=保 upstream 的 map（HMS-iceberg 因此 advertise position_deletes 后抛 IllegalArgumentException，**与 upstream 对 HMS 源的行为一致**）+ 保 P6 的恒抛 body（去 `!supported` 守卫）+ 三个 import 全删（两侧的都指向已删类/已无用者）。 |
+| `systable/IcebergSysTableResolverTest.java` | **手写** | 保 upstream 的 `testSupportedSysTablesIncludePositionDeletes`（在合并后的 map 上**成立**）；删两侧 hunk（upstream 侧引用已删类，P6 侧为空）。 |
+| `iceberg/test_iceberg_sys_table.groovy` | `git checkout --ours`（整取 upstream） | 我方 P6 对它的改动**只是改报错文案期望**（前提="legacy 也不支持"，已被 #65135 推翻）→ 前提失效即丢弃我方改动。**fail loud**：保留 #65135 的正向断言。 |
+
+## ⚠️ git 不标记但会炸的 2 个隐性坑（对抗 review 抓出，已修）
+1. **`iceberg/source/IcebergScanNodeTest.java` 不在冲突列表**（我方 23 commit 从未碰它 → 静默停在 upstream 的 329 行版本），却在 `:313/:323` **直接静态调用** `IcebergScanNode.checkPositionDeletesBackendCompatibility` + 4 处反射 `isSystemTable` 等 → 取 P6 侧必炸 **fe-core test 编译**。修=`git checkout f052d9da44e -- <file>` 还原到 pre-#65135 的 192 行（BASE==我方版，我方从未碰过）。**教训第 3 次复现：git 说没冲突 ≠ 语义没坏**（见 [[doris-build-verify-gotchas]]）。
+2. **groovy 冲突区外**的 `expectedPositionDeleteColumns.addAll(...)`/`assertEquals(...)`/权限段两条 `$position_deletes` 断言**已被自动合并进来** → 盲取 P6 侧会得到引用未定义变量的坏 Groovy。整取 upstream 后此坑消解。
+
+## 🚨 新增翻闸 BLOCKER = `$position_deletes` 未在 iceberg 连接器实现（用户 2026-07-15 拍板"方案 A：机械对齐 + 登记 blocker"）
+- **缺口**：我方 `SPI_READY_TYPES` 已含 `iceberg`（翻闸就在 `ec3a0cd55f4` 里），iceberg catalog 一律走连接器；而 `IcebergConnectorMetadata.listSupportedSysTables` / `isSupportedSysTable`（P6.5 的 **Q2 决策**）**刻意排除 `POSITION_DELETES`**，理由是"legacy fe-core 当时也不支持（抛 not supported yet）"——**该前提已被 #65135 推翻**。
+- **后果**（agent 独立复现 high confidence，无任何 fallback：`findSysTable` 只查 `PluginDrivenExternalTable.getSupportedSysTables()`→连接器 list，无第二注册表、无 TVF、无 legacy catalog 分支）：`select * from t$position_deletes` 在我方报 `Unknown sys table`，在 upstream master **端到端可用** = **相对 upstream 的能力缺失**（非"rebase 弄坏原本能用的"，BASE 时两边都不支持；是**未能继承新功能**）。
+- **已知红**（有意 fail loud，勿改测试掩盖）：① `test_iceberg_sys_table.groovy`（upstream 正向断言 + 权限段）；② **`test_iceberg_position_deletes_sys_table.groovy`（#65135 新增 659 行，不冲突、干净落地、整体红）**。
+- **BE 侧已就位、成孤儿**：`be/src/format/table/` + `be/src/format_v2/table/iceberg_position_delete_sys_table_reader.{cpp,h}`（~1200 行）+ thrift 契约 + BE 单测全在，**只差 FE 没人产生这种 range**。
+- **移植清单（下一轮做）**：① `IcebergConnectorMetadata` 去掉 POSITION_DELETES 排除（2 处：`listSupportedSysTables` + `isSupportedSysTable`，并同步改 `IcebergConnectorMetadataSysTableTest` 里 pin 住"连接器==legacy 公式"的断言）；② `IcebergScanRange` 加 position-delete 字段（对齐 fe-core `IcebergSplit` 的 7 个：`positionDeleteSystemTableSplit/FileFormat/Content/OriginalPath/ReferencedDataFilePath/ContentOffset/ContentSizeInBytes`）+ `populateRangeParams` 加 native range 形状分支（现有 sys 分支只发 FORMAT_JNI+serialized_split）；③ `IcebergScanPlanProvider` 移植 #65135 的 ~200 行规划（`BatchScan`+`PositionDeletesScanTask`+`splitPositionDeleteScanTask`+`determinePositionDeleteTargetSplitSize`+partition JSON 按 field-id 映射+binary/fixed/UUID 非空即抛）。**已知障碍**：smooth-upgrade 守卫 `checkPositionDeletesBackendCompatibility(backendPolicy.getBackends())` 需要连接器拿到 backend 列表，**SPI 目前不暴露** → 需扩 SPI 或把该守卫留 fe-core 侧。参考实现 = `git show 0814e49bea7 -- fe/fe-core/.../IcebergScanNode.java`。
+
+---
+
+# 🎯 上一轮（2026-07-10 续²）= **P6.6-C6 #63068 OIDC 会话凭证迁移：Tasks 0–7 全部 DONE + 三层 commit stack + clean-room 复审通过（未 push）**
+
+> **本段是有效实现现状**（不再是"最新一轮"，见顶部 2026-07-15 段）。**三层 commit stack（未 push，[DEC-FLIP-1] 铁律）**：SPI `55c991d0e87`（fe-connector-api：中立 DTO + 能力位）→ FE `930e4778064`（fe-core：能力位门控注入 + 缓存旁路 + 2 测）→ 连接器 `a07216ef102`（iceberg：per-user 路由 + 适配器 + 属性校验 + 4 测）。设计权威 = `plan-doc/P6.6-C6-oidc-session-migration-design.md` 第 12 节 + `...-research-notes.md`。
 
 ## ✅ P6.6-C6 实现完成（起步先读本块 + 设计文档；行号可能过时、信控制流不信注释）
 
