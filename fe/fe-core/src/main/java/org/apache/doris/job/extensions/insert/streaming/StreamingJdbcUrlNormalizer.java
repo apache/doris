@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.job.common.DataSourceType;
 
 /**
@@ -42,41 +43,13 @@ public final class StreamingJdbcUrlNormalizer {
 
     private static String normalizeMysql(String jdbcUrl) {
         String normalizedUrl = jdbcUrl.replace(" ", "");
-        normalizedUrl = forceBooleanParam(
-                normalizedUrl, "yearIsDateType", "true", "false");
-        normalizedUrl = forceBooleanParam(
-                normalizedUrl, "tinyInt1isBit", "true", "false");
-        normalizedUrl = forceBooleanParam(
-                normalizedUrl, "useUnicode", "false", "true");
-        return setParam(normalizedUrl, "characterEncoding", "utf-8");
-    }
-
-    private static String forceBooleanParam(String jdbcUrl, String param,
-            String unexpectedValue, String expectedValue) {
-        String unexpectedParam = param + "=" + unexpectedValue;
-        String expectedParam = param + "=" + expectedValue;
-        if (jdbcUrl.contains(expectedParam)) {
-            return jdbcUrl;
-        }
-        if (jdbcUrl.contains(unexpectedParam)) {
-            return jdbcUrl.replace(unexpectedParam, expectedParam);
-        }
-        return appendParam(jdbcUrl, expectedParam);
-    }
-
-    private static String setParam(String jdbcUrl, String param, String value) {
-        String expectedParam = param + "=" + value;
-        if (jdbcUrl.contains(expectedParam)) {
-            return jdbcUrl;
-        }
-        return appendParam(jdbcUrl, expectedParam);
-    }
-
-    private static String appendParam(String jdbcUrl, String param) {
-        String delimiter = jdbcUrl.contains("?") ? "&" : "?";
-        if (!jdbcUrl.endsWith(delimiter)) {
-            jdbcUrl += delimiter;
-        }
-        return jdbcUrl + param;
+        normalizedUrl = JdbcResource.checkAndSetJdbcBoolParam(
+                JdbcResource.MYSQL, normalizedUrl, "yearIsDateType", "true", "false");
+        normalizedUrl = JdbcResource.checkAndSetJdbcBoolParam(
+                JdbcResource.MYSQL, normalizedUrl, "tinyInt1isBit", "true", "false");
+        normalizedUrl = JdbcResource.checkAndSetJdbcBoolParam(
+                JdbcResource.MYSQL, normalizedUrl, "useUnicode", "false", "true");
+        return JdbcResource.checkAndSetJdbcParam(
+                JdbcResource.MYSQL, normalizedUrl, "characterEncoding", "utf-8");
     }
 }
