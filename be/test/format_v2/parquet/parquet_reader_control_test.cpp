@@ -482,7 +482,7 @@ GlobalRowLoacationV2 decode_rowid(const ColumnString& column, size_t row) {
 
 TEST(ParquetScalarColumnReaderTest, DictionaryIndexOutsideFilterIsCorruption) {
     ScalarColumnReader reader(string_schema("dictionary_value"), nullptr);
-    auto column = ColumnString::create();
+    MutableColumnPtr column = ColumnString::create();
     IColumn::Filter row_filter;
     int64_t matched_rows = 0;
     bool used_filter = false;
@@ -491,7 +491,7 @@ TEST(ParquetScalarColumnReaderTest, DictionaryIndexOutsideFilterIsCorruption) {
 
     const auto status = ScalarColumnReaderTestAccess::append_dictionary_filtered_values(
             reader, chunks, IColumn::Filter {1}, column, &row_filter, &matched_rows, &used_filter);
-    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_EQ(ErrorCode::CORRUPTION, status.code()) << status;
     EXPECT_NE(status.to_string().find("Invalid parquet dictionary index 1"), std::string::npos);
 }
 

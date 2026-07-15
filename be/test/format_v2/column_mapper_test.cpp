@@ -2682,8 +2682,8 @@ TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter)
 }
 
 // Scenario: a map value struct projects child `b`, while a row filter reads value child `a`.
-// The filter is too complex to become a file-local nested predicate, but the predicate projection
-// must replace the output projection for the same map root and contain both physical value children.
+// The filter is too complex to become a file-local nested predicate. Lazy demotion must move the
+// merged projection to the non-predicate set without dropping either physical value child.
 TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProjection) {
     const auto key_type = i32();
     const auto int_type = i32();
@@ -2716,9 +2716,9 @@ TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProject
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
-    EXPECT_TRUE(request.non_predicate_columns.empty());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
-    const auto& projection = request.predicate_columns[0];
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& projection = request.non_predicate_columns[0];
     EXPECT_EQ(projection.column_id(), LocalColumnId(0));
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);

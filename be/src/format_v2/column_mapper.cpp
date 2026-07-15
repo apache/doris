@@ -2052,8 +2052,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
 
     // Candidate columns are added before expression rewriting because their file-block positions
     // are needed to localize slot refs. If rewriting rejects every filter that references a visible
-    // column, restore that output column to the lazy non-predicate set instead of forcing it through
-    // the eager predicate path.
+    // column, move its already-merged output/filter projection to the lazy non-predicate set
+    // instead of forcing it through the eager predicate path.
     for (auto& mapping : _mappings) {
         if (!mapping.file_local_id.has_value()) {
             continue;
@@ -2069,10 +2069,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         if (predicate_it == file_request->predicate_columns.end()) {
             continue;
         }
+        file_request->non_predicate_columns.push_back(std::move(*predicate_it));
         file_request->predicate_columns.erase(predicate_it);
-        RETURN_IF_ERROR(add_scan_column(file_request, &mapping, false,
-                                        force_full_complex_scan_projection()));
-        RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
     }
     return Status::OK();
 }
