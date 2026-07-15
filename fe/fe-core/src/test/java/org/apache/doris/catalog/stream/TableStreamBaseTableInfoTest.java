@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-public class TableStreamInfoTest {
+public class TableStreamBaseTableInfoTest {
 
     @Test
     public void testConstructionAndSerialization() {
@@ -45,23 +45,23 @@ public class TableStreamInfoTest {
         Mockito.when(database.getFullName()).thenReturn("db_name");
         Mockito.when(catalog.getName()).thenReturn("catalog_name");
 
-        TableStreamInfo tableStreamInfo = new TableStreamInfo(table);
-        Assertions.assertEquals(3L, tableStreamInfo.getTableId());
-        Assertions.assertEquals(2L, tableStreamInfo.getDbId());
-        Assertions.assertEquals(1L, tableStreamInfo.getCtlId());
-        Assertions.assertEquals("table_name", tableStreamInfo.getTableName());
-        Assertions.assertEquals("db_name", tableStreamInfo.getDbName());
-        Assertions.assertEquals("catalog_name", tableStreamInfo.getCtlName());
+        TableStreamBaseTableInfo baseTableInfo = new TableStreamBaseTableInfo(table);
+        Assertions.assertEquals(3L, baseTableInfo.getTableId());
+        Assertions.assertEquals(2L, baseTableInfo.getDbId());
+        Assertions.assertEquals(1L, baseTableInfo.getCtlId());
+        Assertions.assertEquals("table_name", baseTableInfo.getTableName());
+        Assertions.assertEquals("db_name", baseTableInfo.getDbName());
+        Assertions.assertEquals("catalog_name", baseTableInfo.getCtlName());
         Assertions.assertEquals(ImmutableList.of("catalog_name", "db_name", "table_name"),
-                tableStreamInfo.getFullQualifiers());
+                baseTableInfo.getFullQualifiers());
 
         OlapTableStream tableStream = new OlapTableStream();
-        tableStream.tableStreamInfo = tableStreamInfo;
+        tableStream.baseTableInfo = baseTableInfo;
         JsonObject json = JsonParser.parseString(GsonUtils.GSON.toJson(tableStream)).getAsJsonObject();
-        Assertions.assertTrue(json.has("tsi"));
-        Assertions.assertFalse(json.has("sti"));
+        Assertions.assertTrue(json.has("bti"));
+        Assertions.assertFalse(json.has("tsi"));
 
         OlapTableStream deserialized = GsonUtils.GSON.fromJson(json, OlapTableStream.class);
-        Assertions.assertEquals(tableStreamInfo, deserialized.tableStreamInfo);
+        Assertions.assertEquals(baseTableInfo, deserialized.baseTableInfo);
     }
 }
