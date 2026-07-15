@@ -87,7 +87,7 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
             description = "The region of OSS.")
     private String region = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.fs.defaultFS"}, required = false, description = "")
+    @ConnectorProperty(names = {"oss.hdfs.fs.defaultFS", "fs.defaultFS"}, required = false, description = "")
     private String fsDefaultFS = "";
 
     @ConnectorProperty(names = {"oss.hdfs.hadoop.config.resources"},
@@ -158,6 +158,15 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
 
     private void initConfigurationParams() {
         Map<String, String> config = loadConfigFromFile(hadoopConfigResources);
+        // Converter-produced backend maps carry XML-loaded tuning keys (e.g. fs.oss.* Jindo
+        // settings) and fs.defaultFS as plain entries — the config-resources key itself is not
+        // part of that map — so pass Hadoop-shaped entries through like HdfsProperties and
+        // JfsProperties do. The derived keys below still win.
+        origProps.forEach((key, value) -> {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")) {
+                config.put(key, value);
+            }
+        });
         config.put("fs.oss.endpoint", endpoint);
         config.put("fs.oss.accessKeyId", accessKey);
         config.put("fs.oss.accessKeySecret", secretKey);

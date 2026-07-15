@@ -101,6 +101,40 @@ class OssHdfsPropertiesTest {
         Assertions.assertEquals("cn-beijing", resolved.get("fs.oss.region"));
     }
 
+    /**
+     * The converter map also carries entries the kernel loaded from XML config files (Jindo
+     * tuning keys) plus {@code fs.defaultFS}; rebinding must pass them through instead of
+     * rebuilding the config from the fixed credential/endpoint fields only.
+     */
+    @Test
+    void convertedBackendMapPreservesPassThroughEntries() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.oss.endpoint", "cn-beijing.oss-dls.aliyuncs.com");
+        raw.put("fs.oss.accessKeyId", "ak");
+        raw.put("fs.oss.accessKeySecret", "sk");
+        raw.put("fs.oss.region", "cn-beijing");
+        raw.put("fs.oss.tmp.data.dirs", "/tmp/jindo");
+        raw.put("fs.oss.upload.thread.concurrency", "16");
+        raw.put("fs.defaultFS", "oss://bucket");
+        raw.put("hadoop.username", "hive");
+        raw.put("_STORAGE_TYPE_", "OSS_HDFS");
+        raw.put("_HADOOP_CONFIG_DIR_", "/opt/hadoop/conf");
+
+        Map<String, String> resolved = resolve(raw);
+
+        Assertions.assertEquals("/tmp/jindo", resolved.get("fs.oss.tmp.data.dirs"));
+        Assertions.assertEquals("16", resolved.get("fs.oss.upload.thread.concurrency"));
+        Assertions.assertEquals("oss://bucket", resolved.get("fs.defaultFS"));
+        Assertions.assertEquals("hive", resolved.get("hadoop.username"));
+        // System-injected markers are not Hadoop config and must not leak through.
+        Assertions.assertFalse(resolved.containsKey("_STORAGE_TYPE_"));
+        Assertions.assertFalse(resolved.containsKey("_HADOOP_CONFIG_DIR_"));
+        // Derived keys still win over pass-through duplicates.
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem",
+                resolved.get("fs.oss.impl"));
+        Assertions.assertEquals("ak", resolved.get("fs.oss.accessKeyId"));
+    }
+
     @Test
     void convertedSecurityTokenRoundTrips() {
         Map<String, String> raw = new HashMap<>();
