@@ -94,11 +94,11 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
         assertEquals(1, metricSignatures.size(),
                 "${tableName} should have identical Spark and Doris bounds metrics: ${metricRows}")
         metricRows.each { row ->
-            assertTrue(String.valueOf(row[1]).contains("5:"),
-                    "${tableName} lower_bounds should contain nested struct field 5: ${row[1]}")
-            assertTrue(String.valueOf(row[2]).contains("5:"),
-                    "${tableName} upper_bounds should contain nested struct field 5: ${row[2]}")
-            ["4", "6", "7", "8"].each { excludedFieldId ->
+            assertTrue(String.valueOf(row[1]).contains("7:"),
+                    "${tableName} lower_bounds should contain nested struct field 7: ${row[1]}")
+            assertTrue(String.valueOf(row[2]).contains("7:"),
+                    "${tableName} upper_bounds should contain nested struct field 7: ${row[2]}")
+            ["4", "5", "8", "9"].each { excludedFieldId ->
                 assertTrue(!String.valueOf(row[1]).contains("${excludedFieldId}:"),
                         "${tableName} lower_bounds should not contain field ${excludedFieldId}: ${row[1]}")
                 assertTrue(!String.valueOf(row[2]).contains("${excludedFieldId}:"),

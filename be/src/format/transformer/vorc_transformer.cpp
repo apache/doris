@@ -27,6 +27,7 @@
 #include <sstream>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
@@ -573,39 +574,33 @@ void VOrcTransformer::_collect_primitive_column_bounds(
     } else if (const auto* decimal_stats =
                        dynamic_cast<const orc::DecimalColumnStatistics*>(col_stats)) {
         if (decimal_stats->hasMinimum() && decimal_stats->hasMaximum()) {
-            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum());
-            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum());
+            const auto* decimal_type = assert_cast<const iceberg::DecimalType*>(field_type);
+            (*lower_bounds)[field_id] =
+                    _decimal_to_bytes(decimal_stats->getMinimum(), decimal_type->get_scale());
+            (*upper_bounds)[field_id] =
+                    _decimal_to_bytes(decimal_stats->getMaximum(), decimal_type->get_scale());
         }
     }
 }
 
-std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) const {
+std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal,
+                                               int target_scale) const {
+    DORIS_CHECK_GE(target_scale, decimal.scale);
     orc::Int128 val = decimal.value;
-    if (val == 0) {
-        char zero = 0;
-        return std::string(&zero, 1);
+    for (int scale = decimal.scale; scale < target_scale; ++scale) {
+        val *= orc::Int128(10);
     }
 
-    // Convert Int128 -> signed big-endian minimal bytes
     bool negative = val < 0;
     auto high = static_cast<uint64_t>(val.getHighBits());
     auto low = val.getLowBits();
 
-    // If negative, convert to two's complement explicitly
-    if (negative) {
-        // two's complement for 128-bit
-        low = ~low + 1;
-        high = ~high + (low == 0 ? 1 : 0);
-    }
-
-    // Serialize to big-endian bytes
     uint8_t buf[16];
     for (int i = 0; i < 8; ++i) {
         buf[i] = static_cast<uint8_t>(high >> (56 - i * 8));
         buf[i + 8] = static_cast<uint8_t>(low >> (56 - i * 8));
     }
 
-    // Strip leading sign-extension bytes (Iceberg minimal encoding)
     int start = 0;
     uint8_t sign_byte = negative ? 0xFF : 0x00;
     while (start < 15 && buf[start] == sign_byte &&
