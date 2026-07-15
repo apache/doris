@@ -23,31 +23,46 @@ import java.util.regex.Pattern;
 
 def delta_time = 1000
 
-Suite.metaClass.wait_for_last_build_index_finish = {table_name, OpTimeout ->
+Suite.metaClass.get_build_index_job_ids = { table_name ->
+    def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+    return alter_res.collect { it[0].toString() }.toSet()
+}
+
+Suite.metaClass.wait_for_last_build_index_finish = { table_name, OpTimeout, previous_job_ids = null ->
     def finished = false
     def alter_res = []
-    for(int t = 0; t <= OpTimeout; t += delta_time){
-        alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-        if (alter_res.isEmpty()) {
-            logger.info(table_name + " has no build index job to wait for")
-            finished = true
-            break
+    def confirmed_finished_job_ids = null
+    for (int t = 0; t <= OpTimeout; t += delta_time) {
+        if (previous_job_ids == null) {
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}"
+                    ORDER BY CreateTime DESC LIMIT 1;"""
+        } else {
+            def all_jobs = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}"
+                    ORDER BY CreateTime DESC;"""
+            alter_res = all_jobs.findAll { !previous_job_ids.contains(it[0].toString()) }
         }
-        alter_res = alter_res.toString()
-        if(alter_res.contains("FINISHED")) {
-            logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-            finished = true
-            break
-        } else if (alter_res.contains("CANCELLED")) {
-            logger.info(table_name + " latest alter job failed, detail: " + alter_res)
+
+        if (!alter_res.isEmpty() && alter_res.any { it[7] == "CANCELLED" }) {
+            logger.info(table_name + " build index job failed, detail: " + alter_res)
             assertTrue(false)
+        }
+        if (!alter_res.isEmpty() && alter_res.every { it[7] == "FINISHED" }) {
+            def finished_job_ids = alter_res.collect { it[0].toString() }.toSet()
+            if (previous_job_ids == null || finished_job_ids == confirmed_finished_job_ids) {
+                logger.info(table_name + " build index jobs finished, detail: " + alter_res)
+                finished = true
+                break
+            }
+            confirmed_finished_job_ids = finished_job_ids
+        } else {
+            confirmed_finished_job_ids = null
         }
         if (t >= OpTimeout) {
             break
         }
         sleep(delta_time)
     }
-    assertTrue(finished, "wait for last build index finish timeout, latest result: ${alter_res}")
+    assertTrue(finished, "wait for build index finish timeout, latest result: ${alter_res}")
 }
 
 Suite.metaClass.build_index_on_table = {index_name, table_name ->

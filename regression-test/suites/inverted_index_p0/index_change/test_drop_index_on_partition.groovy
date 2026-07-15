@@ -76,7 +76,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
 
     // create inverted index
     sql "CREATE INDEX idx_v2 ON ${tableName1}(v2) USING INVERTED"
-    wait_for_last_build_index_finish(tableName1, timeout)
+    wait_for_last_col_change_finish(tableName1, timeout)
 
     // verify index exists
     def show_idx = sql "SHOW INDEX FROM ${tableName1}"
@@ -134,7 +134,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "INSERT INTO ${tableName2} VALUES (10, 'hello'), (110, 'world'), (210, 'doris')"
 
     sql "CREATE INDEX idx_v1 ON ${tableName2}(v1) USING INVERTED"
-    wait_for_last_build_index_finish(tableName2, timeout)
+    wait_for_last_col_change_finish(tableName2, timeout)
 
     job_count_before = get_build_index_job_count(tableName2)
 
@@ -171,7 +171,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
     """
     sql "INSERT INTO ${tableName3} VALUES (1, 'test')"
     sql "CREATE INDEX idx_v1 ON ${tableName3}(v1) USING INVERTED"
-    wait_for_last_build_index_finish(tableName3, timeout)
+    wait_for_last_col_change_finish(tableName3, timeout)
 
     test {
         sql "DROP INDEX idx_v1 ON ${tableName3} PARTITION (p1)"
@@ -249,7 +249,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "INSERT INTO ${tableName5} VALUES (10, 'hello world'), (110, 'test data')"
 
     sql "CREATE INDEX idx_v1 ON ${tableName5}(v1) USING INVERTED"
-    wait_for_last_build_index_finish(tableName5, timeout)
+    wait_for_last_col_change_finish(tableName5, timeout)
 
     job_count_before = get_build_index_job_count(tableName5)
 

@@ -36,7 +36,7 @@ suite("test_index_change_4") {
                     ++finished_num;
                 }
             }
-            if (finished_num == expected_finished_num) {
+            if (!alter_res.isEmpty() && finished_num == expected_finished_num) {
                 sleep(10000)
                 logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
                 finished = true
@@ -51,6 +51,17 @@ suite("test_index_change_4") {
     }
     
     def tableName = "test_index_change_4"
+
+    def drop_index_and_wait = { index_name ->
+        def previous_job_ids = isCloudMode() ? get_build_index_job_ids(tableName) : null
+        sql """ DROP INDEX ${index_name} ON ${tableName} """
+        if (isCloudMode()) {
+            wait_for_last_col_change_finish(tableName, timeout)
+            wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
+        } else {
+            wait_for_last_build_index_finish(tableName, timeout)
+        }
+    }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -100,18 +111,17 @@ suite("test_index_change_4") {
     qt_select6 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
     // drop inverted index idx_user_id, idx_note
-    sql """ DROP INDEX idx_user_id ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
-    sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
+    drop_index_and_wait("idx_user_id")
+    drop_index_and_wait("idx_note")
     // create inverted index idx_city
     sql """ CREATE INDEX idx_note ON ${tableName}(`note`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)
     // build index
 
     if (!isCloudMode()) {
+        def previous_job_ids = get_build_index_job_ids(tableName)
         build_index_on_table("idx_note", tableName)
-        wait_for_last_build_index_finish(tableName, timeout)
+        wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
     }
 
     def show_result = sql "show index from ${tableName}"
@@ -175,10 +185,8 @@ suite("test_index_change_4") {
     qt_select6_v1 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
     // drop inverted index idx_user_id, idx_note
-    sql """ DROP INDEX idx_user_id ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
-    sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
+    drop_index_and_wait("idx_user_id")
+    drop_index_and_wait("idx_note")
     // create inverted index idx_city
     sql """ CREATE INDEX idx_note ON ${tableName}(`note`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)

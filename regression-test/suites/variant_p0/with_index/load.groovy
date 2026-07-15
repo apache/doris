@@ -44,22 +44,25 @@ suite("regression_test_variant_with_index", "p0"){
     // sql "truncate table ${table_name}"
     sql """insert into var_with_index values(1, '{"a1" : 0, "b1": 3}', 'hello world'), (2, '{"a2" : 123}', 'world'),(3, '{"a3" : 123}', 'hello world')"""
     sql """insert into var_with_index values(4, '{"b1" : 0, "b2": 3}', 'hello world'), (5, '{"b2" : 123}', 'world'),(6, '{"b3" : 123}', 'hello world')"""
+    def previous_job_ids = isCloudMode() ? get_build_index_job_ids(table_name) : null
     def drop_result = sql """
                       ALTER TABLE var_with_index
                           drop index idx
                   """
     logger.info("drop index " + "${table_name}" +  "; result: " + drop_result)
     wait_for_last_schema_change_finish(table_name, timeout)
+    if (isCloudMode()) {
+        wait_for_last_build_index_finish(table_name, timeout, previous_job_ids)
+    }
     def show_result = sql "show index from ${table_name}"
     assertEquals(show_result.size(), 0)
     qt_sql_inv4 """select v["a1"] from ${table_name} where cast(v['a1'] as int) = 0"""
     qt_sql_inv5 """select * from ${table_name} order by k"""
     sql "create index inv_idx on ${table_name}(`inv`) using inverted"
-
-    build_index_on_table("inv_idx", table_name)
-
     wait_for_last_col_change_finish(table_name, timeout)
-    wait_for_last_build_index_finish(table_name, timeout)
+    previous_job_ids = get_build_index_job_ids(table_name)
+    build_index_on_table("inv_idx", table_name)
+    wait_for_last_build_index_finish(table_name, timeout, previous_job_ids)
     show_result = sql "show index from ${table_name}"
     assertEquals(show_result.size(), 1)
     sql """insert into var_with_index values(7, '{"a1" : 0, "b1": 3}', 'hello world'), (8, '{"a2" : 123}', 'world'),(9, '{"a3" : 123}', 'hello world')"""

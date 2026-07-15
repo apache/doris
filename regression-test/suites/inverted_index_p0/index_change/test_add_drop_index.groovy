@@ -143,8 +143,12 @@ suite("test_add_drop_index", "inverted_index"){
     assertEquals(show_result[0][10], "INVERTED")
     logger.info("create index name_idx for " + indexTbName1 + "(`name`) USING INVERTED PROPERTIES(\"parser\"=\"none\")")
     logger.info("show index result: " + show_result)
+    def previous_job_ids = isCloudMode() ? get_build_index_job_ids(indexTbName1) : null
     sql "drop index name_idx on ${indexTbName1}"
     wait_for_last_schema_change_finish(indexTbName1, timeout)
+    if (isCloudMode()) {
+        wait_for_last_build_index_finish(indexTbName1, timeout, previous_job_ids)
+    }
 
     // case5：create simple inverted index for char colume
     sql "create index studentInfo_idx on ${indexTbName1}(`studentInfo`) USING INVERTED PROPERTIES(\"parser\"=\"english\")"
