@@ -3119,6 +3119,38 @@ TEST_F(ColumnMapperCastTest, NestedElementAtConjunctRewritesExactLiteralToFileTy
     conjunct->close();
 }
 
+// Scenario: an old file allows NULL for a nested leaf that the current table declares required.
+// Although every non-NULL INT value and the literal 15 can be promoted to BIGINT exactly, the
+// predicate must stay above TableReader. If `file_s.b > 15` ran first for rows [NULL, 20], it would
+// discard NULL and prevent table-schema materialization from reporting the nullable-to-required
+// contract violation.
+TEST_F(ColumnMapperCastTest,
+       NestedElementAtConjunctStaysTableLevelForNullableFileLeafMappedToRequiredTableLeaf) {
+    const auto file_nullable_int_type = make_nullable(i32());
+    const auto table_bigint_type = i64();
+
+    auto table_b = field_id_col("b", 11, table_bigint_type);
+    auto table_struct = struct_col("s", 10, {table_b});
+    auto file_b = field_id_col("b", 11, file_nullable_int_type, 0);
+    auto file_struct = struct_col("s", 10, {file_b}, 5);
+
+    auto table_leaf = executable_struct_element(
+            table_slot(0, 0, table_struct.type, table_struct.name), table_bigint_type, "b");
+    auto filter_expr = executable_binary_predicate(
+            TExprOpcode::GT, table_leaf,
+            literal(table_bigint_type, Field::create_field<TYPE_BIGINT>(15)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request, &state).ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
 // Scenario: the table literal is outside the old file leaf's INT range. Rewriting
 // BIGINT 2147483648 to INT would change the predicate, so keep the literal as BIGINT and cast the
 // file leaf instead: `CAST(file_s.b::INT AS BIGINT) = 2147483648::BIGINT`.

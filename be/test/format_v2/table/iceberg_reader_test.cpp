@@ -21,6 +21,7 @@
 #include <arrow/io/api.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
+#include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
 
 #include <algorithm>
@@ -460,6 +461,39 @@ void write_single_int_parquet_file(const std::string& file_path, const std::stri
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       static_cast<int64_t>(values.size()),
                                                       builder.build()));
+}
+
+void write_unsupported_time_first_int_parquet_file(const std::string& file_path,
+                                                   const std::vector<int32_t>& ids) {
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    // Arrow writes time32 as isAdjustedToUTC=false, which Doris supports. Use Parquet's low-level
+    // writer so the first physical column is the deliberately unsupported adjusted TIME_MILLIS
+    // shape from the review report. The query will project only the following supported `id`.
+    const auto unsupported_time = ::parquet::schema::PrimitiveNode::Make(
+            "unsupported_time", ::parquet::Repetition::REQUIRED,
+            ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::MILLIS),
+            ::parquet::Type::INT32);
+    const auto id = ::parquet::schema::PrimitiveNode::Make("id", ::parquet::Repetition::REQUIRED,
+                                                           ::parquet::Type::INT32);
+    const auto schema_node = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED, {unsupported_time, id});
+    const auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(schema_node);
+
+    auto writer = ::parquet::ParquetFileWriter::Open(out, schema);
+    auto* row_group = writer->AppendRowGroup();
+    auto* time_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+    std::vector<int32_t> times(ids.size(), 1000);
+    const auto row_count = cast_set<int64_t>(ids.size());
+    EXPECT_EQ(time_writer->WriteBatch(row_count, nullptr, nullptr, times.data()), row_count);
+    time_writer->Close();
+    auto* id_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+    EXPECT_EQ(id_writer->WriteBatch(row_count, nullptr, nullptr, ids.data()), row_count);
+    id_writer->Close();
+    row_group->Close();
+    writer->Close();
 }
 
 void write_two_int_parquet_file(const std::string& file_path, const std::string& first_name,
@@ -2145,6 +2179,45 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesNullForMissingDataColumn) 
     // Iceberg treats a field missing from an older data file as NULL. The NULL equality-delete
     // key therefore matches every row in this file.
     EXPECT_TRUE(read_iceberg_ids(&reader, projected_columns).empty());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMissingKeyDoesNotReadUnsupportedUnprojectedCarrier) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_virtual_carrier_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_unsupported_time_first_int_parquet_file(file_path, {1, 2, 3});
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 1, 7, "added_column");
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    // The missing data key is NULL, so it does not match delete key 7. More importantly, the
+    // hidden row-count dependency must use virtual row position instead of the first physical
+    // TIME_MILLIS column, which is unsupported and was not requested by this `id` projection.
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 2, 3}));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

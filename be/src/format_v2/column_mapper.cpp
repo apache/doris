@@ -790,6 +790,19 @@ static bool collect_struct_element_chain(const VExprSPtr& expr, std::vector<VExp
     return true;
 }
 
+static bool can_filter_before_table_nullability_alignment(const DataTypePtr& file_type,
+                                                          const DataTypePtr& table_type) {
+    DORIS_CHECK(file_type != nullptr);
+    DORIS_CHECK(table_type != nullptr);
+    // File-local conjuncts run before TableReader validates the materialized table schema. A
+    // nullable file value mapped to a required table value must therefore reach
+    // _align_column_nullability(). For example, with file STRUCT<a: Nullable(INT)>, table
+    // STRUCT<a: BIGINT>, rows [NULL, 20], and `s.a > 10`, filtering in the file domain would drop
+    // NULL first and hide the table-contract violation. The reverse direction is safe: a required
+    // file value can always be wrapped as a nullable table value after filtering.
+    return !file_type->is_nullable() || table_type->is_nullable();
+}
+
 static bool rewrite_struct_element_path_to_file_expr(
         const VExprSPtr& expr, const std::vector<ColumnMapping>& mappings,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
@@ -814,6 +827,22 @@ static bool rewrite_struct_element_path_to_file_expr(
     const auto rewrite_it = global_to_file_slot.find(slot_ref_global_index(*slot_ref));
     if (rewrite_it == global_to_file_slot.end()) {
         return false;
+    }
+
+    // Check every value-producing level, including the root struct. A nullable parent also makes
+    // a child access nullable even when the child type itself is required, so checking only the
+    // final leaf is insufficient. If any file level is more nullable than its table counterpart,
+    // keep the complete predicate above TableReader so schema validation observes all NULLs before
+    // row filtering.
+    if (!can_filter_before_table_nullability_alignment(rewrite_it->second.file_type,
+                                                       rewrite_it->second.table_type)) {
+        return false;
+    }
+    for (size_t idx = 0; idx < struct_element_chain.size(); ++idx) {
+        if (!can_filter_before_table_nullability_alignment(
+                    resolved.file_child_types[idx], struct_element_chain[idx]->data_type())) {
+            return false;
+        }
     }
 
     // File-local conjuncts are prepared against the file-reader Block, so both the root slot and
