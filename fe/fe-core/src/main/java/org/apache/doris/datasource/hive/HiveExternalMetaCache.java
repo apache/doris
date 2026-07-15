@@ -818,7 +818,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                                     partition,
                                     txnValidIds,
                                     catalog.getCatalogProperty().getStoragePropertiesMap(),
-                                    isFullAcid)));
+                                    isFullAcid,
+                                    locationPath.getNormalizedLocation())));
                 }
             }
         } catch (Exception e) {
