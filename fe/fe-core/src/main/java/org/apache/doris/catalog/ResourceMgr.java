@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -150,10 +151,22 @@ public class ResourceMgr implements Writable {
         }
 
         Resource resource = nameToResource.get(resourceName);
-        resource.modifyProperties(properties);
+        EditLogItem editLogItem;
+        resource.writeLock();
+        try {
+            resource.modifyProperties(properties);
+            Resource resourceSnapshot = resource.clone();
+            if (resourceSnapshot == null) {
+                throw new IllegalStateException("Failed to snapshot resource " + resourceName);
+            }
+            editLogItem = Env.getCurrentEnv().getEditLog().submitAlterResource(resourceSnapshot);
+        } finally {
+            resource.writeUnlock();
+        }
 
-        // log alter
-        Env.getCurrentEnv().getEditLog().logAlterResource(resource);
+        // Wait outside the resource lock. The detached snapshot was enqueued while holding the lock,
+        // so concurrent ALTER RESOURCE operations preserve journal order without blocking on journal I/O.
+        editLogItem.await();
         LOG.info("Alter resource success. Resource: {}", resource);
     }
 

@@ -2216,6 +2216,10 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
+    public EditLogItem submitAlterResource(Resource resource) {
+        return submitEdit(OperationType.OP_ALTER_RESOURCE, resource);
+    }
+
     public void logAlterWorkloadGroup(WorkloadGroup workloadGroup) {
         logEdit(OperationType.OP_ALTER_WORKLOAD_GROUP, workloadGroup);
     }

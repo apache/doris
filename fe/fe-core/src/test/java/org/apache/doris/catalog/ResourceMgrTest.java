@@ -24,6 +24,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
@@ -34,8 +35,19 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 public class ResourceMgrTest {
     // s3 resource
@@ -128,6 +140,79 @@ public class ResourceMgrTest {
 
             // add again
             mgr.createResource(createResourceCommand);
+        }
+    }
+
+    @Test
+    public void testConcurrentAlterUsesDetachedJournalSnapshots() throws Exception {
+        Env env = Env.getCurrentEnv();
+        EditLog originalEditLog = env.getEditLog();
+        EditLog editLog = Mockito.mock(EditLog.class);
+        CountDownLatch firstSerializationStarted = new CountDownLatch(1);
+        CountDownLatch allowFirstSerialization = new CountDownLatch(1);
+        AtomicInteger submitIndex = new AtomicInteger();
+        AtomicReferenceArray<Resource> persistedResources = new AtomicReferenceArray<>(2);
+
+        Mockito.when(editLog.submitAlterResource(Mockito.any())).thenAnswer(invocation -> {
+            int index = submitIndex.getAndIncrement();
+            Resource snapshot = invocation.getArgument(0);
+            EditLogItem item = Mockito.mock(EditLogItem.class);
+            Mockito.when(item.await()).thenAnswer(awaitInvocation -> {
+                if (index == 0) {
+                    firstSerializationStarted.countDown();
+                    Assert.assertTrue(allowFirstSerialization.await(5, TimeUnit.SECONDS));
+                }
+                persistedResources.set(index, serializeAndRead(snapshot));
+                return (long) index;
+            });
+            return item;
+        });
+
+        HdfsResource resource = new HdfsResource("hdfs_resource");
+        resource.setProperties(ImmutableMap.of(
+                HdfsResource.HADOOP_FS_NAME, "hdfs://namenode:8020",
+                "hadoop.username", "doris"));
+        ResourceMgr mgr = new ResourceMgr();
+        Assert.assertTrue(mgr.createResource(resource, false));
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        env.setEditLog(editLog);
+        try {
+            Future<?> firstAlter = executor.submit(() -> {
+                mgr.alterResource(resource.getName(), ImmutableMap.of("dfs.replication", "1"));
+                return null;
+            });
+            Assert.assertTrue(firstSerializationStarted.await(5, TimeUnit.SECONDS));
+
+            Future<?> secondAlter = executor.submit(() -> {
+                mgr.alterResource(resource.getName(), ImmutableMap.of("dfs.replication", "2"));
+                return null;
+            });
+            secondAlter.get(5, TimeUnit.SECONDS);
+
+            allowFirstSerialization.countDown();
+            firstAlter.get(5, TimeUnit.SECONDS);
+
+            Assert.assertEquals(2, submitIndex.get());
+            Assert.assertEquals("1", ((HdfsResource) persistedResources.get(0))
+                    .getCopiedProperties().get("dfs.replication"));
+            Assert.assertEquals("2", ((HdfsResource) persistedResources.get(1))
+                    .getCopiedProperties().get("dfs.replication"));
+            Assert.assertEquals("2", resource.getCopiedProperties().get("dfs.replication"));
+        } finally {
+            allowFirstSerialization.countDown();
+            executor.shutdownNow();
+            env.setEditLog(originalEditLog);
+        }
+    }
+
+    private Resource serializeAndRead(Resource resource) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            resource.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return Resource.read(in);
         }
     }
 }

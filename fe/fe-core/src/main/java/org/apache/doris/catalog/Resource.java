@@ -258,13 +258,23 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     @Override
     public String toString() {
-        return GsonUtils.GSON.toJson(this);
+        readLock();
+        try {
+            return GsonUtils.GSON.toJson(this);
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
+        readLock();
+        try {
+            String json = GsonUtils.GSON.toJson(this);
+            Text.writeString(out, json);
+        } finally {
+            readUnlock();
+        }
     }
 
     public static Resource read(DataInput in) throws IOException {

@@ -23,6 +23,8 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -46,6 +48,17 @@ public class HdfsResourceTest {
     public void testModifyWaitsForCopiedPropertiesRead() throws Exception {
         BlockingReadHdfsResource resource = createResource();
         assertModifyWaitsForRead(resource, resource::getCopiedProperties);
+    }
+
+    @Test
+    public void testModifyWaitsForSerializationRead() throws Exception {
+        BlockingReadHdfsResource resource = createResource();
+        assertModifyWaitsForRead(resource, () -> {
+            try (DataOutputStream out = new DataOutputStream(new ByteArrayOutputStream())) {
+                resource.write(out);
+            }
+            return null;
+        });
     }
 
     private BlockingReadHdfsResource createResource() throws Exception {
