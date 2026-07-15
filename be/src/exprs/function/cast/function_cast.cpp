@@ -17,6 +17,7 @@
 
 #include <utility>
 
+#include "common/config.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
@@ -27,10 +28,9 @@
 #include "exprs/function/cast/cast_to_map.h"
 #include "exprs/function/cast/cast_to_struct.h"
 #include "exprs/function/cast/cast_to_variant.h"
-#include "exprs/function/cast/cast_variant_v2.h"
 #include "exprs/function/cast/cast_wrapper_decls.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2.h"
 #include "exprs/function/simple_function_factory.h"
-#include "exprs/variant_v2_execution.h"
 
 namespace doris {
 
@@ -234,14 +234,14 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
 
     // variant needs to be judged first
     if (to_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        if (variant_v2_enabled()) {
+        if (config::enable_variant_v2) {
             return create_cast_to_variant_v2_wrapper(from_type);
         }
         return create_cast_to_variant_wrapper(from_type,
                                               static_cast<const DataTypeVariant&>(*to_type));
     }
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        if (variant_v2_enabled()) {
+        if (config::enable_variant_v2) {
             auto wrapper = create_cast_from_variant_v2_wrapper(to_type);
             return [wrapper = std::move(wrapper)](
                            FunctionContext* context, Block& block, const ColumnNumbers& arguments,

@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column_array.h"
@@ -29,12 +30,11 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_variant.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
-#include "exprs/variant_v2_execution.h"
 #include "exprs/vexpr.h"
 
 namespace doris {
@@ -151,7 +151,7 @@ private:
             CASE_TYPE(TYPE_HLL, ColumnHLL)
             CASE_TYPE(TYPE_QUANTILE_STATE, ColumnQuantileState)
         case PrimitiveType::TYPE_VARIANT:
-            if (variant_v2_enabled()) {
+            if (config::enable_variant_v2) {
                 return _execute_update_result_impl<IndexType, ColumnVariantV2>(
                         then_idx, then_columns, rows_count);
             }

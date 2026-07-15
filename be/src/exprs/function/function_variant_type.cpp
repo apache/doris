@@ -18,7 +18,7 @@
 
 #include "core/column/column_nullable.h"
 #include "core/column/column_variant.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/simple_function_factory.h"
 #include "util/string_util.h"

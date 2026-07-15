@@ -100,7 +100,7 @@ Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arr
 
 #include "common/cast_set.h"
 #include "common/exception.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/value/jsonb_value.h"

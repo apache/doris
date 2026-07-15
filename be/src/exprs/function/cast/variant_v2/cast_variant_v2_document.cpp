@@ -19,11 +19,11 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_buffer.hpp"
-#include "exprs/function/cast/cast_variant_v2_internal.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
 #include "util/jsonb_writer.h"

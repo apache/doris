@@ -22,7 +22,7 @@
 #include <span>
 
 #include "common/check.h"
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "util/variant/variant_field.h"
 #include "util/variant/variant_value.h"
 

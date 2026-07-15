@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/column/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 
 #include <algorithm>
 #include <array>
@@ -33,9 +33,9 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant_v2_typed_scalar.h"
 #include "core/column/column_vector.h"
 #include "core/column/columns_common.h"
+#include "core/column/variant_v2/column_variant_v2_typed_scalar.h"
 #include "core/custom_allocator.h"
 #include "util/hash_util.hpp"
 #include "util/variant/variant_canonical.h"
