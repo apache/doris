@@ -290,11 +290,11 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
      */
     @Override
     public LogicalOlapTableStreamScan withSelectedPartitionIds(List<Long> selectedPartitionIds,
-                                                               boolean isPartitionPruned) {
+                                                               boolean hasPartitionPredicate) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, isPartitionPruned, hasPartitionPredicate, selectedTabletIds,
+                        selectedPartitionIds, true, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
