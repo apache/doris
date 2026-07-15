@@ -77,26 +77,19 @@ mvn -o -f <abs>/fe/pom.xml -pl fe-core -am dependency:tree -Dincludes=org.apache
       - ✋ 同目录的 `ConfigurationAWSCredentialsProvider.java`（v1）与 `ConfigurationAWSCredentialsProviderFactory.java`
         **未动**，属 thrift 一代 → 随 T-30 删
 
-- [ ] **T-21** 🔴 **下一个 session 第一件事（用户 2026-07-15 指定排序）· 方案待签字**：
-      Glue **session token 静默丢弃**（既有 bug，`867284b23c5`/2024-10 原始 Glue 支持就没处理过，
-      **不是** `2cd01ada8df` 那次搬迁引入）。
-      **完整 brief 见 `HANDOFF.md`**（3 路侦察 + 11 路对抗验证，全部 javap 字节码级 + 主 session 亲验）。
-
-      🔴 **原文「修法就一处」= 错。实际是两个模块、两处独立缺陷**：
-      - **A（iceberg 插件）** `glue/ConfigurationAWSCredentialsProvider2x.java:48-53`：`create(Map)` 只读
-        `glue.access_key`/`glue.secret_key` 造 `AwsBasicCredentials`，**token 就在 map 里没人读**
-        （iceberg 剥掉 `client.credentials-provider.` 前缀后，key = `glue.session_token`）。
-      - **B（`fe-filesystem`，原文完全没提）** `S3FileSystemProperties` 别名表**不对称**：
-        `accessKey`/`secretKey` **特意收了** glue 的三个别名，**`sessionToken` 一个 glue 别名都没有**
-        （`grep -rn 'glue.session' fe/fe-filesystem/` = **0**）⇒ token 到不了 S3 store ⇒ 发出
-        `s3.session-token=""` ⇒ iceberg 走空 token 分支 ⇒ 同样丢。
-      ⇒ **只修 A 不修 B，临时凭证的 glue catalog 仍是坏的**（Glue API 通了，读 metadata 文件仍 403）。
-      📌 BE 数据扫描不受影响（凭证走 `toBackendProperties()` 另一条路）。
-
-      要点：用户唯一输入别名是 **`aws.glue.session-token`**（单元素数组，`IcebergConnectorProperties.java:134`）·
-      判空必须 `isNotBlank`（实跑探针：`AwsSessionCredentials.create(ak,sk,"")` **不报错**，会造出空 token 凭证）·
-      模板已在库内（`IcebergConnector.java:854-863`）· 测试用**探针式**驱动真的
-      `new AwsClientProperties(opts).credentialsProvider(...)` 断言 token 存活（pom 零改动，agent 已实跑通过）。
+- [x] **T-21** ✅ **已完成**（用户 2026-07-15 签字「两处都修」）—— Glue session token 静默丢弃。
+      既有 bug（`867284b23c5`/2024-10 原始 Glue 支持起即如此，**非** `2cd01ada8df` 搬迁引入）。
+      🔴 **原文「修法就一处」被证伪 = 两个模块、两处独立缺陷**（只修一处仍不可用）：
+      - **A（iceberg 插件）** `create()` 只读 ak/sk → 改为 token 非空白时造 `AwsSessionCredentials`
+        （字段类型放宽到共同父类 `AwsCredentials`）。链条已 javap 逐段验证：iceberg 剥掉
+        `client.credentials-provider.` 前缀经 DynMethods 反射调 `create(Map)`，key = `glue.session_token`。
+      - **B（`fe-filesystem`）** `S3FileSystemProperties` 的 `sessionToken` 补 `aws.glue.session-token` 别名
+        （与旁边 accessKey/secretKey 已有的 glue 别名对称；此前全树 `glue.session` 命中 0）。
+      ⚠️ **判空必须 `isNotBlank`**：`AwsSessionCredentials.create(ak,sk,"")` 不报错，会造出空 token 凭证。
+      测试：**探针式**驱动真的 `new AwsClientProperties(opts).credentialsProvider(...)` 串起全链
+      + 无 token 路径钉住今日行为 + fe-filesystem 侧别名守门；**三者均已变异验证**（红在断言上）。
+      验证：iceberg 连接器 `-am package` 134 个测试类真跑全绿 · fe-filesystem-s3 全绿 · checkstyle 0。
+      📌 真临时凭证的 e2e 需真实 STS → 归 T-73。
 
 ## 阶段 2 — 删 Glue（thrift 一代）✅ **已完成**（commit `e43173eca67`）
 

@@ -6,9 +6,9 @@
 
 ---
 
-# 🆕 下一个 session = **先办 T-21（Glue session token）**，然后阶段 6（T-70 ~ T-74）
+# 🆕 下一个 session = **阶段 6（用户可见面 + 守门）**：T-70 ~ T-74
 
-> **用户 2026-07-15 指定排序**：阶段 6 之前先处理 session token 静默丢弃。
+> T-21（Glue session token）**已完成**（用户 2026-07-15 指定优先处理并签字）。
 
 ## 状态：**阶段 1–5 全部完成。127MB 的 jar 已经出了 `fe/lib`。**
 
@@ -59,6 +59,7 @@ shade 的真依赖只剩 **4 个正当消费者**：`fe-connector-hms` · `fe-co
 - **T-73 e2e**：① 普通 HMS catalog 读写 ② iceberg 原生 Glue + AK/SK ③ Ranger hive 鉴权
   🔴 **本阶段新增必跑项**：④ **FE 起得来 + 各类缓存正常**（Caffeine 由 2.x 翻到 3.2.3，见下）
   ⑤ **OBS/BOS 访问**（commons-lang 结论的反面验证）
+  ⑥ **glue catalog + 临时 STS 凭证**（T-21 的验收；需真实 STS 凭证，单测覆盖不到）
 - **T-74 收尾**：`progress.md` 结项 + `../decisions-log.md` 补 D-NNN + PR（base = `branch-catalog-spi`，squash）
 
 ---
@@ -140,71 +141,25 @@ shade execution 已删。**别把这当成新 bug 去"修"。**
 
 ---
 
-# 🔴 T-21 — Glue session token 静默丢弃（**下一个 session 第一件事**）
+# ✅ T-21 — Glue session token 已修（用户签字，行为变更）
 
-## 结论：bug 属实、可达、且**修法不是一处而是两处**（原 tasklist 写的「就一处」= 错）
+**改完之后**：用临时 STS 凭证的 glue catalog 从「必然认证失败」变成「能用」。
 
-**已做**：3 路侦察 + 11 路对抗验证（14 agent），**全部结论经 javap 字节码 + 主 session 亲验**。
-**未做**：写码（**方案待用户签字**，属行为变更）。
+🔴 **侦察证伪了原计划的「修法就一处」——实为两个模块、两处独立缺陷**（只修一处仍不可用）：
+- **A（iceberg 插件）** `ConfigurationAWSCredentialsProvider2x.create()` 只读 ak/sk，token 就在收到的 map 里
+  没人读（iceberg 剥掉 `client.credentials-provider.` 前缀后 key = `glue.session_token`）。
+- **B（`fe-filesystem`）** `S3FileSystemProperties` 别名表不对称：accessKey/secretKey 收了 glue 的三个别名，
+  **sessionToken 一个都没有** ⇒ token 到不了 S3 store ⇒ 发出 `s3.session-token=""` ⇒ iceberg 走空 token 分支。
 
-### 谁在用（用户视角）
+**两条给后人的经验**：
+1. **判空必须 `isNotBlank` 而非 `!= null`**：`AwsSessionCredentials.create(ak,sk,"")` **不报错**，
+   会造出带空 token 的凭证，等到 AWS 才炸出莫名其妙的 4xx。
+2. **只断言"发射"抓不到这类 bug**：既有用例断言了 `client.credentials-provider.glue.session_token` 被发出，
+   却挡不住读取侧忽略它。新加的是**探针式**测试——驱动真的
+   `new AwsClientProperties(opts).credentialsProvider(null,null,null)`，把
+   「发射 → 剥前缀 → 反射 → 读取」串进一个测试。两处均已变异验证（红在断言上）。
 
-`iceberg.catalog.type=glue` + `glue.access_key` + `glue.secret_key` 都非空 + 凭证是 **STS 临时凭证**，
-token 经 **`aws.glue.session-token`** 传入（⚠️ **这是该 token 唯一的输入别名** ——
-`IcebergConnectorProperties.java:134` 是单元素数组；对比 AK/SK 各有 3 个别名。
-**别假设存在 `glue.session_token` 输入别名**，那只是剥前缀后 create() 看到的 key）。
-
-### 缺陷 A —— Glue 元数据客户端（iceberg 插件内）
-
-`connector/iceberg/glue/ConfigurationAWSCredentialsProvider2x.java:48-53`：
-`create(Map)` 只读 `glue.access_key` / `glue.secret_key` → 造 `AwsBasicCredentials` → **token 就在 map 里没人读**。
-
-链条（**全部 javap 验证**，iceberg **1.10.1**，`fe/pom.xml:349`）：
-1. **发**：`IcebergCatalogFactory.java:561-562` `putIfNotBlank(opts, "client.credentials-provider.glue.session_token", ...)` ✅ 发得对，FE 侧不是缺陷点
-2. **剥前缀**：iceberg `AwsClientProperties.<init>` 用 `PropertyUtil.propertiesWithPrefix(props, "client.credentials-provider.")`，
-   `key.replaceFirst(prefix, "")` ⇒ create() 收到的 map 里 key 是 **`glue.session_token`**
-3. **反射**：`createCredentialsProvider` 用 `DynMethods.builder("create").hiddenImpl(cls, Map.class)`
-   （无参 `create()` 只是 `NoSuchMethodException` 的兜底）
-4. **读**：`create()` 忽略 token ⇒ SigV4 签名不带 `X-Amz-Security-Token` ⇒ AWS 拒绝临时凭证
-
-**无旁路可救**：`DefaultAwsClientFactory.glue()` 一旦 `client.credentials-provider` 被设置就**只用**我们这个 provider；
-iceberg 那个**认 token 的** 3 参 `credentialsProvider(ak,sk,token)` 是 S3FileIO 的路径，不经过 glue()。
-AssumeRole 分支与 AK/SK 分支**互斥**（`IcebergCatalogFactory.java:563+` 是 else）。
-
-### 缺陷 B —— S3 FileIO 客户端（**在 `fe-filesystem`，不在插件里；侦察挖出，原文档完全没提**）
-
-`fe-filesystem/fe-filesystem-s3/.../S3FileSystemProperties.java`（别名表约 `:109-129`）**不对称**：
-- `accessKey` / `secretKey` 的别名表**特意收了** `glue.access_key` / `aws.glue.access-key` /
-  `client.credentials-provider.glue.access_key`（即 glue catalog 的 AK/SK 会流到 S3 存储）
-- **`sessionToken` 的别名表里一个 glue 别名都没有** —— 只有 `s3.session_token` / `AWS_TOKEN` /
-  `session_token` / `s3.session-token` / `iceberg.rest.session-token` / `minio.session_token`
-- 判据：`grep -rn 'glue.session' fe/fe-filesystem/` = **0**；全仓 `aws.glue.session-token` 只有 2 处
-  （常量定义 + 一个测试）
-
-⇒ glue catalog 的 token **根本到不了** S3 store → `getSessionToken()=""` →
-`IcebergCatalogFactory.java:549` 发 `s3.session-token=""` → iceberg 的 `credentialsProvider(ak,sk,"")`
-走**空 token 分支** → `AwsBasicCredentials`。
-
-⇒ **只修 A 不修 B，临时凭证的 glue catalog 仍然是坏的**（Glue API 好了，iceberg 读 metadata 文件仍 403）。
-📌 **BE 数据扫描不受影响**：它的凭证走另一条路（`IcebergScanPlanProvider.java:1143-1149` `toBackendProperties()`）。
-
-### 修法要点（**签字后再动**）
-
-- **模板已在库内**：`IcebergConnector.java:854-863 buildAwsCredentialsProvider` 就是正确写法（判空 + `AwsSessionCredentials`）。
-- **必须用 `isNotBlank` 而不是 `!= null`** ——（agent 实跑探针证实）`AwsSessionCredentials.create("GAK","GSK","")`
-  **不报错**，会造出一个带空 token 的凭证，等到了 AWS 才炸出莫名其妙的 4xx。发射侧本就用 `putIfNotBlank`，两侧要对称。
-- 缺陷 B 的修法：给 `S3FileSystemProperties` 的 `sessionToken` 补 glue 别名（**归属正确**：存储属性解析本就在
-  fe-filesystem，见记忆 `catalog-spi-no-property-parsing-in-fecore`）。
-- **测试**（agent 已在模块内实跑通过）：最强的是**探针式**——直接驱动真的
-  `new AwsClientProperties(emittedOpts).credentialsProvider(...)` 并断言解析出的凭证**带 token**。
-  它把「发射 → iceberg 剥前缀 → DynMethods 反射 → 读取」**一个测试全串起来**，且两半脱钩时不可能通过。
-  `iceberg-aws` 在该模块是 compile scope，**pom 零改动**。
-  ⚠️ 现有 `IcebergCatalogFactoryTest.java:553` 只钉了「空 token 也要发出」，**证明不了 token 能存活**。
-
-### 历史（别赖到本分支头上）
-
-`git log --follow`：该文件源自 `867284b23c5`（2024-10，原始 Glue 支持），**token 从来没被处理过**。
-不是阶段 1 那次搬迁（`2cd01ada8df`）引入的。
+📌 **e2e（归 T-73）**：真临时凭证跑通 glue catalog 需要真实 STS，本地无法覆盖 —— 保留为待验项。
 
 ## 📌 侦察挖出、**本轮有意不动**的独立问题（阶段 6 可择机记进 decisions-log）
 
