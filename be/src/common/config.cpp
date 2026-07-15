@@ -1540,8 +1540,9 @@ DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return co
 
 DEFINE_mInt64(s3_put_token_limit, "0");
 
-// Keep in sync with FE Config.trino_connector_plugin_dir and TrinoBootstrap.DEFAULT_PLUGIN_SUBDIR:
-// TrinoConnectorPluginLoader decides "did the user set this explicitly?" by comparing against it.
+// The only copy of the default plugin dir that no Java code can reach; the Java side shares
+// TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR. Keep in sync with it: TrinoConnectorPluginLoader decides
+// "did the user set this explicitly?" by comparing against it, so drift skips the legacy fallback.
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins");
 
 // ca_cert_file is in this path by default, Normally no modification is required

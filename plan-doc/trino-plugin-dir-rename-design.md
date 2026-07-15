@@ -71,6 +71,8 @@ FE 与 BE 各自独立解析，但用同一套优先级。以 `TrinoBootstrap.re
 
 ### 5.1 三处一体的常量（隐蔽同步点）
 
+> **已被 §11 修正**：实为**四处**（漏数了 `TrinoConnectorPluginLoader`）。Java 的三份现已收敛为 `TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR` 单一真相，只剩 `config.cpp` 一份靠注释同步。下表保留原始记录。
+
 第 2 步靠"配置值 ≠ 默认值"判断用户是否显式设过。这要求以下三处字面量**必须同步**，一旦漂移就会把"用户没设过"误判成"设过"：
 
 | 位置 | 形态 |
@@ -136,6 +138,8 @@ FE 与 BE 各自独立解析，但用同一套优先级。以 `TrinoBootstrap.re
 
 **§10 第 3 条的落地结论**：`fe-connector-trino` 的 pom **确有** compile-scope 的 fe-common 依赖（为 `TrinoColumnMetadata` 引入），故按设计走"有则加断言测试"分支：`DEFAULT_PLUGIN_SUBDIR` 改为 package-private + `@VisibleForTesting`，测试双向断言它与 `Config.trino_connector_plugin_dir` 一致（改任一侧都会失败）。BE 的 `config.cpp` 是 Java 测试够不到的第三份副本，仍只靠三处交叉注释。
 
+> **已被 §11 推翻**：该断言测试要 import `org.apache.doris.common.Config`，撞上 connector 导入门禁而挂 CI（build 997269）。现改为常量去重，漂移不再可能，断言测试已删。
+
 **欠账**：
 
 1. **BE 未跑全量构建**。`config.cpp:1543` 仅改字符串字面量（既有 `DEFINE_String` 内），风险接近零，但严格说未经编译验证。
@@ -151,4 +155,61 @@ FE 与 BE 各自独立解析，但用同一套优先级。以 `TrinoBootstrap.re
 1. `TrinoBootstrapTest` 覆盖 §7 兼容矩阵全部 5 行，且每个 case 断言的是"为什么这样解析"而非仅"解析成了什么"。
 2. memoize 后，同一 `doris_home` 下两次 `resolvePluginDir()` 在中途改变磁盘状态时返回同一结果（§5.2 的回归锁）。
 3. §5.1 三处常量一致。实现时先确认 `fe-connector-trino` 的测试 classpath 上是否有 fe-common：**有**则加一个断言 `TrinoBootstrap` 的默认值字面量与 `Config.trino_connector_plugin_dir` 一致的测试；**没有**（该模块以零 fe-core 依赖为目标，fe-common 亦可能不在链上）则退回三处注释交叉指认，不硬造依赖来测。BE 侧跨进程无法断言，一律靠注释。
+   > **已被 §11 推翻**：这条给的两个分支都错——它默认了"常量必须各存一份，只能事后检测漂移"。真正的第三条路是让 Java 侧共享同一个编译期常量，从源头消灭漂移。
 4. `build.sh --fe --be` 后 `output/{fe,be}/plugins/` 下有 `trino_plugins/`、无 `connectors/`。
+
+## 11. 施工后修正：常量去重取代断言守门（CI 997269）
+
+§8 落地的"断言守门"方案在 CI 上挂了，本节记录推翻它的理由与替代方案。**§8 第 3 段与 §10 第 3 条已作废，以本节为准。**
+
+### 11.1 为什么原方案必然挂
+
+`TrinoBootstrapTest` 为断言两侧一致，必须 `import org.apache.doris.common.Config`。而 `tools/check-connector-imports.sh` 禁止 fe-connector 模块引用 `org.apache.doris.(catalog|common|datasource|qe|...)`——**且它扫 `src/test/java`**。
+
+时间线说明这不是巧合：
+
+| 日期 | 提交 | 内容 |
+|---|---|---|
+| 2026-07-12 | `40757d9e453` | 门禁"补 4 个漏洞"，其**第 3 个漏洞正是"只扫 src/main、漏了 src/test"**，并配 self-test 专门 seed 一个 test-source import 当违规样例 |
+| 2026-07-15 | `5e9d9449767` | 本设计的断言测试落地，正好踩中该漏洞 |
+
+即门禁没坏（self-test 至今 PASS），是断言测试撞在门禁三天前刚堵上的洞里。**结论：不能改门禁迁就测试**——那等于把刚补的漏洞重新捅开。
+
+### 11.2 原方案的思维盲区
+
+§10 第 3 条把选择限定成"能测就加断言 / 不能测就靠注释"，二者都默认了**常量必须各存一份**。但插件读不到 `Config` 的是**运行时**（隔离 classloader），**编译期**完全读得到——`fe-connector-trino` 本就有 compile-scope 的 fe-common 依赖。于是存在第三条路：共享同一个编译期常量，漂移从"事后检测"变为"结构上不可能"。
+
+### 11.3 替代方案
+
+新增 `fe-common` 的 `org.apache.doris.trinoconnector.TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR` 作为 Java 侧唯一真相，三个消费方共享：
+
+| 消费方 | 模块 | 取用方式 |
+|---|---|---|
+| `Config.trino_connector_plugin_dir` | fe-common | 同模块直接引用 |
+| `TrinoBootstrap`（FE 插件） | fe-connector-trino | import（`org.apache.doris.trinoconnector` 不在门禁 FORBIDDEN 名单内） |
+| `TrinoConnectorPluginLoader`（BE scanner） | be-java-extensions | 同包，无需 import |
+
+原设计说的"三处"实为**四处**——`TrinoConnectorPluginLoader` 那份第四拷贝当初被漏数了，此次一并收编。Java 3 份 → 1 份；`be/src/common/config.cpp` 仍是跨语言够不到的最后一份，继续靠注释交叉指认。
+
+**为什么隔离 classloader 下安全**：`org.apache.doris.trinoconnector` 本就是插件运行时够得到的包，无需任何特殊论证——
+
+- `fe-common` 是 `fe-connector-trino` 的 compile-scope 依赖，**被打进插件 zip 的 `lib/fe-common-*.jar`**（实测该 jar 内含 `org/apache/doris/trinoconnector/`）。
+- `ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES` 只有 `org.apache.doris.connector.` 与 `org.apache.doris.filesystem.`，`org.apache.doris.trinoconnector.` **不在其中** → 走 child-first → 插件从自己捆绑的那份加载。
+- 铁证：`TrinoScanPlanProvider.java:300` 早已 `new TrinoColumnMetadata(...)`，即插件在运行时真实实例化同包的 fe-common 类。
+
+> **反面留档（施工中一度写错，经对抗 review 揪出）**：初版注释与本节曾声称"插件从隔离 classloader **够不到** `TrinoPluginDirs`，全靠编译期常量内联才安全"。**这是错的**。内联确实发生（`javap -v` 实证：`TrinoBootstrap.class`/`Config.class` 常量池含内联字面量、对 `TrinoPluginDirs` 符号引用数为 0；`TrinoConnectorPluginLoader.class` 因 target major 52 多留一个无指令引用的 `CONSTANT_Class` 条目，按 JVMS §5.4.3 惰性解析永不解析），但它**不是安全性的成因**——即便不内联，child-first 也照样能加载。把"我们不需要"写成"我们做不到"会误导后人以为某些去重在结构上不可能。
+
+**为什么 legacy 目录列表不一起收编**：纯粹是本次改动范围的边界，**不是技术上做不到**。`LEGACY_PLUGIN_SUBDIRS`（`{"/connectors", "/plugins/connectors"}`）在 `TrinoBootstrap` 与 `TrinoConnectorPluginLoader` 各存一份、无守门，属**遗留的既有重复**，与本次 CI 故障无关，故不在此顺手动。**留作已知欠账**（见 §11.5）：若哪天要收编，把它挪进 `TrinoPluginDirs` 是可行的，代价只是插件多一个真实运行时引用（与既有的 `TrinoColumnMetadata` 同性质）。
+
+### 11.4 代价与验证
+
+代价：删掉 `feConfigDefaultMatchesThePluginsHardcodedDefault()`（漂移已不可能，断言退化为同义反复）。`TrinoBootstrapTest` 从 9 case 变 8 case，§7 兼容矩阵五行覆盖不变。
+
+验证：门禁 exit 0 且 self-test 仍 PASS；fe-common / fe-connector-trino / trino-connector-scanner 三模块编译 + checkstyle 0 violations；`TrinoBootstrapTest` 8 run / 0 fail / 0 skip；全仓 `trino_connector_plugin_dir` 引用（regression 与 samples 的 fe.conf/be.conf）**全部显式设值**，走"显式覆盖"分支，不受默认值来源变更影响，行为零变化。
+
+§8 三条欠账（BE 未全量构建、无 e2e、需 release note）不受本次修正影响，依旧成立。
+
+### 11.5 本次遗留的已知欠账
+
+1. **`LEGACY_PLUGIN_SUBDIRS` 仍是两份无守门的重复**（`TrinoBootstrap.java` 与 `TrinoConnectorPluginLoader.java`，值均为 `{"/connectors", "/plugins/connectors"}`）。漂移后果：FE 与 BE 回退到不同的遗留目录。属既有问题，本次未动（见 §11.3 末）。
+2. **`build.sh` 另有两处 `plugins/trino_plugins/` 字面量**（约 1049 / 1276 行，创建投放目录用），未纳入交叉注释网。它们只决定"建哪个空目录"，与"判断用户是否显式设过"的语义链无关，漂移不会误判配置，但全新安装的投放点会与默认解析结果不一致。

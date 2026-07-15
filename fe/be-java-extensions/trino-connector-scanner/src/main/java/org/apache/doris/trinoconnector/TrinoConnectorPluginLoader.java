@@ -40,18 +40,13 @@ import java.util.logging.SimpleFormatter;
 public class TrinoConnectorPluginLoader {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
 
-    // Keep in sync with FE Config.trino_connector_plugin_dir, BE config trino_connector_plugin_dir and
-    // TrinoBootstrap.DEFAULT_PLUGIN_SUBDIR: checkAndReturnPluginDir() decides whether the user set the
-    // config explicitly by comparing against this value.
-    private static final String DEFAULT_PLUGIN_SUBDIR = "/plugins/trino_plugins";
-
     // Legacy dirs to fall back to when the config is left at its default, oldest first. The default
-    // moved DORIS_HOME/connectors -> DORIS_HOME/plugins/connectors (2.1.8) -> DEFAULT_PLUGIN_SUBDIR;
-    // oldest-non-empty-wins preserves the precedence 2.1.8 shipped, so a BE that never migrated keeps
-    // loading the plugins it already has.
+    // moved DORIS_HOME/connectors -> DORIS_HOME/plugins/connectors (2.1.8) -> the current default in
+    // TrinoPluginDirs; oldest-non-empty-wins preserves the precedence 2.1.8 shipped, so a BE that
+    // never migrated keeps loading the plugins it already has.
     private static final String[] LEGACY_PLUGIN_SUBDIRS = {"/connectors", "/plugins/connectors"};
 
-    private static String pluginsDir = EnvUtils.getDorisHome() + DEFAULT_PLUGIN_SUBDIR;
+    private static String pluginsDir = EnvUtils.getDorisHome() + TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR;
 
     // Suppress default constructor for noninstantiability
     private TrinoConnectorPluginLoader() {
@@ -131,7 +126,7 @@ public class TrinoConnectorPluginLoader {
 
     private static String checkAndReturnPluginDir() {
         final String dorisHome = System.getenv("DORIS_HOME");
-        final String defaultDir = dorisHome + DEFAULT_PLUGIN_SUBDIR;
+        final String defaultDir = dorisHome + TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR;
         if (!TrinoConnectorPluginLoader.pluginsDir.equals(defaultDir)) {
             // Return user specified dir directly.
             return TrinoConnectorPluginLoader.pluginsDir;

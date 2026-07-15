@@ -17,7 +17,8 @@
 
 package org.apache.doris.connector.trino;
 
-import com.google.common.annotations.VisibleForTesting;
+import org.apache.doris.trinoconnector.TrinoPluginDirs;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -98,19 +99,10 @@ public class TrinoBootstrap {
 
     private static final Logger LOG = LogManager.getLogger(TrinoBootstrap.class);
 
-    // This plugin runs in an isolated classloader and cannot read FE Config, so the default plugin
-    // dir must be duplicated here as a literal. Keep in sync with FE Config.trino_connector_plugin_dir
-    // and BE config trino_connector_plugin_dir: resolvePluginDir() decides whether the user set the
-    // config explicitly by comparing against this value, so any drift silently misreads an untouched
-    // config as an explicit override. Package-private so TrinoBootstrapTest can assert it against
-    // FE Config; the BE copy is out of reach from there and rides on the comments alone.
-    @VisibleForTesting
-    static final String DEFAULT_PLUGIN_SUBDIR = "/plugins/trino_plugins";
-
     // Legacy dirs to fall back to when the config is left at its default, oldest first. The default
-    // moved DORIS_HOME/connectors -> DORIS_HOME/plugins/connectors (2.1.8) -> DEFAULT_PLUGIN_SUBDIR;
-    // oldest-non-empty-wins preserves the precedence 2.1.8 shipped, so a deployment that never
-    // migrated keeps loading the plugins it already has.
+    // moved DORIS_HOME/connectors -> DORIS_HOME/plugins/connectors (2.1.8) -> the current default in
+    // TrinoPluginDirs; oldest-non-empty-wins preserves the precedence 2.1.8 shipped, so a deployment
+    // that never migrated keeps loading the plugins it already has.
     private static final String[] LEGACY_PLUGIN_SUBDIRS = {"/connectors", "/plugins/connectors"};
 
     // Memoized result of the legacy-dir probe, keyed by doris_home. See resolvePluginDir().
@@ -366,7 +358,7 @@ public class TrinoBootstrap {
         }
 
         String dorisHome = environment.getOrDefault("doris_home", ".");
-        String defaultDir = dorisHome + DEFAULT_PLUGIN_SUBDIR;
+        String defaultDir = dorisHome + TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR;
         String configuredDir = environment.get("trino_connector_plugin_dir");
         if (configuredDir != null && !configuredDir.isEmpty() && !configuredDir.equals(defaultDir)) {
             // User explicitly set `trino_connector_plugin_dir` in fe.conf; use it directly.

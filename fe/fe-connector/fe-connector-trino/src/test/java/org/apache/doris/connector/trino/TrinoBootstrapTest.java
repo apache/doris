@@ -17,9 +17,6 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.common.Config;
-import org.apache.doris.common.EnvUtils;
-
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -61,20 +58,6 @@ public class TrinoBootstrapTest {
         return ImmutableMap.of(
                 "doris_home", dorisHome.toString(),
                 "trino_connector_plugin_dir", dorisHome + "/plugins/trino_plugins");
-    }
-
-    @Test
-    public void feConfigDefaultMatchesThePluginsHardcodedDefault() {
-        // At runtime this plugin cannot read FE Config (isolated classloader), so it duplicates the
-        // default dir as a literal and resolvePluginDir() uses it to tell "user set the config" from
-        // "config untouched". If the two drift, an untouched fe.conf reads as an explicit override,
-        // the legacy probe is skipped, and every upgraded deployment silently loses its plugins --
-        // the exact break the fallback chain exists to prevent. Asserted here because the compiler
-        // cannot: the duplication is unavoidable, so it needs a test to hold it together.
-        // BE's config.cpp holds a third copy that no Java test can reach; it rides on the
-        // cross-referencing comments in all three places.
-        Assertions.assertEquals(EnvUtils.getDorisHome() + TrinoBootstrap.DEFAULT_PLUGIN_SUBDIR,
-                Config.trino_connector_plugin_dir);
     }
 
     @Test
