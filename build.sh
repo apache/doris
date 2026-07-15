@@ -1042,7 +1042,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_udf/"
-    mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
+    # Drop point for the trino-connector's own Trino plugins. Deliberately NOT the legacy
+    # plugins/connectors/: that name is still read as a fallback for deployments upgrading from
+    # <= 2.1.8, so a fresh install must not create it (an empty dir would be harmless, but the
+    # one-letter gap to the plugins/connector/ tree above is not).
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/trino_plugins/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
 
@@ -1268,7 +1272,8 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/python_udf/"
-    mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
+    # Mirrors the FE drop point above; the BE JNI scanner loads the same Trino plugins independently.
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/trino_plugins/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
     cp -r -p "${DORIS_HOME}/be/src/udf/python/python_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"

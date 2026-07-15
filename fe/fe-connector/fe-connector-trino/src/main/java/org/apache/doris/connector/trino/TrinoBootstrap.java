@@ -78,6 +78,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.FileHandler;
 import java.util.logging.Level;
 import java.util.logging.SimpleFormatter;
@@ -95,6 +96,22 @@ import java.util.logging.SimpleFormatter;
 public class TrinoBootstrap {
 
     private static final Logger LOG = LogManager.getLogger(TrinoBootstrap.class);
+
+    // This plugin runs in an isolated classloader and cannot read FE Config, so the default plugin
+    // dir must be duplicated here as a literal. Keep in sync with FE Config.trino_connector_plugin_dir
+    // and BE config trino_connector_plugin_dir: resolvePluginDir() decides whether the user set the
+    // config explicitly by comparing against this value, so any drift silently misreads an untouched
+    // config as an explicit override.
+    private static final String DEFAULT_PLUGIN_SUBDIR = "/plugins/trino_plugins";
+
+    // Legacy dirs to fall back to when the config is left at its default, oldest first. The default
+    // moved DORIS_HOME/connectors -> DORIS_HOME/plugins/connectors (2.1.8) -> DEFAULT_PLUGIN_SUBDIR;
+    // oldest-non-empty-wins preserves the precedence 2.1.8 shipped, so a deployment that never
+    // migrated keeps loading the plugins it already has.
+    private static final String[] LEGACY_PLUGIN_SUBDIRS = {"/connectors", "/plugins/connectors"};
+
+    // Memoized result of the legacy-dir probe, keyed by doris_home. See resolvePluginDir().
+    private static final ConcurrentHashMap<String, String> RESOLVED_DEFAULT_DIRS = new ConcurrentHashMap<>();
 
     private static final Object INIT_LOCK = new Object();
     private static volatile TrinoBootstrap instance;
@@ -332,8 +349,8 @@ public class TrinoBootstrap {
      *   <li>the per-catalog {@code trino.plugin.dir} property, when set;</li>
      *   <li>the FE config {@code trino_connector_plugin_dir} from the environment, when it
      *       has been overridden in {@code fe.conf} (the regression environment relies on this);</li>
-     *   <li>otherwise {@code DORIS_HOME/plugins/connectors}, falling back to the pre-2.1.8
-     *       default {@code DORIS_HOME/connectors} when it is non-empty.</li>
+     *   <li>otherwise {@code DORIS_HOME/plugins/trino_plugins}, falling back to whichever
+     *       legacy dir in {@link #LEGACY_PLUGIN_SUBDIRS} is still non-empty.</li>
      * </ol>
      *
      * @param properties  catalog properties (unstripped, may carry {@code trino.plugin.dir})
@@ -346,25 +363,46 @@ public class TrinoBootstrap {
         }
 
         String dorisHome = environment.getOrDefault("doris_home", ".");
-        String defaultDir = dorisHome + "/plugins/connectors";
+        String defaultDir = dorisHome + DEFAULT_PLUGIN_SUBDIR;
         String configuredDir = environment.get("trino_connector_plugin_dir");
         if (configuredDir != null && !configuredDir.isEmpty() && !configuredDir.equals(defaultDir)) {
             // User explicitly set `trino_connector_plugin_dir` in fe.conf; use it directly.
             return configuredDir;
         }
 
-        // Config left at its default. The default changed from DORIS_HOME/connectors to
-        // DORIS_HOME/plugins/connectors in 2.1.8, so fall back to the old dir when it
-        // still holds connectors, for backward compatibility.
-        String oldDir = dorisHome + "/connectors";
-        File oldDirFile = new File(oldDir);
-        if (oldDirFile.exists() && oldDirFile.isDirectory()) {
-            String[] contents = oldDirFile.list();
-            if (contents != null && contents.length > 0) {
-                return oldDir;
+        // Config left at its default: probe the legacy dirs. Memoized because the probe reads the
+        // filesystem while getInstance() below is fail-loud on a plugin dir that differs from the one
+        // the singleton was built with. Without memoization a user dropping plugins into a legacy dir
+        // after the first catalog was created would flip the answer and break every later catalog with
+        // an IllegalStateException. Memoizing costs nothing real: the plugins are loaded exactly once
+        // per process, so a dir discovered later would never be loaded anyway -- FE must restart.
+        return RESOLVED_DEFAULT_DIRS.computeIfAbsent(dorisHome, home -> probeLegacyDirs(home, defaultDir));
+    }
+
+    /**
+     * Returns the first non-empty legacy plugin dir under {@code dorisHome}, or {@code defaultDir}
+     * when none holds anything. Only called when the config is left at its default.
+     */
+    private static String probeLegacyDirs(String dorisHome, String defaultDir) {
+        for (String legacySubdir : LEGACY_PLUGIN_SUBDIRS) {
+            String legacyDir = dorisHome + legacySubdir;
+            if (isNonEmptyDir(legacyDir)) {
+                LOG.info("Loading trino plugins from legacy dir {} because it is non-empty; the current "
+                        + "default is {}. Move the plugins there and restart FE to stop using the legacy dir.",
+                        legacyDir, defaultDir);
+                return legacyDir;
             }
         }
         return defaultDir;
+    }
+
+    private static boolean isNonEmptyDir(String dir) {
+        File file = new File(dir);
+        if (!file.exists() || !file.isDirectory()) {
+            return false;
+        }
+        String[] contents = file.list();
+        return contents != null && contents.length > 0;
     }
 
     /**

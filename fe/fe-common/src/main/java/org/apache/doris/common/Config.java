@@ -2868,9 +2868,12 @@ public class Config extends ConfigBase {
                     + "multiple integration names are comma-separated"})
     public static String authentication_chain = "";
 
+    // Keep in sync with BE config trino_connector_plugin_dir and the literal in
+    // TrinoBootstrap.DEFAULT_PLUGIN_SUBDIR (that plugin runs in an isolated classloader and cannot
+    // read this class): both decide "did the user set this explicitly?" by comparing against it.
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
-    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/trino_plugins";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;

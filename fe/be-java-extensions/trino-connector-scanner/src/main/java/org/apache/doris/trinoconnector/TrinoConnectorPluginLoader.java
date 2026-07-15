@@ -40,7 +40,18 @@ import java.util.logging.SimpleFormatter;
 public class TrinoConnectorPluginLoader {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
 
-    private static String pluginsDir = EnvUtils.getDorisHome() + "/plugins/connectors";
+    // Keep in sync with FE Config.trino_connector_plugin_dir, BE config trino_connector_plugin_dir and
+    // TrinoBootstrap.DEFAULT_PLUGIN_SUBDIR: checkAndReturnPluginDir() decides whether the user set the
+    // config explicitly by comparing against this value.
+    private static final String DEFAULT_PLUGIN_SUBDIR = "/plugins/trino_plugins";
+
+    // Legacy dirs to fall back to when the config is left at its default, oldest first. The default
+    // moved DORIS_HOME/connectors -> DORIS_HOME/plugins/connectors (2.1.8) -> DEFAULT_PLUGIN_SUBDIR;
+    // oldest-non-empty-wins preserves the precedence 2.1.8 shipped, so a BE that never migrated keeps
+    // loading the plugins it already has.
+    private static final String[] LEGACY_PLUGIN_SUBDIRS = {"/connectors", "/plugins/connectors"};
+
+    private static String pluginsDir = EnvUtils.getDorisHome() + DEFAULT_PLUGIN_SUBDIR;
 
     // Suppress default constructor for noninstantiability
     private TrinoConnectorPluginLoader() {
@@ -119,26 +130,28 @@ public class TrinoConnectorPluginLoader {
     }
 
     private static String checkAndReturnPluginDir() {
-        final String defaultDir = System.getenv("DORIS_HOME") + "/plugins/connectors";
-        final String defaultOldDir = System.getenv("DORIS_HOME") + "/connectors";
-        if (TrinoConnectorPluginLoader.pluginsDir.equals(defaultDir)) {
-            // If true, which means user does not set `trino_connector_plugin_dir` and use the default one.
-            // Because in 2.1.8, we change the default value of `trino_connector_plugin_dir`
-            // from `DORIS_HOME/connectors` to `DORIS_HOME/plugins/connectors`,
-            // so we need to check the old default dir for compatibility.
-            File oldDir = new File(defaultOldDir);
-            if (oldDir.exists() && oldDir.isDirectory()) {
-                String[] contents = oldDir.list();
-                if (contents != null && contents.length > 0) {
-                    // there are contents in old dir, use old one
-                    return defaultOldDir;
-                }
-            }
-            return defaultDir;
-        } else {
+        final String dorisHome = System.getenv("DORIS_HOME");
+        final String defaultDir = dorisHome + DEFAULT_PLUGIN_SUBDIR;
+        if (!TrinoConnectorPluginLoader.pluginsDir.equals(defaultDir)) {
             // Return user specified dir directly.
             return TrinoConnectorPluginLoader.pluginsDir;
         }
+        // User did not set `trino_connector_plugin_dir` and is on the default. The default moved from
+        // `DORIS_HOME/connectors` to `DORIS_HOME/plugins/connectors` in 2.1.8 and to
+        // `DORIS_HOME/plugins/trino_plugins` since, so fall back to whichever legacy dir still holds
+        // plugins. Mirrors TrinoBootstrap.probeLegacyDirs on the FE side.
+        for (String legacySubdir : LEGACY_PLUGIN_SUBDIRS) {
+            final String legacyDir = dorisHome + legacySubdir;
+            File dir = new File(legacyDir);
+            if (dir.exists() && dir.isDirectory()) {
+                String[] contents = dir.list();
+                if (contents != null && contents.length > 0) {
+                    // there are contents in the legacy dir, keep using it
+                    return legacyDir;
+                }
+            }
+        }
+        return defaultDir;
     }
 
     public static TrinoConnectorPluginManager getTrinoConnectorPluginManager() {
