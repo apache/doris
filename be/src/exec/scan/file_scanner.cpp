@@ -69,6 +69,7 @@
 #include "format/table/hive_reader.h"
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
+#include "format/table/iceberg_position_delete_sys_table_reader.h"
 #include "format/table/iceberg_reader.h"
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
@@ -97,6 +98,20 @@ class ShardedKVCache;
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
+
+bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
+    return range.__isset.table_format_params &&
+           range.table_format_params.table_format_type == "iceberg" &&
+           range.table_format_params.__isset.iceberg_params &&
+           range.table_format_params.iceberg_params.__isset.content &&
+           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
+            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
+}
+} // namespace
 
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
@@ -1043,6 +1058,7 @@ Status FileScanner::_get_next_reader() {
         // create reader for specific format
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
+        const bool is_position_deletes_sys_table = is_iceberg_position_deletes_sys_table(range);
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -1168,6 +1184,17 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
+            if (is_position_deletes_sys_table) {
+                ReaderInitContext ctx;
+                _fill_base_init_context(&ctx);
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
+                init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1180,6 +1207,17 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
+            if (is_position_deletes_sys_table) {
+                ReaderInitContext ctx;
+                _fill_base_init_context(&ctx);
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
+                init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
