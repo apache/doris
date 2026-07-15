@@ -646,7 +646,7 @@ public class S3ObjStorageTest {
 
         List<RemoteFile> result = new ArrayList<>();
         GlobListResult globResult = storage.globListWithLimit(
-                "s3://bucket/data/date=2025-0[3-4]-01/*.parquet", result, null, -1, 1);
+                "s3://bucket/data/date=2025-0[3-4]-01/*.parquet", result, null, 0, 1);
 
         Assertions.assertEquals(Status.OK, globResult.getStatus());
         Assertions.assertEquals(1, result.size());
