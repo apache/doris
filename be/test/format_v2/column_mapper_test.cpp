@@ -3062,9 +3062,10 @@ TEST(ColumnMapperScanRequestTest, NestedElementAtConjunctUsesFileChildTypeForRen
 }
 
 // Scenario: Iceberg promotes a nested struct leaf from INT to BIGINT while an old file still
-// stores INT. The localized element_at must be cast back to the table leaf type so the comparison
-// is prepared and executed with matching operand types.
-TEST_F(ColumnMapperCastTest, NestedElementAtConjunctCastsPromotedFileLeafToTableType) {
+// stores INT. Because 15 is exactly representable as INT and every INT survives promotion to
+// BIGINT, localize `s.b::BIGINT > 15::BIGINT` as `file_s.b::INT > 15::INT`. Rewriting one literal
+// avoids casting every file value while preserving the table predicate exactly.
+TEST_F(ColumnMapperCastTest, NestedElementAtConjunctRewritesExactLiteralToFileType) {
     const auto file_int_type = i32();
     const auto table_bigint_type = i64();
 
@@ -3089,12 +3090,12 @@ TEST_F(ColumnMapperCastTest, NestedElementAtConjunctCastsPromotedFileLeafToTable
     ASSERT_EQ(request.conjuncts.size(), 1);
     const auto& localized_root = request.conjuncts[0]->root();
     ASSERT_EQ(localized_root->get_num_children(), 2);
-    const auto& localized_cast = localized_root->children()[0];
-    ASSERT_NE(dynamic_cast<const Cast*>(localized_cast.get()), nullptr);
-    EXPECT_TRUE(localized_cast->data_type()->equals(*table_bigint_type));
-    ASSERT_EQ(localized_cast->get_num_children(), 1);
-    EXPECT_EQ(localized_cast->children()[0]->expr_name(), "element_at");
-    EXPECT_TRUE(localized_cast->children()[0]->data_type()->equals(*file_int_type));
+    const auto& localized_leaf = localized_root->children()[0];
+    EXPECT_EQ(localized_leaf->expr_name(), "element_at");
+    EXPECT_TRUE(localized_leaf->data_type()->equals(*file_int_type));
+    const auto& localized_literal = localized_root->children()[1];
+    EXPECT_TRUE(localized_literal->is_literal());
+    EXPECT_TRUE(localized_literal->data_type()->equals(*file_int_type));
 
     auto values = ColumnInt32::create();
     values->insert_value(10);
@@ -3116,6 +3117,126 @@ TEST_F(ColumnMapperCastTest, NestedElementAtConjunctCastsPromotedFileLeafToTable
     EXPECT_FALSE(can_filter_all);
     EXPECT_EQ(result, IColumn::Filter({0, 1}));
     conjunct->close();
+}
+
+// Scenario: the table literal is outside the old file leaf's INT range. Rewriting
+// BIGINT 2147483648 to INT would change the predicate, so keep the literal as BIGINT and cast the
+// file leaf instead: `CAST(file_s.b::INT AS BIGINT) = 2147483648::BIGINT`.
+TEST_F(ColumnMapperCastTest, NestedElementAtConjunctFallsBackForOutOfRangeLiteral) {
+    const auto file_int_type = i32();
+    const auto table_bigint_type = i64();
+
+    auto table_b = field_id_col("b", 11, table_bigint_type);
+    auto table_struct = struct_col("s", 10, {table_b});
+    auto file_b = field_id_col("b", 11, file_int_type, 0);
+    auto file_struct = struct_col("s", 10, {file_b}, 5);
+    auto table_leaf = executable_struct_element(
+            table_slot(0, 0, table_struct.type, table_struct.name), table_bigint_type, "b");
+    auto filter_expr = executable_binary_predicate(
+            TExprOpcode::EQ, table_leaf,
+            literal(table_bigint_type, Field::create_field<TYPE_BIGINT>(2147483648LL)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request, &state).ok());
+
+    ASSERT_EQ(request.conjuncts.size(), 1);
+    const auto& localized_root = request.conjuncts[0]->root();
+    ASSERT_EQ(localized_root->get_num_children(), 2);
+    const auto& localized_cast = localized_root->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_cast.get()), nullptr);
+    EXPECT_TRUE(localized_cast->data_type()->equals(*table_bigint_type));
+    ASSERT_EQ(localized_cast->get_num_children(), 1);
+    EXPECT_EQ(localized_cast->children()[0]->expr_name(), "element_at");
+    EXPECT_TRUE(localized_cast->children()[0]->data_type()->equals(*file_int_type));
+    EXPECT_TRUE(localized_root->children()[1]->data_type()->equals(*table_bigint_type));
+}
+
+// Scenario: the struct leaf is on the right side of the comparison. Literal localization must not
+// depend on operand order: `15::BIGINT > s.b::BIGINT` becomes `15::INT > file_s.b::INT`.
+TEST_F(ColumnMapperCastTest, NestedElementAtConjunctRewritesReverseComparisonLiteral) {
+    const auto file_int_type = i32();
+    const auto table_bigint_type = i64();
+
+    auto table_b = field_id_col("b", 11, table_bigint_type);
+    auto table_struct = struct_col("s", 10, {table_b});
+    auto file_b = field_id_col("b", 11, file_int_type, 0);
+    auto file_struct = struct_col("s", 10, {file_b}, 5);
+    auto table_leaf = executable_struct_element(
+            table_slot(0, 0, table_struct.type, table_struct.name), table_bigint_type, "b");
+    auto filter_expr = executable_binary_predicate(
+            TExprOpcode::GT, literal(table_bigint_type, Field::create_field<TYPE_BIGINT>(15)),
+            table_leaf);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request, &state).ok());
+
+    ASSERT_EQ(request.conjuncts.size(), 1);
+    const auto& localized_root = request.conjuncts[0]->root();
+    EXPECT_TRUE(localized_root->children()[0]->data_type()->equals(*file_int_type));
+    EXPECT_TRUE(localized_root->children()[0]->is_literal());
+    EXPECT_EQ(localized_root->children()[1]->expr_name(), "element_at");
+    EXPECT_TRUE(localized_root->children()[1]->data_type()->equals(*file_int_type));
+}
+
+// Scenario: IN uses one probe type for every candidate. All exact literals may move to the INT
+// file domain, but one out-of-range literal makes the complete IN predicate fall back to BIGINT.
+TEST_F(ColumnMapperCastTest, NestedElementAtInPredicateUsesAllOrNothingLiteralRewrite) {
+    const auto file_int_type = i32();
+    const auto table_bigint_type = i64();
+    auto table_b = field_id_col("b", 11, table_bigint_type);
+    auto table_struct = struct_col("s", 10, {table_b});
+    auto file_b = field_id_col("b", 11, file_int_type, 0);
+    auto file_struct = struct_col("s", 10, {file_b}, 5);
+
+    const auto build_filter = [&](int64_t second_value) {
+        auto table_leaf = executable_struct_element(
+                table_slot(0, 0, table_struct.type, table_struct.name), table_bigint_type, "b");
+        auto predicate = create_in_predicate();
+        predicate->add_child(table_leaf);
+        predicate->add_child(literal(table_bigint_type, Field::create_field<TYPE_BIGINT>(10)));
+        predicate->add_child(
+                literal(table_bigint_type, Field::create_field<TYPE_BIGINT>(second_value)));
+        return TableFilter {.conjunct = VExprContext::create_shared(predicate),
+                            .global_indices = {GlobalIndex(0)}};
+    };
+
+    TableColumnMapper exact_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(exact_mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    FileScanRequest exact_request;
+    ASSERT_TRUE(
+            exact_mapper
+                    .create_scan_request({build_filter(20)}, {table_struct}, &exact_request, &state)
+                    .ok());
+    ASSERT_EQ(exact_request.conjuncts.size(), 1);
+    const auto& exact_root = exact_request.conjuncts[0]->root();
+    EXPECT_EQ(exact_root->children()[0]->expr_name(), "element_at");
+    for (const auto& child : exact_root->children()) {
+        EXPECT_TRUE(child->data_type()->equals(*file_int_type));
+    }
+
+    TableColumnMapper fallback_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(fallback_mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    FileScanRequest fallback_request;
+    ASSERT_TRUE(fallback_mapper
+                        .create_scan_request({build_filter(2147483648LL)}, {table_struct},
+                                             &fallback_request, &state)
+                        .ok());
+    ASSERT_EQ(fallback_request.conjuncts.size(), 1);
+    const auto& fallback_root = fallback_request.conjuncts[0]->root();
+    const auto& fallback_cast = fallback_root->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(fallback_cast.get()), nullptr);
+    EXPECT_TRUE(fallback_cast->data_type()->equals(*table_bigint_type));
+    EXPECT_TRUE(fallback_cast->children()[0]->data_type()->equals(*file_int_type));
+    EXPECT_TRUE(fallback_root->children()[1]->data_type()->equals(*table_bigint_type));
+    EXPECT_TRUE(fallback_root->children()[2]->data_type()->equals(*table_bigint_type));
 }
 
 // Scenario: output projection reads one struct child while the row filter reads a different nested

@@ -1493,7 +1493,9 @@ protected:
             DORIS_CHECK(_push_down_count_columns.has_value());
             // An empty explicit list is the semantic signal for COUNT(*). Do not inspect the
             // mapping count: `SELECT COUNT(*) FROM t` may still project one nullable column because
-            // the planner keeps a placeholder slot, and counting that slot would return COUNT(col).
+            // the planner keeps a placeholder slot. In a 10,000-row file where that arbitrary slot
+            // has 9,015 non-null values, passing the slot would ask Parquet/ORC metadata for
+            // COUNT(slot)=9,015 instead of the required row count 10,000.
             if (!_push_down_count_columns->empty()) {
                 const auto& mapping = _push_down_count_mapping();
                 DORIS_CHECK(mapping.file_local_id.has_value());

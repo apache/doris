@@ -54,10 +54,12 @@ suite("test_file_scanner_v2_review_fixes", "p0,external") {
         ORDER BY id
     """
 
-    // The first file defines STRUCT<a: BIGINT>, while the second stores a as INT. The predicate is
-    // localized independently for each split, so the INT leaf must be cast back to BIGINT before
-    // comparison. Repeating the multi-file read also exercises per-reader page-cache range state:
-    // closing one file must not leak its range directory into the next file or the warm scan.
+    // The first file defines STRUCT<a: BIGINT>, while the second stores a as INT. Localization is
+    // split-specific: the BIGINT file compares BIGINT values, while the old INT file safely rewrites
+    // the exactly representable BIGINT literal 10 to INT and compares in the physical file type.
+    // If a literal cannot round-trip through INT, the mapper instead casts the INT data to BIGINT.
+    // Repeating the multi-file read also verifies that neither predicate rewrites nor page-cache
+    // range state leak from one file schema into the next file or the warm scan.
     def evolvedStructQuery = """
         SELECT id, col.a, col.b
         FROM local(

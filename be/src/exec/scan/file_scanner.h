@@ -344,10 +344,13 @@ private:
         if (agg_type != TPushAggOp::type::COUNT) {
             return agg_type;
         }
-        // V1's CountReader can only emit rows for an upper COUNT(*). It cannot evaluate the NULL
-        // or CAST semantics of COUNT(col), so a non-empty argument list must use the normal reader.
-        // nullopt is an old FE plan that predates the argument field; treating it as empty would
-        // silently reinterpret unknown semantics as COUNT(*).
+        // V1's CountReader receives only the file's total row count and emits that many synthetic
+        // rows. This is exact for COUNT(*)/COUNT(1), but it has no column metadata for NULL or CAST
+        // semantics. For example, a 10,000-row file with 9,015 non-null values must return 10,000
+        // for COUNT(*) and 9,015 for COUNT(nullable_col); CountReader can produce only the former.
+        // Therefore a non-empty argument list must use the normal reader. nullopt is an old FE plan
+        // that predates the argument field; treating it as empty would silently reinterpret unknown
+        // semantics as COUNT(*).
         return count_slot_ids.has_value() && count_slot_ids->empty() ? TPushAggOp::type::COUNT
                                                                      : TPushAggOp::type::NONE;
     }
