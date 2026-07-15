@@ -288,6 +288,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 "password is required property");
         Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.DATABASE) != null,
                 "database is required property");
+        sourceProperties.put(DataSourceConfigKeys.JDBC_URL,
+                StreamingJdbcUrlNormalizer.normalize(dataSourceType,
+                        sourceProperties.get(DataSourceConfigKeys.JDBC_URL)));
         if (!sourceProperties.containsKey(DataSourceConfigKeys.OFFSET)) {
             sourceProperties.put(DataSourceConfigKeys.OFFSET, DataSourceConfigKeys.OFFSET_LATEST);
         }
