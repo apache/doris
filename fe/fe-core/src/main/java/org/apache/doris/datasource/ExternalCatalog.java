@@ -30,7 +30,6 @@ import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
 import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -38,23 +37,16 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
-import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.persist.CreateDbInfo;
-import org.apache.doris.persist.DropDbInfo;
-import org.apache.doris.persist.DropInfo;
-import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.qe.GlobalVariable;
@@ -167,7 +159,6 @@ public abstract class ExternalCatalog
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
-    protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected ExecutionAuthenticator executionAuthenticator;
@@ -263,30 +254,7 @@ public abstract class ExternalCatalog
      * @return list of database names in this catalog
      */
     protected List<String> listDatabaseNames() {
-        if (metadataOps == null) {
-            throw new UnsupportedOperationException("List databases is not supported for catalog: " + getName());
-        } else {
-            // Allow manual regression to isolate catalog-level metadata enumeration cost during collect.
-            if (DebugPointUtil.isEnable("ExternalCatalog.listDatabaseNames.sleep")) {
-                long sleepMs = DebugPointUtil.getDebugParamOrDefault(
-                        "ExternalCatalog.listDatabaseNames.sleep", "sleepMs", 0L);
-                if (sleepMs > 0) {
-                    LOG.info("debug point ExternalCatalog.listDatabaseNames.sleep hit for {}, sleep {}ms",
-                            getName(), sleepMs);
-                    try {
-                        Thread.sleep(sleepMs);
-                    } catch (InterruptedException ignore) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
-            }
-            return metadataOps.listDatabaseNames();
-        }
-    }
-
-    public ExternalMetadataOps getMetadataOps() {
-        makeSureInitialized();
-        return metadataOps;
+        throw new UnsupportedOperationException("List databases is not supported for catalog: " + getName());
     }
 
     // Will be called when creating catalog(so when as replaying)
@@ -1077,7 +1045,13 @@ public abstract class ExternalCatalog
                 // replay. Type.ICEBERG enum is retained for old-image deserialization.
                 return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case LAKESOUL:
-                return new LakeSoulExternalDatabase(this, dbId, localDbName, remoteDbName);
+                // LakeSoul is deprecated and was never migrated to the plugin path; its entity classes are
+                // removed. This case only fires when replaying an old InitCatalogLog persisted with
+                // Type.LAKESOUL — build a PluginDrivenExternalDatabase so the db matches the GSON remap
+                // (registerCompatibleSubtype -> PluginDrivenExternalDatabase). Keep the case label: deleting
+                // it would fall through to `return null` and break db init on replay. The Type.LAKESOUL enum
+                // is retained for old-image deserialization.
+                return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TRINO_CONNECTOR:
@@ -1138,149 +1112,52 @@ public abstract class ExternalCatalog
     @Override
     public void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         makeSureInitialized();
-        if (metadataOps == null) {
-            throw new DdlException("Create database is not supported for catalog: " + getName());
-        }
-        try {
-            boolean res = metadataOps.createDb(dbName, ifNotExists, properties);
-            if (!res) {
-                // we should get the db stored in Doris, and use local name in edit log.
-                CreateDbInfo info = new CreateDbInfo(getName(), dbName, null);
-                Env.getCurrentEnv().getEditLog().logCreateDb(info);
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to create database {} in catalog {}.", dbName, getName(), e);
-            throw e;
-        }
+        throw new DdlException("Create database is not supported for catalog: " + getName());
     }
 
     public void replayCreateDb(String dbName) {
-        if (metadataOps != null) {
-            metadataOps.afterCreateDb();
-        } else {
-            // Plugin-driven catalogs have no metadataOps; invalidate the FE cache directly so
-            // follower FEs reflect the create on edit-log replay, matching the master path.
-            resetMetaCacheNames();
-        }
+        // Invalidate the FE cache directly so follower FEs reflect the create on edit-log replay.
+        resetMetaCacheNames();
     }
 
     @Override
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
-        if (metadataOps == null) {
-            throw new DdlException("Drop database is not supported for catalog: " + getName());
-        }
-        try {
-            metadataOps.dropDb(dbName, ifExists, force);
-            DropDbInfo info = new DropDbInfo(getName(), dbName);
-            Env.getCurrentEnv().getEditLog().logDropDb(info);
-        } catch (Exception e) {
-            LOG.warn("Failed to drop database {} in catalog {}", dbName, getName(), e);
-            throw e;
-        }
+        throw new DdlException("Drop database is not supported for catalog: " + getName());
     }
 
     public void replayDropDb(String dbName) {
-        if (metadataOps != null) {
-            metadataOps.afterDropDb(dbName);
-        } else {
-            // Plugin-driven path (no metadataOps): drop the db from the cache on replay.
-            unregisterDatabase(dbName);
-        }
+        // Drop the db from the cache on replay.
+        unregisterDatabase(dbName);
     }
 
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
         makeSureInitialized();
-
-        if (metadataOps == null) {
-            throw new DdlException("Create table is not supported for catalog: " + getName());
-        }
-        try {
-            boolean res = metadataOps.createTable(createTableInfo);
-            if (!res) {
-                // res == false means the table does not exist before, and we create it.
-                // we should get the table stored in Doris, and use local name in edit log.
-                org.apache.doris.persist.CreateTableInfo info = new org.apache.doris.persist.CreateTableInfo(
-                        getName(),
-                        createTableInfo.getDbName(),
-                        createTableInfo.getTableName());
-                Env.getCurrentEnv().getEditLog().logCreateTable(info);
-                LOG.info("finished to create table {}.{}.{}", getName(), createTableInfo.getDbName(),
-                        createTableInfo.getTableName());
-            }
-            return res;
-        } catch (Exception e) {
-            LOG.warn("Failed to create a table.", e);
-            throw e;
-        }
+        throw new DdlException("Create table is not supported for catalog: " + getName());
     }
 
     public void replayCreateTable(String dbName, String tblName) {
-        if (metadataOps != null) {
-            metadataOps.afterCreateTable(dbName, tblName);
-        } else {
-            // Plugin-driven path (no metadataOps): refresh the db's table-name cache on replay.
-            getDbForReplay(dbName).ifPresent(db -> db.resetMetaCacheNames());
-        }
+        // Refresh the db's table-name cache on replay.
+        getDbForReplay(dbName).ifPresent(db -> db.resetMetaCacheNames());
     }
 
     @Override
     public void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
         makeSureInitialized();
-        if (metadataOps == null) {
-            throw new DdlException("Rename table is not supported for catalog: " + getName());
-        }
-        try {
-            metadataOps.renameTable(dbName, oldTableName, newTableName);
-            Env.getCurrentEnv().getConstraintManager().renameTable(
-                    new TableNameInfo(getName(), dbName, oldTableName),
-                    new TableNameInfo(getName(), dbName, newTableName));
-            Env.getCurrentEnv().getEditLog()
-                    .logRefreshExternalTable(
-                            ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
-        } catch (Exception e) {
-            LOG.warn("Failed to rename table {} in database {}.", oldTableName, dbName, e);
-            throw e;
-        }
+        throw new DdlException("Rename table is not supported for catalog: " + getName());
     }
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
                           boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
-        if (metadataOps == null) {
-            throw new DdlException("Drop table is not supported for catalog: " + getName());
-        }
-        // 1. get table in doris catalog first.
-        ExternalDatabase db = getDbNullable(dbName);
-        if (db == null) {
-            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + getName());
-        }
-        ExternalTable dorisTable = db.getTableNullable(tableName);
-        if (dorisTable == null) {
-            if (ifExists) {
-                return;
-            }
-            throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
-        }
-        try {
-            metadataOps.dropTable(dorisTable, ifExists);
-            DropInfo info = new DropInfo(getName(), dbName, tableName);
-            Env.getCurrentEnv().getEditLog().logDropTable(info);
-        } catch (Exception e) {
-            LOG.warn("Failed to drop a table", e);
-            throw e;
-        }
+        throw new DdlException("Drop table is not supported for catalog: " + getName());
     }
 
     public void replayDropTable(String dbName, String tblName) {
-        if (metadataOps != null) {
-            metadataOps.afterDropTable(dbName, tblName);
-        } else {
-            // Plugin-driven path (no metadataOps): remove the table from the cache on replay.
-            getDbForReplay(dbName).ifPresent(db -> db.unregisterTable(tblName));
-        }
+        // Remove the table from the cache on replay.
+        getDbForReplay(dbName).ifPresent(db -> db.unregisterTable(tblName));
     }
 
     /**
@@ -1452,30 +1329,11 @@ public abstract class ExternalCatalog
     public void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
                               String rawTruncateSql) throws DdlException {
         makeSureInitialized();
-        if (metadataOps == null) {
-            throw new DdlException("Truncate table is not supported for catalog: " + getName());
-        }
-        try {
-            // delete all table data if null
-            List<String> partitions = null;
-            if (partitionNamesInfo != null) {
-                partitions = partitionNamesInfo.getPartitionNames();
-            }
-            ExternalTable dorisTable = getDbOrDdlException(dbName).getTableOrDdlException(tableName);
-            long updateTime = System.currentTimeMillis();
-            metadataOps.truncateTable(dorisTable, partitions, updateTime);
-            TruncateTableInfo info = new TruncateTableInfo(getName(), dbName, tableName, partitions, updateTime);
-            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
-        } catch (Exception e) {
-            LOG.warn("Failed to truncate table {}.{} in catalog {}", dbName, tableName, getName(), e);
-            throw e;
-        }
+        throw new DdlException("Truncate table is not supported for catalog: " + getName());
     }
 
     public void replayTruncateTable(TruncateTableInfo info) {
-        if (metadataOps != null) {
-            metadataOps.afterTruncateTable(info.getDb(), info.getTable(), info.getUpdateTime());
-        }
+        // External truncate replay is a cache no-op; the table is re-read from remote on access.
     }
 
     public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {
@@ -1553,20 +1411,7 @@ public abstract class ExternalCatalog
             throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("branching operation is not supported for catalog: " + getName());
-        }
-        try {
-            metadataOps.createOrReplaceBranch(externalTable, branchInfo);
-            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), externalTable.getDbName(),
-                    externalTable.getName());
-            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
-        } catch (Exception e) {
-            LOG.warn("Failed to create or replace branch for table {}.{} in catalog {}",
-                    externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("branching operation is not supported for catalog: " + getName());
     }
 
     @Override
@@ -1574,67 +1419,26 @@ public abstract class ExternalCatalog
             throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Tagging operation is not supported for catalog: " + getName());
-        }
-        try {
-            metadataOps.createOrReplaceTag(externalTable, tagInfo);
-            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), externalTable.getDbName(),
-                    externalTable.getName());
-            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
-        } catch (Exception e) {
-            LOG.warn("Failed to create or replace tag for table {}.{} in catalog {}",
-                    externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Tagging operation is not supported for catalog: " + getName());
     }
 
     @Override
     public void replayOperateOnBranchOrTag(String dbName, String tblName) {
-        if (metadataOps != null) {
-            metadataOps.afterOperateOnBranchOrTag(dbName, tblName);
-        }
+        // External branch/tag replay is a cache no-op; the table is re-read from remote on access.
     }
 
     @Override
     public void dropBranch(TableIf dorisTable, DropBranchInfo branchInfo) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("DropBranch operation is not supported for catalog: " + getName());
-        }
-        try {
-            metadataOps.dropBranch(externalTable, branchInfo);
-            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), externalTable.getDbName(),
-                    externalTable.getName());
-            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
-        } catch (Exception e) {
-            LOG.warn("Failed to drop branch for table {}.{} in catalog {}",
-                    externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("DropBranch operation is not supported for catalog: " + getName());
     }
 
     @Override
     public void dropTag(TableIf dorisTable, DropTagInfo tagInfo) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("DropTag operation is not supported for catalog: " + getName());
-        }
-        try {
-            metadataOps.dropTag(externalTable, tagInfo);
-            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), externalTable.getDbName(),
-                    externalTable.getName());
-            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
-        } catch (Exception e) {
-            LOG.warn("Failed to drop tag for table {}.{} in catalog {}",
-                    externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("DropTag operation is not supported for catalog: " + getName());
     }
 
     /**
@@ -1647,14 +1451,6 @@ public abstract class ExternalCatalog
         }
     }
 
-    // log the refresh external table operation
-    private void logRefreshExternalTable(ExternalTable dorisTable, long updateTime) {
-        Env.getCurrentEnv().getEditLog()
-                .logRefreshExternalTable(
-                        ExternalObjectLog.createForRefreshTable(dorisTable.getCatalog().getId(),
-                                dorisTable.getDbName(), dorisTable.getName(), updateTime));
-    }
-
     @Override
     public void addColumn(TableIf dorisTable, Column column, ColumnPosition position) throws UserException {
         addColumn(dorisTable, ColumnPath.of(column.getName()), column, position);
@@ -1665,38 +1461,14 @@ public abstract class ExternalCatalog
             throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Add column operation is not supported for catalog: " + getName());
-        }
-        try {
-            long updateTime = System.currentTimeMillis();
-            metadataOps.addColumn(externalTable, columnPath, column, position, updateTime);
-            logRefreshExternalTable(externalTable, updateTime);
-        } catch (Exception e) {
-            LOG.warn("Failed to add column {} to table {}.{} in catalog {}",
-                    columnPath.getFullPath(), externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Add column operation is not supported for catalog: " + getName());
     }
 
     @Override
     public void addColumns(TableIf dorisTable, List<Column> columns) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Add columns operation is not supported for catalog: " + getName());
-        }
-        try {
-            long updateTime = System.currentTimeMillis();
-            metadataOps.addColumns(externalTable, columns, updateTime);
-            logRefreshExternalTable(externalTable, updateTime);
-        } catch (Exception e) {
-            LOG.warn("Failed to add columns to table {}.{} in catalog {}",
-                    externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Add columns operation is not supported for catalog: " + getName());
     }
 
     @Override
@@ -1708,19 +1480,7 @@ public abstract class ExternalCatalog
     public void dropColumn(TableIf dorisTable, ColumnPath columnPath) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Drop column operation is not supported for catalog: " + getName());
-        }
-        try {
-            long updateTime = System.currentTimeMillis();
-            metadataOps.dropColumn(externalTable, columnPath, updateTime);
-            logRefreshExternalTable(externalTable, updateTime);
-        } catch (Exception e) {
-            LOG.warn("Failed to drop column {} from table {}.{} in catalog {}",
-                    columnPath.getFullPath(), externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Drop column operation is not supported for catalog: " + getName());
     }
 
     @Override
@@ -1732,38 +1492,14 @@ public abstract class ExternalCatalog
     public void renameColumn(TableIf dorisTable, ColumnPath columnPath, String newName) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Rename column operation is not supported for catalog: " + getName());
-        }
-        try {
-            long updateTime = System.currentTimeMillis();
-            metadataOps.renameColumn(externalTable, columnPath, newName, updateTime);
-            logRefreshExternalTable(externalTable, updateTime);
-        } catch (Exception e) {
-            LOG.warn("Failed to rename column {} to {} in table {}.{} in catalog {}", columnPath.getFullPath(),
-                    newName, externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Rename column operation is not supported for catalog: " + getName());
     }
 
     @Override
     public void modifyColumn(TableIf dorisTable, Column column, ColumnPosition columnPosition) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Modify column operation is not supported for catalog: " + getName());
-        }
-        try {
-            long updateTime = System.currentTimeMillis();
-            metadataOps.modifyColumn(externalTable, column, columnPosition, updateTime);
-            logRefreshExternalTable(externalTable, updateTime);
-        } catch (Exception e) {
-            LOG.warn("Failed to modify column {} in table {}.{} in catalog {}",
-                    column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Modify column operation is not supported for catalog: " + getName());
     }
 
     @Override
@@ -1771,56 +1507,20 @@ public abstract class ExternalCatalog
             throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Modify column operation is not supported for catalog: " + getName());
-        }
-        try {
-            long updateTime = System.currentTimeMillis();
-            metadataOps.modifyColumn(externalTable, columnPath, column, columnPosition, updateTime);
-            logRefreshExternalTable(externalTable, updateTime);
-        } catch (Exception e) {
-            LOG.warn("Failed to modify column {} in table {}.{} in catalog {}",
-                    columnPath.getFullPath(), externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Modify column operation is not supported for catalog: " + getName());
     }
 
     @Override
     public void modifyColumnComment(TableIf dorisTable, ColumnPath columnPath, String comment) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Modify column comment operation is not supported for catalog: " + getName());
-        }
-        try {
-            long updateTime = System.currentTimeMillis();
-            metadataOps.modifyColumnComment(externalTable, columnPath, comment, updateTime);
-            logRefreshExternalTable(externalTable, updateTime);
-        } catch (Exception e) {
-            LOG.warn("Failed to modify column comment {} in table {}.{} in catalog {}",
-                    columnPath.getFullPath(), externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Modify column comment operation is not supported for catalog: " + getName());
     }
 
     @Override
     public void reorderColumns(TableIf dorisTable, List<String> newOrder) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
-        ExternalTable externalTable = (ExternalTable) dorisTable;
-        if (metadataOps == null) {
-            throw new DdlException("Reorder columns operation is not supported for catalog: " + getName());
-        }
-        try {
-            long updateTime = System.currentTimeMillis();
-            metadataOps.reorderColumns(externalTable, newOrder, updateTime);
-            logRefreshExternalTable(externalTable, updateTime);
-        } catch (Exception e) {
-            LOG.warn("Failed to reorder columns in table {}.{} in catalog {}",
-                    externalTable.getDbName(), externalTable.getName(), getName(), e);
-            throw e;
-        }
+        throw new DdlException("Reorder columns operation is not supported for catalog: " + getName());
     }
 }
