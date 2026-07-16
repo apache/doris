@@ -40,11 +40,13 @@ namespace doris {
 namespace io {
 
 struct FileBlocksHolder;
+struct FileBlocksProbeResult;
 class BlockFileCache;
 struct FileBlockCell;
 
 class FileBlock {
     friend struct FileBlocksHolder;
+    friend struct FileBlocksProbeResult;
     friend class BlockFileCache;
     friend class CachedRemoteFileReader;
     friend struct FileBlockCell;
@@ -162,6 +164,10 @@ private:
     void complete_unlocked(std::lock_guard<std::mutex>& block_lock);
 
     void reset_downloader_impl(std::lock_guard<std::mutex>& block_lock);
+
+    /// Release one cache-user reference and complete deferred EMPTY/deleting block cleanup when it
+    /// is the last reference outside the cache map.
+    static void release_cache_user_reference(std::shared_ptr<FileBlock>& file_block);
 
     Range _block_range;
 

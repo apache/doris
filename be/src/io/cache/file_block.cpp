@@ -331,36 +331,47 @@ std::string FileBlock::get_cache_file() const {
     return _mgr->_storage->get_local_file(this->_key);
 }
 
-FileBlocksHolder::~FileBlocksHolder() {
-    for (auto file_block_it = file_blocks.begin(); file_block_it != file_blocks.end();) {
-        auto current_file_block_it = file_block_it;
-        auto& file_block = *current_file_block_it;
-        BlockFileCache* _mgr = file_block->_mgr;
+void FileBlock::release_cache_user_reference(std::shared_ptr<FileBlock>& file_block) {
+    if (!file_block) {
+        return;
+    }
+    BlockFileCache* mgr = file_block->_mgr;
+    {
+        bool should_remove = false;
         {
-            bool should_remove = false;
-            {
-                std::lock_guard block_lock(file_block->_mutex);
-                file_block->complete_unlocked(block_lock);
-                if (file_block.use_count() == 2 &&
-                    (file_block->is_deleting() ||
-                     file_block->state_unlock(block_lock) == FileBlock::State::EMPTY)) {
-                    should_remove = true;
-                }
+            std::lock_guard block_lock(file_block->_mutex);
+            file_block->complete_unlocked(block_lock);
+            if (file_block.use_count() == 2 &&
+                (file_block->is_deleting() ||
+                 file_block->state_unlock(block_lock) == FileBlock::State::EMPTY)) {
+                should_remove = true;
             }
-            if (should_remove) {
-                SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
-                std::lock_guard block_lock(file_block->_mutex);
-                if (file_block.use_count() == 2) {
-                    DCHECK(file_block->state_unlock(block_lock) != FileBlock::State::DOWNLOADING);
-                    // one in cache, one in here
-                    if (file_block->is_deleting() ||
-                        file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
-                        _mgr->remove(file_block, cache_lock, block_lock, false);
-                    }
+        }
+        if (should_remove) {
+            SCOPED_CACHE_LOCK(mgr->_mutex, mgr);
+            std::lock_guard block_lock(file_block->_mutex);
+            if (file_block.use_count() == 2) {
+                DCHECK(file_block->state_unlock(block_lock) != FileBlock::State::DOWNLOADING);
+                // one in cache, one held by the cache user
+                if (file_block->is_deleting() ||
+                    file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
+                    mgr->remove(file_block, cache_lock, block_lock, false);
                 }
             }
         }
-        file_block_it = file_blocks.erase(current_file_block_it);
+    }
+    file_block.reset();
+}
+
+FileBlocksHolder::~FileBlocksHolder() {
+    for (auto& file_block : file_blocks) {
+        FileBlock::release_cache_user_reference(file_block);
+    }
+}
+
+FileBlocksProbeResult::~FileBlocksProbeResult() {
+    for (auto& file_block : file_blocks) {
+        FileBlock::release_cache_user_reference(file_block);
     }
 }
 

@@ -845,9 +845,9 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
 FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t offset, size_t size,
                                             const CacheContext& context) {
     DORIS_CHECK(size > 0);
-    const FileBlock::Range range(offset, offset + size - 1);
-    FileBlocks blocks;
-    std::vector<FileBlock::Range> gaps;
+    DORIS_CHECK(_max_file_block_size > 0);
+    const size_t end = offset + size;
+    DORIS_CHECK(end > offset);
     std::lock_guard cache_lock(_mutex);
 
     auto file_iterator = _files.find(hash);
@@ -860,46 +860,36 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
         _storage->load_blocks_directly_unlocked(this, key, cache_lock);
         file_iterator = _files.find(hash);
     }
-    if (file_iterator == _files.end()) {
-        gaps.emplace_back(range);
-        return FileBlocksProbeResult(std::move(blocks), std::move(gaps));
-    }
 
-    auto& file_blocks = file_iterator->second;
-    DORIS_CHECK(!file_blocks.empty());
-    auto block_iterator = file_blocks.lower_bound(range.left);
-    if (block_iterator != file_blocks.begin()) {
-        auto previous = std::prev(block_iterator);
-        if (previous->second.file_block->range().right >= range.left) {
-            block_iterator = previous;
+    FileBlocksByOffset* cached_blocks = nullptr;
+    FileBlocksByOffset::iterator cached_block;
+    if (file_iterator != _files.end()) {
+        DORIS_CHECK(!file_iterator->second.empty());
+        cached_blocks = &file_iterator->second;
+        cached_block = cached_blocks->lower_bound(offset);
+        if (cached_block != cached_blocks->begin()) {
+            const auto& previous_range = std::prev(cached_block)->second.file_block->range();
+            DORIS_CHECK(previous_range.right < offset);
         }
     }
 
-    size_t current = range.left;
-    for (; block_iterator != file_blocks.end(); ++block_iterator) {
-        const auto& block = block_iterator->second.file_block;
-        const auto& block_range = block->range();
-        if (block_range.left > range.right) {
-            break;
+    std::vector<FileBlockSPtr> result;
+    result.reserve(size / _max_file_block_size + (size % _max_file_block_size != 0));
+    for (size_t block_offset = offset; block_offset < end;) {
+        const size_t block_size = std::min(_max_file_block_size, end - block_offset);
+        const FileBlock::Range expected_range(block_offset, block_offset + block_size - 1);
+        FileBlockSPtr file_block;
+        if (cached_blocks != nullptr && cached_block != cached_blocks->end() &&
+            cached_block->second.file_block->range().left <= expected_range.right) {
+            file_block = cached_block->second.file_block;
+            DORIS_CHECK(file_block->range().left == expected_range.left);
+            DORIS_CHECK(file_block->range().right == expected_range.right);
+            ++cached_block;
         }
-        if (block_range.right < range.left) {
-            continue;
-        }
-        const size_t clipped_left = std::max(block_range.left, range.left);
-        const size_t clipped_right = std::min(block_range.right, range.right);
-        if (current < clipped_left) {
-            gaps.emplace_back(current, clipped_left - 1);
-        }
-        blocks.emplace_back(block);
-        current = clipped_right + 1;
-        if (current > range.right) {
-            break;
-        }
+        result.emplace_back(std::move(file_block));
+        block_offset += block_size;
     }
-    if (current <= range.right) {
-        gaps.emplace_back(current, range.right);
-    }
-    return FileBlocksProbeResult(std::move(blocks), std::move(gaps));
+    return FileBlocksProbeResult(std::move(result));
 }
 
 void BlockFileCache::touch_probe_block_if_cached(const FileBlockSPtr& block,
