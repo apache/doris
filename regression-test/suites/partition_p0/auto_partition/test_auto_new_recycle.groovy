@@ -114,8 +114,6 @@ suite("test_auto_new_recycle", "nonConcurrent") {
         );
     """
 
-    waitUntilSafeExecutionTime("NOT_CROSS_DAY_BOUNDARY", 20)
-
     def waitPartitionCount = { int expectedCount ->
         Awaitility.await().atMost(1200, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
             res = sql "show partitions from auto_recycle"
@@ -176,6 +174,7 @@ suite("test_auto_new_recycle", "nonConcurrent") {
     """
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
     sleep(8000)
+    waitUntilSafeExecutionTime("NOT_CROSS_DAY_BOUNDARY", 1300)
     sql """
         insert into auto_recycle select date_add(now(), interval number-5 day) from numbers("number" = "8");
     """
