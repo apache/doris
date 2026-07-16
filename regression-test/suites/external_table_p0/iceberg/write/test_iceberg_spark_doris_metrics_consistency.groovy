@@ -45,7 +45,9 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
             'write.orc.compression-codec'='zlib'
         );
         INSERT INTO demo.${dbName}.spark_doris_orc_map_bool_metrics
-        VALUES (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702);
+        VALUES
+        (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702),
+        (2, 'bob', 8000000000, NAMED_STRUCT('c1', CAST(NULL AS INT)), MAP(false, true), 20260702);
 
         DROP TABLE IF EXISTS demo.${dbName}.spark_doris_parquet_map_bool_metrics;
         CREATE TABLE demo.${dbName}.spark_doris_parquet_map_bool_metrics (
@@ -62,7 +64,9 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
             'write.parquet.compression-codec'='zstd'
         );
         INSERT INTO demo.${dbName}.spark_doris_parquet_map_bool_metrics
-        VALUES (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702);
+        VALUES
+        (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702),
+        (2, 'bob', 8000000000, NAMED_STRUCT('c1', CAST(NULL AS INT)), MAP(false, true), 20260702);
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -83,27 +87,37 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
     sql """create database if not exists ${dbName}"""
     sql """use ${dbName}"""
 
-    def assertSparkDorisMetricBoundsEqual = { String tableName ->
+    def metricFieldIds = { Object metric ->
+        Set<String> fieldIds = [] as Set
+        (String.valueOf(metric) =~ /(\d+):/).each { match -> fieldIds.add(match[1]) }
+        return fieldIds
+    }
+
+    def assertSparkDorisMetricsEqual = { String tableName, Set<String> expectedColumnSizeIds,
+                                         Set<String> expectedCountIds ->
         sql """refresh table ${dbName}.${tableName}"""
         List<List<Object>> metricRows = sql """
-            SELECT record_count, lower_bounds, upper_bounds
+            SELECT file_path, record_count, column_sizes, value_counts, null_value_counts,
+                   lower_bounds, upper_bounds
             FROM ${tableName}\$files
         """
         assertEquals(2, metricRows.size(), "${tableName} should have one Spark file and one Doris file")
-        Set<String> metricSignatures = metricRows.collect { row -> row.toString() } as Set
+        Set<String> metricSignatures = metricRows.collect { row ->
+            [row[1], row[3], row[4], row[5], row[6]].toString()
+        } as Set
         assertEquals(1, metricSignatures.size(),
-                "${tableName} should have identical Spark and Doris bounds metrics: ${metricRows}")
+                "${tableName} should have identical Spark and Doris count/bounds metrics: ${metricRows}")
         metricRows.each { row ->
-            assertTrue(String.valueOf(row[1]).contains("7:"),
-                    "${tableName} lower_bounds should contain nested struct field 7: ${row[1]}")
-            assertTrue(String.valueOf(row[2]).contains("7:"),
-                    "${tableName} upper_bounds should contain nested struct field 7: ${row[2]}")
-            ["4", "5", "8", "9"].each { excludedFieldId ->
-                assertTrue(!String.valueOf(row[1]).contains("${excludedFieldId}:"),
-                        "${tableName} lower_bounds should not contain field ${excludedFieldId}: ${row[1]}")
-                assertTrue(!String.valueOf(row[2]).contains("${excludedFieldId}:"),
-                        "${tableName} upper_bounds should not contain field ${excludedFieldId}: ${row[2]}")
-            }
+            assertEquals(expectedColumnSizeIds, metricFieldIds(row[2]),
+                    "${tableName} column_sizes should contain the expected fields: ${row[2]}")
+            assertEquals(expectedCountIds, metricFieldIds(row[3]),
+                    "${tableName} value_counts should contain the expected fields: ${row[3]}")
+            assertEquals(expectedCountIds, metricFieldIds(row[4]),
+                    "${tableName} null_value_counts should contain the expected fields: ${row[4]}")
+            assertEquals(["1", "2", "3", "6", "7"] as Set, metricFieldIds(row[5]),
+                    "${tableName} lower_bounds should contain primitive struct fields: ${row[5]}")
+            assertEquals(["1", "2", "3", "6", "7"] as Set, metricFieldIds(row[6]),
+                    "${tableName} upper_bounds should contain primitive struct fields: ${row[6]}")
         }
 
         sql """SELECT * FROM ${tableName}\$data_files"""
@@ -111,13 +125,21 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
 
     sql """
         INSERT INTO spark_doris_orc_map_bool_metrics
-        VALUES (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702)
+        VALUES
+        (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702),
+        (2, 'bob', 8000000000, NAMED_STRUCT('c1', CAST(NULL AS INT)), MAP(false, true), 20260702)
     """
-    assertSparkDorisMetricBoundsEqual("spark_doris_orc_map_bool_metrics")
+    assertSparkDorisMetricsEqual("spark_doris_orc_map_bool_metrics",
+            ["1", "2", "3", "4", "5", "6", "7"] as Set,
+            ["1", "2", "3", "4", "5", "6", "7"] as Set)
 
     sql """
         INSERT INTO spark_doris_parquet_map_bool_metrics
-        VALUES (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702)
+        VALUES
+        (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702),
+        (2, 'bob', 8000000000, NAMED_STRUCT('c1', CAST(NULL AS INT)), MAP(false, true), 20260702)
     """
-    assertSparkDorisMetricBoundsEqual("spark_doris_parquet_map_bool_metrics")
+    assertSparkDorisMetricsEqual("spark_doris_parquet_map_bool_metrics",
+            ["1", "2", "3", "6", "7", "8", "9"] as Set,
+            ["1", "2", "3", "6", "7"] as Set)
 }

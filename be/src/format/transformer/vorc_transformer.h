@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <map>
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <string>
@@ -107,10 +108,12 @@ private:
     Status _resize_row_batch(const DataTypePtr& type, const IColumn& column,
                              orc::ColumnVectorBatch* orc_col_batch);
     const iceberg::NestedField* _iceberg_field_for_column(const std::string& column_name) const;
-    Status _can_write_iceberg_bounds(int32_t field_id, bool* can_write) const;
-    Status _collect_iceberg_bounds(const orc::Statistics* file_stats,
-                                   std::map<int32_t, std::string>* lower_bounds,
-                                   std::map<int32_t, std::string>* upper_bounds) const;
+    Status _collect_iceberg_metrics(const orc::Reader* reader, const orc::Statistics* file_stats,
+                                    std::map<int32_t, int64_t>* column_sizes,
+                                    std::map<int32_t, int64_t>* value_counts,
+                                    std::map<int32_t, int64_t>* null_value_counts,
+                                    std::map<int32_t, std::string>* lower_bounds,
+                                    std::map<int32_t, std::string>* upper_bounds) const;
     void _collect_primitive_column_bounds(const orc::ColumnStatistics* col_stats, int32_t field_id,
                                           const iceberg::Type* field_type,
                                           std::map<int32_t, std::string>* lower_bounds,
@@ -126,7 +129,6 @@ private:
     std::unique_ptr<orc::Writer> _writer;
 
     const iceberg::Schema* _iceberg_schema;
-    std::vector<int32_t> _iceberg_output_field_ids;
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer

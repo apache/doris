@@ -363,6 +363,9 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
 
     bool has_any_null_count = false;
     for (const auto& [field_id, column_stat] : merged_column_stats) {
+        if (_iceberg_schema->is_nested_in_list_or_map(field_id)) {
+            continue;
+        }
         value_counts[field_id] = column_stat->num_values();
         if (column_stat->HasNullCount()) {
             has_any_null_count = true;

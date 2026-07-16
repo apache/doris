@@ -63,6 +63,15 @@
 #include "util/debug_util.h"
 
 namespace doris {
+namespace {
+
+bool is_orc_index_stream(orc::StreamKind kind) {
+    return kind == orc::StreamKind_ROW_INDEX || kind == orc::StreamKind_DICTIONARY_COUNT ||
+           kind == orc::StreamKind_BLOOM_FILTER || kind == orc::StreamKind_BLOOM_FILTER_UTF8;
+}
+
+} // namespace
+
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
@@ -130,11 +139,9 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
 }
 
 Status VOrcTransformer::open() {
-    _iceberg_output_field_ids.clear();
     std::vector<const iceberg::NestedField*> iceberg_output_fields;
     if (_iceberg_schema != nullptr) {
         iceberg_output_fields.reserve(_column_names.size());
-        _iceberg_output_field_ids.reserve(_column_names.size());
         for (const auto& column_name : _column_names) {
             const iceberg::NestedField* field = _iceberg_field_for_column(column_name);
             if (field == nullptr) {
@@ -142,7 +149,6 @@ Status VOrcTransformer::open() {
                                              column_name);
             }
             iceberg_output_fields.push_back(field);
-            _iceberg_output_field_ids.push_back(field->field_id());
         }
     }
 
@@ -402,47 +408,19 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
             return Status::OK();
         }
 
+        std::map<int32_t, int64_t> column_sizes;
         std::map<int32_t, int64_t> value_counts;
         std::map<int32_t, int64_t> null_value_counts;
         std::map<int32_t, std::string> lower_bounds;
         std::map<int32_t, std::string> upper_bounds;
-        bool has_any_null_count = false;
 
-        if (_schema == nullptr || _schema->getSubtypeCount() != _output_vexpr_ctxs.size()) {
-            return Status::InternalError("ORC writer schema does not match output expr count");
-        }
-        if (_iceberg_output_field_ids.size() != _output_vexpr_ctxs.size()) {
-            return Status::InternalError(
-                    "Iceberg ORC metrics field mapping does not match output expr count");
-        }
-        for (uint32_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-            uint64_t orc_col_id = _schema->getSubtype(i)->getColumnId();
-            if (orc_col_id >= file_stats->getNumberOfColumns()) {
-                continue;
-            }
+        RETURN_IF_ERROR(_collect_iceberg_metrics(reader.get(), file_stats.get(), &column_sizes,
+                                                 &value_counts, &null_value_counts, &lower_bounds,
+                                                 &upper_bounds));
 
-            const orc::ColumnStatistics* col_stats =
-                    file_stats->getColumnStatistics(static_cast<uint32_t>(orc_col_id));
-            if (col_stats == nullptr) {
-                continue;
-            }
-
-            int32_t field_id = _iceberg_output_field_ids[i];
-            int64_t non_null_count = col_stats->getNumberOfValues();
-            value_counts[field_id] = non_null_count;
-            if (col_stats->hasNull()) {
-                has_any_null_count = true;
-                int64_t null_count = _cur_written_rows - non_null_count;
-                null_value_counts[field_id] = null_count;
-                value_counts[field_id] += null_count;
-            }
-        }
-        RETURN_IF_ERROR(_collect_iceberg_bounds(file_stats.get(), &lower_bounds, &upper_bounds));
-
+        stats->__set_column_sizes(column_sizes);
         stats->__set_value_counts(value_counts);
-        if (has_any_null_count) {
-            stats->__set_null_value_counts(null_value_counts);
-        }
+        stats->__set_null_value_counts(null_value_counts);
         if (!lower_bounds.empty()) {
             stats->__set_lower_bounds(lower_bounds);
             stats->__set_upper_bounds(upper_bounds);
@@ -454,19 +432,12 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
     }
 }
 
-Status VOrcTransformer::_can_write_iceberg_bounds(int32_t field_id, bool* can_write) const {
-    iceberg::Type* field_type = _iceberg_schema->find_type(field_id);
-    if (field_type == nullptr) {
-        return Status::InternalError("Can not find Iceberg field for ORC metrics: {}", field_id);
-    }
-    *can_write =
-            field_type->is_primitive_type() && !_iceberg_schema->is_nested_in_list_or_map(field_id);
-    return Status::OK();
-}
-
-Status VOrcTransformer::_collect_iceberg_bounds(
-        const orc::Statistics* file_stats, std::map<int32_t, std::string>* lower_bounds,
+Status VOrcTransformer::_collect_iceberg_metrics(
+        const orc::Reader* reader, const orc::Statistics* file_stats,
+        std::map<int32_t, int64_t>* column_sizes, std::map<int32_t, int64_t>* value_counts,
+        std::map<int32_t, int64_t>* null_value_counts, std::map<int32_t, std::string>* lower_bounds,
         std::map<int32_t, std::string>* upper_bounds) const {
+    std::map<uint64_t, int32_t> orc_to_iceberg_field_ids;
     for (uint32_t orc_col_id = 1; orc_col_id < file_stats->getNumberOfColumns(); ++orc_col_id) {
         const orc::Type* orc_type = _schema->getTypeByColumnId(orc_col_id);
         if (!orc_type->hasAttributeKey(ORC_ICEBERG_ID_KEY)) {
@@ -474,17 +445,43 @@ Status VOrcTransformer::_collect_iceberg_bounds(
         }
 
         int32_t field_id = std::stoi(orc_type->getAttributeValue(ORC_ICEBERG_ID_KEY));
-        bool can_write_bounds = false;
-        RETURN_IF_ERROR(_can_write_iceberg_bounds(field_id, &can_write_bounds));
-        if (!can_write_bounds) {
+        const iceberg::Type* field_type = _iceberg_schema->find_type(field_id);
+        if (field_type == nullptr) {
+            return Status::InternalError("Can not find Iceberg field for ORC metrics: {}",
+                                         field_id);
+        }
+        if (_iceberg_schema->is_nested_in_list_or_map(field_id)) {
             continue;
         }
 
+        orc_to_iceberg_field_ids.emplace(orc_col_id, field_id);
+        (*column_sizes)[field_id] = 0;
         const orc::ColumnStatistics* col_stats = file_stats->getColumnStatistics(orc_col_id);
         if (col_stats != nullptr) {
-            _collect_primitive_column_bounds(col_stats, field_id,
-                                             _iceberg_schema->find_type(field_id), lower_bounds,
-                                             upper_bounds);
+            int64_t non_null_count = cast_set<int64_t>(col_stats->getNumberOfValues());
+            DORIS_CHECK_GE(_cur_written_rows, non_null_count);
+            int64_t null_count = col_stats->hasNull() ? _cur_written_rows - non_null_count : 0;
+            (*null_value_counts)[field_id] = null_count;
+            (*value_counts)[field_id] = non_null_count + null_count;
+            if (field_type->is_primitive_type()) {
+                _collect_primitive_column_bounds(col_stats, field_id, field_type, lower_bounds,
+                                                 upper_bounds);
+            }
+        }
+    }
+
+    for (uint64_t stripe_id = 0; stripe_id < reader->getNumberOfStripes(); ++stripe_id) {
+        std::unique_ptr<orc::StripeInformation> stripe = reader->getStripe(stripe_id);
+        for (uint64_t stream_id = 0; stream_id < stripe->getNumberOfStreams(); ++stream_id) {
+            std::unique_ptr<orc::StreamInformation> stream =
+                    stripe->getStreamInformation(stream_id);
+            if (is_orc_index_stream(stream->getKind())) {
+                continue;
+            }
+            auto field_id = orc_to_iceberg_field_ids.find(stream->getColumnId());
+            if (field_id != orc_to_iceberg_field_ids.end()) {
+                (*column_sizes)[field_id->second] += cast_set<int64_t>(stream->getLength());
+            }
         }
     }
     return Status::OK();
