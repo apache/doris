@@ -245,6 +245,56 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
         }
     }
 
+    def assertRowLineageOnlyAggregatesReadable = { tableName, expectedRowCount ->
+        def rowIdsWithPhysicalColumn = sql("""
+            select _row_id, id
+            from ${tableName}
+            order by _row_id
+        """).collect { row -> row[0].toString().toLong() }
+        log.info("Checking row lineage only baseline for ${tableName}: rowIds=${rowIdsWithPhysicalColumn}")
+        assertEquals(expectedRowCount, rowIdsWithPhysicalColumn.size())
+        assertEquals(expectedRowCount, rowIdsWithPhysicalColumn.toSet().size())
+
+        def distinctRowIdsWithPhysicalColumn = sql("""
+            select distinct _row_id, id
+            from ${tableName}
+            order by _row_id
+        """).collect { row -> row[0].toString().toLong() }
+        log.info("""Checking distinct _row_id with physical column for ${tableName}: distinctRowIds=${distinctRowIdsWithPhysicalColumn}""")
+        assertEquals(rowIdsWithPhysicalColumn, distinctRowIdsWithPhysicalColumn)
+
+        def distinctRowIds = sql("""
+            select distinct _row_id
+            from ${tableName}
+            order by _row_id
+        """).collect { row -> row[0].toString().toLong() }
+        log.info("Checking distinct _row_id only for ${tableName}: distinctRowIds=${distinctRowIds}")
+        assertEquals(rowIdsWithPhysicalColumn, distinctRowIds)
+
+        def groupRows = sql("""
+            select _row_id, count(*)
+            from ${tableName}
+            group by _row_id
+            order by _row_id
+        """)
+        log.info("Checking group by _row_id only for ${tableName}: groupRows=${groupRows}")
+        assertEquals(expectedRowCount, groupRows.size())
+        assertEquals(rowIdsWithPhysicalColumn, groupRows.collect { row -> row[0].toString().toLong() })
+        groupRows.each { row ->
+            assertEquals(1, row[1].toString().toInteger())
+        }
+
+        def distinctAggRows = sql("""
+            select count(*), count(distinct _row_id), ndv(_row_id)
+            from ${tableName}
+        """)
+        log.info("Checking distinct aggregate on _row_id only for ${tableName}: result=${distinctAggRows}")
+        assertEquals(1, distinctAggRows.size())
+        assertEquals(expectedRowCount, distinctAggRows[0][0].toString().toInteger())
+        assertEquals(expectedRowCount, distinctAggRows[0][1].toString().toInteger())
+        assertEquals(expectedRowCount, distinctAggRows[0][2].toString().toInteger())
+    }
+
     sql """drop catalog if exists ${catalogName}"""
     sql """
         create catalog if not exists ${catalogName} properties (
@@ -303,7 +353,10 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 """
 
                 sql """
-                    insert into ${unpartitionedTable} values(1, 'Alice', 25);
+                    insert into ${unpartitionedTable} values
+                    (1, 'Alice', 25),
+                    (2, 'Bob', 30),
+                    (3, 'Charlie', 35)
                 """
                 sql """ insert into ${unpartitionedTable} values(2, 'Bob', 30) """
                 sql """ insert into ${unpartitionedTable} values(3, 'Charlie', 35) """
@@ -325,6 +378,9 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         unpartitionedTable,
                         unpartitionedLineageRows[0][1],
                         unpartitionedLineageRows[0][2])
+                if (format == "parquet") {
+                    assertRowLineageOnlyAggregatesReadable(unpartitionedTable, 3)
+                }
 
                 test {
                     sql """insert into ${unpartitionedTable}(_row_id, id, name, age) values (1, 9, 'BadRow', 99)"""
@@ -348,6 +404,9 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         unpartitionedTable,
                         format,
                         "Unpartitioned normal INSERT")
+                if (format == "parquet") {
+                    assertRowLineageOnlyAggregatesReadable(unpartitionedTable, 4)
+                }
 
                 sql """drop table if exists ${partitionedTable}"""
                 sql """

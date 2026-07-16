@@ -66,7 +66,8 @@ static ColumnPtr build_int32_array_column(const std::vector<std::vector<int32_t>
         for (auto v : row_nulls) {
             outer_null->insert_value(v);
         }
-        array_col = ColumnNullable::create(array_col->assume_mutable(), std::move(outer_null));
+        ColumnPtr outer_null_col = std::move(outer_null);
+        array_col = ColumnNullable::create(array_col, outer_null_col);
     }
     return array_col;
 }
@@ -101,7 +102,8 @@ static ColumnPtr build_string_array_column(const std::vector<std::vector<std::st
         for (auto v : row_nulls) {
             outer_null->insert_value(v);
         }
-        array_col = ColumnNullable::create(array_col->assume_mutable(), std::move(outer_null));
+        ColumnPtr outer_null_col = std::move(outer_null);
+        array_col = ColumnNullable::create(array_col, outer_null_col);
     }
     return array_col;
 }

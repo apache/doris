@@ -18,10 +18,13 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_number.h"
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "exprs/runtime_filter_expr.h"
+#include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 
 namespace doris {
 
@@ -176,6 +179,84 @@ TEST_F(RuntimeFilterExprSamplingTest, sampling_frequency_survives_context_recrea
     auto& selectivity = context2->get_runtime_filter_selectivity();
     selectivity.update_judge_selectivity(1, 2000, 50000, 0.1);
     EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
+}
+
+// RuntimeFilterExpr exposes _impl->children(), but the wrapper itself does not own those
+// children in its own _children vector. Deep clone must therefore clone _impl explicitly.
+TEST_F(RuntimeFilterExprSamplingTest, deep_clone_clones_impl_tree) {
+    auto bool_type = TTypeDescBuilder()
+                             .set_types(TTypeNodeBuilder()
+                                                .set_type(TTypeNodeType::SCALAR)
+                                                .set_scalar_type(TPrimitiveType::BOOLEAN)
+                                                .build())
+                             .build();
+    TExprNode node = TExprNodeBuilder(TExprNodeType::IN_PRED, bool_type, 0).build();
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+
+    auto slot = VSlotRef::create_shared(/*slot_id=*/0, /*column_id=*/0, /*column_uniq_id=*/10,
+                                        std::make_shared<DataTypeInt32>(), "c0");
+    auto impl = VDirectInPredicate::create_shared(node, nullptr);
+    impl->add_child(slot);
+
+    auto wrapper = RuntimeFilterExpr::create_shared(node, impl, 0.4, false, /*filter_id=*/7,
+                                                    /*sampling_frequency=*/32);
+
+    VExprSPtr cloned_expr;
+    ASSERT_TRUE(wrapper->deep_clone(&cloned_expr).ok());
+
+    auto* cloned_wrapper = dynamic_cast<RuntimeFilterExpr*>(cloned_expr.get());
+    ASSERT_NE(cloned_wrapper, nullptr);
+    EXPECT_NE(cloned_wrapper, wrapper.get());
+    EXPECT_EQ(cloned_wrapper->filter_id(), 7);
+
+    auto cloned_impl = cloned_wrapper->get_impl();
+    ASSERT_NE(cloned_impl, nullptr);
+    EXPECT_NE(cloned_impl.get(), impl.get());
+    ASSERT_EQ(cloned_impl->get_num_children(), 1);
+    EXPECT_NE(cloned_impl->children()[0].get(), slot.get());
+
+    auto* cloned_slot = dynamic_cast<VSlotRef*>(cloned_impl->children()[0].get());
+    ASSERT_NE(cloned_slot, nullptr);
+    EXPECT_EQ(cloned_slot->column_id(), 0);
+    EXPECT_EQ(cloned_slot->column_uniq_id(), 10);
+    EXPECT_EQ(cloned_slot->column_name(), "c0");
+}
+
+// FileScannerV2 deep-clones runtime filters when rewriting scanner slot ids to table-global
+// indices. Both the scanner wrapper and the localized clone contribute to one runtime-filter
+// profile, so the clone must retain the counters attached by RuntimeFilterConsumer.
+TEST_F(RuntimeFilterExprSamplingTest, deep_clone_shares_profile_counters) {
+    auto bool_type = TTypeDescBuilder()
+                             .set_types(TTypeNodeBuilder()
+                                                .set_type(TTypeNodeType::SCALAR)
+                                                .set_scalar_type(TPrimitiveType::BOOLEAN)
+                                                .build())
+                             .build();
+    TExprNode node = TExprNodeBuilder(TExprNodeType::IN_PRED, bool_type, 0).build();
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+
+    auto slot = VSlotRef::create_shared(/*slot_id=*/0, /*column_id=*/0, /*column_uniq_id=*/10,
+                                        std::make_shared<DataTypeInt32>(), "c0");
+    auto impl = VDirectInPredicate::create_shared(node, nullptr);
+    impl->add_child(slot);
+    auto wrapper = RuntimeFilterExpr::create_shared(node, impl, 0.4, false, /*filter_id=*/1);
+    auto input_rows = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    auto filter_rows = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    auto always_true_rows = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    wrapper->attach_profile_counter(input_rows, filter_rows, always_true_rows);
+
+    VExprSPtr cloned_expr;
+    ASSERT_TRUE(wrapper->deep_clone(&cloned_expr).ok());
+    auto* cloned_wrapper = dynamic_cast<RuntimeFilterExpr*>(cloned_expr.get());
+    ASSERT_NE(cloned_wrapper, nullptr);
+
+    EXPECT_EQ(cloned_wrapper->predicate_input_rows_counter(), input_rows);
+    EXPECT_EQ(cloned_wrapper->predicate_filtered_rows_counter(), filter_rows);
+    EXPECT_EQ(cloned_wrapper->predicate_always_true_rows_counter(), always_true_rows);
 }
 
 } // namespace doris

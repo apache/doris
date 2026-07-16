@@ -208,6 +208,24 @@ public class WindowExpression extends Expression {
     }
 
     @Override
+    public String shapeInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(function.shapeInfo()).append(" OVER(");
+        if (!partitionKeys.isEmpty()) {
+            sb.append("PARTITION BY ").append(partitionKeys.stream()
+                    .map(Expression::shapeInfo)
+                    .collect(Collectors.joining(", ", "", " ")));
+        }
+        if (!orderKeys.isEmpty()) {
+            sb.append("ORDER BY ").append(orderKeys.stream()
+                    .map(OrderExpression::shapeInfo)
+                    .collect(Collectors.joining(", ", "", " ")));
+        }
+        windowFrame.ifPresent(wf -> sb.append(wf.toSql()));
+        return sb.toString().trim() + ")";
+    }
+
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("WindowExpression(").append(function).append(" spec(");

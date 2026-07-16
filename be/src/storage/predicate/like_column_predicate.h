@@ -43,23 +43,22 @@ class Roaring;
 namespace doris {
 class FunctionContext;
 
-template <PrimitiveType T>
 class LikeColumnPredicate final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(LikeColumnPredicate);
     LikeColumnPredicate(bool opposite, uint32_t column_id, std::string col_name,
                         doris::FunctionContext* fn_ctx, doris::StringRef val);
     ~LikeColumnPredicate() override = default;
-    LikeColumnPredicate(const LikeColumnPredicate<T>& other, uint32_t col_id)
+    LikeColumnPredicate(const LikeColumnPredicate& other, uint32_t col_id)
             : ColumnPredicate(other, col_id) {
         _origin = other._origin;
         pattern = other.pattern;
         _state = other._state;
         _opposite = other._opposite;
     }
-    LikeColumnPredicate(const LikeColumnPredicate<T>& other) = delete;
+    LikeColumnPredicate(const LikeColumnPredicate& other) = delete;
     std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
-        return LikeColumnPredicate<T>::create_shared(*this, col_id);
+        return LikeColumnPredicate::create_shared(*this, col_id);
     }
     std::string debug_string() const override {
         fmt::memory_buffer debug_string_buffer;
@@ -96,7 +95,7 @@ private:
 
     template <bool is_and>
     void _evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             auto& null_map_data = nullable_col->get_null_map_column().get_data();
             auto& nested_col = nullable_col->get_nested_column();
@@ -155,7 +154,7 @@ private:
 
         std::vector<bool> tmp_res(column.dict_size(), false);
         for (int i = 0; i < column.dict_size(); i++) {
-            StringRef cell_value = column.get_shrink_value(i);
+            StringRef cell_value = column.get_value(i);
             unsigned char flag = 0;
             THROW_IF_ERROR((_state->scalar_function)(
                     &_like_state, StringRef(cell_value.data, cell_value.size), pattern, &flag));

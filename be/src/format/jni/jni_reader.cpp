@@ -22,10 +22,14 @@
 #include <map>
 #include <ostream>
 #include <sstream>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
 
 #include "core/block/block.h"
 #include "core/types.h"
 #include "format/jni/jni_data_bridge.h"
+#include "format/table/partition_column_filler.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
@@ -65,6 +69,52 @@ JniReader::JniReader(std::string connector_class, std::map<std::string, std::str
           _scanner_params(std::move(scanner_params)) {
     _is_table_schema = true;
     _connector_name = split(_connector_class, "/").back();
+}
+
+Status JniReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    if (_col_name_to_block_idx == nullptr) {
+        _col_name_to_block_idx = ctx->col_name_to_block_idx;
+    }
+    _partition_values.clear();
+    _partition_value_is_null.clear();
+    if (ctx->range == nullptr || ctx->tuple_descriptor == nullptr ||
+        !ctx->range->__isset.columns_from_path_keys) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(ctx->range->__isset.columns_from_path);
+    DORIS_CHECK(ctx->range->columns_from_path.size() == ctx->range->columns_from_path_keys.size());
+    const bool has_null_flags = ctx->range->__isset.columns_from_path_is_null;
+    if (has_null_flags) {
+        DORIS_CHECK(ctx->range->columns_from_path_is_null.size() ==
+                    ctx->range->columns_from_path_keys.size());
+    }
+
+    std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
+    for (auto* slot : ctx->tuple_descriptor->slots()) {
+        name_to_slot.emplace(slot->col_name(), slot);
+    }
+    for (size_t i = 0; i < ctx->range->columns_from_path_keys.size(); ++i) {
+        const auto& key = ctx->range->columns_from_path_keys[i];
+        auto slot_it = name_to_slot.find(key);
+        if (slot_it == name_to_slot.end()) {
+            continue;
+        }
+        _partition_values.emplace(
+                key, std::make_tuple(ctx->range->columns_from_path[i], slot_it->second));
+        _partition_value_is_null.emplace(
+                key, has_null_flags ? ctx->range->columns_from_path_is_null[i] : false);
+    }
+    return Status::OK();
+}
+
+Status JniReader::on_after_read_block(Block* block, size_t* read_rows) {
+    if (_column_descs == nullptr || _partition_values.empty() || *read_rows == 0 ||
+        _push_down_agg_type == TPushAggOp::type::COUNT) {
+        return Status::OK();
+    }
+    return _fill_partition_columns(block, *read_rows);
 }
 
 // =========================================================================
@@ -305,6 +355,40 @@ Status JniReader::_fill_block(Block* block, size_t num_rows) {
     return Status::OK();
 }
 
+Status JniReader::_fill_partition_columns(Block* block, size_t num_rows) {
+    std::unordered_map<std::string, uint32_t> local_name_to_idx;
+    const std::unordered_map<std::string, uint32_t>* col_map = _col_name_to_block_idx;
+    if (col_map == nullptr) {
+        local_name_to_idx = block->get_name_to_pos_map();
+        col_map = &local_name_to_idx;
+    }
+
+    for (const auto& desc : *_column_descs) {
+        if (desc.category != ColumnCategory::PARTITION_KEY) {
+            continue;
+        }
+        auto value_it = _partition_values.find(desc.name);
+        if (value_it == _partition_values.end()) {
+            continue;
+        }
+        auto col_it = col_map->find(desc.name);
+        if (col_it == col_map->end()) {
+            return Status::InternalError("Missing partition column {} in block {}", desc.name,
+                                         block->dump_structure());
+        }
+
+        auto& column_with_type_and_name = block->get_by_position(col_it->second);
+        auto mutable_column = std::move(*column_with_type_and_name.column).mutate();
+        const auto& [value, slot_desc] = value_it->second;
+        auto null_it = _partition_value_is_null.find(desc.name);
+        DORIS_CHECK(null_it != _partition_value_is_null.end());
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(*mutable_column, *slot_desc, value,
+                                                              num_rows, null_it->second));
+        column_with_type_and_name.column = std::move(mutable_column);
+    }
+    return Status::OK();
+}
+
 // =========================================================================
 // JniReader::_get_statistics  (merged from JniConnector::get_statistics)
 // =========================================================================
@@ -340,6 +424,9 @@ void JniReader::_collect_profile_before_close() {
             return;
         }
 
+        const auto update_peak = [](int64_t previous, int64_t current) {
+            return current > previous;
+        };
         for (const auto& metric : statistics_result) {
             std::vector<std::string> type_and_name = split(metric.first, ":");
             if (type_and_name.size() != 2) {
@@ -347,22 +434,49 @@ void JniReader::_collect_profile_before_close() {
                              << "'metricType:metricName'";
                 continue;
             }
-            long metric_value = std::stol(metric.second);
+            int64_t metric_value = std::stoll(metric.second);
             RuntimeProfile::Counter* scanner_counter;
             if (type_and_name[0] == "timer") {
                 scanner_counter =
                         ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
             } else if (type_and_name[0] == "counter") {
                 scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
                                                     _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
             } else if (type_and_name[0] == "bytes") {
                 scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
                                                     _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "timer_gauge") {
+                scanner_counter =
+                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "gauge") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
+                                                    _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "bytes_gauge") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
+                                                    _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "timer_peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::TIME_NS, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
+            } else if (type_and_name[0] == "peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::UNIT, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
+            } else if (type_and_name[0] == "bytes_peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::BYTES, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
             } else {
-                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter, bytes, "
+                             << "timer_gauge, gauge, bytes_gauge, timer_peak, peak or bytes_peak";
                 continue;
             }
-            COUNTER_UPDATE(scanner_counter, metric_value);
         }
     }
 }

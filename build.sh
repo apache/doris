@@ -34,6 +34,7 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
+export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
@@ -41,7 +42,7 @@ HADOOP_DEPS_NAME="hadoop-deps"
 # ===== Build Profile =====
 if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
     _BP_STATE="${DORIS_HOME}/.build_profile_state.$$"
-    "${DORIS_HOME}/build_profile.sh" collect "${_BP_STATE}" "$*"
+    bash "${DORIS_HOME}/build_profile.sh" collect "${_BP_STATE}" "$*"
     trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" 130; exit 130' INT TERM
     trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" $?; exit $?' ERR
 fi
@@ -61,7 +62,6 @@ Usage: $0 <options>
      --index-tool               build Backend inverted index tool. Default OFF.
      --benchmark                build Google Benchmark. Default OFF.
      --task-executor-simulator  build Backend task executor simulator. Default OFF.
-     --broker                   build Broker. Default ON.
      --hive-udf                 build Hive UDF library for Ingestion Load. Default ON.
      --be-java-extensions       build Backend java extensions. Default ON.
      --be-cdc-client            build Cdc Client for backend. Default ON.
@@ -82,7 +82,9 @@ Usage: $0 <options>
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
     DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=OFF, it will package juicefs-hadoop jar into FE/BE output. Default is ON (skip).
     DISABLE_BUILD_JINDOFS       If set DISABLE_BUILD_JINDOFS=OFF, it will package jindofs jars into FE/BE output. Default is ON (skip).
-
+    EXTRA_FE_MODULES            Optional FE feature modules in feature=module_path format, separated by commas.
+    EXTRA_BE_MODULES            Optional BE feature modules in feature=module_path format, separated by commas.
+    EXTRA_CLOUD_MODULES         Optional CLOUD feature modules in feature=module_path format, separated by commas.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
@@ -94,7 +96,6 @@ Usage: $0 <options>
     $0 --fe --clean                         clean and build Frontend.
     $0 --fe --be --clean                    clean and build Frontend and Backend
     $0 --task-executor-simulator            build task executor simulator
-    $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
@@ -145,6 +146,101 @@ function copy_common_files() {
     cp -r -p "${DORIS_HOME}/dist/licenses" "$1/"
 }
 
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "${value}"
+}
+
+is_valid_extra_module_feature() {
+    local feature="$1"
+    [[ "${feature}" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]
+}
+
+feature_to_cmake_name() {
+    local feature="$1"
+    printf '%s' "${feature}" | tr '[:lower:]-' '[:upper:]_'
+}
+
+parse_extra_modules() {
+    local array_prefix="$1"
+    local spec_value="$2"
+    local base_dir="$3"
+    local module_type="$4"
+    local entry feature module_path existing
+    local -a feature_keys=()
+    local -a module_paths=()
+
+    if [[ -z "${spec_value}" ]]; then
+        eval "${array_prefix}_FEATURE_KEYS=()"
+        eval "${array_prefix}_MODULE_PATHS=()"
+        return
+    fi
+
+    IFS=',' read -r -a entries <<<"${spec_value}"
+    for entry in "${entries[@]}"; do
+        entry="$(trim_whitespace "${entry}")"
+        if [[ -z "${entry}" ]]; then
+            echo "Invalid ${array_prefix} module spec: empty entry"
+            exit 1
+        fi
+        if [[ "${entry}" != *=* ]]; then
+            echo "Invalid ${array_prefix} module spec '${entry}': expected feature=module_path"
+            exit 1
+        fi
+
+        feature="${entry%%=*}"
+        module_path="${entry#*=}"
+        feature="$(trim_whitespace "${feature}")"
+        module_path="$(trim_whitespace "${module_path}")"
+
+        if [[ -z "${feature}" || -z "${module_path}" ]]; then
+            echo "Invalid ${array_prefix} module spec '${entry}': feature and module_path must be non-empty"
+            exit 1
+        fi
+        if ! is_valid_extra_module_feature "${feature}"; then
+            echo "Invalid ${array_prefix} feature '${feature}': use letters, digits, '-' or '_' and start with a letter"
+            exit 1
+        fi
+
+        for existing in "${feature_keys[@]}"; do
+            if [[ "${existing}" == "${feature}" ]]; then
+                echo "Duplicate ${array_prefix} feature '${feature}' in ${entry}"
+                exit 1
+            fi
+        done
+
+        if [[ "${module_type}" == "fe" ]]; then
+            if [[ ! -f "${base_dir}/${module_path}/pom.xml" ]]; then
+                echo "Missing ${array_prefix} FE module: ${base_dir}/${module_path}/pom.xml"
+                exit 1
+            fi
+        elif [[ ! -d "${base_dir}/${module_path}" ]]; then
+            echo "Missing ${array_prefix} module directory: ${base_dir}/${module_path}"
+            exit 1
+        fi
+
+        feature_keys+=("${feature}")
+        module_paths+=("${module_path}")
+    done
+
+    eval "${array_prefix}_FEATURE_KEYS=(\"\${feature_keys[@]}\")"
+    eval "${array_prefix}_MODULE_PATHS=(\"\${module_paths[@]}\")"
+}
+
+feature_enabled() {
+    local target_feature="$1"
+    local existing
+
+    for existing in "${FE_EXTRA_FEATURE_KEYS[@]}" "${BE_EXTRA_FEATURE_KEYS[@]}" "${CLOUD_EXTRA_FEATURE_KEYS[@]}"; do
+        if [[ "${existing}" == "${target_feature}" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 if ! OPTS="$(getopt \
     -n "$0" \
     -o '' \
@@ -179,7 +275,6 @@ PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
 BUILD_CLOUD=0
-BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
@@ -204,7 +299,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_BE=1
     BUILD_CLOUD=1
 
-    BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
     BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
     BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
@@ -234,10 +328,6 @@ else
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
-        --broker)
-            BUILD_BROKER=1
-            shift
-            ;;
         --meta-tool)
             BUILD_META_TOOL='ON'
             shift
@@ -262,6 +352,13 @@ else
             ;;
         --spark-dpp)
             BUILD_SPARK_DPP=1
+            shift
+            ;;
+        --broker)
+            # Deprecated no-op: the in-tree apache_hdfs_broker daemon has been
+            # removed. The option is still accepted so existing build/CI scripts
+            # that pass --broker do not break, but it no longer builds anything.
+            echo "Warning: --broker is deprecated and has no effect; the apache_hdfs_broker module has been removed."
             shift
             ;;
         --hive-udf)
@@ -336,7 +433,6 @@ else
         BUILD_FE=1
         BUILD_BE=1
         BUILD_CLOUD=1
-        BUILD_BROKER=1
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
@@ -363,9 +459,9 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     rm -rf "${DORIS_THIRDPARTY}/installed"
 
     if [[ "${CLEAN}" -eq 0 ]]; then
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
     else
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
     fi
 fi
 
@@ -448,14 +544,6 @@ fi
 
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
-fi
-
-if [[ -z "${USE_UNWIND}" ]]; then
-    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
-        USE_UNWIND='ON'
-    else
-        USE_UNWIND='OFF'
-    fi
 fi
 
 if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
@@ -547,15 +635,32 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${TARGET_SYSTEM}" == 'Darwin' ]]; 
     fi
 fi
 
-if [[ -z "${WITH_TDE_DIR}" ]]; then
-    WITH_TDE_DIR=''
-fi
+EXTRA_FE_MODULES="${EXTRA_FE_MODULES:-}"
+EXTRA_BE_MODULES="${EXTRA_BE_MODULES:-}"
+EXTRA_CLOUD_MODULES="${EXTRA_CLOUD_MODULES:-}"
+
+parse_extra_modules "FE_EXTRA" "${EXTRA_FE_MODULES}" "${DORIS_HOME}/fe" "fe"
+parse_extra_modules "BE_EXTRA" "${EXTRA_BE_MODULES}" "${DORIS_HOME}/be/src" "be"
+parse_extra_modules "CLOUD_EXTRA" "${EXTRA_CLOUD_MODULES}" "${DORIS_HOME}/cloud/src" "cloud"
+
+BE_EXTRA_CMAKE_ARGS=()
+for ((i = 0; i < ${#BE_EXTRA_FEATURE_KEYS[@]}; i++)); do
+    feature_name="$(feature_to_cmake_name "${BE_EXTRA_FEATURE_KEYS[i]}")"
+    BE_EXTRA_CMAKE_ARGS+=("-DENABLE_${feature_name}=ON")
+    BE_EXTRA_CMAKE_ARGS+=("-D${feature_name}_MODULE_DIR=${BE_EXTRA_MODULE_PATHS[i]}")
+done
+
+CLOUD_EXTRA_CMAKE_ARGS=()
+for ((i = 0; i < ${#CLOUD_EXTRA_FEATURE_KEYS[@]}; i++)); do
+    feature_name="$(feature_to_cmake_name "${CLOUD_EXTRA_FEATURE_KEYS[i]}")"
+    CLOUD_EXTRA_CMAKE_ARGS+=("-DENABLE_${feature_name}=ON")
+    CLOUD_EXTRA_CMAKE_ARGS+=("-D${feature_name}_MODULE_DIR=${CLOUD_EXTRA_MODULE_PATHS[i]}")
+done
 
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
     BUILD_CLOUD                         -- ${BUILD_CLOUD}
-    BUILD_BROKER                        -- ${BUILD_BROKER}
     BUILD_META_TOOL                     -- ${BUILD_META_TOOL}
     BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
     BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
@@ -571,7 +676,6 @@ echo "Get params:
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
-    USE_UNWIND                          -- ${USE_UNWIND}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
@@ -579,11 +683,15 @@ echo "Get params:
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
-    WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
+    EXTRA_FE_MODULES                    -- ${EXTRA_FE_MODULES}
+    EXTRA_BE_MODULES                    -- ${EXTRA_BE_MODULES}
+    EXTRA_CLOUD_MODULES                 -- ${EXTRA_CLOUD_MODULES}
 "
 
 FEAT=()
-FEAT+=($([[ -n "${WITH_TDE_DIR}" ]] && echo "+TDE" || echo "-TDE"))
+FEAT+=($(feature_enabled "tde" && echo "+TDE" || echo "-TDE"))
+FEAT+=($(feature_enabled "tls" && echo "+TLS" || echo "-TLS"))
+FEAT+=($(feature_enabled "variant-nested-group" && echo "+VARIANT_NESTED_GROUP" || echo "-VARIANT_NESTED_GROUP"))
 FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
 FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
 FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
@@ -597,11 +705,11 @@ echo "Feature List: ${DORIS_FEATURE_LIST}"
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
-"${DORIS_HOME}"/generated-source.sh noclean
+bash "${DORIS_HOME}"/generated-source.sh noclean
 
 # Assesmble FE modules
 FE_MODULES=''
-modules=("")
+modules=()
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-extension-spi")
     modules+=("fe-extension-loader")
@@ -609,7 +717,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
-    for _fs_mod in s3 oss cos obs azure hdfs local broker; do
+    for _fs_mod in s3 oss cos obs azure hdfs local broker http; do
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -624,9 +732,9 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _conn_mod
-    if [[ "${WITH_TDE_DIR}" != "" ]]; then
-        modules+=("fe-${WITH_TDE_DIR}")
-    fi
+    for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
+        modules+=("${extra_module_path}")
+    done
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("hive-udf")
@@ -662,6 +770,14 @@ FE_MODULES="$(
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
+
+    echo "install datasketches-cpp to thirdparty path before build be"
+    update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
+    cd "${DORIS_HOME}/contrib/datasketches-cpp"
+    "${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
+    "${CMAKE_CMD}" --build build/Release -t install
+    cd "${DORIS_HOME}"
+
     update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
@@ -716,7 +832,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
@@ -728,8 +843,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
-        -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         -DFAISS_ENABLE_GPU="${FAISS_ENABLE_GPU:-OFF}" \
+        "${BE_EXTRA_CMAKE_ARGS[@]}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -772,6 +887,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
+        "${CLOUD_EXTRA_CMAKE_ARGS[@]}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -894,14 +1010,27 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
     unzip -q -o "${DORIS_HOME}/fe/fe-core/target/doris-fe-lib.zip" -d "${DORIS_OUTPUT}/fe/lib"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
-    if [[ "${WITH_TDE_DIR}" != "" ]]; then
-        cp -r -p "${DORIS_HOME}/fe/fe-${WITH_TDE_DIR}/target/fe-${WITH_TDE_DIR}-1.2-SNAPSHOT.jar" "${DORIS_OUTPUT}/fe/lib"/
-    fi
+    for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
+        module_target="${DORIS_HOME}/fe/${extra_module_path}/target"
+        if [[ -d "${module_target}/lib" ]]; then
+            cp -r -p "${module_target}/lib"/* "${DORIS_OUTPUT}/fe/lib"/
+        fi
+        shopt -s nullglob
+        for module_jar in "${module_target}"/*.jar; do
+            case "$(basename "${module_jar}")" in
+            *-sources.jar | *-test-sources.jar | *tests.jar | original-*.jar)
+                continue
+                ;;
+            esac
+            cp -r -p "${module_jar}" "${DORIS_OUTPUT}/fe/lib"/
+        done
+        shopt -u nullglob
+    done
 
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
-    "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
+    bash "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
@@ -920,7 +1049,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy filesystem provider plugins as independent plugin directories
     # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
     FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
-    for fs_module in s3 azure oss cos obs hdfs local broker; do
+    for fs_module in s3 azure oss cos obs hdfs local broker http; do
         fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
         fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
         if [ ! -d "${fs_module_dir}" ]; then
@@ -1113,7 +1242,7 @@ EOF
     done        
 
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
-    "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
+    bash "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
@@ -1128,21 +1257,10 @@ EOF
     cp -r -p "${DORIS_HOME}/be/src/udf/python/python_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"
 fi
 
-if [[ "${BUILD_BROKER}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/apache_hdfs_broker"
-
-    cd "${DORIS_HOME}/fs_brokers/apache_hdfs_broker"
-    ./build.sh
-    rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
-    cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
-    copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
-    cd "${DORIS_HOME}"
-fi
-
 if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/lib/cdc_client"
     cd "${DORIS_HOME}/fs_brokers/cdc_client"
-    ./build.sh
+    bash ./build.sh
     rm -rf "${DORIS_OUTPUT}/be/lib/cdc_client"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/cdc_client/target/cdc-client.jar" "${DORIS_OUTPUT}/be/lib/cdc_client/"
     cd "${DORIS_HOME}"

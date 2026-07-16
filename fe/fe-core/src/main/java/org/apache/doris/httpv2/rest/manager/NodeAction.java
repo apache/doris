@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.ha.FrontendNodeType;
@@ -240,8 +241,9 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
+        int port = HttpURLUtil.getHttpPort();
         return Env.getCurrentEnv().getFrontends(null).stream()
-                .map(fe -> NetUtils.getHostPortInAccessibleFormat(fe.getHost(), Config.http_port))
+                .map(fe -> NetUtils.getHostPortInAccessibleFormat(fe.getHost(), port))
                 .collect(Collectors.toList());
     }
 
@@ -373,7 +375,10 @@ public class NodeAction extends RestBaseController {
             Pair<String, Integer> hostPort = hostPorts.get(i);
             String address = NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second);
             configRequestDoneSignal.addMark(address, -1);
-            String url = "http://" + address + questPath;
+            // FE nodes use HTTPS when enabled; BE nodes always use plain HTTP
+            // (BEs do not participate in the FE internal HTTPS scheme)
+            String scheme = (Config.enable_https && "FE".equals(nodeType)) ? "https://" : "http://";
+            String url = scheme + address + questPath;
             httpExecutor.submit(
                     new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames, configRequestDoneSignal,
                             configInfoTotal.get(i)));
@@ -497,7 +502,8 @@ public class NodeAction extends RestBaseController {
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null).stream().filter(Frontend::isAlive)
-                .map(fe -> Pair.of(fe.getHost(), Config.http_port)).collect(Collectors.toList());
+                .map(fe -> Pair.of(fe.getHost(),
+                        HttpURLUtil.getHttpPort())).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
@@ -569,7 +575,8 @@ public class NodeAction extends RestBaseController {
     private String concatFeSetConfigUrl(NodeConfigs nodeConfigs, boolean isPersist) {
         StringBuilder sb = new StringBuilder();
         Pair<String, Integer> hostPort = nodeConfigs.getHostPort();
-        sb.append("http://").append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
+        sb.append(Config.enable_https ? "https://" : "http://")
+                .append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
         Map<String, String> configs = nodeConfigs.getConfigs(isPersist);
         boolean addAnd = false;
         for (Map.Entry<String, String> entry : configs.entrySet()) {
@@ -614,6 +621,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/be")
     public Object operateBackend(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("action") String action, @RequestBody BackendReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -661,6 +670,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/fe")
     public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("action") String action, @RequestBody FrontendReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -693,6 +704,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/broker")
     public Object operateBroker(HttpServletRequest request, HttpServletResponse response,
                                 @PathVariable("action") String action, @RequestBody BrokerReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (!Env.getCurrentEnv().isMaster()) {
                 return redirectToMasterOrException(request, response);

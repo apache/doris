@@ -106,10 +106,10 @@ void CompactionProfileAction::handle(HttpRequest* req) {
     // compact_type
     compact_type = req->param("compact_type");
     if (!compact_type.empty() && compact_type != "base" && compact_type != "cumulative" &&
-        compact_type != "full") {
+        compact_type != "full" && compact_type != "binlog") {
         HttpChannel::send_reply(
                 req, HttpStatus::BAD_REQUEST,
-                R"({"status":"Error","msg":"compact_type must be one of: base, cumulative, full"})");
+                R"({"status":"Error","msg":"compact_type must be one of: base, cumulative, full, binlog"})");
         return;
     }
 
@@ -220,6 +220,7 @@ void CompactionProfileAction::handle(HttpRequest* req) {
         profile.AddMember("output_index_size", task.output_index_size, allocator);
         profile.AddMember("output_total_size", task.output_total_size, allocator);
         profile.AddMember("output_segments_num", task.output_segments_num, allocator);
+        profile.AddMember("is_ordered_data_compaction", task.is_ordered_data_compaction, allocator);
 
         {
             rapidjson::Value v;

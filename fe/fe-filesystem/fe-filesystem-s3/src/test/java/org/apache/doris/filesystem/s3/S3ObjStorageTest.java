@@ -29,44 +29,8 @@ import java.util.Map;
 class S3ObjStorageTest {
 
     // ------------------------------------------------------------------
-    // Constructor & getProperties()
+    // Constructor
     // ------------------------------------------------------------------
-
-    @Test
-    void constructor_mapInputBindsThroughS3FileSystemProperties() {
-        Map<String, String> props = new HashMap<>();
-        props.put("s3.access_key", "ak");
-        props.put("s3.secret_key", "sk");
-        props.put("s3.endpoint", "https://ep");
-        props.put("s3.region", "us-east-1");
-        props.put("AWS_BUCKET", "my-bucket");
-
-        S3ObjStorage storage = new S3ObjStorage(props);
-        Map<String, String> stored = storage.getProperties();
-
-        Assertions.assertEquals("ak", stored.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("sk", stored.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("https://ep", stored.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("us-east-1", stored.get("AWS_REGION"));
-        Assertions.assertEquals("my-bucket", stored.get("AWS_BUCKET"));
-
-        Assertions.assertThrows(UnsupportedOperationException.class, () -> stored.put("new", "val"),
-                "getProperties() should return unmodifiable map");
-    }
-
-    @Test
-    void constructor_acceptsEndpointOnlyConfiguration() {
-        Map<String, String> props = new HashMap<>();
-        props.put("AWS_ENDPOINT", "https://minio.local");
-        props.put("AWS_ACCESS_KEY", "ak");
-        props.put("AWS_SECRET_KEY", "sk");
-
-        S3ObjStorage storage = new S3ObjStorage(props);
-        Map<String, String> stored = storage.getProperties();
-
-        Assertions.assertEquals("https://minio.local", stored.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("us-east-1", stored.get("AWS_REGION"));
-    }
 
     @Test
     void getClient_endpointOnlyConfigurationUsesRegionBuiltByProperties() throws Exception {
@@ -82,46 +46,6 @@ class S3ObjStorageTest {
         } finally {
             storage.close();
         }
-    }
-
-    @Test
-    void constructor_usePathStyleDefaultsFalse() {
-        Map<String, String> props = new HashMap<>();
-        props.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
-        props.put("AWS_REGION", "us-east-1");
-
-        S3ObjStorage storage = new S3ObjStorage(props);
-        Map<String, String> stored = storage.getProperties();
-
-        Assertions.assertEquals("false", stored.getOrDefault("use_path_style", "false"));
-    }
-
-    @Test
-    void constructor_usePathStyleTrueWhenSet() {
-        Map<String, String> props = new HashMap<>();
-        props.put("AWS_ENDPOINT", "https://minio.local");
-        props.put("AWS_REGION", "us-west-2");
-        props.put("use_path_style", "true");
-
-        S3ObjStorage storage = new S3ObjStorage(props);
-        Map<String, String> stored = storage.getProperties();
-
-        Assertions.assertEquals("true", stored.get("use_path_style"));
-    }
-
-    @Test
-    void constructor_originalMapMutationDoesNotAffectStorage() {
-        Map<String, String> props = new HashMap<>();
-        props.put("AWS_ACCESS_KEY", "original");
-        props.put("AWS_SECRET_KEY", "secret");
-        props.put("AWS_ENDPOINT", "https://ep");
-        props.put("AWS_REGION", "us-east-1");
-
-        S3ObjStorage storage = new S3ObjStorage(props);
-        props.put("AWS_ACCESS_KEY", "mutated");
-
-        Assertions.assertEquals("original", storage.getProperties().get("AWS_ACCESS_KEY"),
-                "Constructor must copy the input map");
     }
 
     // ------------------------------------------------------------------

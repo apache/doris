@@ -22,6 +22,39 @@
 #include "util/block_compression.h"
 
 namespace doris {
+DeletionVectorReader::~DeletionVectorReader() {
+    // The file reader may retain the child IOContext. Destroy it before merging and before the
+    // child statistics storage goes away.
+    _file_reader.reset();
+    _merge_io_statistics();
+}
+
+void DeletionVectorReader::_init_io_context() {
+    if (_parent_io_ctx == nullptr) {
+        return;
+    }
+    _reader_io_ctx = *_parent_io_ctx;
+    _reader_io_ctx.file_cache_stats = &_file_cache_stats;
+    _reader_io_ctx.file_reader_stats = &_file_reader_stats;
+    _io_ctx = &_reader_io_ctx;
+}
+
+void DeletionVectorReader::_merge_io_statistics() {
+    if (_statistics_merged || _parent_io_ctx == nullptr) {
+        return;
+    }
+    if (_parent_io_ctx->file_cache_stats != nullptr) {
+        _parent_io_ctx->file_cache_stats->merge_from(_file_cache_stats);
+    }
+    if (_parent_io_ctx->file_reader_stats != nullptr) {
+        _parent_io_ctx->file_reader_stats->read_calls += _file_reader_stats.read_calls;
+        _parent_io_ctx->file_reader_stats->read_bytes += _file_reader_stats.read_bytes;
+        _parent_io_ctx->file_reader_stats->read_time_ns += _file_reader_stats.read_time_ns;
+        _parent_io_ctx->file_reader_stats->read_rows += _file_reader_stats.read_rows;
+    }
+    _statistics_merged = true;
+}
+
 Status DeletionVectorReader::open() {
     if (_is_opened) [[unlikely]] {
         return Status::OK();
@@ -37,8 +70,11 @@ Status DeletionVectorReader::open() {
 }
 
 Status DeletionVectorReader::read_at(size_t offset, Slice result) {
-    if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+    if (UNLIKELY(_parent_io_ctx && _parent_io_ctx->should_stop)) {
         return Status::EndOfFile("stop read.");
+    }
+    if (_io_ctx != nullptr) {
+        _io_ctx->should_stop = _parent_io_ctx->should_stop;
     }
     size_t bytes_read = 0;
     RETURN_IF_ERROR(_file_reader->read_at(offset, result, &bytes_read, _io_ctx));
@@ -50,13 +86,16 @@ Status DeletionVectorReader::read_at(size_t offset, Slice result) {
 }
 
 Status DeletionVectorReader::_create_file_reader() {
-    if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+    if (UNLIKELY(_parent_io_ctx && _parent_io_ctx->should_stop)) {
         return Status::EndOfFile("stop read.");
     }
 
-    _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
+    _file_description.mtime = _desc.modification_time;
+    // Keep DV blobs on the normal remote-file path. When file cache is enabled this creates a
+    // CachedRemoteFileReader, so a Puffin/delete-file range is persisted in the disk File Cache;
+    // the query-local decoded cache above it only owns the Roaring bitmap.
     io::FileReaderOptions reader_options =
-            FileFactory::get_reader_options(_state, _file_description);
+            FileFactory::get_reader_options(_state->query_options(), _file_description);
     _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
             _profile, _system_properties, _file_description, reader_options,
             io::DelegateReader::AccessMode::RANDOM, _io_ctx));
@@ -64,20 +103,13 @@ Status DeletionVectorReader::_create_file_reader() {
 }
 
 void DeletionVectorReader::_init_file_description() {
-    _file_description.path = _range.path;
-    _file_description.file_size = _range.__isset.file_size ? _range.file_size : -1;
-    if (_range.__isset.fs_name) {
-        _file_description.fs_name = _range.fs_name;
-    }
+    _file_description.path = _desc.path;
+    _file_description.file_size = _desc.file_size;
+    _file_description.fs_name = _desc.fs_name;
 }
 
 void DeletionVectorReader::_init_system_properties() {
-    if (_range.__isset.file_type) {
-        // for compatibility
-        _system_properties.system_type = _range.file_type;
-    } else {
-        _system_properties.system_type = _params.file_type;
-    }
+    _system_properties.system_type = _params.file_type;
     _system_properties.properties = _params.properties;
     _system_properties.hdfs_params = _params.hdfs_params;
     if (_params.__isset.broker_addresses) {

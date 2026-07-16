@@ -31,6 +31,7 @@
 #include "core/column/column.h"
 #include "core/column/column_string.h"
 #include "storage/segment/binary_plain_page_v2.h"
+#include "storage/segment/binary_plain_page_v3.h"
 #include "storage/segment/bitshuffle_page.h"
 #include "storage/segment/encoding_info.h"
 #include "util/coding.h"
@@ -47,16 +48,7 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _dict_word_page_encoding_type(
-                  options.encoding_preference.binary_plain_encoding_default_impl ==
-                                  BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                          ? PLAIN_ENCODING_V2
-                          : PLAIN_ENCODING),
-          _fallback_binary_encoding_type(
-                  options.encoding_preference.binary_plain_encoding_default_impl ==
-                                  BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                          ? PLAIN_ENCODING_V2
-                          : PLAIN_ENCODING) {}
+          _binary_plain_encoding_type(options.dict_binary_plain_encoding) {}
 
 Status BinaryDictPageBuilder::init() {
     // initially use DICT_ENCODING
@@ -74,7 +66,7 @@ Status BinaryDictPageBuilder::init() {
 
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                      _dict_word_page_encoding_type, {}, &encoding_info));
+                                      _binary_plain_encoding_type, &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_builder(dict_builder_options, _dict_builder));
     return reset();
 }
@@ -146,7 +138,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         *count = num_added;
         return Status::OK();
     } else {
-        DCHECK(_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2);
+        DCHECK(_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2 ||
+               _encoding_type == PLAIN_ENCODING_V3);
         RETURN_IF_ERROR(_data_page_builder->add(vals, count));
         // For plain encoding, track raw data size from the input
         const Slice* src = reinterpret_cast<const Slice*>(vals);
@@ -183,13 +176,11 @@ Status BinaryDictPageBuilder::reset() {
         _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
         if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-            DCHECK(_fallback_binary_encoding_type == PLAIN_ENCODING ||
-                   _fallback_binary_encoding_type == PLAIN_ENCODING_V2);
             const EncodingInfo* encoding_info;
             RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                              _fallback_binary_encoding_type, {}, &encoding_info));
+                                              _binary_plain_encoding_type, &encoding_info));
             RETURN_IF_ERROR(encoding_info->create_page_builder(_options, _data_page_builder));
-            _encoding_type = _fallback_binary_encoding_type;
+            _encoding_type = _binary_plain_encoding_type;
         } else {
             RETURN_IF_ERROR(_data_page_builder->reset());
         }
@@ -210,7 +201,7 @@ Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page_encoding(EncodingTypePB* encoding) const {
-    *encoding = _dict_word_page_encoding_type;
+    *encoding = _binary_plain_encoding_type;
     return Status::OK();
 }
 
@@ -244,6 +235,11 @@ Status BinaryDictPageDecoder::init() {
     } else if (_encoding_type == PLAIN_ENCODING_V2) {
         _data_page_decoder.reset(
                 new BinaryPlainPageV2Decoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(_data, _options));
+    } else if (_encoding_type == PLAIN_ENCODING_V3) {
+        // The V3 pre-decoder has already rewritten the inner page into the V1 layout, so the
+        // V3 decoder (a BinaryPlainPageDecoder subclass) reads it like V1.
+        _data_page_decoder.reset(
+                new BinaryPlainPageV3Decoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(_data, _options));
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
         return Status::Corruption("invalid encoding type:{}", _encoding_type);

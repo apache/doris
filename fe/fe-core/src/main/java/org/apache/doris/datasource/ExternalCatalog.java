@@ -38,6 +38,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
@@ -271,6 +272,20 @@ public abstract class ExternalCatalog
         if (metadataOps == null) {
             throw new UnsupportedOperationException("List databases is not supported for catalog: " + getName());
         } else {
+            // Allow manual regression to isolate catalog-level metadata enumeration cost during collect.
+            if (DebugPointUtil.isEnable("ExternalCatalog.listDatabaseNames.sleep")) {
+                long sleepMs = DebugPointUtil.getDebugParamOrDefault(
+                        "ExternalCatalog.listDatabaseNames.sleep", "sleepMs", 0L);
+                if (sleepMs > 0) {
+                    LOG.info("debug point ExternalCatalog.listDatabaseNames.sleep hit for {}, sleep {}ms",
+                            getName(), sleepMs);
+                    try {
+                        Thread.sleep(sleepMs);
+                    } catch (InterruptedException ignore) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
             return metadataOps.listDatabaseNames();
         }
     }
@@ -348,6 +363,19 @@ public abstract class ExternalCatalog
      * @return names of tables in the specified database from the remote source
      */
     protected abstract List<String> listTableNamesFromRemote(SessionContext ctx, String dbName);
+
+    /**
+     * Returns whether the shared table-name cache should be skipped for the current session.
+     *
+     * Catalogs whose remote list result depends on session credentials should bypass the cache so one user's
+     * visible table set is not reused for another user.
+     *
+     * @param ctx session context for the current request
+     * @return true if table names must be fetched from the remote source for this session
+     */
+    protected boolean shouldBypassTableNameCache(SessionContext ctx) {
+        return false;
+    }
 
     /**
      * check if the specified table exist.

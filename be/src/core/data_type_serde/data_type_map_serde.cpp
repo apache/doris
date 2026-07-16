@@ -18,11 +18,13 @@
 #include "core/data_type_serde/data_type_map_serde.h"
 
 #include "arrow/array/builder_nested.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/string_ref.h"
 #include "util/jsonb_document.h"
@@ -348,8 +350,7 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
 
     for (size_t r = start; r < end; ++r) {
         if ((null_map && (*null_map)[r])) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
         } else if (simd::contain_one(keys_nullmap_data + offsets[r - 1],
                                      offsets[r] - offsets[r - 1])) {
             // arrow do not support key is null, so we ignore the null key-value
@@ -363,8 +364,7 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
                 key_mutable_data->insert_from(nested_keys_column, i);
                 value_mutable_data->insert_from(nested_values_column, i);
             }
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
 
             RETURN_IF_ERROR(key_serde->write_column_to_arrow(
                     *key_mutable_data, nullptr, key_builder, 0, key_mutable_data->size(), ctz));
@@ -372,8 +372,7 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
                                                                value_builder, 0,
                                                                value_mutable_data->size(), ctz));
         } else {
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
             RETURN_IF_ERROR(key_serde->write_column_to_arrow(
                     nested_keys_column, nullptr, key_builder, offsets[r - 1], offsets[r], ctz));
             RETURN_IF_ERROR(value_serde->write_column_to_arrow(
@@ -391,6 +390,9 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
     const auto* concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
     auto arrow_offsets_array = concrete_map->offsets();
     auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    if (config::enable_arrow_input_validation) {
+        check_arrow_map_offsets(*concrete_map, start, end);
+    }
     auto prev_size = offsets_data.back();
 
     const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());

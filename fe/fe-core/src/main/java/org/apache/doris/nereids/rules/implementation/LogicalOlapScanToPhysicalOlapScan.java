@@ -71,7 +71,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getAnnOrderKeys(),
                         olapScan.getAnnLimit(),
                         olapScan.getTableAlias(),
-                        olapScan.getPartitionPrunablePredicates())
+                        olapScan.getPartitionPrunablePredicates(),
+                        olapScan.getScanParams())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 

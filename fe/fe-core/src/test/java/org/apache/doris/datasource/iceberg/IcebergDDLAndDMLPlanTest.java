@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
@@ -60,8 +61,10 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -142,7 +145,11 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                 TableIdentifier.of(dbName, tableName),
                 icebergSchema,
                 PartitionSpec.unpartitioned(),
-                ImmutableMap.of("format-version", "2"));
+                ImmutableMap.of(
+                        TableProperties.FORMAT_VERSION, "2",
+                        TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                        TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                        TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName()));
 
         List<Column> schema = ImmutableList.of(
                 new Column("id", PrimitiveType.INT),
@@ -172,7 +179,12 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Table mockedIcebergTable = Mockito.mock(Table.class);
         PartitionSpec mockedSpec = Mockito.mock(PartitionSpec.class);
         Mockito.doReturn(false).when(mockedSpec).isPartitioned();
-        Mockito.doReturn(ImmutableMap.of("format-version", "2")).when(mockedIcebergTable).properties();
+        Mockito.doReturn(ImmutableMap.of(
+                TableProperties.FORMAT_VERSION, "2",
+                TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName()))
+                .when(mockedIcebergTable).properties();
         Mockito.doReturn(mockedSpec).when(mockedIcebergTable).spec();
         Mockito.doReturn(ImmutableMap.<Integer, PartitionSpec>of()).when(mockedIcebergTable).specs();
         Mockito.doReturn(icebergSchema).when(mockedIcebergTable).schema();
@@ -186,6 +198,10 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).filter(ArgumentMatchers.<org.apache.iceberg.expressions.Expression>any());
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).planWith(ArgumentMatchers.any());
         Mockito.doReturn(null).when(mockedTableScan).snapshot();
+        // Keep the scan schema aligned with the mocked table schema. IcebergScanNode reads the
+        // selected scan schema when serializing initial defaults, and several tests temporarily
+        // replace the table schema to exercise partition transforms.
+        Mockito.doAnswer(invocation -> mockedIcebergTable.schema()).when(mockedTableScan).schema();
         Mockito.doReturn(CloseableIterable.withNoopClose(java.util.Collections.emptyList()))
                 .when(mockedTableScan).planFiles();
 
@@ -260,6 +276,76 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
 
         PhysicalPlan physicalPlan = planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
         assertContainsPhysicalSink(physicalPlan, PhysicalIcebergDeleteSink.class);
+    }
+
+    @Test
+    public void testCreateIcebergV3TableRejectsRowLineageReservedColumn() throws Exception {
+        useIceberg();
+        String rowIdTable = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+        String rowIdSql = "create table " + rowIdTable
+                + " (_row_id bigint) properties('format-version'='3')";
+        LogicalPlan rowIdPlan = parseStmt(rowIdSql);
+        Assertions.assertTrue(rowIdPlan instanceof CreateTableCommand);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> ((CreateTableCommand) rowIdPlan).getCreateTableInfo().validate(connectContext));
+
+        String lastUpdatedSequenceNumberTable =
+                "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+        String lastUpdatedSequenceNumberSql = "create table " + lastUpdatedSequenceNumberTable
+                + " (_last_updated_sequence_number bigint) properties('format-version'='3')";
+        LogicalPlan lastUpdatedSequenceNumberPlan = parseStmt(lastUpdatedSequenceNumberSql);
+        Assertions.assertTrue(lastUpdatedSequenceNumberPlan instanceof CreateTableCommand);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> ((CreateTableCommand) lastUpdatedSequenceNumberPlan).getCreateTableInfo()
+                        .validate(connectContext));
+
+        String formatV2Table = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+        String formatV2Sql = "create table " + formatV2Table
+                + " (_row_id bigint) properties('format-version'='2')";
+        LogicalPlan formatV2Plan = parseStmt(formatV2Sql);
+        Assertions.assertTrue(formatV2Plan instanceof CreateTableCommand);
+        Assertions.assertDoesNotThrow(
+                () -> ((CreateTableCommand) formatV2Plan).getCreateTableInfo().validate(connectContext));
+    }
+
+    @Test
+    public void testCreateIcebergDefaultV3TableRejectsRowLineageReservedColumn() throws Exception {
+        useIceberg();
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) Env.getCurrentEnv()
+                .getCatalogMgr().getCatalog(catalogName);
+        catalog.getCatalogProperty().addProperty("table-default.format-version", "3");
+        try {
+            String rowIdTable = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+            String rowIdSql = "create table " + rowIdTable + " (_row_id bigint)";
+            LogicalPlan rowIdPlan = parseStmt(rowIdSql);
+            Assertions.assertTrue(rowIdPlan instanceof CreateTableCommand);
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> ((CreateTableCommand) rowIdPlan).getCreateTableInfo().validate(connectContext));
+            Assertions.assertFalse(catalog.getCatalog().tableExists(TableIdentifier.of(dbName, rowIdTable)));
+
+            String formatV2Table = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+            String formatV2Sql = "create table " + formatV2Table
+                    + " (_row_id bigint) properties('format-version'='2')";
+            LogicalPlan formatV2Plan = parseStmt(formatV2Sql);
+            Assertions.assertTrue(formatV2Plan instanceof CreateTableCommand);
+            Assertions.assertDoesNotThrow(
+                    () -> ((CreateTableCommand) formatV2Plan).getCreateTableInfo().validate(connectContext));
+        } finally {
+            catalog.getCatalogProperty().deleteProperty("table-default.format-version");
+        }
+    }
+
+    @Test
+    public void testIcebergV3CtasRejectsRowLineageReservedColumn() throws Exception {
+        useIceberg();
+        String ctasTable = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+        String ctasSql = "create table " + ctasTable
+                + " properties('format-version'='3') as select 1 as _row_id";
+        LogicalPlan ctasPlan = parseStmt(ctasSql);
+        Assertions.assertTrue(ctasPlan instanceof CreateTableCommand);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> ((CreateTableCommand) ctasPlan).validateCreateTableAsSelect(
+                        connectContext, ((CreateTableCommand) ctasPlan).getCtasQuery().get()));
     }
 
     @Test

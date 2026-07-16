@@ -149,7 +149,10 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                     ) engine=iceberg
                     properties (
                         "format-version" = "3",
-                        "write.format.default" = "${format}"
+                        "write.format.default" = "${format}",
+                        "write.delete.mode" = "merge-on-read",
+                        "write.update.mode" = "merge-on-read",
+                        "write.merge.mode" = "merge-on-read"
                     )
                 """
 
@@ -305,7 +308,10 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                     partition by list (day(dt)) ()
                     properties (
                         "format-version" = "3",
-                        "write.format.default" = "${format}"
+                        "write.format.default" = "${format}",
+                        "write.delete.mode" = "merge-on-read",
+                        "write.update.mode" = "merge-on-read",
+                        "write.merge.mode" = "merge-on-read"
                     )
                 """
 

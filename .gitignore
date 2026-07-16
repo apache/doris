@@ -13,6 +13,8 @@ core.*
 # ignore file with specifiy name anywhere
 .DS_Store
 .classpath
+.factorypath
+.worktree_initialized
 nohup.out
 /custom_env.sh
 /custom_env_mac.sh
@@ -63,9 +65,6 @@ fe_plugins/output
 fe_plugins/**/.factorypath
 
 docker/thirdparties/docker-compose/hive/scripts/data/*/*/data
-
-fs_brokers/apache_hdfs_broker/src/main/resources/
-fs_brokers/apache_hdfs_broker/src/main/thrift/
 
 # regression-test
 regression-test/framework/dependency-reduced-pom.xml
@@ -151,3 +150,4 @@ compile_commands.json
 .github
 
 .worktrees/
+.worktree_initialized

@@ -27,6 +27,7 @@
 #include "common/consts.h"
 #include "core/field.h"
 #include "io/fs/local_file_system.h"
+#include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_writer.h"
 #include "util/coding.h"
@@ -639,7 +640,7 @@ TEST(ColumnMetaAccessorTest, FooterSizeWithManyColumnsExternalVsInline) {
     TabletSchemaSPtr external_schema = create_schema(columns, UNIQUE_KEYS);
     // Enable external ColumnMetaPB for the second schema so that SegmentWriter
     // produces a V3 footer with externalized column meta region.
-    external_schema->set_external_segment_meta_used_default(true);
+    external_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
     // 2. Common SegmentWriter options and row generator.
     SegmentWriterOptions opts;
@@ -712,8 +713,7 @@ TEST(ColumnMetaAccessorTest, RowStoreColumnDoesNotUseDictEncoding) {
     columns.emplace_back(create_row_store_test_column(kRowStoreUid));
 
     auto tablet_schema = create_schema(columns, UNIQUE_KEYS);
-    tablet_schema->set_binary_plain_encoding_default_impl(
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+    tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
     SegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = false;
@@ -739,12 +739,17 @@ TEST(ColumnMetaAccessorTest, RowStoreColumnDoesNotUseDictEncoding) {
 
     SegmentFooterPB footer;
     ASSERT_TRUE(read_footer_from_file(reader, &footer).ok());
-    ASSERT_EQ(2, footer.columns_size());
-
-    const auto& row_store_meta = footer.columns(1);
+    // V3 schemas externalize column meta -- read row_store col (col_id=1) from the
+    // external region instead of the inline footer.columns().
+    ExternalColMetaUtil::ExternalMetaPointers ptrs;
+    ASSERT_TRUE(ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs).ok());
+    ColumnMetaPB row_store_meta;
+    ASSERT_TRUE(
+            ExternalColMetaUtil::read_col_meta(reader, footer, ptrs, /*col_id=*/1, &row_store_meta)
+                    .ok());
     EXPECT_EQ(kRowStoreUid, row_store_meta.unique_id());
     EXPECT_EQ(static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRING), row_store_meta.type());
-    EXPECT_EQ(PLAIN_ENCODING_V2, row_store_meta.encoding());
+    EXPECT_EQ(PLAIN_ENCODING_V3, row_store_meta.encoding());
     EXPECT_NE(DICT_ENCODING, row_store_meta.encoding());
 }
 

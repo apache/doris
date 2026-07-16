@@ -439,10 +439,10 @@ public:
     void insert_result_into(IColumn& to) const {
         if constexpr (result_is_nullable) {
             if (_data_value.is_null()) {
-                auto& col = assert_cast<ColumnNullable&>(to);
+                auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
                 col.insert_default();
             } else {
-                auto& col = assert_cast<ColumnNullable&>(to);
+                auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
                 StringRef value = _data_value.get_value();
                 col.insert_data(value.data, value.size);
             }
@@ -482,7 +482,8 @@ public:
 
     void set_offset_value(const IColumn* column) {
         if (!_is_inited) {
-            const auto* column_number = assert_cast<const ColumnInt64*>(column);
+            const auto* column_number =
+                    assert_cast<const ColumnInt64*, TypeCheckOnRelease::DISABLE>(column);
             _offset_value = column_number->get_data()[0];
             _is_inited = true;
         }
@@ -550,8 +551,10 @@ struct WindowFunctionFirstImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_end = std::min<int64_t>(frame_end, partition_end);
-            if (columns[0]->is_nullable()) {
-                const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+            if (is_column_nullable(*columns[0])) {
+                const auto& arg_nullable =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[0]);
                 // the valid range is: [frame_start, frame_end)
                 while (frame_start < frame_end - 1 && arg_nullable.is_null_at(frame_start)) {
                     frame_start++;
@@ -584,8 +587,10 @@ struct WindowFunctionLastImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_start = std::max<int64_t>(frame_start, partition_start);
-            if (columns[0]->is_nullable()) {
-                const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+            if (is_column_nullable(*columns[0])) {
+                const auto& arg_nullable =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[0]);
                 // wants find a not null value in [frame_start, frame_end)
                 // iff has find: set_value and return directly
                 // iff not find: the while loop is finished
@@ -623,14 +628,15 @@ struct WindowFunctionNthValueImpl : Data {
                 this->_frame_total_rows ? this->_frame_start_pose : real_frame_start;
         this->_frame_total_rows += real_frame_end - real_frame_start;
         int64_t offset = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
-                                 .get_data()[0] -
-                         1;
-        if (offset >= this->_frame_total_rows) {
+                                 .get_data()[0];
+        DCHECK_NE(offset, 0);
+        int64_t row_position = offset > 0 ? offset - 1 : this->_frame_total_rows + offset;
+        if (row_position < 0 || row_position >= this->_frame_total_rows) {
             // offset is beyond the frame, so set null
             this->set_is_null();
             return;
         }
-        this->set_value(columns, offset + this->_frame_start_pose);
+        this->set_value(columns, row_position + this->_frame_start_pose);
     }
 
     static const char* name() { return "nth_value"; }
@@ -651,6 +657,14 @@ public:
             return make_nullable(_argument_type);
         } else {
             return _argument_type;
+        }
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        const auto function_name = get_name();
+        if (function_name == "lead" || function_name == "lag" || function_name == "nth_value") {
+            this->template check_argument_column_type<ColumnInt64>(columns[1]);
         }
     }
 

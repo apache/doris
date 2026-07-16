@@ -225,7 +225,11 @@ public:
 
         // Write rows
         RowCursor row;
-        auto olap_st = row.init(schema, schema->num_columns());
+        OlapTuple tuple;
+        for (size_t i = 0; i < schema->num_columns(); ++i) {
+            tuple.add_null();
+        }
+        auto olap_st = row.init(schema, tuple);
         EXPECT_EQ(Status::OK(), olap_st);
 
         // Write one row: (1, "hello")

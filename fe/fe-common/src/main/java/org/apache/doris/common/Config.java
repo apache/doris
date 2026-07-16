@@ -330,6 +330,41 @@ public class Config extends ConfigBase {
             "Whether to enable authentication for all HTTP interfaces"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;
 
+    @ConfField(description = {"Whether to enable FE unified TLS configuration. When enabled, protocols not listed in "
+            + "tls_excluded_protocols will use TLS implementation."})
+    public static boolean enable_tls = false;
+
+    @ConfField(description = {"Verify mode used by FE TLS. Supported values are verify_peer, verify_none and "
+            + "verify_fail_if_no_peer_cert."})
+    public static String tls_verify_mode = "verify_peer";
+
+    @ConfField(description = {"Path to the FE TLS server certificate."})
+    public static String tls_certificate_path = "";
+
+    @ConfField(description = {"Path to the FE TLS private key."})
+    public static String tls_private_key_path = "";
+
+    @ConfField(description = {"Password for the FE TLS private key."})
+    public static String tls_private_key_password = "";
+
+    @ConfField(description = {"Path to the FE TLS CA certificate."})
+    public static String tls_ca_certificate_path = "";
+
+    @ConfField(description = {"Refresh interval for FE TLS certificate reload, in seconds."})
+    public static int tls_cert_refresh_interval_seconds = 3600;
+
+    @ConfField(description = {"Comma-separated list of protocols that should not use TLS. Supported values are "
+            + "thrift,mysql,http,arrowflight."})
+    public static String tls_excluded_protocols = "";
+
+    @ConfField(description = {"Peer certificate DNS SAN allowlist for private protocols. "
+            + "Syntax: protocol=dns1,dns2;... . Currently supported protocols are thrift and brpc."})
+    public static String tls_peer_cert_required_san_dns = "";
+
+    @ConfField(mutable = true, description = {
+            "Whether password verification can be skipped after cert-based auth succeeds."})
+    public static boolean tls_cert_based_auth_ignore_password = false;
+
     @ConfField(description = {"FE HTTP port. Currently, all FEs' HTTP port must be the same"})
     public static int http_port = 8030;
 
@@ -379,6 +414,13 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
+
+    @ConfField(description = {
+            "Jetty 在应用未消费完请求体时，额外尝试读取剩余内容的最大次数。"
+                    + "-1 表示不限制，0 表示不额外读取，正数表示最大读取次数。",
+            "The maximum number of extra reads Jetty performs for unconsumed request content. "
+                    + "-1 means unlimited, 0 means disabled, and a positive value limits the read attempts."})
+    public static int jetty_server_max_unconsumed_request_content_reads = -1;
 
     @ConfField(description = {"The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
     public static int jetty_server_max_http_header_size = 1048576;
@@ -585,6 +627,11 @@ public class Config extends ConfigBase {
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable forwarding group commit stream load to follower nodes."
+                    + " If true, stream load with group commit mode will be forwarded to a follower FE round robin."})
+    public static boolean enable_forward_group_commit_stream_load_to_follower = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum timeout for load jobs, in seconds."})
     public static int max_load_timeout_second = 259200; // 3days
 
@@ -749,11 +796,6 @@ public class Config extends ConfigBase {
             "Whether to allow colocate balance between all groups."})
     public static boolean disable_colocate_balance_between_groups = false;
 
-    /**
-     * The default user resource publishing timeout.
-     */
-    @Deprecated
-    @ConfField public static int meta_publish_timeout_ms = 1000;
     @ConfField public static boolean proxy_auth_enable = false;
     @ConfField public static String proxy_auth_magic_prefix = "x@8";
     /**
@@ -772,12 +814,6 @@ public class Config extends ConfigBase {
     public static int expr_depth_limit = 3000;
 
     // Configurations for backup and restore
-    /**
-     * Plugins' path for BACKUP and RESTORE operations. Currently deprecated.
-     */
-    @Deprecated
-    @ConfField public static String backup_plugin_path = "/tools/trans_file_tool/trans_files.sh";
-
     // For forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
@@ -843,14 +879,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long max_bytes_per_broker_scanner = 500 * 1024 * 1024 * 1024L; // 500G
-
-    /**
-     * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
-     * If exceed this number, load job is not allowed to be submitted.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static long max_unfinished_load_job = 1000;
 
     /**
      * If set to true, Planner will try to select replica of tablet on same host as this Frontend.
@@ -1015,12 +1043,6 @@ public class Config extends ConfigBase {
     public static long tablet_schedule_interval_ms = 1000;
 
     /**
-     * Deprecated after 0.10
-     */
-    @Deprecated
-    @ConfField public static boolean use_new_tablet_scheduler = true;
-
-    /**
      * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
      * this backend will be marked as LOW load, if load score is 10% higher than average score, HIGH load
      * will be marked.
@@ -1176,11 +1198,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
 
+    /**
+     * streaming task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_min_timeout_sec = 300;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
+
+    // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 100;
@@ -1692,10 +1724,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_info_update_interval_secs = 60;
 
-    @Deprecated
-    @ConfField(masterOnly = true)
-    public static boolean enable_concurrent_update = false;
-
     /**
      * This configuration can only be configured during cluster initialization and cannot be modified during cluster
      * restart and upgrade after initialization is complete.
@@ -1804,33 +1832,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long min_bytes_indicate_replica_too_large = 2 * 1024 * 1024 * 1024L;
-
-    // statistics
-    /*
-     * the max unfinished statistics job number
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_max_statistics_job_num = 20;
-    /*
-     * the max timeout of a statistics task
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_cbo_statistics_task_timeout_sec = 300;
-    /*
-     * the concurrency of statistics task
-     */
-    @Deprecated
-    @ConfField(mutable = false, masterOnly = true)
-    public static int cbo_concurrency_statistics_task_num = 10;
-    /*
-     * default sample percentage
-     * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_default_sample_percentage = 10;
 
     /*
      * the system automatically checks the time interval for statistics
@@ -1953,15 +1954,6 @@ public class Config extends ConfigBase {
     @ConfField
     public static int async_task_consumer_thread_num = 64;
 
-    /**
-     * When job is finished, it will be saved in job manager for a while.
-     * This configuration is used to control the max saved time.
-     * Default is 3 days.
-     */
-    @Deprecated
-    @ConfField
-    public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
-
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = true;
@@ -2008,13 +2000,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_decimal_conversion = true;
-
-    /**
-     * Support complex data type ARRAY.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_array_type = false;
 
     /**
      * The timeout of executing async remote fragment.
@@ -2153,7 +2138,7 @@ public class Config extends ConfigBase {
      * Decrease this value if FE's memory is small
      */
     @ConfField(description = {"Maximum cache number of partitions at table level in Hive Metastore."})
-    public static long max_hive_partition_cache_num = 10000;
+    public static long max_hive_partition_cache_num = 100000;
 
     @ConfField(description = {"Maximum cache number of Hudi/Iceberg tables."})
     public static long max_external_table_cache_num = 1000;
@@ -2162,7 +2147,7 @@ public class Config extends ConfigBase {
     public static long max_meta_object_cache_num = 1000;
 
     @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
-    public static long max_hive_partition_table_cache_num = 1000;
+    public static long max_hive_partition_table_cache_num = 10000;
 
     @ConfField(mutable = false, masterOnly = false, description = {
             "Max number of hive partition values to return while list partitions, -1 means no limitation."})
@@ -2177,6 +2162,13 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"Maximum cached file number for external table split file meta cache at query level."})
     public static long max_external_table_split_file_meta_cache_num = 100000;
+
+    /**
+     * Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session.
+     */
+    @ConfField(mutable = false, masterOnly = true, description = {
+            "Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session."})
+    public static long max_compute_write_max_block_count = 20000L;
 
     /**
      * Max cache loader thread-pool size.
@@ -2206,6 +2198,11 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The auto-refresh interval of the external meta cache."})
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
+    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
+    public static boolean enable_external_meta_cache_manual_miss_load = true;
+
     /**
      * Github workflow test type, for setting some session variables
      * only for certain test type. E.g. only settting batch_size to small
@@ -2234,6 +2231,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_same_name_catalog_trash_num = 3;
+
+    @ConfField(masterOnly = true, description = {
+            "The interval between catalog recycle bin clean tasks. "
+                    + "Default is 30000 milliseconds (30 seconds)."})
+    public static long catalog_recycle_bin_interval_ms = 30 * 1000;
 
     /**
      * NOTE: The storage policy is still under developement.
@@ -2577,10 +2579,6 @@ public class Config extends ConfigBase {
                     + "not guarded for correctness reasons; see the NOTE in BaseAnalysisTask."})
     public static long statistics_max_string_column_length = 1024;
 
-    @Deprecated
-    @ConfField
-    public static final int period_analyze_simultaneously_running_task_num = 1;
-
     @ConfField(mutable = false)
     public static boolean allow_analyze_statistics_info_polluting_file_cache = true;
 
@@ -2592,10 +2590,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"The maximum number of partitions allowed for an Export job"})
     public static int maximum_number_of_export_partitions = 2000;
-
-    @Deprecated
-    @ConfField(mutable = true, description = {"The maximum parallelism allowed for an Export job"})
-    public static int maximum_parallelism_of_export_job = 50;
 
     @ConfField(mutable = true, description = {"Whether to use MySQL's BIGINT type to return Doris's LARGEINT type"})
     public static boolean use_mysql_bigint_for_largeint = false;
@@ -2639,7 +2633,7 @@ public class Config extends ConfigBase {
     public static long analyze_record_limit = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Minimum number of buckets for auto bucketing."})
-    public static int autobucket_min_buckets = 1;
+    public static int autobucket_min_buckets = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
     public static int autobucket_max_buckets = 128;
@@ -2973,7 +2967,8 @@ public class Config extends ConfigBase {
     public static boolean enable_abort_txn_by_checking_coordinator_be = true;
 
     @ConfField(mutable = true, description = {
-            "Whether to abort transactions by checking conflict transactions in schema change."})
+            "Whether to abort transactions by checking conflict transactions in schema change "
+                    + "or cloud upgrade checks."})
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
     @ConfField(mutable = true, description = {
@@ -3001,6 +2996,11 @@ public class Config extends ConfigBase {
             "Whether to enable the experimental Table Stream functionality" },
             varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_table_stream = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "The interval at which FE cleans stale partition offset state from table streams, in seconds."},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int table_stream_partition_offset_cleanup_interval_second = 3600;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3294,6 +3294,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
+            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
+            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
+            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    public static int cloud_warm_up_matched_tables_display_limit = 100;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 
@@ -3326,6 +3341,23 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"Stream load route policy. Available options are "
             + "public-private/public/private/direct/random-be and empty string."})
     public static String streamload_redirect_policy = "";
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在返回 307 后额外丢弃请求体的最大字节数。"
+                    + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
+            "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
+                    + "0 disables the compatibility logic, and a positive value sets the byte limit."})
+    // Enable a generous bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
+    public static long stream_load_redirect_bounded_drain_max_bytes = 1024L * 1024 * 1024;
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
+                    + "0 表示不额外等待，用于给慢客户端或分段到达的数据保留一个有限的缓冲窗口。",
+            "The maximum idle wait time in milliseconds after FE detects no readable request body bytes "
+                    + "during Stream Load redirect drain. 0 disables the extra idle wait, while a positive value "
+                    + "keeps a bounded grace window for slow clients or delayed request body chunks."})
+    // Keep a small grace period for delayed body chunks after FE has already written the redirect.
+    public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
 
     @ConfField(mutable = true, description = {
             "Whether to enable group commit streamload BE forward feature in cloud mode. "
@@ -3372,6 +3404,12 @@ public class Config extends ConfigBase {
                     "Time in seconds after a BE goes down before its tablets are permanently reassigned "
                             + "to other BEs in cloud mode."})
     public static int rehash_tablet_after_be_dead_seconds = 3600;
+
+    @ConfField(mutable = false, masterOnly = true,
+            description = {
+                    "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
+                            + "If false, use the legacy modulo placement. Restart-only."})
+    public static boolean enable_cloud_colocate_consistent_hash = true;
 
     @ConfField(mutable = true, description = {
             "Whether to enable the automatic start-stop feature in cloud model, default is true."})
@@ -3450,10 +3488,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable TSO."}, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_tso_feature = false;
-
     @ConfField(mutable = false, masterOnly = true, description = {
             "TSO service update interval in milliseconds. Default is 50, which means the TSO service "
                     + "will perform timestamp update checks every 50 milliseconds."})
@@ -3483,16 +3517,6 @@ public class Config extends ConfigBase {
             "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service "
                     + "timestamp offset is 0 milliseconds."})
     public static int tso_time_offset_debug_mode = 0;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code, "
-                    + "which may break rollback to older versions."})
-    public static boolean enable_tso_persist_journal = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore "
-                    + "unknown modules when reading new images."})
-    public static boolean enable_tso_checkpoint_module = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Whether to forward TSO 1ms when logical counter is nearly full. Default is true."})
@@ -3681,4 +3705,15 @@ public class Config extends ConfigBase {
                     + "obtaining partition version information when calculating the delete bitmap. Enabled "
                     + "by default."})
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable adaptive random bucket load. When enabled, each BE computes its own local "
+                    + "bucket set (buckets whose primary replica it hosts) from the tablet location info "
+                    + "sent by FE, and rotates across those buckets once per-tablet write volume exceeds "
+                    + "the threshold (default 200 MB). This reduces import memory pressure and improves "
+                    + "throughput for random-distribution tables. Covers all load types uniformly.",
+            "是否启用自适应随机桶导入。开启后每个 BE 根据 FE 下发的 tablet 位置信息自行计算本地桶集合"
+                    + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
+                    + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
+    public static boolean enable_adaptive_random_bucket_load = true;
 }

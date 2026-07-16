@@ -183,6 +183,10 @@ public:
 
     Status check_type_and_column() const;
 
+    Status check_column_and_type_not_null() const;
+
+    Status check_no_column_string64() const;
+
     /// Approximate number of bytes used by column data in memory.
     /// This reflects the actual data footprint (e.g. string contents, numeric arrays)
     /// and is the metric used by adaptive batch size byte budgets.
@@ -412,9 +416,6 @@ public:
                 n, m, *(rhs.get_by_position(col_idx).column), nan_direction_hint);
         return res;
     }
-
-    // for String type or Array<String> type
-    void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
 
     void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
                                    bool need_keep_first);

@@ -177,6 +177,9 @@ suite("rewrite_when_dml") {
     """
     order_qt_query1_0_before "${query1_0}"
     sql """ALTER TABLE orders ADD COLUMN new_col INT KEY DEFAULT "0";"""
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE TableName='orders' ORDER BY CreateTime DESC LIMIT 1"""
+    }
     async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
@@ -231,6 +234,9 @@ suite("rewrite_when_dml") {
     """
     waitingMTMVTaskFinishedByMvName("mv2_0")
     sql """ALTER TABLE lineitem DROP COLUMN l_suppkey;"""
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE TableName='lineitem' ORDER BY CreateTime DESC LIMIT 1"""
+    }
 
     try {
         mv_not_part_in(query2_0, "mv2_0")
@@ -284,6 +290,9 @@ suite("rewrite_when_dml") {
     """
     waitingMTMVTaskFinishedByMvName("mv3_0")
     sql """ALTER TABLE orders DROP COLUMN O_COMMENT;"""
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE TableName='orders' ORDER BY CreateTime DESC LIMIT 1"""
+    }
     mv_not_part_in(query3_0, "mv3_0")
 
     order_qt_query3_0_after "${query3_0}"

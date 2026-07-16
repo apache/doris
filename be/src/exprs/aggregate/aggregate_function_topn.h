@@ -182,16 +182,14 @@ struct AggregateFunctionTopNData {
         return buffer.GetString();
     }
 
-    void insert_result_into(IColumn& to) const {
+    void insert_result_into(ColVecType& to) const {
         auto counter_vector = get_remain_vector();
         for (int i = 0; i < std::min((int)counter_vector.size(), top_num); i++) {
             const auto& element = counter_vector[i];
             if constexpr (is_string_type(T)) {
-                assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(
-                        element.second.c_str(), element.second.length());
+                to.insert_data(element.second.c_str(), element.second.length());
             } else {
-                assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
-                        element.second);
+                to.get_data().push_back(element.second);
             }
         }
     }
@@ -222,7 +220,8 @@ struct AggregateFunctionTopNImplIntInt {
                         ->get_element(row_num),
                 assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[2])
                         ->get_element(row_num));
-        place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+        place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                          .get_data_at(row_num));
     }
 };
 
@@ -231,6 +230,8 @@ template <PrimitiveType T, bool has_default_param>
 struct AggregateFunctionTopNImplArray {
     using Data = AggregateFunctionTopNData<T>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static constexpr bool has_default_parameter = has_default_param;
+    static constexpr bool is_weighted = false;
     static String get_name() { return "topn_array"; }
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
@@ -263,6 +264,8 @@ template <PrimitiveType T, bool has_default_param>
 struct AggregateFunctionTopNImplWeight {
     using Data = AggregateFunctionTopNData<T>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static constexpr bool has_default_parameter = has_default_param;
+    static constexpr bool is_weighted = true;
     static String get_name() { return "topn_weighted"; }
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
@@ -275,7 +278,8 @@ struct AggregateFunctionTopNImplWeight {
 
         } else {
             place.set_paramenters(
-                    assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
+                    assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[2])
+                            ->get_element(row_num));
         }
         if constexpr (is_string_type(T)) {
             auto weight = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
@@ -341,7 +345,20 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         std::string result = this->data(place).get();
-        assert_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
+        assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(result.c_str(),
+                                                                                result.length());
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnString>(columns[0]);
+        this->template check_argument_column_type<ColumnInt32>(columns[1]);
+        if (this->argument_types.size() == 3) {
+            this->template check_argument_column_type<ColumnInt32>(columns[2]);
+        }
+    }
+
+    void check_result_column_type(const IColumn& column) const override {
+        this->template check_result_column_type_as<ColumnString>(column);
     }
 };
 
@@ -351,6 +368,9 @@ class AggregateFunctionTopNArray final
         : public AggregateFunctionTopNBase<Impl, AggregateFunctionTopNArray<Impl>>,
           MultiExpression,
           NullableAggregateFunction {
+private:
+    using ColVecType = typename Impl::Data::ColVecType;
+
 public:
     AggregateFunctionTopNArray(const DataTypes& argument_types_)
             : AggregateFunctionTopNBase<Impl, AggregateFunctionTopNArray<Impl>>(argument_types_),
@@ -363,19 +383,60 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
-        auto& to_nested_col = to_arr.get_data();
-        if (to_nested_col.is_nullable()) {
-            auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
-            this->data(place).insert_result_into(col_null->get_nested_column());
-            col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
-        } else {
-            this->data(place).insert_result_into(to_nested_col);
-        }
-        to_arr.get_offsets().push_back(to_nested_col.size());
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
+        auto& col_null =
+                assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to_arr.get_data());
+        auto& typed_to =
+                assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(col_null.get_nested_column());
+        this->data(place).insert_result_into(typed_to);
+        col_null.get_null_map_data().resize_fill(typed_to.size(), 0);
+        to_arr.get_offsets().push_back(typed_to.size());
     }
 
-private:
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColVecType>(columns[0]);
+        if constexpr (Impl::is_weighted) {
+            this->template check_argument_column_type<ColumnInt64>(columns[1]);
+            this->template check_argument_column_type<ColumnInt32>(columns[2]);
+            if constexpr (Impl::has_default_parameter) {
+                this->template check_argument_column_type<ColumnInt32>(columns[3]);
+            }
+        } else {
+            this->template check_argument_column_type<ColumnInt32>(columns[1]);
+            if constexpr (Impl::has_default_parameter) {
+                this->template check_argument_column_type<ColumnInt32>(columns[2]);
+            }
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        const auto* to_arr = check_and_get_column<ColumnArray>(to);
+        if (UNLIKELY(to_arr == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Column type {} ({}) is not "
+                    "ColumnArray",
+                    get_name(), to.get_name(), typeid(to).name()));
+        }
+
+        const IColumn& data_column = to_arr->get_data();
+        const auto* nullable_column = check_and_get_column<ColumnNullable>(data_column);
+        if (UNLIKELY(nullable_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Array nested column type {} "
+                    "({}) is not ColumnNullable",
+                    get_name(), data_column.get_name(), typeid(data_column).name()));
+        }
+
+        const IColumn& nested_column = nullable_column->get_nested_column();
+        if (UNLIKELY(check_and_get_column<ColVecType>(nested_column) == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Array nested data column "
+                    "type {} ({}) does not match expected physical column type {}",
+                    get_name(), nested_column.get_name(), typeid(nested_column).name(),
+                    typeid(ColVecType).name()));
+        }
+    }
+
     DataTypePtr _argument_type;
 };
 

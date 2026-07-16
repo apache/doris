@@ -304,7 +304,13 @@ public class AuditLogHelper {
             auditEventBuilder.setScheduleTimeMs(summaryProfile.getScheduleTime());
             // changed variables
             if (ctx.sessionVariable != null) {
-                List<List<String>> changedVars = VariableMgr.dumpChangedVars(ctx.sessionVariable);
+                // Prefer the pre-revert snapshot captured in StmtExecutor so that per-query
+                // SET_VAR hint values are visible; fall back to the live session variables when
+                // no snapshot was taken (i.e. the statement used no SET_VAR hint).
+                List<List<String>> changedVars = (ctx.getExecutor() != null
+                        && ctx.getExecutor().getChangedSessionVarsForAudit() != null)
+                        ? ctx.getExecutor().getChangedSessionVarsForAudit()
+                        : VariableMgr.dumpChangedVars(ctx.sessionVariable);
                 StringBuilder changedVarsStr = new StringBuilder();
                 changedVarsStr.append("{");
                 for (int i = 0; i < changedVars.size(); i++) {

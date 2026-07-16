@@ -97,7 +97,19 @@ public:
     // eg, for file scanner, return the current file path.
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
 
+#ifdef BE_TEST
+    static uint64_t TEST_build_condition_cache_digest(uint64_t seed,
+                                                      const VExprContextSPtrs& conjuncts);
+#endif
+
 protected:
+    // Rebuild the condition-cache digest from the scanner's current conjunct snapshot. The local
+    // state's digest is used only as a safety gate: zero means condition cache was disabled during
+    // scan-node open (for example by TopN or an expression without a reliable digest).
+    uint64_t _current_condition_cache_digest() const;
+    static uint64_t _build_condition_cache_digest(uint64_t seed,
+                                                  const VExprContextSPtrs& conjuncts);
+
     virtual Status _prepare_impl() {
         _has_prepared = true;
         return Status::OK();
@@ -124,6 +136,13 @@ protected:
 
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
+
+    // Whether rows filtered/unselected by this scanner should be reported to the load
+    // counters in RuntimeState. Only the scanner reading the load source data should
+    // report, otherwise rows filtered by query predicates (e.g. in INSERT INTO ... SELECT
+    // or DELETE FROM ... WHERE) would be mixed into load counters and make
+    // num_rows_load_success() negative.
+    virtual bool _should_update_load_counters() const { return _is_load; }
 
     // Check if scanner is already closed, if not, mark it as closed.
     // Returns true if the scanner was successfully marked as closed (first time).
@@ -186,6 +205,10 @@ public:
         return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
+    // Returns true if this scanner's partition has been pruned by a runtime filter.
+    // Overridden by OlapScanner to check partition pruning state.
+    virtual bool check_partition_pruned() const { return false; }
+
     bool need_to_close() const { return _need_to_close; }
 
     void mark_to_need_to_close() {
@@ -240,7 +263,6 @@ protected:
     std::vector<VExprContextSPtrs> _intermediate_projections;
     Block _origin_block;
     Block _padding_block;
-    bool _alreay_eos = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
 

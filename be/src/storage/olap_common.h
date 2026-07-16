@@ -56,7 +56,12 @@ using uint128_t = unsigned __int128;
 
 using TabletUid = UniqueId;
 
-enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPACTION = 3 };
+enum CompactionType {
+    BASE_COMPACTION = 1,
+    CUMULATIVE_COMPACTION = 2,
+    FULL_COMPACTION = 3,
+    BINLOG_COMPACTION = 4
+};
 
 enum DataDirType {
     SPILL_DISK_DIR,
@@ -194,6 +199,14 @@ constexpr bool field_is_slice_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_STRING;
 }
 
+constexpr bool field_is_decimal_type(const FieldType& field_type) {
+    return field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256;
+}
+
 constexpr bool field_is_numeric_type(const FieldType& field_type) {
     return field_type == FieldType::OLAP_FIELD_TYPE_INT ||
            field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT ||
@@ -327,6 +340,7 @@ struct OlapReaderStatistics {
     int64_t lazy_read_ns = 0;
     int64_t block_lazy_read_seek_num = 0;
     int64_t block_lazy_read_seek_ns = 0;
+    int64_t lazy_read_pruned_ns = 0;
 
     int64_t raw_rows_read = 0;
 
@@ -344,6 +358,11 @@ struct OlapReaderStatistics {
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_stats_rp_filtered = 0;
+    int64_t expr_zonemap_filtered_segments = 0;
+    int64_t expr_zonemap_filtered_pages = 0;
+    int64_t expr_zonemap_unusable_evals = 0;
+    int64_t in_zonemap_point_check_count = 0;
+    int64_t in_zonemap_range_only_count = 0;
     int64_t rows_bf_filtered = 0;
     int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
@@ -411,6 +430,10 @@ struct OlapReaderStatistics {
     int64_t rows_ann_index_range_filtered = 0;
     int64_t ann_index_range_cache_hits = 0;
     int64_t ann_fall_back_brute_force_cnt = 0;
+    int64_t ann_topn_fallback_by_small_candidate_cnt = 0;
+    int64_t ann_topn_fallback_small_candidate_rows = 0;
+    int64_t ann_range_fallback_by_small_candidate_cnt = 0;
+    int64_t ann_range_fallback_small_candidate_rows = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

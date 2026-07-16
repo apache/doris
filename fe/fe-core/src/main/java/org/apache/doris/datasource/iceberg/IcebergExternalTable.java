@@ -25,10 +25,12 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -75,6 +77,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     private boolean isValidRelatedTable = false;
     private boolean isView;
     private static final String ENGINE_PROP_NAME = "engine-name";
+    private static final String TABLE_COMMENT_PROP = "comment";
 
     public IcebergExternalTable(long id, String name, String remoteName, IcebergExternalCatalog catalog,
             IcebergExternalDatabase db) {
@@ -94,7 +97,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
-            isView = catalog.viewExists(getRemoteDbName(), getRemoteName());
+            isView = ((IcebergExternalCatalog) catalog)
+                    .viewExists(SessionContext.current(), getRemoteDbName(), getRemoteName());
         }
     }
 
@@ -144,6 +148,17 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public Table getIcebergTable() {
         return IcebergUtils.getIcebergTable(this);
+    }
+
+    @Override
+    public String getComment() {
+        return properties().getOrDefault(TABLE_COMMENT_PROP, "");
+    }
+
+    @Override
+    public String getComment(boolean escapeQuota) {
+        String comment = getComment();
+        return escapeQuota ? SqlUtils.escapeQuota(comment) : comment;
     }
 
     @Override
@@ -298,6 +313,16 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return true;
     }
 
+    @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        return true;
+    }
+
     @VisibleForTesting
     public boolean isValidRelatedTableCached() {
         return isValidRelatedTableCached;
@@ -316,19 +341,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Map<String, SysTable> getSupportedSysTables() {
         makeSureInitialized();
         return IcebergSysTable.SUPPORTED_SYS_TABLES;
-    }
-
-    @Override
-    public Optional<SysTable> findSysTable(String tableNameWithSysTableName) {
-        Optional<SysTable> sysTable = MTMVRelatedTableIf.super.findSysTable(tableNameWithSysTableName);
-        if (sysTable.isPresent()) {
-            return sysTable;
-        }
-        String sysTableName = SysTable.getTableNameWithSysTableName(tableNameWithSysTableName).second;
-        if (IcebergSysTable.POSITION_DELETES.equals(sysTableName)) {
-            return Optional.of(IcebergSysTable.UNSUPPORTED_POSITION_DELETES_TABLE);
-        }
-        return Optional.empty();
     }
 
     @Override

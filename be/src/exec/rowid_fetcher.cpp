@@ -53,6 +53,7 @@
 #include "exec/scan/file_scanner.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
@@ -72,6 +73,23 @@
 #include "util/jsonb/serialize.h"
 
 namespace doris {
+
+namespace {
+
+void set_topn_lazy_materialization_file_cache_stats(
+        const io::FileCacheStatistics& stats, PTopNLazyMaterializationFileCacheStats* pstats) {
+    pstats->set_local_io_count(stats.num_local_io_total);
+    pstats->set_local_io_bytes(stats.bytes_read_from_local);
+    pstats->set_remote_io_count(stats.num_remote_io_total);
+    pstats->set_remote_io_bytes(stats.bytes_read_from_remote);
+    pstats->set_skip_cache_io_count(stats.num_skip_cache_io_total);
+    pstats->set_write_cache_bytes(stats.bytes_write_into_cache);
+    pstats->set_local_io_time(stats.local_io_timer);
+    pstats->set_remote_io_time(stats.remote_io_timer);
+    pstats->set_write_cache_io_time(stats.write_cache_io_timer);
+}
+
+} // namespace
 
 Status RowIDFetcher::init() {
     DorisNodesInfo nodes_info;
@@ -208,30 +226,6 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     return Status::OK();
 }
 
-bool _has_char_type(const DataTypePtr& type) {
-    switch (type->get_primitive_type()) {
-    case TYPE_CHAR: {
-        return true;
-    }
-    case TYPE_ARRAY: {
-        const auto* arr_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
-        return _has_char_type(arr_type->get_nested_type());
-    }
-    case TYPE_MAP: {
-        const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
-        return _has_char_type(map_type->get_key_type()) ||
-               _has_char_type(map_type->get_value_type());
-    }
-    case TYPE_STRUCT: {
-        const auto* struct_type = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
-        return std::any_of(struct_type->get_elements().begin(), struct_type->get_elements().end(),
-                           [&](const DataTypePtr& dt) -> bool { return _has_char_type(dt); });
-    }
-    default:
-        return false;
-    }
-}
-
 Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
     CHECK(!_stubs.empty());
     PMultiGetRequest mget_req = _init_fetch_request(
@@ -281,16 +275,6 @@ Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
     }
     // Check row consistency
     RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
-    // shrink for char type
-    std::vector<size_t> char_type_idx;
-    for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
-        const auto& column_desc = _fetch_option.desc->slots()[i];
-        const auto type = column_desc->type();
-        if (_has_char_type(type)) {
-            char_type_idx.push_back(i);
-        }
-    }
-    res_block->shrink_char_type_column_suffix_zero(char_type_idx);
     VLOG_DEBUG << "dump block:" << res_block->dump_data(0, 10);
     return Status::OK();
 }
@@ -351,6 +335,28 @@ struct IteratorItem {
     // for holding the reference of storage read options to avoid use after release
     StorageReadOptions storage_read_options;
 };
+
+static void set_slot_access_paths(const SlotDescriptor& slot, const TabletSchema& schema,
+                                  StorageReadOptions& storage_read_options) {
+    int32_t unique_id = slot.col_unique_id();
+    const int field_index =
+            unique_id >= 0 ? schema.field_index(unique_id) : schema.field_index(slot.col_name());
+    if (field_index >= 0) {
+        const auto& column = schema.column(field_index);
+        unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
+    }
+    if (unique_id < 0) {
+        return;
+    }
+
+    if (!slot.all_access_paths().empty()) {
+        storage_read_options.all_access_paths[unique_id] = slot.all_access_paths();
+    }
+
+    if (!slot.predicate_access_paths().empty()) {
+        storage_read_options.predicate_access_paths[unique_id] = slot.predicate_access_paths();
+    }
+}
 
 struct SegItem {
     BaseTabletSPtr tablet;
@@ -508,6 +514,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
             segment = iterator_item.segment;
+            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                     full_read_schema, &slots[x], row_ids, column,
                     iterator_item.storage_read_options, iterator_item.iterator));
@@ -559,6 +566,11 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         int64_t external_get_block_avg_ms = 0;
         size_t external_scan_range_cnt = 0;
 
+        const auto file_cache_miss_policy =
+                request.file_cache_remote_only_on_miss()
+                        ? io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS
+                        : io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+
         // Add counters for different file mapping types
         std::unordered_map<FileMappingType, int64_t> file_type_counts;
 
@@ -595,21 +607,12 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 for (const auto& pslot : request_block_desc.slots()) {
                     slots.push_back(SlotDescriptor(pslot));
                 }
-                // prepare block char vector shrink for char type
-                std::vector<size_t> char_type_idx;
-                for (int j = 0; j < slots.size(); ++j) {
-                    auto slot = slots[j];
-                    if (_has_char_type(slot.type())) {
-                        char_type_idx.push_back(j);
-                    }
-                }
-
                 try {
                     if (first_file_mapping->type == FileMappingType::INTERNAL) {
                         RETURN_IF_ERROR(read_batch_doris_format_row(
                                 request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
                                 stats, &acquire_tablet_ms, &acquire_rowsets_ms,
-                                &acquire_segments_ms, &lookup_row_data_ms));
+                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy));
                     } else {
                         RETURN_IF_ERROR(read_batch_external_row(
                                 request.wg_id(), request_block_desc, id_file_map, slots,
@@ -621,9 +624,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                     return Status::Error<false>(e.code(), "Row id fetch failed because {}",
                                                 e.what());
                 }
-
-                // after read the block, shrink char type block
-                result_blocks[i].shrink_char_type_column_suffix_zero(char_type_idx);
             }
 
             [[maybe_unused]] size_t compressed_size = 0;
@@ -660,6 +660,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                              acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
                              file_type_stats, external_init_reader_avg_ms,
                              external_get_block_avg_ms, external_scan_range_cnt);
+        set_topn_lazy_materialization_file_cache_stats(
+                stats.file_cache_stats,
+                response->mutable_topn_lazy_materialization_file_cache_stats());
     }
 
     return Status::OK();
@@ -669,7 +672,8 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
         std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
         OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
-        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms) {
+        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
+        io::FileCacheMissPolicy file_cache_miss_policy) {
     if (result_block.is_empty_column()) [[likely]] {
         result_block = Block(slots, request_block_desc.row_id_size());
     }
@@ -747,11 +751,11 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         }
 
         scan_blocks[batch_idx] = Block(slots, row_ids.size());
-        RETURN_IF_ERROR(read_doris_format_row(id_file_map, scan_batch.file_mapping, row_ids, slots,
-                                              full_read_schema, row_store_read_struct, stats,
-                                              acquire_tablet_ms, acquire_rowsets_ms,
-                                              acquire_segments_ms, lookup_row_data_ms, seg_map,
-                                              iterator_map, scan_blocks[batch_idx]));
+        RETURN_IF_ERROR(read_doris_format_row(
+                id_file_map, scan_batch.file_mapping, row_ids, slots, full_read_schema,
+                row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
+                acquire_segments_ms, lookup_row_data_ms, seg_map, iterator_map,
+                file_cache_miss_policy, scan_blocks[batch_idx]));
     }
 
     scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
@@ -763,6 +767,28 @@ const std::string RowIdStorageReader::ScannersRunningTimeProfile = "ScannersRunn
 const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgTime";
 const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
 const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount =
+        "TopNLazyMaterializationSecondPhaseLocalIOCount";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOBytes =
+        "TopNLazyMaterializationSecondPhaseLocalIOBytes";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOCount =
+        "TopNLazyMaterializationSecondPhaseRemoteIOCount";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOBytes =
+        "TopNLazyMaterializationSecondPhaseRemoteIOBytes";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSkipCacheIOCount =
+        "TopNLazyMaterializationSecondPhaseSkipCacheIOCount";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseWriteCacheBytes =
+        "TopNLazyMaterializationSecondPhaseWriteCacheBytes";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOTime =
+        "TopNLazyMaterializationSecondPhaseLocalIOTime";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOTime =
+        "TopNLazyMaterializationSecondPhaseRemoteIOTime";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseWriteCacheIOTime =
+        "TopNLazyMaterializationSecondPhaseWriteCacheIOTime";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead =
+        "TopNLazyMaterializationSecondPhaseRowsRead";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
+        "TopNLazyMaterializationSecondPhaseSegmentsRead";
 
 Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
@@ -1057,7 +1083,7 @@ Status RowIdStorageReader::read_doris_format_row(
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-        Block& result_block) {
+        io::FileCacheMissPolicy file_cache_miss_policy, Block& result_block) {
     auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
     SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
 
@@ -1127,13 +1153,18 @@ Status RowIdStorageReader::read_doris_format_row(
         }
         auto result_columns_guard = result_block.mutate_columns_scoped();
         MutableColumns& result_columns = result_columns_guard.mutable_columns();
+        io::IOContext io_ctx;
+        io_ctx.reader_type = ReaderType::READER_QUERY;
+        io_ctx.file_cache_stats = &stats.file_cache_stats;
+        io_ctx.file_cache_miss_policy = file_cache_miss_policy;
         for (auto row_id : row_ids) {
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
             row_store_read_struct.row_store_buffer.clear();
             RETURN_IF_ERROR(scope_timer_run(
                     [&]() {
                         return tablet->lookup_row_data({}, loc, rowset, stats,
-                                                       row_store_read_struct.row_store_buffer);
+                                                       row_store_read_struct.row_store_buffer,
+                                                       false, &io_ctx);
                     },
                     lookup_row_data_ms));
 
@@ -1156,7 +1187,10 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_map[iterator_key].segment = segment;
                 iterator_item.storage_read_options.stats = &stats;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+                iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
+                        file_cache_miss_policy;
             }
+            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                     full_read_schema, &slots[x], row_ids, column,
                     iterator_item.storage_read_options, iterator_item.iterator));

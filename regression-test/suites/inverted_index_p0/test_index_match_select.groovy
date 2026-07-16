@@ -106,7 +106,7 @@ suite("test_index_match_select", "inverted_index_select"){
         ("san zhang", "grade 5", "", "", "", 10, "2017-10-01", "tall:100cm, weight: 30kg, hobbies:", "", ""),
         ("li sisi", "grade 6", "li ba", "li liuliu", "", 11, "2016-10-01", "tall:150cm, weight: 40kg, hobbies: sing, dancing, running", "good at handiwork and beaty", "")
     """
-    
+
     for (int i = 0; i < 2; i++) {
         logger.info("select table with index times " + i)
         // case 1
@@ -154,7 +154,7 @@ suite("test_index_match_select", "inverted_index_select"){
                 wait_for_build_index_on_partition_finish(indexTbName1, timeout)
             }
         }
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // case1: match term
         // case1.0 test match ""
@@ -248,7 +248,7 @@ suite("test_index_match_select", "inverted_index_select"){
         // case6: test term and phrase mix select
         qt_sql """
             select * from ${indexTbName1} where
-                ${varchar_colume1} match_any 'zhang san' and 
+                ${varchar_colume1} match_any 'zhang san' and
                 ${varchar_colume2} = 'grade 5' or
                 ${varchar_colume3} match_all "zhang yi"
                 order by name

@@ -20,13 +20,18 @@
 #include <arrow/builder.h>
 
 #include <cstdint>
+#include <limits>
+#include <type_traits>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/packed_int128.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
@@ -40,9 +45,141 @@
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
+#include "util/unaligned.h"
 
 namespace doris {
-// Type map的基本结构
+namespace {
+
+template <typename NativeType>
+const NativeType* decoded_values_as(const DecodedColumnView& view) {
+    return reinterpret_cast<const NativeType*>(view.values);
+}
+
+template <typename DorisCppType, typename SourceType>
+bool decoded_number_value_fits(SourceType value) {
+    if constexpr (std::is_floating_point_v<DorisCppType>) {
+        return true;
+    } else if constexpr (std::is_same_v<DorisCppType, UInt8>) {
+        return value == SourceType(0) || value == SourceType(1);
+    } else if constexpr (std::is_signed_v<SourceType>) {
+        const auto int128_value = static_cast<Int128>(value);
+        return int128_value >= static_cast<Int128>(std::numeric_limits<DorisCppType>::lowest()) &&
+               int128_value <= static_cast<Int128>(std::numeric_limits<DorisCppType>::max());
+    } else {
+        const auto uint128_value = static_cast<unsigned __int128>(value);
+        if constexpr (std::is_signed_v<DorisCppType>) {
+            return uint128_value <=
+                   static_cast<unsigned __int128>(std::numeric_limits<DorisCppType>::max());
+        } else {
+            return uint128_value <=
+                   static_cast<unsigned __int128>(std::numeric_limits<DorisCppType>::max());
+        }
+    }
+}
+
+template <PrimitiveType DorisType, typename SourceType>
+Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data =
+            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    const auto old_size = data.size();
+    const auto* values = decoded_values_as<SourceType>(view);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DorisCppType());
+            continue;
+        }
+        if (!decoded_number_value_fits<DorisCppType>(values[row])) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return Status::DataQualityError("Decoded value is out of range for {} at row {}",
+                                            column.get_name(), row);
+        }
+        data.push_back(static_cast<DorisCppType>(values[row]));
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType DorisType, typename SourceType, typename LogicalType>
+Status read_logical_integer_decoded_values_as(IColumn& column, const DecodedColumnView& view) {
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data =
+            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    const auto old_size = data.size();
+    const auto* values = decoded_values_as<SourceType>(view);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DorisCppType());
+            continue;
+        }
+        const auto logical_value = static_cast<LogicalType>(values[row]);
+        if (!decoded_number_value_fits<DorisCppType>(logical_value)) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return Status::DataQualityError(
+                    "Decoded logical integer value is out of range for {} at row {}",
+                    column.get_name(), row);
+        }
+        data.push_back(static_cast<DorisCppType>(logical_value));
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType DorisType, typename SourceType>
+Status read_integer_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.logical_integer_bit_width <= 0) {
+        return read_number_decoded_values<DorisType, SourceType>(column, view);
+    }
+
+    if (view.logical_integer_is_signed) {
+        switch (view.logical_integer_bit_width) {
+        case 8:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int8>(column,
+                                                                                       view);
+        case 16:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int16>(column,
+                                                                                        view);
+        case 32:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int32>(column,
+                                                                                        view);
+        case 64:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int64>(column,
+                                                                                        view);
+        default:
+            return Status::NotSupported("Unsupported decoded logical integer bit width {} for {}",
+                                        view.logical_integer_bit_width, column.get_name());
+        }
+    }
+
+    switch (view.logical_integer_bit_width) {
+    case 8:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt8>(column, view);
+    case 16:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt16>(column, view);
+    case 32:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt32>(column, view);
+    case 64:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt64>(column, view);
+    default:
+        return Status::NotSupported("Unsupported decoded logical integer bit width {} for {}",
+                                    view.logical_integer_bit_width, column.get_name());
+    }
+}
+
+} // namespace
+// Basic structure of the type map.
 template <typename Key, typename Value, typename... Rest>
 struct TypeMap {
     using KeyType = Key;
@@ -50,21 +187,21 @@ struct TypeMap {
     using Next = TypeMap<Rest...>;
 };
 
-// Type map的末端
+// End marker of the type map.
 template <>
 struct TypeMap<void, void> {};
 
-// TypeMapLookup 前向声明
+// Forward declaration of TypeMapLookup.
 template <typename Key, typename Map>
 struct TypeMapLookup;
 
-// Type map查找：找到匹配的键时的情况
+// Type map lookup when the key matches.
 template <typename Key, typename Value, typename... Rest>
 struct TypeMapLookup<Key, TypeMap<Key, Value, Rest...>> {
     using ValueType = Value;
 };
 
-// Type map查找：递归查找
+// Type map lookup by recursive search.
 template <typename Key, typename K, typename V, typename... Rest>
 struct TypeMapLookup<Key, TypeMap<K, V, Rest...>> {
     using ValueType = typename TypeMapLookup<Key, TypeMap<Rest...>>::ValueType;
@@ -100,8 +237,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
         auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
         if (null_builder) {
             for (size_t i = start; i < end; ++i) {
-                RETURN_IF_ERROR(checkArrowStatus(null_builder->AppendNull(), column.get_name(),
-                                                 null_builder->type()->name()));
+                RETURN_IF_ERROR(
+                        checkArrowStatus(null_builder->AppendNull(), column, *null_builder));
             }
         } else {
             auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
@@ -109,7 +246,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
                     builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
                                          end - start,
                                          reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                    column.get_name(), array_builder->type()->name()));
+                    column, *array_builder));
         }
 
     } else if constexpr (T == TYPE_LARGEINT) {
@@ -118,13 +255,13 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
             auto& data_value = col_data[i];
             std::string value_str = fmt::format("{}", data_value);
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                                                 array_builder->type()->name()));
+                RETURN_IF_ERROR(
+                        checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
             } else {
                 RETURN_IF_ERROR(checkArrowStatus(
                         string_builder.Append(value_str.data(),
                                               cast_set<int, size_t, false>(value_str.length())),
-                        column.get_name(), array_builder->type()->name()));
+                        column, *array_builder));
             }
         }
     } else if constexpr (T == TYPE_IPV6) {
@@ -133,27 +270,63 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((int64_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else if constexpr (T == TYPE_DATEV2) {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((uint32_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((uint64_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues(col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if constexpr (T == TYPE_BOOLEAN) {
+        if (view.value_kind == DecodedValueKind::BOOL) {
+            return read_number_decoded_values<TYPE_BOOLEAN, bool>(column, view);
+        }
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT || T == TYPE_LARGEINT) {
+        if (view.value_kind == DecodedValueKind::INT32) {
+            return read_integer_decoded_values<T, int32_t>(column, view);
+        }
+        if (view.value_kind == DecodedValueKind::UINT32) {
+            return read_integer_decoded_values<T, uint32_t>(column, view);
+        }
+        if (view.value_kind == DecodedValueKind::INT64) {
+            return read_integer_decoded_values<T, int64_t>(column, view);
+        }
+        if (view.value_kind == DecodedValueKind::UINT64) {
+            return read_integer_decoded_values<T, uint64_t>(column, view);
+        }
+    } else if constexpr (T == TYPE_FLOAT) {
+        if (view.value_kind == DecodedValueKind::FLOAT) {
+            return read_number_decoded_values<TYPE_FLOAT, float>(column, view);
+        }
+    } else if constexpr (T == TYPE_DOUBLE) {
+        if (view.value_kind == DecodedValueKind::DOUBLE) {
+            return read_number_decoded_values<TYPE_DOUBLE, double>(column, view);
+        }
+    }
+    return decoded_column_view_handle_conversion_failure(
+            column, view,
+            Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                 get_name(), static_cast<int>(view.value_kind)));
 }
 
 template <PrimitiveType T>
@@ -233,13 +406,19 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                                                       const arrow::Array* arrow_array,
                                                       int64_t start, int64_t end,
                                                       const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_array_range(*arrow_array, start, end);
+    }
     auto row_count = end - start;
     auto& col_data = static_cast<ColumnType&>(column).get_data();
 
     // now uint8 for bool
     if constexpr (T == TYPE_BOOLEAN) {
         const auto* concrete_array = dynamic_cast<const arrow::BooleanArray*>(arrow_array);
-        for (size_t bool_i = 0; bool_i != static_cast<size_t>(concrete_array->length()); ++bool_i) {
+        if (config::enable_arrow_input_validation) {
+            check_arrow_boolean_buffer(*concrete_array);
+        }
+        for (int64_t bool_i = start; bool_i != end; ++bool_i) {
             col_data.emplace_back(concrete_array->Value(bool_i));
         }
         return Status::OK();
@@ -248,7 +427,11 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     // only for largeint(int128) type
     if (arrow_array->type_id() == arrow::Type::STRING) {
         const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_binary_offsets_buffer(*concrete_array);
+        }
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const size_t buffer_size = buffer ? static_cast<size_t>(buffer->size()) : 0;
         CastParameters params;
 
         const auto* offsets_data = concrete_array->value_offsets()->data();
@@ -259,13 +442,17 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                 auto end_offset =
                         unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
-                const auto* raw_data = buffer->data() + start_offset;
                 const auto raw_data_len = end_offset - start_offset;
-
+                if (config::enable_arrow_input_validation) {
+                    check_arrow_value_range(*concrete_array, start_offset, raw_data_len,
+                                            buffer_size);
+                }
                 if (raw_data_len == 0) {
                     col_data.emplace_back(
                             typename PrimitiveTypeTraits<T>::CppType()); // Int128() is NULL
                 } else {
+                    const auto* raw_data =
+                            reinterpret_cast<const char*>(buffer->data() + start_offset);
                     if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
                         StringRef str_ref(raw_data, raw_data_len);
                         UInt64 val = 0;
@@ -316,6 +503,10 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     }
 
     /// buffers[0] is a null bitmap and buffers[1] are actual values
+    if (config::enable_arrow_input_validation) {
+        check_arrow_fixed_width_buffer(*arrow_array,
+                                       sizeof(typename PrimitiveTypeTraits<T>::CppType));
+    }
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
 
     // Handle empty array case: buffer can be null when row_count is 0.
@@ -652,27 +843,35 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                       const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnType&>(column);
+    auto read_int = [&]() {
+        if (!arg->isInt()) {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "read_one_cell_from_jsonb with type '{}'", arg->typeName());
+        }
+        return arg->int_val();
+    };
     if constexpr (T == TYPE_TINYINT || T == TYPE_BOOLEAN) {
-        col.insert_value(arg->unpack<JsonbInt8Val>()->val());
+        col.insert_value(static_cast<typename PrimitiveTypeTraits<T>::CppType>(read_int()));
     } else if constexpr (T == TYPE_SMALLINT) {
-        col.insert_value(arg->unpack<JsonbInt16Val>()->val());
-    } else if constexpr (T == TYPE_INT || T == TYPE_IPV4) {
+        col.insert_value(static_cast<int16_t>(read_int()));
+    } else if constexpr (T == TYPE_INT) {
+        col.insert_value(static_cast<int32_t>(read_int()));
+    } else if constexpr (T == TYPE_IPV4) {
         col.insert_value(arg->unpack<JsonbInt32Val>()->val());
     } else if constexpr (T == TYPE_DATEV2) {
-        col.insert_value(binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
-                (UInt32)arg->unpack<JsonbInt32Val>()->val()));
+        col.insert_value(
+                binary_cast<UInt32, DateV2Value<DateV2ValueType>>(static_cast<UInt32>(read_int())));
     } else if constexpr (T == TYPE_DATETIMEV2) {
         col.insert_value(binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                (UInt64)arg->unpack<JsonbInt64Val>()->val()));
+                static_cast<UInt64>(read_int())));
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
-        col.insert_value(
-                binary_cast<UInt64, TimestampTzValue>((UInt64)arg->unpack<JsonbInt64Val>()->val()));
+        col.insert_value(binary_cast<UInt64, TimestampTzValue>(static_cast<UInt64>(read_int())));
     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
-        col.insert_value(binary_cast<Int64, VecDateTimeValue>(arg->unpack<JsonbInt64Val>()->val()));
+        col.insert_value(binary_cast<Int64, VecDateTimeValue>(static_cast<Int64>(read_int())));
     } else if constexpr (T == TYPE_BIGINT) {
-        col.insert_value(arg->unpack<JsonbInt64Val>()->val());
+        col.insert_value(static_cast<int64_t>(read_int()));
     } else if constexpr (T == TYPE_LARGEINT) {
-        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
+        col.insert_value(static_cast<__int128_t>(read_int()));
     } else if constexpr (T == TYPE_FLOAT) {
         col.insert_value(arg->unpack<JsonbFloatVal>()->val());
     } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
@@ -699,17 +898,39 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         result.writeInt8(val);
     } else if constexpr (T == TYPE_SMALLINT) {
         int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
-        result.writeInt16(val);
-    } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt16(val);
+        }
+    } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2) {
+        int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt32(val);
+        }
+    } else if constexpr (T == TYPE_IPV4) {
         int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
         result.writeInt32(val);
     } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
                          T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
-        result.writeInt64(val);
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt64(val);
+        }
     } else if constexpr (T == TYPE_LARGEINT) {
-        __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
-        result.writeInt128(val);
+        // data_ref.data may not be 16-byte aligned; dereferencing __int128*
+        // directly is UB and may SIGBUS on alignment-strict platforms.
+        __int128_t val = unaligned_load<__int128_t>(data_ref.data);
+        if (options.enable_row_store_compact_jsonb && val >= std::numeric_limits<int64_t>::min() &&
+            val <= std::numeric_limits<int64_t>::max()) {
+            result.writeInt(static_cast<int64_t>(val));
+        } else {
+            result.writeInt128(val);
+        }
     } else if constexpr (T == TYPE_FLOAT) {
         float val = *reinterpret_cast<const float*>(data_ref.data);
         result.writeFloat(val);
@@ -757,8 +978,8 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
 // Format by type:
 //   - BOOLEAN:  "0" or "1" (via snprintf "%d")
 //   - TINYINT/SMALLINT/INT/BIGINT: standard integer string, e.g. "42", "-100"
-//   - FLOAT:    fmt::format("{:.7g}", value), e.g. "3.14", "NaN", "Infinity"
-//   - DOUBLE:   fmt::format("{:.16g}", value), e.g. "3.141592653589793"
+//   - FLOAT:    fmt::format("{}", value) for finite values, e.g. "3.14"
+//   - DOUBLE:   fmt::format("{}", value) for finite values, e.g. "3.141592653589793"
 //   - LARGEINT: fmt::format("{}", value), e.g. "170141183460469231731687303715884105727"
 //
 // Examples:
@@ -771,8 +992,18 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
         char buf[8] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", field.get<T>());
         return std::string(buf);
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        auto v = field.get<T>();
+        // inf/nan are stored as zone-map flags, not in min/max strings; route them
+        // through CastToString to keep the "Infinity"/"NaN" spelling used elsewhere.
+        if (std::isinf(v) || std::isnan(v)) {
+            return CastToString::from_number(v);
+        }
+        // CastToString uses digits10 + 1 significant digits, which may lose precision.
+        // ZoneMap bounds must round-trip exactly, so use fmt's shortest round-trippable form.
+        return fmt::format("{}", v);
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-                         T == TYPE_BIGINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+                         T == TYPE_BIGINT) {
         return CastToString::from_number(field.get<T>());
     } else if constexpr (T == TYPE_LARGEINT) {
         auto value = field.get<T>();
@@ -1005,7 +1236,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_DATEV2>(v);
         data += sizeof(UInt32);
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        const uint8_t scale = *data;
         data += sizeof(uint8_t);
         UInt64 v = unaligned_load<UInt64>(data);
         info.precision = -1;

@@ -190,6 +190,26 @@ TEST_F(ColumnStringTest, is_variable_length) {
     ColumnString64::MutablePtr col64 = ColumnString64::create();
     EXPECT_TRUE(col64->is_variable_length());
 }
+
+TEST(ColumnStringStandaloneTest, insert_range_from_ignore_overflow_to_string64_from_string32) {
+    auto src = ColumnString::create();
+    src->insert_data("a", 1);
+    src->insert_data("bc", 2);
+    src->insert_data("def", 3);
+
+    auto dst = ColumnString64::create();
+    dst->insert_range_from_ignore_overflow(*src, 0, src->size());
+    ASSERT_EQ(dst->size(), 3);
+    EXPECT_EQ(dst->get_data_at(0).to_string(), "a");
+    EXPECT_EQ(dst->get_data_at(1).to_string(), "bc");
+    EXPECT_EQ(dst->get_data_at(2).to_string(), "def");
+
+    dst->insert_range_from_ignore_overflow(*src, 1, 2);
+    ASSERT_EQ(dst->size(), 5);
+    EXPECT_EQ(dst->get_data_at(3).to_string(), "bc");
+    EXPECT_EQ(dst->get_data_at(4).to_string(), "def");
+}
+
 TEST_F(ColumnStringTest, sanity_check) {
     auto test_func = [](auto& col) {
         auto& chars = col->get_chars();
@@ -978,8 +998,8 @@ TEST_F(ColumnStringTest, filter_by_selector) {
         }
         std::cout << std::endl;
 
-        auto status =
-                source_column->filter_by_selector(indices.data(), sel_size, target_column.get());
+        const auto& source = *source_column;
+        auto status = source.filter_by_selector(indices.data(), sel_size, target_column.get());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(target_column->size(), sel_size);
         for (size_t i = 0; i != sel_size; ++i) {
@@ -1325,28 +1345,6 @@ TEST_F(ColumnStringTest, TestStringInsert) {
             EXPECT_EQ(row_data.to_string(), vals_tmp[i % vals_tmp.size()]);
         }
     }
-}
-TEST_F(ColumnStringTest, shrink_padding_chars) {
-    ColumnString::MutablePtr col = ColumnString::create();
-    col->shrink_padding_chars();
-
-    col->insert_data("123\0   ", 7);
-    col->insert_data("456\0xx", 6);
-    col->insert_data("78", 2);
-    col->shrink_padding_chars();
-
-    EXPECT_EQ(col->size(), 3);
-    EXPECT_EQ(col->get_data_at(0), StringRef("123"));
-    EXPECT_EQ(col->get_data_at(0).size, 3);
-    EXPECT_EQ(col->get_data_at(1), StringRef("456"));
-    EXPECT_EQ(col->get_data_at(1).size, 3);
-    EXPECT_EQ(col->get_data_at(2), StringRef("78"));
-    EXPECT_EQ(col->get_data_at(2).size, 2);
-
-    col->insert_data("xyz", 2); // only xy
-
-    EXPECT_EQ(col->size(), 4);
-    EXPECT_EQ(col->get_data_at(3), StringRef("xy"));
 }
 TEST_F(ColumnStringTest, sort_column) {
     column_string_common_test(assert_sort_column_callback, false);

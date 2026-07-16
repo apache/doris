@@ -44,7 +44,11 @@ TEST(SegmentIteratorNoNeedReadDataTest, extracted_variant_count_on_index) {
     const ColumnId subcol_cid = tablet_schema->field_index(*subcol.path_info_ptr());
     ASSERT_GE(subcol_cid, 0);
 
-    auto read_schema = std::make_shared<Schema>(tablet_schema);
+    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
+    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
+        read_column_ids[cid] = cid;
+    }
+    auto read_schema = std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
     SegmentIterator iter(nullptr, read_schema);
     iter._opts.tablet_schema = tablet_schema;
     iter._opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;
@@ -55,6 +59,44 @@ TEST(SegmentIteratorNoNeedReadDataTest, extracted_variant_count_on_index) {
 
     iter._opts.push_down_agg_type_opt = TPushAggOp::NONE;
     EXPECT_TRUE(iter._need_read_data(subcol_cid));
+}
+
+TEST(SegmentIteratorNoNeedReadDataTest, zonemap_always_true_predicate_column) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* key = schema_pb.add_column();
+    key->set_unique_id(1);
+    key->set_name("k");
+    key->set_type("INT");
+    key->set_is_key(true);
+    key->set_is_nullable(false);
+
+    auto* pred_col = schema_pb.add_column();
+    pred_col->set_unique_id(2);
+    pred_col->set_name("event_time");
+    pred_col->set_type("DATETIMEV2");
+    pred_col->set_is_key(false);
+    pred_col->set_is_nullable(false);
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
+    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
+        read_column_ids[cid] = cid;
+    }
+    auto read_schema = std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
+    SegmentIterator iter(nullptr, read_schema);
+    iter._opts.tablet_schema = tablet_schema;
+    iter._opts.zonemap_always_true_pred_cols.emplace(1);
+
+    EXPECT_FALSE(iter._need_read_data(1));
+
+    iter._output_columns.emplace(2);
+    EXPECT_TRUE(iter._need_read_data(1));
+
+    iter._opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;
+    EXPECT_FALSE(iter._need_read_data(1));
 }
 
 } // namespace doris::segment_v2

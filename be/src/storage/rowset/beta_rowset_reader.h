@@ -60,8 +60,9 @@ public:
     }
 
     bool is_merge_iterator() const override {
-        return _read_context->need_ordered_result &&
-               _rowset->rowset_meta()->is_segments_overlapping() && _get_segment_num() > 1;
+        return _read_context->need_ordered_result && _get_segment_num() > 1 &&
+               (_rowset->rowset_meta()->is_segments_overlapping() ||
+                _read_context->force_key_ordered_read);
     }
 
     bool delete_flag() override { return _rowset->delete_flag(); }

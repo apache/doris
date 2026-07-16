@@ -41,11 +41,20 @@ public class FailureReason implements Writable {
 
     public FailureReason(String msg) {
         this.msg = msg;
-        if (StringUtils.isNotEmpty(msg) && isTooManyFailureRowsErr(msg)) {
+        if (StringUtils.isEmpty(msg)) {
+            this.code = InternalErrorCode.INTERNAL_ERR;
+        } else if (isReplicationSlotInvalidatedErr(msg)) {
+            // A lost/recreated replication slot cannot be resumed without data loss; stop auto-resume.
+            this.code = InternalErrorCode.CANNOT_RESUME_ERR;
+        } else if (isTooManyFailureRowsErr(msg)) {
             this.code = InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR;
         } else {
             this.code = InternalErrorCode.INTERNAL_ERR;
         }
+    }
+
+    private static boolean isReplicationSlotInvalidatedErr(String msg) {
+        return msg.contains("Replication slot invalidated");
     }
 
     private static boolean isTooManyFailureRowsErr(String msg) {

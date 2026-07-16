@@ -33,6 +33,8 @@ set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+TP_CXX_STANDARD=20
+
 export DORIS_HOME="${curdir}/.."
 export TP_DIR="${curdir}"
 
@@ -153,7 +155,7 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
+eval "bash ${TP_DIR}/download-thirdparty.sh ${packages[*]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -723,7 +725,8 @@ build_re2() {
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
     "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+        -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libre2.a
@@ -995,6 +998,7 @@ build_flatbuffers() {
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
     cp flatc ../../../installed/bin/flatc
+    rm -rf ../../../installed/include/flatbuffers
     cp -r ../include/flatbuffers ../../../installed/include/flatbuffers
     cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
 }
@@ -1084,8 +1088,11 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    LDFLAGS="${ldflags}" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
+        LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
@@ -1613,8 +1620,38 @@ build_jemalloc_doris() {
     # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
     # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
     # Maybe can use alias instead of overwrite.
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        # Doris does not build GNU libunwind on macOS, and Apple/LLVM libunwind does not provide
+        # jemalloc's required unw_backtrace symbol. Keep macOS on its original profiler backtrace
+        # path instead of forcing a Linux-only libunwind configuration.
+        CFLAGS="${cflags}" \
+            ../configure --prefix="${TP_INSTALL_DIR}" \
+            --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+            --with-jemalloc-prefix=je --enable-prof \
+            --disable-cxx --disable-libdl --disable-shared
+    else
+        CPPFLAGS="-I${TP_INCLUDE_DIR}" CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR}" \
+            LIBS="-llzma -lz" \
+            ../configure --prefix="${TP_INSTALL_DIR}" \
+            --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+            --with-jemalloc-prefix=je --enable-prof --enable-prof-libunwind \
+            --disable-prof-libgcc --disable-cxx --disable-libdl --disable-shared
+
+        # The stack trace API redirects dl_iterate_phdr to a PHDR cache. On glibc platforms,
+        # jemalloc heap profiling must not silently fall back to libgcc's _Unwind_Backtrace path,
+        # because that path can re-enter the loader-lock implementation while a sampled target
+        # thread is interrupted.
+        if ! grep -qE "result: prof-libunwind +: 1$" config.log; then
+            echo "ERROR: jemalloc prof-libunwind is not enabled; refusing libgcc-backed heap profiles." >&2
+            grep -E "result: prof-(libunwind|libgcc|gcc) +:" config.log >&2 || true
+            exit 1
+        fi
+        if grep -qE "result: prof-libgcc +: 1$" config.log; then
+            echo "ERROR: jemalloc prof-libgcc is enabled; heap profiling must use libunwind only." >&2
+            grep -E "result: prof-(libunwind|libgcc|gcc) +:" config.log >&2 || true
+            exit 1
+        fi
+    fi
 
     make -j "${PARALLEL}"
     make install
@@ -2024,6 +2061,7 @@ build_paimon_cpp() {
     "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
         -G "${GENERATOR}" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DPAIMON_BUILD_SHARED=OFF \
         -DPAIMON_BUILD_STATIC=ON \
@@ -2116,6 +2154,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
+        lzma
+        libunwind
         jemalloc_doris
         rocksdb
         krb5 # before cyrus_sasl
@@ -2139,7 +2179,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         mysql
         aws_sdk
         js_and_css
-        lzma
         xml2
         idn
         gsasl
@@ -2152,7 +2191,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         xxhash
         concurrentqueue
         fast_float
-        libunwind
         avx2neon
         libdeflate
         streamvbyte

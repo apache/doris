@@ -88,9 +88,6 @@ public:
     IntCounter* base_compaction_request_failed = nullptr;
     IntCounter* cumulative_compaction_request_total = nullptr;
     IntCounter* cumulative_compaction_request_failed = nullptr;
-    IntCounter* single_compaction_request_total = nullptr;
-    IntCounter* single_compaction_request_failed = nullptr;
-    IntCounter* single_compaction_request_cancelled = nullptr;
 
     IntCounter* local_compaction_read_rows_total = nullptr;
     IntCounter* local_compaction_read_bytes_total = nullptr;
@@ -110,6 +107,8 @@ public:
 
     IntCounter* base_compaction_task_running_total = nullptr;
     IntCounter* base_compaction_task_pending_total = nullptr;
+    IntCounter* binlog_compaction_task_running_total = nullptr;
+    IntCounter* binlog_compaction_task_pending_total = nullptr;
     IntCounter* cumulative_compaction_task_running_total = nullptr;
     IntCounter* cumulative_compaction_task_pending_total = nullptr;
 
@@ -159,12 +158,14 @@ public:
     // we need to get the larger of the two.
     IntGauge* tablet_cumulative_max_compaction_score = nullptr;
     IntGauge* tablet_base_max_compaction_score = nullptr;
+    IntGauge* tablet_binlog_max_compaction_score = nullptr;
 
     IntGauge* all_rowsets_num = nullptr;
     IntGauge* all_segments_num = nullptr;
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits = nullptr;
+    IntGauge* binlog_compaction_used_permits = nullptr;
     // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits = nullptr;
 
@@ -236,12 +237,16 @@ public:
 
     UIntGauge* light_work_pool_queue_size = nullptr;
     UIntGauge* heavy_work_pool_queue_size = nullptr;
+    UIntGauge* peer_fetch_work_pool_queue_size = nullptr;
     UIntGauge* heavy_work_active_threads = nullptr;
+    UIntGauge* peer_fetch_work_active_threads = nullptr;
     UIntGauge* light_work_active_threads = nullptr;
 
     UIntGauge* heavy_work_pool_max_queue_size = nullptr;
+    UIntGauge* peer_fetch_work_pool_max_queue_size = nullptr;
     UIntGauge* light_work_pool_max_queue_size = nullptr;
     UIntGauge* heavy_work_max_threads = nullptr;
+    UIntGauge* peer_fetch_work_max_threads = nullptr;
     UIntGauge* light_work_max_threads = nullptr;
 
     UIntGauge* arrow_flight_work_pool_queue_size = nullptr;
@@ -253,6 +258,8 @@ public:
     IntCounter* num_io_bytes_read_from_cache = nullptr;
     IntCounter* num_io_bytes_read_from_remote = nullptr;
     IntCounter* num_io_bytes_read_from_peer = nullptr;
+    IntCounter* inverted_index_bytes_read_from_remote = nullptr;
+    IntCounter* segment_footer_index_bytes_read_from_remote = nullptr;
 
     IntCounter* udf_close_bthread_count = nullptr;
 

@@ -103,6 +103,77 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
         }
     }
 
+    def getWarmUpMetrics = { cluster ->
+        def backends = sql """SHOW BACKENDS"""
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+        assertTrue(cluster_bes.size() > 0, "No backend found for cluster ${cluster}")
+
+        def metrics = [
+            downloadSubmitted: 0L,
+            downloadFinished: 0L,
+            downloadFailed: 0L,
+            submittedSegment: 0L,
+            finishedSegment: 0L,
+            failedSegment: 0L,
+            submittedIndex: 0L,
+            finishedIndex: 0L,
+            failedIndex: 0L,
+        ]
+        for (be in cluster_bes) {
+            def ip = be[1]
+            def port = be[5]
+            def beMetrics = [
+                downloadSubmitted: getBrpcMetrics(ip, port, "file_cache_download_submitted_num"),
+                downloadFinished: getBrpcMetrics(ip, port, "file_cache_download_finished_num"),
+                downloadFailed: getBrpcMetrics(ip, port, "file_cache_download_failed_num"),
+                submittedSegment: getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_submitted_segment_num"),
+                finishedSegment: getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_finished_segment_num"),
+                failedSegment: getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_failed_segment_num"),
+                submittedIndex: getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_submitted_index_num"),
+                finishedIndex: getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_finished_index_num"),
+                failedIndex: getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_failed_index_num"),
+            ]
+            logger.info("${cluster} be ${ip}:${port}, warmup metrics ${beMetrics}")
+            beMetrics.each { key, value ->
+                metrics[key] += value
+            }
+        }
+        logger.info("${cluster} warmup metrics summary ${metrics}")
+        return metrics
+    }
+
+    def isWarmUpMetricsFinished = { metrics ->
+        return metrics.downloadSubmitted > 0
+                && metrics.downloadSubmitted == metrics.downloadFinished + metrics.downloadFailed
+                && metrics.submittedSegment > 0
+                && metrics.submittedSegment == metrics.finishedSegment + metrics.failedSegment
+                && metrics.submittedIndex == metrics.finishedIndex + metrics.failedIndex
+                && metrics.downloadFailed == 0
+                && metrics.failedSegment == 0
+                && metrics.failedIndex == 0
+    }
+
+    def waitWarmUpFinished = { cluster, timeoutMs = 120000, intervalMs = 2000, stableRounds = 3 ->
+        def lastMetrics = null
+        int stableCount = 0
+        for (int elapsed = 0; elapsed <= timeoutMs; elapsed += intervalMs) {
+            def metrics = getWarmUpMetrics(cluster)
+            if (isWarmUpMetricsFinished(metrics)) {
+                stableCount = (lastMetrics != null && metrics == lastMetrics) ? stableCount + 1 : 1
+                if (stableCount >= stableRounds) {
+                    logger.info("${cluster} warmup finished and stable after ${elapsed} ms, metrics=${metrics}")
+                    return
+                }
+            } else {
+                stableCount = 0
+            }
+            lastMetrics = metrics
+            sleep(intervalMs)
+        }
+        def finalMetrics = getWarmUpMetrics(cluster)
+        throw new RuntimeException("${cluster} warmup did not finish in ${timeoutMs} ms, metrics=${finalMetrics}")
+    }
+
     def getTTLCacheSize = { ip, port ->
         return getBrpcMetrics(ip, port, "ttl_cache_size")
     }
@@ -246,8 +317,8 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
         sleep(20000)
 
         run_schema_change();
-        sleep(15000)
 
+        waitWarmUpFinished(clusterName2)
         logFileCacheDownloadMetrics(clusterName2)
         logWarmUpRowsetMetrics(clusterName2)
         checkTTLCacheSizeSumEqual(clusterName1, clusterName2)

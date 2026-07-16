@@ -16,6 +16,7 @@
 // under the License.
 
 suite("distinct_agg_strategy_selector") {
+    sql "set parallel_pipeline_task_num=2"
     multi_sql"""
     SET ignore_shape_nodes='PhysicalProject';
     set runtime_filter_mode=OFF;
@@ -57,4 +58,8 @@ suite("distinct_agg_strategy_selector") {
         contains "multi_distinct_count"
     }
     sql "set multi_distinct_strategy=0 "
+
+    // test
+    order_qt_count_distinct_group "select count(distinct a_1,b_5), count(distinct b_5,a_1) from t1000;"
+    order_qt_count_distinct_group_with_gby "select count(distinct a_1,b_5), count(distinct b_5,a_1) from t1000 group by c_10;"
 }

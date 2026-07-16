@@ -644,6 +644,7 @@ public class SchemaTable extends Table {
                                     .column("TOTAL_LOAD_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AVG_LOAD_PENALTY_MS", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("EVICTION_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("EVICTION_RATE", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("INVALIDATE_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("LAST_LOAD_SUCCESS_TIME", ScalarType.createStringType())
                                     .column("LAST_LOAD_FAILURE_TIME", ScalarType.createStringType())
@@ -705,6 +706,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("COMPUTE_GROUP", ScalarType.createStringType())
+                                    .column("FIRST_ERROR_MSG", ScalarType.createStringType())
                                     .build())
             )
             .put("load_jobs",

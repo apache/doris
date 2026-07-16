@@ -37,6 +37,7 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -184,6 +185,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     // if not, will core dump when input is not null column, but need return null
     // like https://github.com/apache/doris/pull/14002/files
     private NullableMode returnNullMode = NullableMode.ALWAYS_NULLABLE;
+    // Keep IMMUTABLE as the UDAF/UDTF default for compatibility with previous behavior.
     private FunctionVolatility volatility = FunctionVolatility.IMMUTABLE;
     private String runtimeVersion;
     private String functionCode;
@@ -223,6 +225,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         analyze(ctx);
         if (SetType.GLOBAL.equals(setType)) {
+            // TODO: Register global table functions as normal/_outer pairs when global UDTFs are supported.
             Env.getCurrentEnv().getGlobalFunctionMgr().addFunction(function, ifNotExists);
         } else {
             String dbName = functionName.getDb();
@@ -231,15 +234,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 functionName.setDb(dbName);
             }
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-            db.addFunction(function, ifNotExists);
             if (function.isUDTFunction()) {
-                // all of the table function in doris will have two function
-                // one is the noraml, and another is outer, the different of them is deal with
-                // empty: whether need to insert NULL result value
-                Function outerFunction = function.clone();
-                FunctionName name = outerFunction.getFunctionName();
-                name.setFn(name.getFunction() + "_outer");
-                db.addFunction(outerFunction, ifNotExists);
+                db.addTableFunction(function, ifNotExists);
+            } else {
+                db.addFunction(function, ifNotExists);
             }
         }
     }
@@ -323,17 +321,12 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
                     + "please use JAVA_UDF or RPC instead");
         }
-        if (properties.containsKey(VOLATILITY) && (isAggregate || isTableFunction)) {
-            throw new AnalysisException("volatility property only supports scalar JAVA_UDF and PYTHON_UDF");
-        }
-
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
         originalUserFile = userFile; // Keep original jar name for BE
-        // Convert userFile to realUrl only for FE checksum calculation
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != Function.BinaryType.RPC) {
+        // Inline Python code is authoritative. Keep FILE in metadata for replay, but do not load or validate it here.
+        if (Strings.isNullOrEmpty(functionCode) && !Strings.isNullOrEmpty(userFile)
+                && binaryType != Function.BinaryType.RPC) {
             userFile = getRealUrl(userFile);
-        }
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != Function.BinaryType.RPC) {
             try {
                 computeObjectChecksum();
             } catch (IOException | NoSuchAlgorithmException e) {
@@ -346,9 +339,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         if (binaryType == Function.BinaryType.JAVA_UDF) {
             FunctionUtil.checkEnableJavaUdf();
-            if (!isAggregate && !isTableFunction) {
-                volatility = analyzeVolatility();
-            }
+            checkUdfSupportedTypes();
+            volatility = analyzeVolatility(defaultVolatility());
 
             // always_nullable the default value is true, equal null means true
             Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
@@ -363,9 +355,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             extractExpirationTime();
         } else if (binaryType == Function.BinaryType.PYTHON_UDF) {
             FunctionUtil.checkEnablePythonUdf();
-            if (!isAggregate && !isTableFunction) {
-                volatility = analyzeVolatility();
-            }
+            checkUdfSupportedTypes();
+            volatility = analyzeVolatility(defaultVolatility());
 
             // always_nullable the default value is true, equal null means true
             Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
@@ -387,9 +378,13 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private FunctionVolatility analyzeVolatility() throws AnalysisException {
+    private FunctionVolatility defaultVolatility() {
+        return isAggregate || isTableFunction ? FunctionVolatility.IMMUTABLE : FunctionVolatility.VOLATILE;
+    }
+
+    private FunctionVolatility analyzeVolatility(FunctionVolatility defaultVolatility) throws AnalysisException {
         if (!properties.containsKey(VOLATILITY)) {
-            return FunctionVolatility.VOLATILE;
+            return defaultVolatility;
         }
         try {
             return FunctionVolatility.fromString(properties.get(VOLATILITY));
@@ -416,6 +411,36 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
     private static boolean validatePythonRuntimeVersion(String runtimeVersionString) {
         return runtimeVersionString != null && PYTHON_VERSION_PATTERN.matcher(runtimeVersionString).matches();
+    }
+
+    private void checkUdfSupportedTypes() throws AnalysisException {
+        Type[] argTypes = argsDef.getArgTypes();
+        for (int i = 0; i < argTypes.length; i++) {
+            checkUdfSupportedType(argTypes[i], "argument " + (i + 1));
+        }
+        checkUdfSupportedType(returnType.toCatalogDataType(), "return");
+        if (intermediateType != null) {
+            checkUdfSupportedType(intermediateType.toCatalogDataType(), "intermediate");
+        }
+    }
+
+    private void checkUdfSupportedType(Type type, String typePosition) throws AnalysisException {
+        // Reject bitmap/hll/quantile_state type
+        if (type.isObjectStored()) {
+            throw new AnalysisException(String.format(
+                    "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
+        }
+
+        if (type.isArrayType()) {
+            checkUdfSupportedType(((ArrayType) type).getItemType(), typePosition + " element");
+        } else if (type.isMapType()) {
+            checkUdfSupportedType(((MapType) type).getKeyType(), typePosition + " key");
+            checkUdfSupportedType(((MapType) type).getValueType(), typePosition + " value");
+        } else if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                checkUdfSupportedType(field.getType(), typePosition + " field " + field.getName());
+            }
+        }
     }
 
     private Boolean parseBooleanFromProperties(String propertyString) throws AnalysisException {

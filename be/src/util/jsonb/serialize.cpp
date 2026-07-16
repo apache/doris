@@ -20,10 +20,12 @@
 #include <assert.h>
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <unordered_set>
 #include <vector>
 
+#include "common/config.h"
 #include "core/arena.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
@@ -47,13 +49,32 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
                                         ColumnString& dst, int num_cols,
                                         const DataTypeSerDeSPtrs& serdes,
                                         const std::unordered_set<int32_t>& row_store_cids) {
-    auto num_rows = block.rows();
+    block_to_jsonb(schema, block, dst, num_cols, serdes, row_store_cids, 0, block.rows());
+}
+
+void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block& block,
+                                        ColumnString& dst, int num_cols,
+                                        const DataTypeSerDeSPtrs& serdes,
+                                        const std::unordered_set<int32_t>& row_store_cids,
+                                        size_t row_pos, size_t num_rows) {
+    static_cast<void>(block_to_jsonb(schema, block, dst, num_cols, serdes, row_store_cids, row_pos,
+                                     num_rows, std::numeric_limits<size_t>::max()));
+}
+
+size_t JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block& block,
+                                          ColumnString& dst, int num_cols,
+                                          const DataTypeSerDeSPtrs& serdes,
+                                          const std::unordered_set<int32_t>& row_store_cids,
+                                          size_t row_pos, size_t num_rows, size_t max_bytes) {
     Arena arena;
     assert(num_cols <= block.columns());
+    assert(row_pos + num_rows <= block.rows());
     DataTypeSerDe::FormatOptions options;
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
-    for (int i = 0; i < num_rows; ++i) {
+    options.enable_row_store_compact_jsonb = config::enable_row_store_compact_jsonb;
+    size_t written_rows = 0;
+    for (size_t i = row_pos; i < row_pos + num_rows; ++i) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         jsonb_writer.writeStartObject();
         for (int j = 0; j < num_cols; ++j) {
@@ -71,7 +92,12 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
         }
         jsonb_writer.writeEndObject();
         dst.insert_data(jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+        ++written_rows;
+        if (dst.byte_size() >= max_bytes) {
+            break;
+        }
     }
+    return written_rows;
 }
 
 // batch rows

@@ -27,6 +27,23 @@ regexTarget = "line"
 paths = ['''^fe/fe-filesystem/fe-filesystem-s3/src/test/java/org/apache/doris/filesystem/s3/S3ObjStorageTest\.java$''']
 regexes = ['''(access_key|secret_key).*"(ak-|sk-|canonical|sess-tok)''']
 
+[[rules.allowlists]]
+description = "Ignore the GPG signing-key fingerprint in the release-tools config template (a public key id, not a secret)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^tools/release-tools/release\.env$''']
+regexes = ['''SIGNING_KEY="[A-F0-9]{40}"''']
+
+[[rules]]
+id = "jwt"
+
+[[rules.allowlists]]
+description = "Ignore the fake JWT fixture in DelegatedCredentialTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/datasource/DelegatedCredentialTest\.java$''']
+regexes = ['''"eyJhbGciOiJub25lIn0\.eyJleHAiOjE3MDAwMDAwMDB9\."''']
+
 [[rules]]
 id = "private-key"
 

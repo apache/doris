@@ -1841,7 +1841,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         AbortTxnResponse abortTxnResponse = null;
         try {
-            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, null);
+            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, txnCommitAttachment);
         } finally {
             handleAfterAbort(abortTxnResponse, txnCommitAttachment, transactionId,
                     callbackInfo.first, callbackInfo.second);
@@ -1905,6 +1905,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         builder.setTxnId(transactionId);
         builder.setReason(reason);
         builder.setCloudUniqueId(Config.cloud_unique_id);
+        if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+            builder.setCommitAttachment(TxnUtil.rlTaskTxnCommitAttachmentToPb(
+                    (RLTaskTxnCommitAttachment) txnCommitAttachment));
+        }
 
         final AbortTxnRequest abortTxnRequest = builder.build();
         AbortTxnResponse abortTxnResponse = null;
@@ -2036,6 +2040,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public List<TransactionState> getReadyToPublishTransactions() {
         //do nothing for CloudGlobalTransactionMgr
+        return new ArrayList<TransactionState>();
+    }
+
+    @Override
+    public List<TransactionState> getCommittedTransactions(long dbId) throws AnalysisException {
         return new ArrayList<TransactionState>();
     }
 

@@ -104,10 +104,11 @@ struct AggregateFunctionMapAggDataV2 {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& dst = assert_cast<ColumnMap&>(to);
+        auto& dst = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(to);
         size_t num_rows = _key_column->size();
         auto& offsets = dst.get_offsets();
-        auto& dst_key_column = assert_cast<ColumnNullable&>(dst.get_keys());
+        auto& dst_key_column =
+                assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(dst.get_keys());
         dst_key_column.insert_range_from(*_key_column, 0, num_rows);
         dst.get_values().insert_range_from(*_value_column, 0, num_rows);
         if (offsets.empty()) {

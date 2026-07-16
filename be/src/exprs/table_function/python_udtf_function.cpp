@@ -38,6 +38,7 @@
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_env.h"
@@ -141,8 +142,8 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
         RETURN_IF_ERROR(make_zero_column_arrow_batch(input_schema, input_rows, &input_batch));
     } else {
         RETURN_IF_ERROR(convert_to_arrow_batch(input_block, input_schema,
-                                               arrow::default_memory_pool(), &input_batch,
-                                               _timezone_obj));
+                                               ExecEnv::GetInstance()->arrow_memory_pool(),
+                                               &input_batch, _timezone_obj));
     }
 
     // Step 3: Call Python UDTF to evaluate all rows at once (similar to Java UDTF's JNI call)
@@ -195,9 +196,9 @@ void PythonUDTFFunction::get_same_many_values(MutableColumnPtr& column, int leng
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto nullmap_column = nullable_column->get_null_map_column_ptr();
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_many_from(*_array_column_detail.nested_col, pos, length);
-            assert_cast<ColumnUInt8*>(nullmap_column.get())->insert_many_defaults(length);
+            nullmap_column->insert_many_defaults(length);
         } else {
             column->insert_many_from(*_array_column_detail.nested_col, pos, length);
         }
@@ -215,8 +216,7 @@ int PythonUDTFFunction::get_value(MutableColumnPtr& column, int max_step) {
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
 
             nested_column->insert_range_from(*_array_column_detail.nested_col, pos, max_step);
             size_t old_size = nullmap_column->size();

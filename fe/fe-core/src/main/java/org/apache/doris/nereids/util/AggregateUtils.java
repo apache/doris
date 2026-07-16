@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDist
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -90,6 +91,18 @@ public class AggregateUtils {
                 && param.aggPhase.isLocal();
     }
 
+    /** Whether the plan will run with one fragment instance on one BE. */
+    public static boolean isSingleExecutionInstance(ConnectContext connectContext) {
+        int beNumber = connectContext.getSessionVariable().getBeNumberForTest();
+        if (beNumber < 0) {
+            beNumber = connectContext.getEnv().getClusterInfo().getAllBackendByCurrentCluster(true).size();
+        }
+        beNumber = Math.max(1, beNumber);
+        String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+        int parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
+        return beNumber == 1 && parallelInstance == 1;
+    }
+
     /**
      * Check whether any expression in the collection has unknown statistics.
      * Statistics are considered unknown if they are null, isUnKnown(), or cannot be estimated.
@@ -135,6 +148,23 @@ public class AggregateUtils {
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 
+    /** count agg function distinct group, up to 2*/
+    public static int distinctArgumentGroupCountUpToTwo(Aggregate<? extends Plan> aggregate) {
+        Set<Expression> distinctArgumentGroup = null;
+        for (AggregateFunction aggregateFunction : aggregate.getAggregateFunctions()) {
+            if (!aggregateFunction.isDistinct()) {
+                continue;
+            }
+            Set<Expression> currentGroup = ImmutableSet.copyOf(aggregateFunction.getDistinctArguments());
+            if (distinctArgumentGroup == null) {
+                distinctArgumentGroup = currentGroup;
+            } else if (!distinctArgumentGroup.equals(currentGroup)) {
+                return 2;
+            }
+        }
+        return distinctArgumentGroup == null ? 0 : 1;
+    }
+
     /**getAllKeySet*/
     public static Set<NamedExpression> getAllKeySet(LogicalAggregate<? extends Plan> aggregate) {
         Set<NamedExpression> distinctArguments = getDistinctNamedExpr(aggregate);
@@ -157,7 +187,7 @@ public class AggregateUtils {
     public static Set<NamedExpression> getDistinctNamedExpr(LogicalAggregate<? extends Plan> aggregate) {
         return aggregate.getAggregateFunctions().stream()
                 .filter(AggregateFunction::isDistinct)
-                .flatMap(aggFunc -> aggFunc.getArguments().stream())
+                .flatMap(aggFunc -> aggFunc.getDistinctArguments().stream())
                 .filter(NamedExpression.class::isInstance)
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());

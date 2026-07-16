@@ -45,7 +45,8 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                                         std::unique_ptr<SubstreamIterator>&& binary_column_reader,
                                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
                                         ColumnReaderCache* column_reader_cache,
-                                        OlapReaderStatistics* stats, ReadType read_type) {
+                                        OlapReaderStatistics* stats, ReadType read_type,
+                                        const io::IOContext* io_ctx) {
     // None leave node need merge with root
     std::unique_ptr<HierarchicalDataIterator> stream_iter(
             new HierarchicalDataIterator(path, read_type));
@@ -66,8 +67,8 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                 VLOG_DEBUG << "Skipping NestedGroup subcolumn: " << leaf_path;
                 continue;
             }
-            RETURN_IF_ERROR(
-                    stream_iter->add_stream(col_uid, leaves[i], column_reader_cache, stats));
+            RETURN_IF_ERROR(stream_iter->add_stream(col_uid, leaves[i], column_reader_cache, stats,
+                                                    io_ctx));
         }
     }
     // need read from root column if not null
@@ -141,7 +142,8 @@ Status HierarchicalDataIterator::read_by_rowids(const rowid_t* rowids, const siz
 Status HierarchicalDataIterator::add_stream(int32_t col_uid,
                                             const SubcolumnColumnMetaInfo::Node* node,
                                             ColumnReaderCache* column_reader_cache,
-                                            OlapReaderStatistics* stats) {
+                                            OlapReaderStatistics* stats,
+                                            const io::IOContext* io_ctx) {
     if (_substream_reader.find_leaf(node->path)) {
         VLOG_DEBUG << "Already exist sub column " << node->path.get_path();
         return Status::OK();
@@ -150,7 +152,7 @@ Status HierarchicalDataIterator::add_stream(int32_t col_uid,
     ColumnIteratorUPtr it;
     std::shared_ptr<ColumnReader> column_reader;
     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(col_uid, node->path, &column_reader,
-                                                                stats, node));
+                                                                stats, node, io_ctx));
     RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it),
                              node->data.file_column_type);
@@ -223,10 +225,8 @@ Status HierarchicalDataIterator::_process_nested_columns(
     for (const auto& entry : nested_subcolumns) {
         const auto* base_array =
                 assert_cast<const ColumnArray*>(remove_nullable(entry.second[0].column).get());
-        MutableColumnPtr nested_object =
-                ColumnVariant::create(0, false, base_array->get_data().size());
+        auto nested_object_variant = ColumnVariant::create(0, false, base_array->get_data().size());
         MutableColumnPtr offset = IColumn::mutate(base_array->get_offsets_ptr());
-        auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
         // flatten nested arrays
         for (const auto& subcolumn : entry.second) {
             const auto& column = subcolumn.column;
@@ -251,13 +251,13 @@ Status HierarchicalDataIterator::_process_nested_columns(
                     check_and_get_data_type<DataTypeArray>(remove_nullable(type).get())
                             ->get_nested_type();
             // add sub path without parent prefix
-            nested_object_ptr->add_sub_column(
+            nested_object_variant->add_sub_column(
                     subcolumn.path.copy_pop_nfront(entry.first.get_parts().size()),
                     std::move(flattend_column), std::move(flattend_type));
         }
-        const size_t nested_object_size = nested_object->size();
-        nested_object = ColumnNullable::create(std::move(nested_object),
-                                               ColumnUInt8::create(nested_object_size, 0));
+        const size_t nested_object_size = nested_object_variant->size();
+        MutableColumnPtr nested_object = ColumnNullable::create(
+                std::move(nested_object_variant), ColumnUInt8::create(nested_object_size, 0));
         auto array = ColumnArray::create(std::move(nested_object), std::move(offset));
         const size_t array_size = array->size();
         auto nullable_array =
@@ -567,9 +567,9 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     container->clear();
     _binary_column_reader->column->clear();
     if (_root_reader) {
-        if (_root_reader->column->is_nullable()) {
+        if (is_column_nullable(*_root_reader->column)) {
             // fill nullmap
-            DCHECK(dst->is_nullable());
+            DCHECK(is_column_nullable(*dst));
             ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
             ColumnUInt8& src_null_map =
                     assert_cast<ColumnNullable&>(*_root_reader->column).get_null_map_column();
@@ -577,7 +577,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
             // clear nullmap and inner data
             src_null_map.clear();
         } else {
-            if (dst->is_nullable()) {
+            if (is_column_nullable(*dst)) {
                 // No nullable info exist in hirearchical data, fill nullmap with all none null
                 ColumnUInt8& dst_null_map =
                         assert_cast<ColumnNullable&>(*dst).get_null_map_column();
@@ -587,7 +587,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
         }
         _root_reader->column->clear();
     } else {
-        if (dst->is_nullable()) {
+        if (is_column_nullable(*dst)) {
             // No nullable info exist in hirearchical data, fill nullmap with all none null
             ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
             auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
@@ -597,7 +597,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     // root column nullmap need to be reset, for example, the src_null_map is from the whole
     // variant column, but the root column rows should reset to null when empty
     ColumnVariant* variant = nullptr;
-    if (dst->is_nullable()) {
+    if (is_column_nullable(*dst)) {
         variant = &assert_cast<ColumnVariant&>(
                 assert_cast<ColumnNullable&>(*dst).get_nested_column());
     } else {

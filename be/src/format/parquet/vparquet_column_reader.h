@@ -486,7 +486,7 @@ public:
         MutableColumnPtr data_column = doris_column->assert_mutable();
 
         if (real_column_size > 0) {
-            if (doris_column->is_nullable()) {
+            if (is_column_nullable(*doris_column)) {
                 auto* nullable_column = static_cast<ColumnNullable*>(data_column.get());
                 nullable_column->insert_many_defaults(real_column_size);
             } else {
