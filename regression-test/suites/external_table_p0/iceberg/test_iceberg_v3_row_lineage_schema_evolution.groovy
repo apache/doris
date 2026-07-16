@@ -32,8 +32,7 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
     def formats = ["parquet", "orc"]
     def partitionFlags = [true, false]
 
-    def descColumns = { tableName ->
-        return sql("""desc ${tableName}""").collect { row -> row[0].toString().toLowerCase() }
+    def descColumns = { tableName -> return sql("""desc ${tableName}""").collect { row -> row[0].toString().toLowerCase() }
     }
 
     def lineageMap = { tableName ->
@@ -46,20 +45,10 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
         rows.each { row ->
             assertTrue(row[1] != null, "_row_id should be non-null for ${tableName}, row=${row}")
             assertTrue(row[2] != null,
-                    "_last_updated_sequence_number should be non-null for ${tableName}, row=${row}")
+                "_last_updated_sequence_number should be non-null for ${tableName}, row=${row}")
             result[row[0].toString().toInteger()] = [row[1].toString().toLong(), row[2].toString().toLong()]
         }
         return result
-    }
-
-    def hasSparkIcebergJdbc = {
-        try {
-            spark_iceberg_jdbc """select 1"""
-            return true
-        } catch (Exception e) {
-            logger.info("Check spark-iceberg JDBC failed: ${e.message}")
-            return false
-        }
     }
 
     sql """drop catalog if exists ${catalogName}"""
@@ -82,12 +71,6 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
     sql """set show_hidden_columns = false"""
 
     try {
-        boolean sparkIcebergAvailable = hasSparkIcebergJdbc()
-        if (sparkIcebergAvailable) {
-            spark_iceberg_jdbc """create database if not exists demo.${dbName}"""
-        } else {
-            logger.info("spark-iceberg JDBC is unavailable, skip Spark schema evolution branch")
-        }
         formats.each { format ->
             partitionFlags.each { partitioned ->
                 String partitionSuffix = partitioned ? "part" : "unpart"
@@ -137,7 +120,7 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
                         assertTrue(row[3] == null, "New extra column should be null for old rows in ${tableName}")
                         assertTrue(row[5] != null, "_row_id should remain readable after ADD COLUMN in ${tableName}")
                         assertTrue(row[6] != null,
-                                "_last_updated_sequence_number should remain readable after ADD COLUMN in ${tableName}")
+                            "_last_updated_sequence_number should remain readable after ADD COLUMN in ${tableName}")
                     }
 
                     sql """alter table ${tableName} drop column extra"""
@@ -160,7 +143,7 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
                     Map<Integer, List<Long>> afterUpdateLineage = lineageMap(tableName)
                     assertEquals(beforeLineage[1][0], afterUpdateLineage[1][0])
                     assertTrue(afterUpdateLineage[1][1] > beforeLineage[1][1],
-                            "UPDATE after schema evolution should advance sequence for id=1 in ${tableName}")
+                        "UPDATE after schema evolution should advance sequence for id=1 in ${tableName}")
                     assertEquals(beforeLineage[2], afterUpdateLineage[2])
 
                     def finalRows = sql("""
@@ -172,14 +155,14 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
                     assertEquals(20, finalRows[1][2].toString().toInteger())
 
                     if (sparkIcebergAvailable) {
-                        spark_iceberg_jdbc """
+                        spark_iceberg """
                             alter table demo.${dbName}.${tableName}
                             add columns (spark_added string)
                         """
                         sql """refresh table ${dbName}.${tableName}"""
                         def sparkAddColumns = descColumns(tableName)
                         assertTrue(sparkAddColumns.contains("spark_added"),
-                                "Spark ADD COLUMN should be visible after Doris REFRESH TABLE for ${tableName}")
+                            "Spark ADD COLUMN should be visible after Doris REFRESH TABLE for ${tableName}")
 
                         def afterSparkAddRows = sql("""
                             select id, name, score, spark_added, dt, _row_id, _last_updated_sequence_number
@@ -190,10 +173,10 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
                         assertEquals(2, afterSparkAddRows.size())
                         afterSparkAddRows.each { row ->
                             assertTrue(row[3] == null,
-                                    "Spark-added column should be null for existing rows in ${tableName}")
+                                "Spark-added column should be null for existing rows in ${tableName}")
                             assertTrue(row[5] != null, "_row_id should remain readable after Spark schema evolution")
                             assertTrue(row[6] != null,
-                                    "_last_updated_sequence_number should remain readable after Spark schema evolution")
+                                "_last_updated_sequence_number should remain readable after Spark schema evolution")
                         }
                     }
                 } finally {

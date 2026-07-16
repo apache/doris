@@ -37,8 +37,8 @@ suite("test_iceberg_v3_doris_create_update_spark_read", "p0,external,iceberg,ext
     }
 
     def assertDorisSparkChecksumEqual = { tableName ->
-        spark_iceberg_jdbc """refresh table demo.${dbName}.${tableName}"""
-        def sparkChecksum = checksum(spark_iceberg_jdbc("""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkChecksum = checksum(spark_iceberg("""
             select count(*), sum(id), sum(score),
                 max(case when id = 2 then tag end)
             from demo.${dbName}.${tableName}
@@ -88,7 +88,7 @@ suite("test_iceberg_v3_doris_create_update_spark_read", "p0,external,iceberg,ext
 
     boolean sparkReady = false
     try {
-        spark_iceberg_jdbc """select 1"""
+        spark_iceberg """select 1"""
         sparkReady = true
         formats.each { format ->
             partitionFlags.each { partitioned ->

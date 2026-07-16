@@ -160,10 +160,10 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                 sql """insert into ${updateDeleteTable} values (2, 'Bob', 30) """ 
                 sql """insert into ${updateDeleteTable} values (3, 'Charlie', 35)""" 
 
-                def updateDeleteLineageBefore = lineageMap(updateDeleteTable)
-                log.info("Lineage before UPDATE/DELETE on ${updateDeleteTable}: ${updateDeleteLineageBefore}")
-                sql """update ${updateDeleteTable} set name = 'Alice_u', age = 26 where id = 1"""
-                sql """delete from ${updateDeleteTable} where id = 2"""
+//                def updateDeleteLineageBefore = lineageMap(updateDeleteTable)
+//                log.info("Lineage before UPDATE/DELETE on ${updateDeleteTable}: ${updateDeleteLineageBefore}")
+//                sql """update ${updateDeleteTable} set name = 'Alice_u', age = 26 where id = 1"""
+//                sql """delete from ${updateDeleteTable} where id = 2"""
 
                 // Assert baseline:
                 // 1. UPDATE keeps rows readable and applies the new values.

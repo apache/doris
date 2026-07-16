@@ -42,7 +42,7 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
         rows.each { row ->
             assertTrue(row[1] != null, "_row_id should be non-null for ${tableName}, row=${row}")
             assertTrue(row[2] != null,
-                    "_last_updated_sequence_number should be non-null for ${tableName}, row=${row}")
+                "_last_updated_sequence_number should be non-null for ${tableName}, row=${row}")
             result[row[0].toString().toInteger()] = [row[1].toString().toLong(), row[2].toString().toLong()]
         }
         return result
@@ -58,7 +58,7 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
         assertTrue(deleteFiles.size() > 0, "Continuous MOR DML should create delete files for ${tableName}")
         deleteFiles.each { row ->
             assertTrue(row[0].toString().toLowerCase().endsWith(".puffin"),
-                    "v3 delete file should be Puffin for ${tableName}, row=${row}")
+                "v3 delete file should be Puffin for ${tableName}, row=${row}")
             assertEquals("puffin", row[1].toString())
         }
     }
@@ -82,15 +82,6 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
         assertEquals(0, resurrectedRows[0][0].toString().toInteger())
     }
 
-    def hasSparkIcebergJdbc = {
-        try {
-            spark_iceberg_jdbc """select 1"""
-            return true
-        } catch (Exception e) {
-            logger.info("Check spark-iceberg JDBC failed: ${e.message}")
-            return false
-        }
-    }
 
     sql """drop catalog if exists ${catalogName}"""
     sql """
@@ -112,12 +103,6 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
     sql """set show_hidden_columns = false"""
 
     try {
-        boolean sparkIcebergAvailable = hasSparkIcebergJdbc()
-        if (sparkIcebergAvailable) {
-            spark_iceberg_jdbc """create database if not exists demo.${dbName}"""
-        } else {
-            logger.info("spark-iceberg JDBC is unavailable, skip v2 position delete to v3 DV merge branch")
-        }
         formats.each { format ->
             partitionFlags.each { partitioned ->
                 String partitionSuffix = partitioned ? "part" : "unpart"
@@ -156,7 +141,7 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
                     Map<Integer, List<Long>> afterUpdateLineage = lineageMap(tableName)
                     assertEquals(beforeLineage[2][0], afterUpdateLineage[2][0])
                     assertTrue(afterUpdateLineage[2][1] > beforeLineage[2][1],
-                            "UPDATE should advance sequence for id=2 in ${tableName}")
+                        "UPDATE should advance sequence for id=2 in ${tableName}")
 
                     sql """
                         merge into ${tableName} t
@@ -179,16 +164,16 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
                         [it[0].toString().toInteger(), it[1].toString(), it[2].toString().toInteger(), it[3].toString()]
                     }
                     assertEquals([
-                            [2, "b_m", 222, "2024-06-01"],
-                            [4, "d", 40, "2024-06-01"],
-                            [5, "e", 50, "2024-06-01"],
-                            [6, "f", 60, "2024-06-01"]
+                        [2, "b_m", 222, "2024-06-01"],
+                        [4, "d", 40, "2024-06-01"],
+                        [5, "e", 50, "2024-06-01"],
+                        [6, "f", 60, "2024-06-01"]
                     ], normalizedRows)
 
                     Map<Integer, List<Long>> afterMergeLineage = lineageMap(tableName)
                     assertEquals(afterUpdateLineage[2][0], afterMergeLineage[2][0])
                     assertTrue(afterMergeLineage[2][1] > afterUpdateLineage[2][1],
-                            "MERGE UPDATE should advance sequence for id=2 in ${tableName}")
+                        "MERGE UPDATE should advance sequence for id=2 in ${tableName}")
                     assertEquals(beforeLineage[4], afterMergeLineage[4])
                     assertEquals(beforeLineage[5], afterMergeLineage[5])
                     assertTrue(!afterMergeLineage.containsKey(1), "id=1 should remain deleted in ${tableName}")
@@ -209,7 +194,7 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
             if (sparkIcebergAvailable) {
                 String v2PositionDeleteTable = "v2_pos_to_v3_dv_${format}"
                 try {
-                    spark_iceberg_jdbc_multi """
+                    spark_iceberg_multi """
                         drop table if exists demo.${dbName}.${v2PositionDeleteTable};
                         create table demo.${dbName}.${v2PositionDeleteTable} (
                             id int,
@@ -251,11 +236,11 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
                     """)
                     log.info("Delete files after v2 position delete to v3 DV merge for ${v2PositionDeleteTable}: ${deleteFiles}")
                     assertTrue(deleteFiles.any { row -> row[1].toString() == "puffin" },
-                            "Doris v3 DELETE should create a Puffin DV for ${v2PositionDeleteTable}")
+                        "Doris v3 DELETE should create a Puffin DV for ${v2PositionDeleteTable}")
                     deleteFiles.each { row ->
                         assertEquals("puffin", row[1].toString())
                         assertTrue(row[0].toString().toLowerCase().endsWith(".puffin"),
-                                "live delete files should be rewritten to Puffin DV after v2 position delete merge: ${row}")
+                            "live delete files should be rewritten to Puffin DV after v2 position delete merge: ${row}")
                     }
                 } finally {
                     sql """drop table if exists ${v2PositionDeleteTable}"""

@@ -35,19 +35,13 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
             orc: "s3a://warehouse/wh/multi_catalog/equality_delete_orc_1/metadata/00011-568385a2-14af-4237-b186-ce46d350be19.metadata.json"
     ]
 
-    def hasSparkIcebergJdbc = {
-        try {
-            spark_iceberg_jdbc """select 1"""
-            return true
-        } catch (Exception e) {
-            logger.info("Check spark-iceberg JDBC failed: ${e.message}")
-            return false
-        }
+    def normalizeRows = { rows ->
+        return rows.collect { row -> row.collect { col -> col == null ? null : col.toString() } }
     }
 
     def unregisterSparkTable = { tableName ->
         try {
-            spark_iceberg_jdbc """
+            spark_iceberg """
                 call demo.system.unregister_table(table => '${dbName}.${tableName}')
             """
         } catch (Throwable t) {
@@ -56,13 +50,13 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
     }
 
     def refreshTable = { tableName ->
-        spark_iceberg_jdbc """refresh table demo.${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
         sql """refresh table ${dbName}.${tableName}"""
     }
 
     def assertSparkDorisBusinessRows = { tableName ->
         refreshTable(tableName)
-        def sparkRows = spark_iceberg_jdbc("""
+        def sparkRows = spark_iceberg("""
             select new_new_id, new_name, data, id
             from demo.${dbName}.${tableName}
             order by new_new_id, new_name, data, id
@@ -77,9 +71,21 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
         assertSparkDorisResultEquals(sparkRows, dorisRows)
     }
 
+    def assertDorisBusinessRows = { tableName, expectedRows ->
+        refreshTable(tableName)
+        def dorisRows = sql("""
+            select new_new_id, new_name, data, id
+            from ${tableName}
+            order by new_new_id, new_name, data, id
+        """)
+        def normalizedRows = normalizeRows(dorisRows)
+        log.info("Checking concrete Doris business rows for ${tableName}: ${normalizedRows}")
+        assertEquals(expectedRows, normalizedRows)
+    }
+
     def assertSparkDorisAggregateRows = { tableName ->
         refreshTable(tableName)
-        def sparkRows = spark_iceberg_jdbc("""
+        def sparkRows = spark_iceberg("""
             select count(*), count(distinct new_new_id)
             from demo.${dbName}.${tableName}
         """)
@@ -92,9 +98,19 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
         assertSparkDorisResultEquals(sparkRows, dorisRows)
     }
 
+    def assertDorisAggregateRows = { tableName, expectedRows ->
+        def dorisRows = sql("""
+            select count(*), count(distinct new_new_id)
+            from ${tableName}
+        """)
+        def normalizedRows = normalizeRows(dorisRows)
+        log.info("Checking concrete Doris aggregate rows for ${tableName}: ${normalizedRows}")
+        assertEquals(expectedRows, normalizedRows)
+    }
+
     def assertSparkDorisRowsByPredicate = { tableName, predicate ->
         refreshTable(tableName)
-        def sparkRows = spark_iceberg_jdbc("""
+        def sparkRows = spark_iceberg("""
             select new_new_id, new_name, data, id
             from demo.${dbName}.${tableName}
             where ${predicate}
@@ -109,6 +125,18 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
         log.info("Spark rows for ${tableName} with predicate ${predicate}: ${sparkRows}")
         log.info("Doris rows for ${tableName} with predicate ${predicate}: ${dorisRows}")
         assertSparkDorisResultEquals(sparkRows, dorisRows)
+    }
+
+    def assertDorisRowsByPredicate = { tableName, predicate, expectedRows ->
+        def dorisRows = sql("""
+            select new_new_id, new_name, data, id
+            from ${tableName}
+            where ${predicate}
+            order by new_new_id, new_name, data, id
+        """)
+        def normalizedRows = normalizeRows(dorisRows)
+        log.info("Checking concrete Doris rows for ${tableName} with predicate ${predicate}: ${normalizedRows}")
+        assertEquals(expectedRows, normalizedRows)
     }
 
     def assertLineageProjectionReadable = { tableName ->
@@ -127,7 +155,7 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
 
     def deleteFileFormats = { tableName ->
         refreshTable(tableName)
-        def sparkRows = spark_iceberg_jdbc("""
+        def sparkRows = spark_iceberg("""
             select lower(file_format), count(*)
             from demo.${dbName}.${tableName}.delete_files
             group by lower(file_format)
@@ -162,11 +190,6 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
                 "Existing equality delete files should still be visible with Puffin DV for ${tableName}: ${deleteFiles}")
     }
 
-    if (!hasSparkIcebergJdbc()) {
-        logger.info("spark-iceberg JDBC is unavailable, skip equality delete + v3 Puffin DV branch")
-        return
-    }
-
     sql """drop catalog if exists ${catalogName}"""
     sql """
         create catalog if not exists ${catalogName} properties (
@@ -193,13 +216,32 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
         or (new_new_id = 5 and new_name = 'dennis')
     """
 
+    def expectedRowsAfterDorisDelete = [
+            parquet: [
+                    ["1", "smith4", "aaaa", "1"],
+                    ["3", "alice", "c", null],
+                    ["4", "bob3", "eee", null],
+                    ["5", "dennis2", "ff", null],
+                    ["6", "jasson", "g", null],
+                    ["7", "parker", "h", null]
+            ],
+            orc: [
+                    ["1", "smith4", "aaaa", "1"],
+                    ["3", "alice", "c", null],
+                    ["4", "bob3", "eee", null],
+                    ["5", "dennis2", "ff", null],
+                    ["6", "jasson", "g", null],
+                    ["7", "orcker", "h", null]
+            ]
+    ]
+
     try {
-        spark_iceberg_jdbc """create database if not exists demo.${dbName}"""
+        spark_iceberg """create database if not exists demo.${dbName}"""
 
         fixtureMetadataFiles.each { format, metadataFile ->
             String tableName = "eq_delete_dv_${format}_${runSuffix}"
             try {
-                spark_iceberg_jdbc_multi """
+                spark_iceberg_multi """
                     call demo.system.register_table(
                         table => '${dbName}.${tableName}',
                         metadata_file => '${metadataFile}'
@@ -225,8 +267,11 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
                 """
 
                 assertSparkDorisBusinessRows(tableName)
+                assertDorisBusinessRows(tableName, expectedRowsAfterDorisDelete[format])
                 assertSparkDorisAggregateRows(tableName)
+                assertDorisAggregateRows(tableName, [["6", "6"]])
                 assertSparkDorisRowsByPredicate(tableName, "new_new_id = 2")
+                assertDorisRowsByPredicate(tableName, "new_new_id = 2", [])
                 assertSparkDorisRowsByPredicate(tableName, oldVersionPredicate)
                 assertLineageProjectionReadable(tableName)
                 assertEqualityDeleteAndPuffinDvCoexist(tableName)
