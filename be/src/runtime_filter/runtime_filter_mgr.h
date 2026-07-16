@@ -57,12 +57,8 @@ class ExecEnv;
 class RuntimeProfile;
 
 struct LocalMergeContext {
-    std::mutex mtx;
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
-
-    Status register_producer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
-                             std::shared_ptr<RuntimeFilterProducer> producer);
 };
 
 struct GlobalMergeContext {
@@ -87,11 +83,11 @@ public:
                                     int node_id,
                                     std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
 
-    Status register_local_merger_producer_filter(const QueryContext* query_ctx,
-                                                 const TRuntimeFilterDesc& desc,
-                                                 std::shared_ptr<RuntimeFilterProducer> producer);
+    Status register_local_merge_producer_filter(const QueryContext* query_ctx,
+                                                const TRuntimeFilterDesc& desc,
+                                                std::shared_ptr<RuntimeFilterProducer> producer);
 
-    Status get_local_merge_producer_filters(int filter_id, LocalMergeContext** local_merge_filters);
+    Status get_local_merge_context(int filter_id, std::shared_ptr<LocalMergeContext>* context);
 
     // Create local producer. This producer is hold by RuntimeFilterProducerHelper.
     Status register_producer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
@@ -122,7 +118,7 @@ private:
     // key: "filter-id"
     std::map<int32_t, std::vector<std::shared_ptr<RuntimeFilterConsumer>>> _consumer_map;
     std::set<int32_t> _producer_id_set;
-    std::map<int32_t, LocalMergeContext> _local_merge_map;
+    std::map<int32_t, std::shared_ptr<LocalMergeContext>> _local_merge_map;
 
     std::unique_ptr<MemTracker> _tracker;
 
