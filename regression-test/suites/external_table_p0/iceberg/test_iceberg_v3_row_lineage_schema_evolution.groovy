@@ -35,6 +35,34 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
     def descColumns = { tableName -> return sql("""desc ${tableName}""").collect { row -> row[0].toString().toLowerCase() }
     }
 
+    def normalizeRows = { rows ->
+        return rows.collect { row -> row.collect { col -> col == null ? null : col.toString() } }
+    }
+
+    def assertSparkDorisBusinessRows = { tableName, columns, orderBy, expectedRows = null ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select ${columns}
+            from demo.${dbName}.${tableName}
+            order by ${orderBy}
+        """)
+        def dorisRows = sql("""
+            select ${columns}
+            from ${tableName}
+            order by ${orderBy}
+        """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+
+        def normalizedRows = normalizeRows(dorisRows)
+        if (expectedRows != null) {
+            assertEquals(expectedRows, normalizedRows)
+        }
+        return normalizedRows
+    }
+
     def lineageMap = { tableName ->
         def rows = sql("""
             select id, _row_id, _last_updated_sequence_number
@@ -122,6 +150,10 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
                         assertTrue(row[6] != null,
                             "_last_updated_sequence_number should remain readable after ADD COLUMN in ${tableName}")
                     }
+                    assertSparkDorisBusinessRows(tableName, "id, name, score, extra, dt", "id", [
+                            ["1", "a", "10", null, "2024-10-01"],
+                            ["2", "b", "20", null, "2024-10-01"]
+                    ])
 
                     sql """alter table ${tableName} drop column extra"""
                     sql """refresh table ${dbName}.${tableName}"""
@@ -138,6 +170,10 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
                     assertEquals("a", afterDropRows[0][1].toString())
                     assertEquals(10, afterDropRows[0][2].toString().toInteger())
                     assertEquals("2024-10-01", afterDropRows[0][3].toString())
+                    assertSparkDorisBusinessRows(tableName, "id, name, score, dt", "id", [
+                            ["1", "a", "10", "2024-10-01"],
+                            ["2", "b", "20", "2024-10-01"]
+                    ])
 
                     sql """update ${tableName} set score = score + 100 where id = 1"""
                     Map<Integer, List<Long>> afterUpdateLineage = lineageMap(tableName)
@@ -153,32 +189,39 @@ suite("test_iceberg_v3_row_lineage_schema_evolution", "p0,external,iceberg,exter
                     """)
                     assertEquals(110, finalRows[0][2].toString().toInteger())
                     assertEquals(20, finalRows[1][2].toString().toInteger())
+                    assertSparkDorisBusinessRows(tableName, "id, name, score, dt", "id", [
+                            ["1", "a", "110", "2024-10-01"],
+                            ["2", "b", "20", "2024-10-01"]
+                    ])
 
-                    if (sparkIcebergAvailable) {
-                        spark_iceberg """
-                            alter table demo.${dbName}.${tableName}
-                            add columns (spark_added string)
-                        """
-                        sql """refresh table ${dbName}.${tableName}"""
-                        def sparkAddColumns = descColumns(tableName)
-                        assertTrue(sparkAddColumns.contains("spark_added"),
-                            "Spark ADD COLUMN should be visible after Doris REFRESH TABLE for ${tableName}")
+                    spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+                    spark_iceberg """
+                        alter table demo.${dbName}.${tableName}
+                        add columns (spark_added string)
+                    """
+                    sql """refresh table ${dbName}.${tableName}"""
+                    def sparkAddColumns = descColumns(tableName)
+                    assertTrue(sparkAddColumns.contains("spark_added"),
+                        "Spark ADD COLUMN should be visible after Doris REFRESH TABLE for ${tableName}")
 
-                        def afterSparkAddRows = sql("""
-                            select id, name, score, spark_added, dt, _row_id, _last_updated_sequence_number
-                            from ${tableName}
-                            order by id
-                        """)
-                        log.info("Rows after Spark ADD COLUMN for ${tableName}: ${afterSparkAddRows}")
-                        assertEquals(2, afterSparkAddRows.size())
-                        afterSparkAddRows.each { row ->
-                            assertTrue(row[3] == null,
-                                "Spark-added column should be null for existing rows in ${tableName}")
-                            assertTrue(row[5] != null, "_row_id should remain readable after Spark schema evolution")
-                            assertTrue(row[6] != null,
-                                "_last_updated_sequence_number should remain readable after Spark schema evolution")
-                        }
+                    def afterSparkAddRows = sql("""
+                        select id, name, score, spark_added, dt, _row_id, _last_updated_sequence_number
+                        from ${tableName}
+                        order by id
+                    """)
+                    log.info("Rows after Spark ADD COLUMN for ${tableName}: ${afterSparkAddRows}")
+                    assertEquals(2, afterSparkAddRows.size())
+                    afterSparkAddRows.each { row ->
+                        assertTrue(row[3] == null,
+                            "Spark-added column should be null for existing rows in ${tableName}")
+                        assertTrue(row[5] != null, "_row_id should remain readable after Spark schema evolution")
+                        assertTrue(row[6] != null,
+                            "_last_updated_sequence_number should remain readable after Spark schema evolution")
                     }
+                    assertSparkDorisBusinessRows(tableName, "id, name, score, spark_added, dt", "id", [
+                            ["1", "a", "110", null, "2024-10-01"],
+                            ["2", "b", "20", null, "2024-10-01"]
+                    ])
                 } finally {
                     sql """drop table if exists ${tableName}"""
                 }

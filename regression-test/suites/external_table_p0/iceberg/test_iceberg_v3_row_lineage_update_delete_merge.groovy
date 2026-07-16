@@ -112,6 +112,34 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
         return result
     }
 
+    def normalizeRows = { rows ->
+        return rows.collect { row -> row.collect { col -> col == null ? null : col.toString() } }
+    }
+
+    def assertSparkDorisBusinessRows = { tableName, columns, orderBy, expectedRows = null ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select ${columns}
+            from demo.${dbName}.${tableName}
+            order by ${orderBy}
+        """)
+        def dorisRows = sql("""
+            select ${columns}
+            from ${tableName}
+            order by ${orderBy}
+        """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+
+        def normalizedRows = normalizeRows(dorisRows)
+        if (expectedRows != null) {
+            assertEquals(expectedRows, normalizedRows)
+        }
+        return normalizedRows
+    }
+
     sql """drop catalog if exists ${catalogName}"""
     sql """
         create catalog if not exists ${catalogName} properties (
@@ -160,25 +188,20 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                 sql """insert into ${updateDeleteTable} values (2, 'Bob', 30) """ 
                 sql """insert into ${updateDeleteTable} values (3, 'Charlie', 35)""" 
 
-//                def updateDeleteLineageBefore = lineageMap(updateDeleteTable)
-//                log.info("Lineage before UPDATE/DELETE on ${updateDeleteTable}: ${updateDeleteLineageBefore}")
-//                sql """update ${updateDeleteTable} set name = 'Alice_u', age = 26 where id = 1"""
-//                sql """delete from ${updateDeleteTable} where id = 2"""
+                def updateDeleteLineageBefore = lineageMap(updateDeleteTable)
+                log.info("Lineage before UPDATE/DELETE on ${updateDeleteTable}: ${updateDeleteLineageBefore}")
+                sql """update ${updateDeleteTable} set name = 'Alice_u', age = 26 where id = 1"""
+                sql """delete from ${updateDeleteTable} where id = 2"""
 
                 // Assert baseline:
                 // 1. UPDATE keeps rows readable and applies the new values.
                 // 2. DELETE removes the target row.
                 // 3. V3 delete files use Puffin deletion vectors instead of delete_pos parquet/orc files.
                 // 4. Explicit row lineage reads remain non-null after DML.
-                def updateDeleteRows = sql """select * from ${updateDeleteTable} order by id"""
-                log.info("Checking table rows after UPDATE/DELETE on ${updateDeleteTable}: ${updateDeleteRows}")
-                assertEquals(2, updateDeleteRows.size())
-                assertEquals(1, updateDeleteRows[0][0].toString().toInteger())
-                assertEquals("Alice_u", updateDeleteRows[0][1])
-                assertEquals(26, updateDeleteRows[0][2].toString().toInteger())
-                assertEquals(3, updateDeleteRows[1][0].toString().toInteger())
-                assertEquals("Charlie", updateDeleteRows[1][1])
-                assertEquals(35, updateDeleteRows[1][2].toString().toInteger())
+                assertSparkDorisBusinessRows(updateDeleteTable, "id, name, age", "id", [
+                        ["1", "Alice_u", "26"],
+                        ["3", "Charlie", "35"]
+                ])
 
                 assertExplicitRowLineageNonNull(updateDeleteTable, 2)
                 def updateDeleteLineageAfter = lineageMap(updateDeleteTable)
@@ -273,16 +296,12 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                     where id in (select id from ${advancedSourceTable} where action = 'D')
                 """
 
-                def advancedRows = sql """select id, name, score, dt from ${advancedUpdateDeleteTable} order by id"""
-                def normalizedAdvancedRows = advancedRows.collect {
-                    [it[0].toString().toInteger(), it[1].toString(), it[2].toString().toInteger(), it[3].toString()]
-                }
-                assertEquals([
-                        [10, "a_multi", 110, "2024-02-01"],
-                        [11, "b_multi", 120, "2024-02-01"],
-                        [12, "sub_u", 37, "2024-02-02"],
-                        [14, "e", 50, "2024-02-03"]
-                ], normalizedAdvancedRows)
+                assertSparkDorisBusinessRows(advancedUpdateDeleteTable, "id, name, score, dt", "id", [
+                        ["10", "a_multi", "110", "2024-02-01"],
+                        ["11", "b_multi", "120", "2024-02-01"],
+                        ["12", "sub_u", "37", "2024-02-02"],
+                        ["14", "e", "50", "2024-02-03"]
+                ])
                 def partitionRowsAfterDelete = sql """
                     select id
                     from ${advancedUpdateDeleteTable}
@@ -343,18 +362,11 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                 // 1. MERGE applies DELETE, UPDATE, and INSERT actions in one statement.
                 // 2. The partitioned MERGE still writes Puffin deletion vectors.
                 // 3. At least one current data file written by MERGE contains physical row lineage columns.
-                def mergeRows = sql """select * from ${mergeTable} order by id"""
-                log.info("Checking table rows after MERGE on ${mergeTable}: ${mergeRows}")
-                assertEquals(3, mergeRows.size())
-                assertEquals(1, mergeRows[0][0].toString().toInteger())
-                assertEquals("Penny_u", mergeRows[0][1])
-                assertEquals(31, mergeRows[0][2].toString().toInteger())
-                assertEquals(3, mergeRows[1][0].toString().toInteger())
-                assertEquals("Rita", mergeRows[1][1])
-                assertEquals(23, mergeRows[1][2].toString().toInteger())
-                assertEquals(4, mergeRows[2][0].toString().toInteger())
-                assertEquals("Sara", mergeRows[2][1])
-                assertEquals(24, mergeRows[2][2].toString().toInteger())
+                assertSparkDorisBusinessRows(mergeTable, "id, name, age, dt", "id", [
+                        ["1", "Penny_u", "31", "2024-01-01"],
+                        ["3", "Rita", "23", "2024-01-03"],
+                        ["4", "Sara", "24", "2024-01-04"]
+                ])
 
                 assertExplicitRowLineageNonNull(mergeTable, 3)
                 def mergeLineageAfter = lineageMap(mergeTable)

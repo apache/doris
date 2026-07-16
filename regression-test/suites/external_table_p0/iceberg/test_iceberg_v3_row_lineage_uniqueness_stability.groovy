@@ -58,6 +58,29 @@ suite("test_iceberg_v3_row_lineage_uniqueness_stability", "p0,external,iceberg,e
         assertEquals(counts[0][0].toString().toLong(), counts[0][1].toString().toLong())
     }
 
+    def assertSparkDorisBusinessRows = { tableName, expectedRows ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select id, name, score, dt
+            from demo.${dbName}.${tableName}
+            order by id
+        """)
+        def dorisRows = sql("""
+            select id, name, score, dt
+            from ${tableName}
+            order by id
+        """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+
+        def normalizedRows = dorisRows.collect {
+            [it[0].toString().toInteger(), it[1].toString(), it[2].toString().toInteger(), it[3].toString()]
+        }
+        assertEquals(expectedRows, normalizedRows)
+    }
+
     sql """drop catalog if exists ${catalogName}"""
     sql """
         create catalog if not exists ${catalogName} properties (
@@ -145,18 +168,14 @@ suite("test_iceberg_v3_row_lineage_uniqueness_stability", "p0,external,iceberg,e
                     assertEquals(afterMergeLineage[4][0], afterRewriteLineage[4][0])
                     assertEquals(afterMergeLineage[4][1], afterRewriteLineage[4][1])
 
-                    def rows = sql("""select id, name, score, dt from ${tableName} order by id""")
-                    def normalizedRows = rows.collect {
-                        [it[0].toString().toInteger(), it[1].toString(), it[2].toString().toInteger(), it[3].toString()]
-                    }
-                    assertEquals([
+                    assertSparkDorisBusinessRows(tableName, [
                             [1, "a", 20, "2024-08-01"],
                             [2, "b", 20, "2024-08-02"],
                             [3, "c", 30, "2024-08-03"],
                             [4, "stable_m", 404, "2024-08-04"],
                             [5, "e", 50, "2024-08-05"],
                             [6, "f", 60, "2024-08-06"]
-                    ], normalizedRows)
+                    ])
                 } finally {
                     sql """drop table if exists ${tableName}"""
                 }

@@ -55,11 +55,21 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
     }
 
     def assertDorisBusinessRows = { tableName, expectedRows ->
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        sql """refresh table ${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select id, name, score, dt
+            from demo.${dbName}.${tableName}
+            order by id
+        """)
         def dorisRows = sql("""
             select id, name, score, dt
             from ${tableName}
             order by id
         """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
         def normalizedRows = normalizeRows(dorisRows)
         log.info("Checking concrete Doris business rows for ${tableName}: ${normalizedRows}")
         assertEquals(expectedRows, normalizedRows)
@@ -82,10 +92,19 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
     }
 
     def assertDorisAggregateRows = { tableName, expectedRows ->
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        sql """refresh table ${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select count(*), sum(id), sum(score)
+            from demo.${dbName}.${tableName}
+        """)
         def dorisRows = sql("""
             select count(*), sum(id), sum(score)
             from ${tableName}
         """)
+        log.info("Spark aggregate rows for ${tableName}: ${sparkRows}")
+        log.info("Doris aggregate rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
         def normalizedRows = normalizeRows(dorisRows)
         log.info("Checking concrete Doris aggregate rows for ${tableName}: ${normalizedRows}")
         assertEquals(expectedRows, normalizedRows)
@@ -255,14 +274,12 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
                         (3, 'c', 30, date '2024-09-02')
                     """
                     sql """delete from ${dorisDvTable} where id = 2"""
-                    assertSparkDorisBusinessRows(dorisDvTable)
                     assertDorisBusinessRows(dorisDvTable, [
                             ["1", "a", "10", "2024-09-01"],
                             ["3", "c", "30", "2024-09-02"]
                     ])
                     assertDorisLineageReadable(dorisDvTable)
                     assertPuffinDeleteFiles(dorisDvTable)
-                    assertSparkDorisAggregateRows(dorisDvTable)
                     assertDorisAggregateRows(dorisDvTable, [["2", "4", "40"]])
                 } finally {
                     sql """drop table if exists ${dorisDvTable}"""

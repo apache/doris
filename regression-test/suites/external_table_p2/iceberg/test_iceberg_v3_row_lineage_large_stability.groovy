@@ -22,11 +22,6 @@ suite("test_iceberg_v3_row_lineage_large_stability", "p2,external,iceberg,extern
         return
     }
 
-    String largeEnabled = context.config.otherConfigs.get("enableIcebergRowLineageLargeStability")
-    if (largeEnabled == null || !largeEnabled.equalsIgnoreCase("true")) {
-        logger.info("Iceberg row lineage large stability test is disabled")
-        return
-    }
 
     String catalogName = "test_iceberg_v3_row_lineage_large_stability"
     String dbName = "test_row_lineage_large_stability_db"
@@ -40,15 +35,23 @@ suite("test_iceberg_v3_row_lineage_large_stability", "p2,external,iceberg,extern
     def dataColumnNames = (1..498).collect { idx -> String.format("c%03d", idx) }
 
     def assertChecksum = { tableName, expectedRows ->
-        def rows = sql("""
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select count(*), sum(id), sum(c001)
+            from demo.${dbName}.${tableName}
+        """)
+        def dorisRows = sql("""
             select count(*), sum(id), sum(c001)
             from ${tableName}
         """)
-        log.info("Checksum for ${tableName}: ${rows}")
-        assertEquals(expectedRows, rows[0][0].toString().toLong())
-        assertTrue(rows[0][1] != null, "sum(id) should be non-null for ${tableName}")
-        assertTrue(rows[0][2] != null, "sum(c001) should be non-null for ${tableName}")
-        return rows[0].collect { it == null ? null : it.toString() }
+        log.info("Spark checksum for ${tableName}: ${sparkRows}")
+        log.info("Doris checksum for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+        assertEquals(expectedRows, dorisRows[0][0].toString().toLong())
+        assertTrue(dorisRows[0][1] != null, "sum(id) should be non-null for ${tableName}")
+        assertTrue(dorisRows[0][2] != null, "sum(c001) should be non-null for ${tableName}")
+        return dorisRows[0].collect { it == null ? null : it.toString() }
     }
 
     def assertPuffinDeleteFiles = { tableName ->

@@ -145,6 +145,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
 
     try {
         def assertV2RowsAreNullAfterUpgrade = { tableName ->
+            sql """refresh table ${dbName}.${tableName}"""
             def rows = sql """
                 select id, _row_id, _last_updated_sequence_number
                 from ${tableName}
@@ -156,6 +157,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                     from ${tableName}
                     order by id, tag, score
                 """
+                spark_iceberg """refresh table demo.${dbName}.${tableName}"""
                 def sparkBusinessRows = spark_iceberg """
                     select id, tag, score, dt
                     from demo.${dbName}.${tableName}
@@ -210,6 +212,8 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
         }
 
         def assertSparkBusinessRowsEqual = { tableName ->
+            sql """refresh table ${dbName}.${tableName}"""
+            spark_iceberg """refresh table demo.${dbName}.${tableName}"""
             def sparkRows = spark_iceberg """
                 select id, tag, score, dt
                 from demo.${dbName}.${tableName}
@@ -298,6 +302,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             """)
             assertTrue(rewriteResult.size() > 0,
                 "rewrite_data_files should return summary rows for ${tableName}")
+            sql """refresh table ${dbName}.${tableName}"""
 
             def rowCount = sql """
                 select count(*)
@@ -305,6 +310,11 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             """
             assertEquals(2, rowCount[0][0].toString().toInteger())
             assertLineageState(tableName, [1, 3], [])
+            assertSparkBusinessRowsEqual(tableName)
+        }
+
+        def validateV3UpgradeReadCompatibility = { tableName ->
+            assertV2RowsAreNullAfterUpgrade(tableName)
             assertSparkBusinessRowsEqual(tableName)
         }
 
@@ -352,6 +362,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             def dorisTargetTable = tableNameForFormat("v2v3_doris_ops_target", format)
             log.info("Run v2-to-v3 Doris/Spark compare test with format ${format}")
 
+            sql """refresh table ${dbName}.${rowLineageNullTable}"""
             def scenario1Rows = sql """
                 select id, _row_id, _last_updated_sequence_number
                 from ${rowLineageNullTable}
@@ -387,6 +398,8 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                 "Doris rewrite_data_files should return summary rows")
             assertLineageState(dorisTargetTable, [1, 2, 3, 4], [])
 
+            sql """refresh table ${dbName}.${dorisTargetTable}"""
+            sql """refresh table ${dbName}.${sparkReferenceTable}"""
             check_sqls_result_equal """
                 select *
                 from ${dorisTargetTable}
@@ -407,7 +420,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             upgradeV3DorisOperationInsert(tableNameForFormat("v2v3_doris_unpart_case1", format))
             upgradeV3DorisOperationDelete(tableNameForFormat("v2v3_doris_unpart_case2", format))
             upgradeV3DorisOperationUpdate(tableNameForFormat("v2v3_doris_unpart_case3", format))
-            upgradeV3DorisOperationRewrite(tableNameForFormat("v2v3_doris_unpart_case4", format))
+            validateV3UpgradeReadCompatibility(tableNameForFormat("v2v3_doris_unpart_case4", format))
             upgradeV3DorisOperationMerge(tableNameForFormat("v2v3_doris_unpart_case5", format))
         }
 

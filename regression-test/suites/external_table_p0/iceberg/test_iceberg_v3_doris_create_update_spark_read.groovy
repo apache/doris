@@ -37,6 +37,7 @@ suite("test_iceberg_v3_doris_create_update_spark_read", "p0,external,iceberg,ext
     }
 
     def assertDorisSparkChecksumEqual = { tableName ->
+        sql """refresh table ${dbName}.${tableName}"""
         spark_iceberg """refresh table demo.${dbName}.${tableName}"""
         def sparkChecksum = checksum(spark_iceberg("""
             select count(*), sum(id), sum(score),
@@ -51,6 +52,24 @@ suite("test_iceberg_v3_doris_create_update_spark_read", "p0,external,iceberg,ext
         log.info("Doris checksum for ${tableName}: ${dorisChecksum}")
         log.info("Spark checksum for ${tableName}: ${sparkChecksum}")
         assertEquals(dorisChecksum, sparkChecksum)
+    }
+
+    def assertDorisSparkBusinessRowsEqual = { tableName ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select id, tag, score, dt
+            from demo.${dbName}.${tableName}
+            order by id
+        """)
+        def dorisRows = sql("""
+            select id, tag, score, dt
+            from ${tableName}
+            order by id
+        """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
     }
 
     def assertDorisLineageReadable = { tableName ->
@@ -133,6 +152,7 @@ suite("test_iceberg_v3_doris_create_update_spark_read", "p0,external,iceberg,ext
                 assertEquals(3, rows.size())
                 assertEquals("doris_v3_u", rows[1][1].toString())
                 assertEquals(220, rows[1][2].toString().toInteger())
+                assertDorisSparkBusinessRowsEqual(tableName)
                 assertDorisLineageReadable(tableName)
                 assertDorisSparkChecksumEqual(tableName)
             }

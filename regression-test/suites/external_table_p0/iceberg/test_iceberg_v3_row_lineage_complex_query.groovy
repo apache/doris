@@ -36,6 +36,30 @@ suite("test_iceberg_v3_row_lineage_complex_query", "p0,external,iceberg,external
         return rows.collect { row -> row.collect { col -> col == null ? null : col.toString() } }
     }
 
+    def assertSparkDorisRows = { tableName, columns, orderBy, expectedRows = null ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select ${columns}
+            from demo.${dbName}.${tableName}
+            order by ${orderBy}
+        """)
+        def dorisRows = sql("""
+            select ${columns}
+            from ${tableName}
+            order by ${orderBy}
+        """)
+        log.info("Spark rows for ${tableName}: ${sparkRows}")
+        log.info("Doris rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+
+        def normalizedRows = normalizeRows(dorisRows)
+        if (expectedRows != null) {
+            assertEquals(expectedRows, normalizedRows)
+        }
+        return normalizedRows
+    }
+
     sql """drop catalog if exists ${catalogName}"""
     sql """
         create catalog if not exists ${catalogName} properties (
@@ -87,6 +111,13 @@ suite("test_iceberg_v3_row_lineage_complex_query", "p0,external,iceberg,external
                         (4, 'Doris', 40, date '2024-01-02'),
                         (5, 'Eve', 50, date '2024-01-03')
                     """
+                    assertSparkDorisRows(tableName, "id, name, score, dt", "id", [
+                            ["1", "Alice", "10", "2024-01-01"],
+                            ["2", "Bob", "20", "2024-01-01"],
+                            ["3", "Carol", "30", "2024-01-02"],
+                            ["4", "Doris", "40", "2024-01-02"],
+                            ["5", "Eve", "50", "2024-01-03"]
+                    ])
 
                     sql """
                         create table ${dimTable} (
@@ -108,7 +139,7 @@ suite("test_iceberg_v3_row_lineage_complex_query", "p0,external,iceberg,external
                         where id in (1, 4, 5)
                     """
 
-                    def dimRows = sql("""select id, rid, seq, tag from ${dimTable} order by id""")
+                    def dimRows = assertSparkDorisRows(dimTable, "id, rid, seq, tag", "id")
                     log.info("Checking INSERT SELECT into ordinary lineage columns for ${dimTable}: ${dimRows}")
                     assertEquals(3, dimRows.size())
                     dimRows.each { row ->

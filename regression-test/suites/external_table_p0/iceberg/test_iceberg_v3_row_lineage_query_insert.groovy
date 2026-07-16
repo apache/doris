@@ -35,6 +35,34 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
         return rows.collect { row -> row[0].toString().toLowerCase() }
     }
 
+    def normalizeRows = { rows ->
+        return rows.collect { row -> row.collect { col -> col == null ? null : col.toString() } }
+    }
+
+    def assertSparkDorisBusinessRows = { tableName, columns, orderBy, expectedRows = null ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select ${columns}
+            from demo.${dbName}.${tableName}
+            order by ${orderBy}
+        """)
+        def dorisRows = sql("""
+            select ${columns}
+            from ${tableName}
+            order by ${orderBy}
+        """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+
+        def normalizedRows = normalizeRows(dorisRows)
+        if (expectedRows != null) {
+            assertEquals(expectedRows, normalizedRows)
+        }
+        return normalizedRows
+    }
+
     def schemaContainsField = { schemaRows, fieldName ->
         String target = fieldName.toLowerCase()
         return schemaRows.any { row -> row.toString().toLowerCase().contains(target) }
@@ -361,6 +389,13 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 sql """ insert into ${unpartitionedTable} values(3, 'Charlie', 35) """
 
                 log.info("Inserted initial rows into ${unpartitionedTable}")
+                assertSparkDorisBusinessRows(unpartitionedTable, "id, name, age", "id, name, age", [
+                        ["1", "Alice", "25"],
+                        ["2", "Bob", "30"],
+                        ["2", "Bob", "30"],
+                        ["3", "Charlie", "35"],
+                        ["3", "Charlie", "35"]
+                ])
 
                 // Assert baseline:
                 // 1. DESC and SELECT * hide row lineage columns by default.
@@ -398,6 +433,14 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 def unpartitionedCount = sql """select count(*) from ${unpartitionedTable}"""
                 log.info("Checking row count after regular INSERT for ${unpartitionedTable}: result=${unpartitionedCount}")
                 assertEquals(6, unpartitionedCount[0][0].toString().toInteger())
+                assertSparkDorisBusinessRows(unpartitionedTable, "id, name, age", "id, name, age", [
+                        ["1", "Alice", "25"],
+                        ["2", "Bob", "30"],
+                        ["2", "Bob", "30"],
+                        ["3", "Charlie", "35"],
+                        ["3", "Charlie", "35"],
+                        ["4", "Doris", "40"]
+                ])
 
                 assertCurrentFilesDoNotContainRowLineageColumns(
                         unpartitionedTable,
@@ -427,6 +470,11 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 sql """ insert into ${partitionedTable} values(13, 'Rita', 23, '2024-01-03')"""        
                 
                 log.info("Inserted initial rows into ${partitionedTable}")
+                assertSparkDorisBusinessRows(partitionedTable, "id, name, age, dt", "id", [
+                        ["11", "Penny", "21", "2024-01-01"],
+                        ["12", "Quinn", "22", "2024-01-02"],
+                        ["13", "Rita", "23", "2024-01-03"]
+                ])
 
                 // Assert baseline:
                 // 1. Partitioned tables follow the same row lineage semantics as unpartitioned tables.
@@ -496,6 +544,12 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 def partitionedCount = sql """select count(*) from ${partitionedTable}"""
                 log.info("Checking row count after regular INSERT for ${partitionedTable}: result=${partitionedCount}")
                 assertEquals(4, partitionedCount[0][0].toString().toInteger())
+                assertSparkDorisBusinessRows(partitionedTable, "id, name, age, dt", "id", [
+                        ["11", "Penny", "21", "2024-01-01"],
+                        ["12", "Quinn", "22", "2024-01-02"],
+                        ["13", "Rita", "23", "2024-01-03"],
+                        ["14", "Sara", "24", "2024-01-04"]
+                ])
 
                 assertCurrentFilesDoNotContainRowLineageColumns(
                         partitionedTable,

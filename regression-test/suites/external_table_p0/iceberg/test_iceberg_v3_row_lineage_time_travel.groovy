@@ -53,6 +53,27 @@ suite("test_iceberg_v3_row_lineage_time_travel", "p0,external,iceberg,external_d
         return rows.collect { row -> [row[0].toString().toInteger(), row[1].toString(), row[2].toString().toInteger()] }
     }
 
+    def sparkBusinessRows = { tableName, suffix ->
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def rows = spark_iceberg("""
+            select id, name, score
+            from demo.${dbName}.${tableName} ${suffix}
+            order by id
+        """)
+        return rows.collect { row -> [row[0].toString().toInteger(), row[1].toString(), row[2].toString().toInteger()] }
+    }
+
+    def assertDorisSparkBusinessRows = { tableName, dorisSuffix, sparkSuffix, expectedRows ->
+        sql """refresh table ${dbName}.${tableName}"""
+        def dorisRows = businessRows(tableName, dorisSuffix)
+        def sparkRows = sparkBusinessRows(tableName, sparkSuffix)
+        log.info("Doris business rows for ${tableName} ${dorisSuffix}: ${dorisRows}")
+        log.info("Spark business rows for ${tableName} ${sparkSuffix}: ${sparkRows}")
+        assertEquals(dorisRows, sparkRows)
+        assertEquals(expectedRows, dorisRows)
+        return dorisRows
+    }
+
     def lineageRows = { tableName, suffix ->
         def rows = sql("""
             select id, _row_id, _last_updated_sequence_number
@@ -127,18 +148,26 @@ suite("test_iceberg_v3_row_lineage_time_travel", "p0,external,iceberg,external_d
                     sql """delete from ${tableName} where id = 101"""
                     def deleteSnapshot = latestSnapshot(tableName)
 
-                    assertEquals([
-                            [101, "tt_a", 10],
-                            [102, "tt_b", 20]
-                    ], businessRows(tableName, "for version as of ${insertSnapshot[0]}"))
+                    def insertVersionRows = assertDorisSparkBusinessRows(
+                            tableName,
+                            "for version as of ${insertSnapshot[0]}",
+                            "VERSION AS OF ${insertSnapshot[0]}",
+                            [
+                                    [101, "tt_a", 10],
+                                    [102, "tt_b", 20]
+                            ])
                     Map<Integer, List<Long>> insertLineage = lineageRows(
                             tableName,
                             "for version as of ${insertSnapshot[0]}")
 
-                    assertEquals([
-                            [101, "tt_a", 10],
-                            [102, "tt_b", 21]
-                    ], businessRows(tableName, "for version as of ${updateSnapshot[0]}"))
+                    assertDorisSparkBusinessRows(
+                            tableName,
+                            "for version as of ${updateSnapshot[0]}",
+                            "VERSION AS OF ${updateSnapshot[0]}",
+                            [
+                                    [101, "tt_a", 10],
+                                    [102, "tt_b", 21]
+                            ])
                     Map<Integer, List<Long>> updateLineage = lineageRows(
                             tableName,
                             "for version as of ${updateSnapshot[0]}")
@@ -146,13 +175,31 @@ suite("test_iceberg_v3_row_lineage_time_travel", "p0,external,iceberg,external_d
                     assertTrue(updateLineage[102][1] > insertLineage[102][1],
                             "Time-travel UPDATE snapshot should advance sequence for id=102 in ${tableName}")
 
-                    assertEquals([
-                            [102, "tt_b", 21]
-                    ], businessRows(tableName, "for version as of ${deleteSnapshot[0]}"))
+                    assertDorisSparkBusinessRows(
+                            tableName,
+                            "for version as of ${deleteSnapshot[0]}",
+                            "VERSION AS OF ${deleteSnapshot[0]}",
+                            [
+                                    [102, "tt_b", 21]
+                            ])
 
-                    assertEquals(
-                            businessRows(tableName, "for version as of ${insertSnapshot[0]}"),
-                            businessRows(tableName, "for time as of '${insertTimeTravel}'"))
+                    def insertTimeRows = assertDorisSparkBusinessRows(
+                            tableName,
+                            "for time as of '${insertTimeTravel}'",
+                            "TIMESTAMP AS OF '${insertTimeTravel}'",
+                            [
+                                    [101, "tt_a", 10],
+                                    [102, "tt_b", 20]
+                            ])
+                    assertEquals(insertVersionRows, insertTimeRows)
+                    assertDorisSparkBusinessRows(
+                            tableName,
+                            "for time as of '${updateTimeTravel}'",
+                            "TIMESTAMP AS OF '${updateTimeTravel}'",
+                            [
+                                    [101, "tt_a", 10],
+                                    [102, "tt_b", 21]
+                            ])
                     Map<Integer, List<Long>> updateTimeLineage = lineageRows(
                             tableName,
                             "for time as of '${updateTimeTravel}'")

@@ -134,9 +134,19 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
     }
 
     def assertBusinessRows = { tableName, expected ->
-        def rows = sql("""select id, name, score, dt from ${tableName} order by id""")
-        log.info("Checking business rows for ${tableName}: ${rows}")
-        def actual = rows.collect { row ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select id, name, score, dt
+            from demo.${dbName}.${tableName}
+            order by id
+        """)
+        def dorisRows = sql("""select id, name, score, dt from ${tableName} order by id""")
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+
+        def actual = dorisRows.collect { row ->
             [row[0].toString().toInteger(), row[1].toString(), row[2].toString().toInteger(), row[3].toString()]
         }
         assertEquals(expected, actual)

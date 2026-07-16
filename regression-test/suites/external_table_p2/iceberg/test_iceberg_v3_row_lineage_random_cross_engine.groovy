@@ -24,12 +24,6 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
         return
     }
 
-    String randomEnabled = context.config.otherConfigs.get("enableIcebergRowLineageRandomCross")
-    if (randomEnabled == null || !randomEnabled.equalsIgnoreCase("true")) {
-        logger.info("Iceberg row lineage random cross-engine test is disabled")
-        return
-    }
-
     String catalogName = "test_iceberg_v3_row_lineage_random_cross_engine"
     String dbName = "test_row_lineage_random_cross_db"
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
@@ -71,6 +65,8 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
     }
 
     def assertDorisSparkBusinessEqual = { tableName, step ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
         String doris = dorisChecksum(tableName)
         String spark = sparkChecksum(tableName)
         logger.info("Random cross step ${step} checksum for ${tableName}: Doris=${doris}, Spark=${spark}")

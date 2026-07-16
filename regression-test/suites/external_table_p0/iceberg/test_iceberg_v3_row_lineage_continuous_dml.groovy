@@ -69,14 +69,40 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
         assertTrue(descRows.size() > 0, "delete_files system table schema should be visible for ${tableName}")
     }
 
+    def normalizeBusinessRows = { rows ->
+        return rows.collect { row ->
+            [row[0].toString().toInteger(), row[1].toString(), row[2].toString().toInteger(), row[3].toString()]
+        }
+    }
+
+    def assertSparkDorisBusinessRows = { tableName, expectedRows = null ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select id, name, score, dt
+            from demo.${dbName}.${tableName}
+            order by id
+        """)
+        def dorisRows = sql("""
+            select id, name, score, dt
+            from ${tableName}
+            order by id
+        """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+
+        def normalizedRows = normalizeBusinessRows(dorisRows)
+        if (expectedRows != null) {
+            assertEquals(expectedRows, normalizedRows)
+        }
+        return normalizedRows
+    }
+
     def assertVisibleRowsAfterV2PositionDeleteMerge = { tableName ->
-        def rows = sql("""select id, name, score, dt from ${tableName} order by id""")
-        log.info("Rows after v2 position delete to v3 DV merge for ${tableName}: ${rows}")
-        assertEquals(1, rows.size())
-        assertEquals(3, rows[0][0].toString().toInteger())
-        assertEquals("c", rows[0][1].toString())
-        assertEquals(30, rows[0][2].toString().toInteger())
-        assertEquals("2024-06-02", rows[0][3].toString())
+        assertSparkDorisBusinessRows(tableName, [
+                [3, "c", 30, "2024-06-02"]
+        ])
 
         def resurrectedRows = sql("""select count(*) from ${tableName} where id in (1, 2)""")
         assertEquals(0, resurrectedRows[0][0].toString().toInteger())
@@ -159,16 +185,12 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
                         values (s.id, s.name, s.score, s.dt)
                     """
 
-                    def businessRows = sql("""select id, name, score, dt from ${tableName} order by id""")
-                    def normalizedRows = businessRows.collect {
-                        [it[0].toString().toInteger(), it[1].toString(), it[2].toString().toInteger(), it[3].toString()]
-                    }
-                    assertEquals([
+                    assertSparkDorisBusinessRows(tableName, [
                         [2, "b_m", 222, "2024-06-01"],
                         [4, "d", 40, "2024-06-01"],
                         [5, "e", 50, "2024-06-01"],
                         [6, "f", 60, "2024-06-01"]
-                    ], normalizedRows)
+                    ])
 
                     Map<Integer, List<Long>> afterMergeLineage = lineageMap(tableName)
                     assertEquals(afterUpdateLineage[2][0], afterMergeLineage[2][0])
@@ -191,60 +213,58 @@ suite("test_iceberg_v3_row_lineage_continuous_dml", "p0,external,iceberg,externa
                 }
             }
 
-            if (sparkIcebergAvailable) {
-                String v2PositionDeleteTable = "v2_pos_to_v3_dv_${format}"
-                try {
-                    spark_iceberg_multi """
-                        drop table if exists demo.${dbName}.${v2PositionDeleteTable};
-                        create table demo.${dbName}.${v2PositionDeleteTable} (
-                            id int,
-                            name string,
-                            score int,
-                            dt date
-                        ) using iceberg
-                        partitioned by (days(dt))
-                        tblproperties (
-                            'format-version' = '2',
-                            'write.format.default' = '${format}',
-                            'write.delete.mode' = 'merge-on-read',
-                            'write.update.mode' = 'merge-on-read',
-                            'write.merge.mode' = 'merge-on-read'
-                        );
-                        insert into demo.${dbName}.${v2PositionDeleteTable} values
-                        (1, 'a', 10, date '2024-06-02'),
-                        (2, 'b', 20, date '2024-06-02'),
-                        (3, 'c', 30, date '2024-06-02');
-                        delete from demo.${dbName}.${v2PositionDeleteTable} where id = 1;
-                        alter table demo.${dbName}.${v2PositionDeleteTable}
-                        set tblproperties ('format-version' = '3');
-                    """
+            String v2PositionDeleteTable = "v2_pos_to_v3_dv_${format}"
+            try {
+                spark_iceberg_multi """
+                    drop table if exists demo.${dbName}.${v2PositionDeleteTable};
+                    create table demo.${dbName}.${v2PositionDeleteTable} (
+                        id int,
+                        name string,
+                        score int,
+                        dt date
+                    ) using iceberg
+                    partitioned by (days(dt))
+                    tblproperties (
+                        'format-version' = '2',
+                        'write.format.default' = '${format}',
+                        'write.delete.mode' = 'merge-on-read',
+                        'write.update.mode' = 'merge-on-read',
+                        'write.merge.mode' = 'merge-on-read'
+                    );
+                    insert into demo.${dbName}.${v2PositionDeleteTable} values
+                    (1, 'a', 10, date '2024-06-02'),
+                    (2, 'b', 20, date '2024-06-02'),
+                    (3, 'c', 30, date '2024-06-02');
+                    delete from demo.${dbName}.${v2PositionDeleteTable} where id = 1;
+                    alter table demo.${dbName}.${v2PositionDeleteTable}
+                    set tblproperties ('format-version' = '3');
+                """
 
-                    sql """refresh table ${dbName}.${v2PositionDeleteTable}"""
-                    def baselineRows = sql("""select id, name, score, dt from ${v2PositionDeleteTable} order by id""")
-                    assertEquals(2, baselineRows.size())
-                    assertEquals(2, baselineRows[0][0].toString().toInteger())
-                    assertEquals(3, baselineRows[1][0].toString().toInteger())
+                sql """refresh table ${dbName}.${v2PositionDeleteTable}"""
+                assertSparkDorisBusinessRows(v2PositionDeleteTable, [
+                        [2, "b", 20, "2024-06-02"],
+                        [3, "c", 30, "2024-06-02"]
+                ])
 
-                    sql """delete from ${v2PositionDeleteTable} where id = 2"""
-                    assertVisibleRowsAfterV2PositionDeleteMerge(v2PositionDeleteTable)
-                    assertDeleteFilesDescCaptured(v2PositionDeleteTable)
+                sql """delete from ${v2PositionDeleteTable} where id = 2"""
+                assertVisibleRowsAfterV2PositionDeleteMerge(v2PositionDeleteTable)
+                assertDeleteFilesDescCaptured(v2PositionDeleteTable)
 
-                    def deleteFiles = sql("""
-                        select file_path, lower(file_format), record_count
-                        from ${v2PositionDeleteTable}\$delete_files
-                        order by file_path
-                    """)
-                    log.info("Delete files after v2 position delete to v3 DV merge for ${v2PositionDeleteTable}: ${deleteFiles}")
-                    assertTrue(deleteFiles.any { row -> row[1].toString() == "puffin" },
-                        "Doris v3 DELETE should create a Puffin DV for ${v2PositionDeleteTable}")
-                    deleteFiles.each { row ->
-                        assertEquals("puffin", row[1].toString())
-                        assertTrue(row[0].toString().toLowerCase().endsWith(".puffin"),
-                            "live delete files should be rewritten to Puffin DV after v2 position delete merge: ${row}")
-                    }
-                } finally {
-                    sql """drop table if exists ${v2PositionDeleteTable}"""
+                def deleteFiles = sql("""
+                    select file_path, lower(file_format), record_count
+                    from ${v2PositionDeleteTable}\$delete_files
+                    order by file_path
+                """)
+                log.info("Delete files after v2 position delete to v3 DV merge for ${v2PositionDeleteTable}: ${deleteFiles}")
+                assertTrue(deleteFiles.any { row -> row[1].toString() == "puffin" },
+                    "Doris v3 DELETE should create a Puffin DV for ${v2PositionDeleteTable}")
+                deleteFiles.each { row ->
+                    assertEquals("puffin", row[1].toString())
+                    assertTrue(row[0].toString().toLowerCase().endsWith(".puffin"),
+                        "live delete files should be rewritten to Puffin DV after v2 position delete merge: ${row}")
                 }
+            } finally {
+                sql """drop table if exists ${v2PositionDeleteTable}"""
             }
         }
     } finally {

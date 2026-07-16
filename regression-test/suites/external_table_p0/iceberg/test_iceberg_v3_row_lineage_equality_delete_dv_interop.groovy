@@ -73,11 +73,19 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
 
     def assertDorisBusinessRows = { tableName, expectedRows ->
         refreshTable(tableName)
+        def sparkRows = spark_iceberg("""
+            select new_new_id, new_name, data, id
+            from demo.${dbName}.${tableName}
+            order by new_new_id, new_name, data, id
+        """)
         def dorisRows = sql("""
             select new_new_id, new_name, data, id
             from ${tableName}
             order by new_new_id, new_name, data, id
         """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
         def normalizedRows = normalizeRows(dorisRows)
         log.info("Checking concrete Doris business rows for ${tableName}: ${normalizedRows}")
         assertEquals(expectedRows, normalizedRows)
@@ -99,10 +107,18 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
     }
 
     def assertDorisAggregateRows = { tableName, expectedRows ->
+        refreshTable(tableName)
+        def sparkRows = spark_iceberg("""
+            select count(*), count(distinct new_new_id)
+            from demo.${dbName}.${tableName}
+        """)
         def dorisRows = sql("""
             select count(*), count(distinct new_new_id)
             from ${tableName}
         """)
+        log.info("Spark aggregate rows for ${tableName}: ${sparkRows}")
+        log.info("Doris aggregate rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
         def normalizedRows = normalizeRows(dorisRows)
         log.info("Checking concrete Doris aggregate rows for ${tableName}: ${normalizedRows}")
         assertEquals(expectedRows, normalizedRows)
@@ -128,12 +144,22 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
     }
 
     def assertDorisRowsByPredicate = { tableName, predicate, expectedRows ->
+        refreshTable(tableName)
+        def sparkRows = spark_iceberg("""
+            select new_new_id, new_name, data, id
+            from demo.${dbName}.${tableName}
+            where ${predicate}
+            order by new_new_id, new_name, data, id
+        """)
         def dorisRows = sql("""
             select new_new_id, new_name, data, id
             from ${tableName}
             where ${predicate}
             order by new_new_id, new_name, data, id
         """)
+        log.info("Spark rows for ${tableName} with predicate ${predicate}: ${sparkRows}")
+        log.info("Doris rows for ${tableName} with predicate ${predicate}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
         def normalizedRows = normalizeRows(dorisRows)
         log.info("Checking concrete Doris rows for ${tableName} with predicate ${predicate}: ${normalizedRows}")
         assertEquals(expectedRows, normalizedRows)
@@ -146,10 +172,13 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
             order by new_new_id
         """)
         logger.info("Row lineage projection after equality delete and Puffin DV for ${tableName}: ${rows}")
+        // The registered equality-delete fixtures are v2 metadata upgraded to v3 at runtime.
+        // Historical data files do not carry first_row_id, so row lineage values should stay NULL.
+        assertTrue(rows.size() > 0, "Row lineage projection should return visible rows for ${tableName}")
         rows.each { row ->
-            assertTrue(row[1] != null, "_row_id should be non-null for ${tableName}, row=${row}")
-            assertTrue(row[2] != null,
-                    "_last_updated_sequence_number should be non-null for ${tableName}, row=${row}")
+            assertEquals(null, row[1], "_row_id should be NULL for historical v2 data file in ${tableName}, row=${row}")
+            assertEquals(null, row[2],
+                    "_last_updated_sequence_number should be NULL for historical v2 data file in ${tableName}, row=${row}")
         }
     }
 
@@ -266,11 +295,8 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
                     where new_new_id = 2
                 """
 
-                assertSparkDorisBusinessRows(tableName)
                 assertDorisBusinessRows(tableName, expectedRowsAfterDorisDelete[format])
-                assertSparkDorisAggregateRows(tableName)
                 assertDorisAggregateRows(tableName, [["6", "6"]])
-                assertSparkDorisRowsByPredicate(tableName, "new_new_id = 2")
                 assertDorisRowsByPredicate(tableName, "new_new_id = 2", [])
                 assertSparkDorisRowsByPredicate(tableName, oldVersionPredicate)
                 assertLineageProjectionReadable(tableName)
