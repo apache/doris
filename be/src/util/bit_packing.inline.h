@@ -20,6 +20,9 @@
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
 
 #include "util/bit_packing.h"
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#include "util/pdep_unpack.h"
+#endif
 
 namespace doris {
 inline int64_t BitPacking::NumValuesToUnpack(int bit_width, int64_t in_bytes, int64_t num_values) {
@@ -83,8 +86,24 @@ std::pair<const uint8_t*, int64_t> BitPacking::UnpackValues(const uint8_t* __res
     const uint8_t* in_pos = in;
     OutType* out_pos = out;
 
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+    int64_t batches_read = 0;
+    if constexpr (PdepUnpack::is_supported_type<OutType, BIT_WIDTH>()) {
+        if (PdepUnpack::is_supported()) {
+            for (; batches_read < batches_to_read; ++batches_read) {
+                PdepUnpack::unpack32<OutType, BIT_WIDTH>(in_pos, out_pos);
+                in_pos += (BATCH_SIZE * BIT_WIDTH) / CHAR_BIT;
+                out_pos += BATCH_SIZE;
+                in_bytes -= (BATCH_SIZE * BIT_WIDTH) / CHAR_BIT;
+            }
+        }
+    }
+#else
+    constexpr int64_t batches_read = 0;
+#endif
+
     // First unpack as many full batches as possible.
-    for (int64_t i = 0; i < batches_to_read; ++i) {
+    for (int64_t i = batches_read; i < batches_to_read; ++i) {
         in_pos = Unpack32Values<OutType, BIT_WIDTH>(in_pos, in_bytes, out_pos);
         out_pos += BATCH_SIZE;
         in_bytes -= (BATCH_SIZE * BIT_WIDTH) / CHAR_BIT;
