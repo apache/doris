@@ -85,18 +85,10 @@ public:
         return cycles_per_ms_;
     }
 
-    /// Returns the number of cores (including hyper-threaded) on this machine that are
-    /// available for use by Impala (either the number of online cores or the value of
-    /// the --num_cores command-line flag).
-    static int num_cores() {
-        DCHECK(initialized_);
-        return num_cores_;
-    }
-
-    /// Returns the current number of logical CPUs available after applying cgroup and
-    /// configured limits to the host CPU count captured during initialization. The limits
-    /// are evaluated on every call.
-    static int get_current_num_cores();
+    /// Returns the current number of cores after applying cgroup and configured limits to
+    /// the host CPU count captured during initialization. The limits are evaluated on every
+    /// call.
+    static int num_cores();
 
     /// Returns the maximum number of cores that will be online in the system, including
     /// any offline cores or cores that could be added via hot-plugging.
@@ -212,7 +204,6 @@ private:
     static int64_t original_hardware_flags_;
     static int64_t cycles_per_ms_;
     static int host_num_cores_;
-    static int num_cores_;
     static int max_num_cores_;
     static std::string model_name_;
 

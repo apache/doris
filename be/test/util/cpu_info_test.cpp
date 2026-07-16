@@ -34,14 +34,14 @@ private:
     int _num_cores;
 };
 
-TEST(CpuInfoTest, GetCurrentNumCoresAppliesLatestConfiguredLimit) {
+TEST(CpuInfoTest, NumCoresAppliesLatestConfiguredLimit) {
     NumCoresConfigGuard guard;
 
     config::num_cores = 2;
-    EXPECT_EQ(2, CpuInfo::get_current_num_cores());
+    EXPECT_EQ(2, CpuInfo::num_cores());
 
     config::num_cores = 4;
-    EXPECT_EQ(4, CpuInfo::get_current_num_cores());
+    EXPECT_EQ(4, CpuInfo::num_cores());
 }
 
 } // namespace
