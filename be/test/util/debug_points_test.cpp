@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <barrier>
 #include <chrono>
 #include <thread>
 
@@ -119,6 +120,36 @@ TEST(DebugPointsTest, PredicateDoesNotConsumeExecuteLimit) {
     EXPECT_EQ(nullptr, DebugPoints::instance()->get_debug_point_if("conditional", matches));
     EXPECT_EQ(2, debug_point->execute_num.load());
     EXPECT_FALSE(DebugPoints::instance()->is_enable("conditional"));
+}
+
+TEST(DebugPointsTest, ConcurrentReplacementSurvivesExhaustedLookup) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+
+    auto exhausted_point = std::make_shared<DebugPoint>();
+    exhausted_point->execute_limit = 1;
+    exhausted_point->execute_num.store(1);
+    DebugPoints::instance()->add("conditional", exhausted_point);
+
+    std::barrier sync_point(2);
+    std::shared_ptr<DebugPoint> lookup_result;
+    std::thread lookup_thread([&] {
+        lookup_result = DebugPoints::instance()->get_debug_point_if(
+                "conditional", [&](const DebugPoint&) {
+                    sync_point.arrive_and_wait();
+                    sync_point.arrive_and_wait();
+                    return true;
+                });
+    });
+
+    sync_point.arrive_and_wait();
+    auto replacement_point = std::make_shared<DebugPoint>();
+    DebugPoints::instance()->add("conditional", replacement_point);
+    sync_point.arrive_and_wait();
+    lookup_thread.join();
+
+    EXPECT_EQ(nullptr, lookup_result);
+    EXPECT_EQ(replacement_point, DebugPoints::instance()->get_debug_point("conditional"));
 }
 
 void demo_callback() {

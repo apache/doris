@@ -177,8 +177,8 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
         // let the partial update load publish
         disable_block_in_publish()
-        disable_publish_spin_wait()
         t1.join()
+        disable_publish_spin_wait()
 
         Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
             {

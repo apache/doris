@@ -193,6 +193,8 @@ private:
 
     std::shared_ptr<DebugPoint> get_debug_point_impl(const std::string& name,
                                                      const DebugPointPredicate* predicate);
+    void remove_if_same(const std::string& name,
+                        const std::shared_ptr<DebugPoint>& expected_debug_point);
 
     // handler(new_debug_points)
     void update(std::function<void(DebugPointMap&)>&& handler);
