@@ -40,6 +40,11 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
             [name: "m05_merge_cow", operation: "merge", property: "write.merge.mode", mode: "copy-on-write"],
             [name: "m06_merge_mor", operation: "merge", property: "write.merge.mode", mode: "merge-on-read"]
     ]
+    def initialRows = [
+            [1, "Alice", 10, "2024-01-01"],
+            [2, "Bob", 20, "2024-01-02"],
+            [3, "Carol", 30, "2024-01-03"]
+    ]
 
     def createTable = { tableName, formatVersion, format, partitioned, propertyName, mode ->
         sql """drop table if exists ${tableName}"""
@@ -103,11 +108,10 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
             order by file_path
         """)
         log.info("Checking delete files for ${tableName}, scenario=${scenario.name}: ${deleteFiles}")
-        // TODO: uncomment when bugfix
-        // if (scenario.mode == "copy-on-write") {
-        //    assertEquals(0, deleteFiles.size(),
-        //            "COW scenario ${scenario.name} should not create delete files for ${tableName}, actual=${deleteFiles}")
-        // }
+        if (scenario.mode == "copy-on-write") {
+            assertEquals(0, deleteFiles.size(),
+                "COW scenario ${scenario.name} should not create delete files for ${tableName}, actual=${deleteFiles}")
+        }
         if (scenario.mode == "merge-on-read" && formatVersion == 3) {
             assertTrue(deleteFiles.size() > 0,
                     "MOR scenario ${scenario.name} should create delete files for ${tableName}")
@@ -169,36 +173,26 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
                             createTable(tableName, formatVersion, format, partitioned, scenario.property, scenario.mode)
                             Map<Integer, List<Long>> beforeLineage = formatVersion == 3 ? lineageMap(tableName) : [:]
 
+                            String dmlSql
+                            def expectedRows
+                            def expectedIds
                             if (scenario.operation == "delete") {
-                                sql """delete from ${tableName} where id = 2"""
-                                assertBusinessRows(tableName, [
+                                dmlSql = """delete from ${tableName} where id = 2"""
+                                expectedRows = [
                                         [1, "Alice", 10, "2024-01-01"],
                                         [3, "Carol", 30, "2024-01-03"]
-                                ])
-                                if (formatVersion == 3) {
-                                    assertV3LineageNonNull(tableName, [1, 3])
-                                    Map<Integer, List<Long>> afterLineage = lineageMap(tableName)
-                                    assertEquals(beforeLineage[1], afterLineage[1])
-                                    assertEquals(beforeLineage[3], afterLineage[3])
-                                    assertTrue(!afterLineage.containsKey(2))
-                                }
+                                ]
+                                expectedIds = [1, 3]
                             } else if (scenario.operation == "update") {
-                                sql """update ${tableName} set name = 'Alice_u', score = score + 100 where id = 1"""
-                                assertBusinessRows(tableName, [
+                                dmlSql = """update ${tableName} set name = 'Alice_u', score = score + 100 where id = 1"""
+                                expectedRows = [
                                         [1, "Alice_u", 110, "2024-01-01"],
                                         [2, "Bob", 20, "2024-01-02"],
                                         [3, "Carol", 30, "2024-01-03"]
-                                ])
-                                if (formatVersion == 3) {
-                                    assertV3LineageNonNull(tableName, [1, 2, 3])
-                                    Map<Integer, List<Long>> afterLineage = lineageMap(tableName)
-                                    assertEquals(beforeLineage[1][0], afterLineage[1][0])
-                                    assertTrue(afterLineage[1][1] > beforeLineage[1][1],
-                                            "UPDATE should advance sequence for id=1 in ${tableName}")
-                                    assertEquals(beforeLineage[3], afterLineage[3])
-                                }
+                                ]
+                                expectedIds = [1, 2, 3]
                             } else {
-                                sql """
+                                dmlSql = """
                                     merge into ${tableName} t
                                     using (
                                         select 1 as id, 'Alice_m' as name, 111 as score, date '2024-01-01' as dt, 'U' as flag
@@ -213,20 +207,50 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
                                     when not matched then insert (id, name, score, dt)
                                     values (s.id, s.name, s.score, s.dt)
                                 """
-                                assertBusinessRows(tableName, [
+                                expectedRows = [
                                         [1, "Alice_m", 111, "2024-01-01"],
                                         [2, "Bob", 20, "2024-01-02"],
                                         [5, "Eve", 50, "2024-01-05"]
-                                ])
+                                ]
+                                expectedIds = [1, 2, 5]
+                            }
+
+                            if (scenario.mode == "copy-on-write") {
+                                String operationName = scenario.operation == "merge"
+                                        ? "MERGE INTO" : scenario.operation.toUpperCase()
+                                test {
+                                    sql dmlSql
+                                    exception "Doris does not support ${operationName} on Iceberg copy-on-write tables"
+                                    exception "Set table property '${scenario.property}' to 'merge-on-read'"
+                                }
+                                assertBusinessRows(tableName, initialRows)
                                 if (formatVersion == 3) {
-                                    assertV3LineageNonNull(tableName, [1, 2, 5])
+                                    assertV3LineageNonNull(tableName, [1, 2, 3])
+                                    assertEquals(beforeLineage, lineageMap(tableName))
+                                }
+                            } else {
+                                sql dmlSql
+                                assertBusinessRows(tableName, expectedRows)
+                                if (formatVersion == 3) {
+                                    assertV3LineageNonNull(tableName, expectedIds)
                                     Map<Integer, List<Long>> afterLineage = lineageMap(tableName)
-                                    assertEquals(beforeLineage[1][0], afterLineage[1][0])
-                                    assertTrue(afterLineage[1][1] > beforeLineage[1][1],
-                                            "MERGE UPDATE should advance sequence for id=1 in ${tableName}")
-                                    assertEquals(beforeLineage[2], afterLineage[2])
-                                    assertTrue(!afterLineage.containsKey(3))
-                                    assertTrue(afterLineage[5][0] != null)
+                                    if (scenario.operation == "delete") {
+                                        assertEquals(beforeLineage[1], afterLineage[1])
+                                        assertEquals(beforeLineage[3], afterLineage[3])
+                                        assertTrue(!afterLineage.containsKey(2))
+                                    } else if (scenario.operation == "update") {
+                                        assertEquals(beforeLineage[1][0], afterLineage[1][0])
+                                        assertTrue(afterLineage[1][1] > beforeLineage[1][1],
+                                                "UPDATE should advance sequence for id=1 in ${tableName}")
+                                        assertEquals(beforeLineage[3], afterLineage[3])
+                                    } else {
+                                        assertEquals(beforeLineage[1][0], afterLineage[1][0])
+                                        assertTrue(afterLineage[1][1] > beforeLineage[1][1],
+                                                "MERGE UPDATE should advance sequence for id=1 in ${tableName}")
+                                        assertEquals(beforeLineage[2], afterLineage[2])
+                                        assertTrue(!afterLineage.containsKey(3))
+                                        assertTrue(afterLineage[5][0] != null)
+                                    }
                                 }
                             }
 

@@ -106,7 +106,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
         def rowLineageRows = sql("""
             select id, _row_id, _last_updated_sequence_number
             from ${tableName}
-            order by id
+            order by id, _row_id
         """)
         log.info("Checking explicit row lineage projection for ${tableName}: rows=${rowLineageRows}")
         assertEquals(expectedIds.size(), rowLineageRows.size())
@@ -212,7 +212,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                     "write.format.default" = "${format}"
                 )
             """
-            exception "Cannot create Iceberg table with row lineage column"
+            exception "Cannot create Iceberg v3 table with reserved row lineage column: _row_id"
         }
 
         test {
@@ -226,7 +226,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                     "write.format.default" = "${format}"
                 )
             """
-            exception "Cannot create Iceberg table with row lineage column"
+            exception "Cannot create Iceberg v3 table with reserved row lineage column: _last_updated_sequence_number"
         }
 
         test {
@@ -241,7 +241,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                     "write.format.default" = "${format}"
                 )
             """
-            exception "Cannot create Iceberg table with row lineage column"
+            exception "Cannot create Iceberg v3 table with reserved row lineage column: _row_id"
         }
     }
 
@@ -322,8 +322,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
             log.info("Run row lineage query/insert test with format ${format}")
 
             try {
-                // TODO: uncomment when bugfix
-                // assertCreateTableWithRowLineageColumnsFails(format)
+                assertCreateTableWithRowLineageColumnsFails(format)
 
                 sql """drop table if exists ${v2Table}"""
                 sql """
@@ -368,18 +367,18 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 // 2. show_hidden_columns=true exposes both hidden columns in DESC and SELECT *.
                 // 3. Explicit SELECT on row lineage columns returns non-null values.
                 assertRowLineageHiddenColumns(unpartitionedTable, 3)
-                assertExplicitRowLineageReadable(unpartitionedTable, [1, 2, 3])
+                assertExplicitRowLineageReadable(unpartitionedTable, [1, 2, 2, 3, 3])
                 def unpartitionedLineageRows = sql("""
                     select id, _row_id, _last_updated_sequence_number
                     from ${unpartitionedTable}
-                    order by id
+                    order by id, _row_id
                 """)
                 assertRowLineagePredicatesAreNotPushedDown(
                         unpartitionedTable,
                         unpartitionedLineageRows[0][1],
                         unpartitionedLineageRows[0][2])
                 if (format == "parquet") {
-                    assertRowLineageOnlyAggregatesReadable(unpartitionedTable, 3)
+                    assertRowLineageOnlyAggregatesReadable(unpartitionedTable, 5)
                 }
 
                 test {
@@ -398,14 +397,14 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 sql """insert into ${unpartitionedTable}(id, name, age) values (4, 'Doris', 40)"""
                 def unpartitionedCount = sql """select count(*) from ${unpartitionedTable}"""
                 log.info("Checking row count after regular INSERT for ${unpartitionedTable}: result=${unpartitionedCount}")
-                assertEquals(4, unpartitionedCount[0][0].toString().toInteger())
+                assertEquals(6, unpartitionedCount[0][0].toString().toInteger())
 
                 assertCurrentFilesDoNotContainRowLineageColumns(
                         unpartitionedTable,
                         format,
                         "Unpartitioned normal INSERT")
                 if (format == "parquet") {
-                    assertRowLineageOnlyAggregatesReadable(unpartitionedTable, 4)
+                    assertRowLineageOnlyAggregatesReadable(unpartitionedTable, 6)
                 }
 
                 sql """drop table if exists ${partitionedTable}"""
