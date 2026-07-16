@@ -89,7 +89,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     List<SnapshotSplit> finishedSplits = new ArrayList<>();
 
     volatile JdbcOffset currentOffset;
-    Map<String, String> endBinlogOffset;
+    volatile Map<String, String> endBinlogOffset;
 
     @SerializedName("chw")
     // tableID -> splitId -> chunk of highWatermark
@@ -286,11 +286,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             }
             Map<String, String> newEndOffset = parseCdcResponseData(
                     result.getResponse(), new TypeReference<Map<String, String>>() {});
-            // null→value also counts as a change: upstream may have advanced while fetch was blocked.
-            if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
-                hasMoreData = true;
+            synchronized (splitsLock) {
+                // null→value also counts as a change: upstream may have advanced while fetch was blocked.
+                if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
+                    hasMoreData = true;
+                }
+                endBinlogOffset = newEndOffset;
             }
-            endBinlogOffset = newEndOffset;
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/fetchEndOffset jobId={} backend={}:{} timeout_sec={}",
                     getJobId(), backend.getHost(), backend.getBrpcPort(),
@@ -308,6 +310,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
 
+        Map<String, String> endOffsetAtCompare;
         synchronized (splitsLock) {
             if (currentOffset.snapshotSplit()) {
                 if (!remainingSplits.isEmpty()) {
@@ -328,8 +331,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (CollectionUtils.isNotEmpty(remainingSplits)) {
                 return true;
             }
+            endOffsetAtCompare = endBinlogOffset;
         }
-        if (MapUtils.isEmpty(endBinlogOffset)) {
+        if (MapUtils.isEmpty(endOffsetAtCompare)) {
             return false;
         }
         try {
@@ -339,8 +343,18 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     // snapshot to binlog phase
                     return true;
                 }
-                hasMoreData = compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
-                return hasMoreData;
+                Map<String, String> currentBinlogOffset = new HashMap<>(binlogSplit.getStartingOffset());
+                int compareResult = compareOffset(endOffsetAtCompare, currentBinlogOffset);
+                synchronized (splitsLock) {
+                    if (endBinlogOffset != endOffsetAtCompare) {
+                        return hasMoreData;
+                    }
+                    if (compareResult < 0) {
+                        endBinlogOffset = currentBinlogOffset;
+                    }
+                    hasMoreData = compareResult > 0;
+                    return hasMoreData;
+                }
             } else {
                 // snapshot means has data to consume
                 return true;
@@ -351,7 +365,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
-    private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
+    protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
         CompareOffsetRequest requestParams =
@@ -375,7 +389,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             }
             Integer cmp = parseCdcResponseData(
                     result.getResponse(), new TypeReference<Integer>() {});
-            return cmp != null && cmp > 0;
+            return cmp;
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/compareOffset jobId={} backend={}:{} timeout_sec={}",
                     getJobId(), backend.getHost(), backend.getBrpcPort(),
