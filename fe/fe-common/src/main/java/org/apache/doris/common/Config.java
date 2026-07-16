@@ -135,6 +135,13 @@ public class Config extends ConfigBase {
             description = {"Whether to check for table lock leaks"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = false, description = {"当前 FE 节点所属的 Resource Group。可通过命令行参数 "
+            + "`--local_resource_group` 或环境变量 `DORIS_LOCAL_RESOURCE_GROUP` 覆盖。空字符串表示未设置。",
+            "The Resource Group that the current FE node belongs to. It can be overridden by the "
+                    + "`--local_resource_group` command line option or the "
+                    + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string means unset."})
+    public static String local_resource_group = "";
+
     @ConfField(mutable = true, masterOnly = false,
             description = {"PreparedStatement stmtId starting position, used for testing only"})
     public static long prepared_stmt_start_id = -1;

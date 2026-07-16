@@ -864,6 +864,7 @@ struct TFrontendPingFrontendResult {
     8: optional list<TDiskInfo> diskInfos
     9: optional i64 processUUID
     10: optional i32 arrowFlightSqlPort
+    11: optional string localResourceGroup
 }
 
 struct TPropertyVal {

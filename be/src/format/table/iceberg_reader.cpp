@@ -364,15 +364,27 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(
                 IcebergParquetNestedColumnUtils::extract_nested_column_ids);
     };
 
+    // The Iceberg schema-mapping root is a StructNode whose registered children are the real
+    // table columns. When present, resolve each column by name through it so the column-id set
+    // stays consistent with the schema-mapping decision (BY_ID or BY_NAME/name-mapping);
+    // otherwise fall back to matching by Iceberg field id.
+    const auto* struct_node =
+            dynamic_cast<const TableSchemaChangeHelper::StructNode*>(table_info_node.get());
+
     for (const auto* slot : tuple_descriptor->slots()) {
         const FieldSchema* field_schema = nullptr;
-        if (table_info_node != nullptr) {
-            if (table_info_node->children_column_exists(slot->col_name())) {
+        if (struct_node != nullptr) {
+            // Synthesized/metadata slots (e.g. the TopN global row-id or the $row_id column) are
+            // never registered as children, so check membership before querying: calling
+            // children_column_exists() on an unregistered name DCHECK-aborts in debug builds and
+            // throws std::out_of_range from .at() in release builds.
+            if (struct_node->get_children().contains(slot->col_name()) &&
+                struct_node->children_column_exists(slot->col_name())) {
                 // Use the physical child selected by the schema-mapping pass. This keeps partial-id
                 // files in BY_NAME mode from binding a projected column through an unrelated stale
                 // field id.
                 const auto& file_column_name =
-                        table_info_node->children_file_column_name(slot->col_name());
+                        struct_node->children_file_column_name(slot->col_name());
                 for (int i = 0; i < field_desc->size(); ++i) {
                     const auto* candidate = field_desc->get_column(i);
                     if (candidate != nullptr && candidate->name == file_column_name) {
@@ -691,15 +703,27 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(
                 IcebergOrcNestedColumnUtils::extract_nested_column_ids);
     };
 
+    // The Iceberg schema-mapping root is a StructNode whose registered children are the real
+    // table columns. When present, resolve each column by name through it so the column-id set
+    // stays consistent with the schema-mapping decision (BY_ID or BY_NAME/name-mapping);
+    // otherwise fall back to matching by Iceberg field id.
+    const auto* struct_node =
+            dynamic_cast<const TableSchemaChangeHelper::StructNode*>(table_info_node.get());
+
     for (const auto* slot : tuple_descriptor->slots()) {
         const orc::Type* orc_field = nullptr;
-        if (table_info_node != nullptr) {
-            if (table_info_node->children_column_exists(slot->col_name())) {
+        if (struct_node != nullptr) {
+            // Synthesized/metadata slots (e.g. the TopN global row-id or the $row_id column) are
+            // never registered as children, so check membership before querying: calling
+            // children_column_exists() on an unregistered name DCHECK-aborts in debug builds and
+            // throws std::out_of_range from .at() in release builds.
+            if (struct_node->get_children().contains(slot->col_name()) &&
+                struct_node->children_column_exists(slot->col_name())) {
                 // Select the physical child resolved by the shared schema-mapping pass. Hidden
                 // equality keys and projected columns must obey the same BY_NAME decision for
                 // partial-id ORC files.
                 const auto& file_column_name =
-                        table_info_node->children_file_column_name(slot->col_name());
+                        struct_node->children_file_column_name(slot->col_name());
                 for (uint64_t i = 0; i < orc_type->getSubtypeCount(); ++i) {
                     if (orc_type->getFieldName(i) == file_column_name) {
                         orc_field = orc_type->getSubtype(i);

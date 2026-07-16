@@ -1166,7 +1166,7 @@ public class SessionVariable implements Serializable, Writable {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
     public int maxFileScannersConcurrency = 16;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = {
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, fuzzy = true, description = {
             "开启后 FileScanNode 会在支持的查询场景使用 FileScannerV2，默认开启",
             "When enabled, FileScanNode uses FileScannerV2 for supported query scans. Enabled by default."})
     public boolean enableFileScannerV2 = true;
@@ -3841,6 +3841,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
+        // Randomize the external file scanner engine (FileScannerV2 vs the legacy V1 path). Kept
+        // here rather than in setFuzzyForCatalog() so it also runs in the external regression
+        // pipeline, which enables fuzzy sessions with fuzzy_test_type=p1 (not "external").
+        this.enableFileScannerV2 = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
