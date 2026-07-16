@@ -168,15 +168,15 @@ private:
                                   SourceReadBreakdown& source_read_breakdown,
                                   const IOContext* io_ctx);
 
-    /// Build block-aligned source coverage for the unread suffix with one inflight batch lookup
-    /// and one read-only cache probe. Per-block scans intentionally favor simple code because a
-    /// typical read_at request intersects only one or two cache blocks.
+    /// Build block-aligned source coverage for the unread suffix. It first performs one inflight
+    /// batch lookup; a fully covered request returns without taking the BlockFileCache lock, while
+    /// incomplete coverage triggers one read-only cache probe for the whole aligned range.
     /// @param[in] remaining_offset First user byte not filled by the direct-cache path.
     /// @param[in] remaining_size Number of unread user bytes.
     /// @param[in] write_epoch Epoch captured before any lookup or remote IO.
     /// @param[in] io_ctx Context used to build the cache admission/probe context.
     /// @param[in,out] stats Lookup and probe counters updated during planning.
-    /// @return Plan that owns the probe holder and first-to-last remote range.
+    /// @return Plan that owns any required probe holder and first-to-last remote range.
     AsyncReadPlan _build_async_read_plan(size_t remaining_offset, size_t remaining_size,
                                          uint64_t write_epoch, const IOContext* io_ctx,
                                          ReadStatistics& stats);
