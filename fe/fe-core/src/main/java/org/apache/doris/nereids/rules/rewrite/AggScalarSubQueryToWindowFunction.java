@@ -218,6 +218,13 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                 .filter(LogicalFilter.class::isInstance)
                 .map(p -> (LogicalFilter<Plan>) p).collect(Collectors.toList());
         matchedInnerFilterConjuncts.clear();
+        // An inner plan with zero filters cannot prove its shape
+        // through checkFilter — reject early to avoid bypassing the
+        // relation/identity/uniqueness proofs that depend on filter
+        // conjunct matching.
+        if (innerFilters.isEmpty()) {
+            return false;
+        }
         Set<Expression> outerConjunctSet = Sets.newHashSet(outerFilter.getConjuncts());
         // Collect conjuncts from ALL inner filter nodes — PushDownFilterThroughProject
         // may split correlated and non-correlated predicates into separate filters.
@@ -485,7 +492,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                         .intersection(conjunct.getInputSlotExprIds(), agg.getOutputExprIdSet())
                         .isEmpty(), Collectors.toSet()));
         Set<Expression> correlatedConjuncts = conjuncts.get(false);
-        if (correlatedConjuncts.isEmpty() || correlatedConjuncts.size() > 1
+        if (correlatedConjuncts == null || correlatedConjuncts.size() != 1
                 || !(correlatedConjuncts.iterator().next() instanceof ComparisonPredicate)) {
             //TODO: only support simple comparison predicate now
             return filter;
