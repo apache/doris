@@ -46,7 +46,6 @@ private:
     void report_runtime_query_statistics_thread();
     void be_proc_monitor_thread();
     void calculate_workload_group_metrics_thread();
-    void refresh_cpu_info_thread();
 
     CountDownLatch _stop_background_threads_latch;
     std::vector<std::shared_ptr<Thread>> _threads;

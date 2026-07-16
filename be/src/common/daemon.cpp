@@ -58,7 +58,6 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/algorithm_util.h"
-#include "util/cpu_info.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
 #include "util/time.h"
@@ -72,7 +71,6 @@ std::atomic<int32_t> memory_gc_sleep_time = 0;
 #ifdef USE_JEMALLOC
 std::atomic<int32_t> je_reset_dirty_decay_sleep_time_ms = 0;
 #endif
-constexpr std::chrono::seconds CPU_INFO_REFRESH_INTERVAL {5};
 
 void update_rowsets_and_segments_num_metrics() {
     if (config::is_cloud_mode()) {
@@ -584,12 +582,6 @@ void Daemon::calculate_workload_group_metrics_thread() {
     }
 }
 
-void Daemon::refresh_cpu_info_thread() {
-    while (!_stop_background_threads_latch.wait_for(CPU_INFO_REFRESH_INTERVAL)) {
-        CpuInfo::refresh_current_num_cores();
-    }
-}
-
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -638,11 +630,6 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "workload_group_metrics",
             [this]() { this->calculate_workload_group_metrics_thread(); },
-            &_threads.emplace_back());
-    CHECK(st.ok()) << st;
-
-    st = Thread::create(
-            "Daemon", "cpu_info_refresh", [this]() { this->refresh_cpu_info_thread(); },
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }

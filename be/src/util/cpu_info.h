@@ -22,7 +22,6 @@
 
 #include <glog/logging.h>
 
-#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -94,12 +93,10 @@ public:
         return num_cores_;
     }
 
-    /// Returns the most recently refreshed number of logical CPUs available after applying
-    /// cgroup and configured limits.
+    /// Returns the current number of logical CPUs available after applying cgroup and
+    /// configured limits to the host CPU count captured during initialization. The limits
+    /// are evaluated on every call.
     static int get_current_num_cores();
-
-    /// Refreshes the cached number of available logical CPUs.
-    static void refresh_current_num_cores();
 
     /// Returns the maximum number of cores that will be online in the system, including
     /// any offline cores or cores that could be added via hot-plugging.
@@ -195,7 +192,7 @@ protected:
                                          const std::vector<int>& core_to_numa_node);
 
 private:
-    static int _get_current_available_num_cores();
+    static int _apply_num_cores_limits(int num_cores);
 
     /// Initialize NUMA-related state - called from Init();
     static void _init_numa();
@@ -214,8 +211,8 @@ private:
     static int64_t hardware_flags_;
     static int64_t original_hardware_flags_;
     static int64_t cycles_per_ms_;
+    static int host_num_cores_;
     static int num_cores_;
-    static std::atomic<int> current_num_cores_;
     static int max_num_cores_;
     static std::string model_name_;
 

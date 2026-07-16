@@ -95,8 +95,8 @@ bool CpuInfo::initialized_ = false;
 int64_t CpuInfo::hardware_flags_ = 0;
 int64_t CpuInfo::original_hardware_flags_;
 int64_t CpuInfo::cycles_per_ms_;
+int CpuInfo::host_num_cores_ = 1;
 int CpuInfo::num_cores_ = 1;
-std::atomic<int> CpuInfo::current_num_cores_ {1};
 int CpuInfo::max_num_cores_ = 1;
 std::string CpuInfo::model_name_ = "unknown";
 int CpuInfo::max_num_numa_nodes_;
@@ -171,7 +171,7 @@ void CpuInfo::init() {
     sysctlbyname("hw.physicalcpu", &physical_num_cores, &len, nullptr, 0);
 #endif
 
-    int num_cores = CGroupUtil::get_cgroup_limited_cpu_number(physical_num_cores);
+    host_num_cores_ = physical_num_cores;
     if (max_mhz != 0) {
         cycles_per_ms_ = int64_t(max_mhz) * 1000;
     } else {
@@ -179,21 +179,13 @@ void CpuInfo::init() {
     }
     original_hardware_flags_ = hardware_flags_;
 
-    if (num_cores > 0) {
-        num_cores_ = num_cores;
-    } else {
-        num_cores_ = 1;
-    }
-    if (config::num_cores > 0) {
-        num_cores_ = config::num_cores;
-    }
+    num_cores_ = _apply_num_cores_limits(host_num_cores_);
 
 #ifdef __APPLE__
     sysctlbyname("hw.logicalcpu", &max_num_cores_, &len, nullptr, 0);
 #else
     max_num_cores_ = get_nprocs_conf();
 #endif
-    current_num_cores_.store(_get_current_available_num_cores(), std::memory_order_relaxed);
 
     // Print a warning if something is wrong with sched_getcpu().
 #ifdef HAVE_SCHED_GETCPU
@@ -260,27 +252,7 @@ void CpuInfo::_init_numa() {
     _init_numa_node_to_cores();
 }
 
-int CpuInfo::_get_current_available_num_cores() {
-#ifdef __APPLE__
-    int num_cores = 0;
-    size_t len = sizeof(num_cores);
-    sysctlbyname("hw.logicalcpu", &num_cores, &len, nullptr, 0);
-#else
-    int num_cores = 0;
-    std::string line;
-    std::ifstream cpuinfo("/proc/cpuinfo");
-    while (cpuinfo) {
-        getline(cpuinfo, line);
-        size_t colon = line.find(':');
-        if (colon != std::string::npos) {
-            std::string name = line.substr(0, colon - 1);
-            trim(name);
-            if (name == "processor") {
-                ++num_cores;
-            }
-        }
-    }
-#endif
+int CpuInfo::_apply_num_cores_limits(int num_cores) {
     num_cores = CGroupUtil::get_cgroup_limited_cpu_number(num_cores);
     if (config::num_cores > 0) {
         num_cores = config::num_cores;
@@ -290,12 +262,7 @@ int CpuInfo::_get_current_available_num_cores() {
 
 int CpuInfo::get_current_num_cores() {
     DCHECK(initialized_);
-    return current_num_cores_.load(std::memory_order_relaxed);
-}
-
-void CpuInfo::refresh_current_num_cores() {
-    DCHECK(initialized_);
-    current_num_cores_.store(_get_current_available_num_cores(), std::memory_order_relaxed);
+    return _apply_num_cores_limits(host_num_cores_);
 }
 
 void CpuInfo::_init_fake_numa_for_test(int max_num_numa_nodes,

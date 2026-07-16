@@ -28,26 +28,19 @@ class NumCoresConfigGuard {
 public:
     NumCoresConfigGuard() : _num_cores(config::num_cores) {}
 
-    ~NumCoresConfigGuard() {
-        config::num_cores = _num_cores;
-        CpuInfo::refresh_current_num_cores();
-    }
+    ~NumCoresConfigGuard() { config::num_cores = _num_cores; }
 
 private:
     int _num_cores;
 };
 
-TEST(CpuInfoTest, RefreshCurrentNumCoresUsesLatestConfiguredLimit) {
+TEST(CpuInfoTest, GetCurrentNumCoresAppliesLatestConfiguredLimit) {
     NumCoresConfigGuard guard;
 
     config::num_cores = 2;
-    CpuInfo::refresh_current_num_cores();
     EXPECT_EQ(2, CpuInfo::get_current_num_cores());
 
     config::num_cores = 4;
-    EXPECT_EQ(2, CpuInfo::get_current_num_cores());
-
-    CpuInfo::refresh_current_num_cores();
     EXPECT_EQ(4, CpuInfo::get_current_num_cores());
 }
 
