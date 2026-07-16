@@ -264,7 +264,7 @@ under the License.
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
-        <commons-configuration2.version>2.11.0</commons-configuration2.version>
+        <commons-configuration2.version>2.15.1</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
         <commons-net.version>3.13.0</commons-net.version>
@@ -304,7 +304,7 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
-        <cel.version>0.12.0</cel.version>
+        <cel.version>0.13.1</cel.version>
         <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
         <protobuf.version>4.33.4</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
@@ -360,6 +360,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
+        <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
@@ -403,6 +404,9 @@ under the License.
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
         <azure.sdk.version>1.3.7</azure.sdk.version>
+        <azure.core.version>1.58.1</azure.core.version>
+        <azure.core.http.netty.version>1.16.5</azure.core.http.netty.version>
+        <azure.identity.version>1.18.4</azure.identity.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <msal4j.version>1.25.0</msal4j.version>
         <azure.keyvault.core.version>1.2.6</azure.keyvault.core.version>
@@ -1834,6 +1838,22 @@ under the License.
                 <version>${azure.sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- Patch the latest Azure BOM with newer stable component releases. -->
+            <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-core</artifactId>
+                <version>${azure.core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-core-http-netty</artifactId>
+                <version>${azure.core.http.netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-identity</artifactId>
+                <version>${azure.identity.version}</version>
             </dependency>
             <!-- Pulled in by azure-identity and msal4j-persistence-extension. -->
             <dependency>
