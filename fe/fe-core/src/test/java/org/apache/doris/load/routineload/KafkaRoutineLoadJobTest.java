@@ -75,6 +75,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class KafkaRoutineLoadJobTest {
@@ -248,6 +249,76 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testModifyTargetTableValidatesAndLogsUnderMetadataLocks() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = Mockito.spy(new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN));
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(routineLoadJob, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
+
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.hasTargetTable()).thenReturn(true);
+        Mockito.when(command.getTargetTableId()).thenReturn(2L);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable targetTable = Mockito.mock(OlapTable.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(catalog.getDbNullable(1L)).thenReturn(database);
+        Mockito.when(database.getTableNullable(2L)).thenReturn(targetTable);
+
+        AtomicBoolean databaseLocked = new AtomicBoolean(false);
+        AtomicBoolean tableLocked = new AtomicBoolean(false);
+        AtomicBoolean targetValidated = new AtomicBoolean(false);
+        Mockito.doAnswer(invocation -> {
+            databaseLocked.set(true);
+            return null;
+        }).when(database).readLock();
+        Mockito.doAnswer(invocation -> {
+            databaseLocked.set(false);
+            return null;
+        }).when(database).readUnlock();
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue(databaseLocked.get());
+            tableLocked.set(true);
+            return null;
+        }).when(targetTable).readLock();
+        Mockito.doAnswer(invocation -> {
+            tableLocked.set(false);
+            return null;
+        }).when(targetTable).readUnlock();
+        Mockito.doAnswer(invocation -> {
+            ReentrantReadWriteLock lock = Deencapsulation.getField(routineLoadJob, "lock");
+            Assert.assertTrue(lock.isWriteLockedByCurrentThread());
+            Assert.assertTrue(databaseLocked.get());
+            Assert.assertTrue(tableLocked.get());
+            targetValidated.set(true);
+            return null;
+        }).when(routineLoadJob).validateTargetTable(Mockito.eq(database), Mockito.eq(targetTable),
+                Mockito.anyMap(), Mockito.eq(TUniqueKeyUpdateMode.UPSERT));
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue(databaseLocked.get());
+            Assert.assertTrue(tableLocked.get());
+            return null;
+        }).when(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            routineLoadJob.modifyProperties(command);
+        }
+
+        Assert.assertTrue(targetValidated.get());
+        Assert.assertFalse(databaseLocked.get());
+        Assert.assertFalse(tableLocked.get());
+        Assert.assertEquals(2L, routineLoadJob.getTableId());
+        Mockito.verify(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
+    }
+
+    @Test
     public void testModifyPropertiesKeepsKafkaPropertiesWhenFileConversionFails() throws Exception {
         KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
@@ -347,7 +418,8 @@ public class KafkaRoutineLoadJobTest {
         alteredSourceProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), "new-broker:9092");
         alteredSourceProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), "new-topic");
         alteredSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "7");
-        alteredSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "2026-01-01 00:00:00");
+        alteredSourceProperties.put("property." + KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName(),
+                "2026-01-01 00:00:00");
         alteredSourceProperties.put("property.client.id", "new-client");
         KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(alteredSourceProperties);
         AlterRoutineLoadCommand command = mockAlterCommand(dataSourceProperties);
@@ -365,6 +437,10 @@ public class KafkaRoutineLoadJobTest {
                     Mockito.eq("new-topic"), Mockito.anyMap(), Mockito.anyList())).thenAnswer(invocation -> {
                         Map<String, String> effectiveCustomProperties = invocation.getArgument(2);
                         Assert.assertEquals("new-client", effectiveCustomProperties.get("client.id"));
+                        Assert.assertFalse(effectiveCustomProperties
+                                .containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName()));
+                        Assert.assertFalse(effectiveCustomProperties
+                                .containsKey(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName()));
                         return Lists.newArrayList(Pair.of(7, 700L));
                     });
 

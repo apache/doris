@@ -239,13 +239,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // KAFKA_DEFAULT_OFFSETS, and this attribute will be converted into a timestamp during the analyzing phase,
         // thus losing some information. So we use KAFKA_ORIGIN_DEFAULT_OFFSETS to store the original datetime
         // formatted KAFKA_DEFAULT_OFFSETS value
-        String convertedDefaultOffset = currentDefaultOffset;
-        if (convertedProperties.containsKey(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName())) {
-            convertedDefaultOffset = convertedProperties
-                    .remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
-        } else if (convertedProperties.containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName())) {
-            convertedDefaultOffset = convertedProperties.remove(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
-        }
+        String originDefaultOffset = convertedProperties
+                .remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
+        String analyzedDefaultOffset = convertedProperties
+                .remove(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
+        String convertedDefaultOffset = originDefaultOffset != null
+                ? originDefaultOffset
+                : analyzedDefaultOffset != null ? analyzedDefaultOffset : currentDefaultOffset;
         return Pair.of(convertedProperties, convertedDefaultOffset);
     }
 
@@ -747,28 +747,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
+    protected void unprotectModifyProperties(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
-
-        writeLock();
-        try {
-            if (getState() != JobState.PAUSED) {
-                throw new DdlException("Only supports modification of PAUSED jobs");
-            }
-
-            validateAlterJobPropertiesForMutation(command);
-            modifyPropertiesInternal(jobProperties, dataSourceProperties);
-            if (command.hasTargetTable()) {
-                this.tableId = command.getTargetTableId();
-            }
-
-            AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties, command.getTargetTableId());
-            Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
-        } finally {
-            writeUnlock();
-        }
+        modifyPropertiesInternal(jobProperties, dataSourceProperties);
     }
 
     private void convertOffset(KafkaDataSourceProperties dataSourceProperties,

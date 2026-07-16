@@ -54,6 +54,8 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class RoutineLoadJobTest {
     @Test
@@ -337,6 +339,33 @@ public class RoutineLoadJobTest {
                 + ");";
         System.out.println(showCreateInfo);
         Assert.assertEquals(expect, showCreateInfo);
+    }
+
+    @Test
+    public void testShowTableLookupUsesJobReadLock() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", 1L,
+                11L, "localhost:9092", "test_topic", UserIdentity.ADMIN);
+        ReentrantReadWriteLock lock = Deencapsulation.getField(routineLoadJob, "lock");
+
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(database));
+        Mockito.when(database.getFullName()).thenReturn("test_db");
+        Mockito.when(database.getTable(11L)).thenAnswer(invocation -> {
+            Assert.assertTrue(lock.getReadHoldCount() > 0);
+            return Optional.of((Table) table);
+        });
+        Mockito.when(table.getName()).thenReturn("test_table");
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            Assert.assertEquals("test_table", routineLoadJob.getShowInfo().get(6));
+            Assert.assertTrue(routineLoadJob.getShowCreateInfo().contains(" ON test_table\n"));
+        }
+
+        Mockito.verify(database, Mockito.times(2)).getTable(11L);
     }
 
     @Test

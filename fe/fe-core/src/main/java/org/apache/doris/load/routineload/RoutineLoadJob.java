@@ -535,7 +535,7 @@ public abstract class RoutineLoadJob
         Map<String, String> alteredJobProperties = command.getAnalyzedJobProperties();
         TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(
                 uniqueKeyUpdateMode, alteredJobProperties);
-        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+        if (!command.hasTargetTable() && effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
             return;
         }
 
@@ -549,7 +549,13 @@ public abstract class RoutineLoadJob
             throw new DdlException("Table not found: " + effectiveTableId);
         }
         if (!(table instanceof OlapTable)) {
-            throw new DdlException("Partial update is only supported for OLAP tables");
+            throw new DdlException(command.hasTargetTable()
+                    ? "Routine load target table must be an OLAP table"
+                    : "Partial update is only supported for OLAP tables");
+        }
+        if (command.hasTargetTable()) {
+            validateTargetTable(db, (OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
+            return;
         }
         validateAlterJobProperties((OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
     }
@@ -1765,11 +1771,10 @@ public abstract class RoutineLoadJob
     }
 
     public List<String> getShowInfo() {
-        Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
-        Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
-
         readLock();
         try {
+            Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
+            Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
             List<String> row = Lists.newArrayList();
             row.add(String.valueOf(id));
             row.add(name);
@@ -1831,6 +1836,15 @@ public abstract class RoutineLoadJob
     }
 
     public String getShowCreateInfo() {
+        readLock();
+        try {
+            return unprotectGetShowCreateInfo();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private String unprotectGetShowCreateInfo() {
         Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
         Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
         StringBuilder sb = new StringBuilder();
@@ -2113,7 +2127,57 @@ public abstract class RoutineLoadJob
         }
     }
 
-    public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
+    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
+        writeLock();
+        try {
+            if (getState() != JobState.PAUSED) {
+                throw new DdlException("Only supports modification of PAUSED jobs");
+            }
+            if (!command.hasTargetTable()) {
+                unprotectApplyAlter(command);
+                return;
+            }
+
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                throw new DdlException("Database not found: " + dbId);
+            }
+            db.readLock();
+            try {
+                Table table = db.getTableNullable(command.getTargetTableId());
+                if (table == null) {
+                    throw new DdlException("Table not found: " + command.getTargetTableId());
+                }
+                if (!(table instanceof OlapTable)) {
+                    throw new DdlException("Routine load target table must be an OLAP table");
+                }
+                table.readLock();
+                try {
+                    unprotectApplyAlter(command);
+                } finally {
+                    table.readUnlock();
+                }
+            } finally {
+                db.readUnlock();
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void unprotectApplyAlter(AlterRoutineLoadCommand command) throws UserException {
+        validateAlterJobPropertiesForMutation(command);
+        unprotectModifyProperties(command);
+        if (command.hasTargetTable()) {
+            this.tableId = command.getTargetTableId();
+        }
+
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
+                command.getAnalyzedJobProperties(), command.getDataSourceProperties(), command.getTargetTableId());
+        Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
+    }
+
+    protected abstract void unprotectModifyProperties(AlterRoutineLoadCommand command) throws UserException;
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
