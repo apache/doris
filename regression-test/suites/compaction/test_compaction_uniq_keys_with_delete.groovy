@@ -65,7 +65,10 @@ suite("test_compaction_uniq_keys_with_delete") {
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 1
-            PROPERTIES ( "replication_num" = "1" );
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_mow_light_delete" = "false"
+            );
         """
 
         sql """ INSERT INTO ${tableName} VALUES
