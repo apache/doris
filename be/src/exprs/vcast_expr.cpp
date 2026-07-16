@@ -74,8 +74,8 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
                                     child->data_type()->get_name(), _target_data_type_name);
     }
     VExpr::register_function_context(state, context);
-    context->fn_context(_fn_context_index)->set_enable_lossless_decimal_cast(
-            _lossless_decimal_cast);
+    context->fn_context(_fn_context_index)
+            ->set_enable_lossless_decimal_cast(_lossless_decimal_cast);
     _expr_name = fmt::format("({} {}({}) TO {})", cast_name(), child_name,
                              child->data_type()->get_name(), _target_data_type_name);
     _prepare_finished = true;

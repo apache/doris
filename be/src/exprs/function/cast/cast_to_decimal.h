@@ -151,8 +151,8 @@ struct CastToDecimal {
 
     template <typename ToCppT>
         requires(IsDecimalNumber<ToCppT>)
-    static inline StringParser::ParseResult
-            parse_string(const StringRef& from, ToCppT& to, UInt32 precision, UInt32 scale) {
+    static inline StringParser::ParseResult parse_string(const StringRef& from, ToCppT& to,
+                                                         UInt32 precision, UInt32 scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
         if constexpr (IsDecimalV2<ToCppT>) {
             to = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
