@@ -323,6 +323,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
+            {TFileFormatType::FORMAT_LANCE, format::FileFormat::LANCE},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 
