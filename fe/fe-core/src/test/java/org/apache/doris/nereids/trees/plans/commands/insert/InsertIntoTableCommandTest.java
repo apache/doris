@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -182,11 +180,8 @@ class InsertIntoTableCommandTest {
      */
     private static PluginDrivenExternalTable pluginTableForWriteBranch(boolean supported) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Connector connector = Mockito.mock(Connector.class);
-        Mockito.when(table.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.supportsWriteBranch()).thenReturn(supported);
+        // The @branch gate now probes the per-handle capability via the table helper; stub it directly.
+        Mockito.when(table.connectorSupportsWriteBranch()).thenReturn(supported);
         return table;
     }
 

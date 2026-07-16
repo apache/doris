@@ -91,6 +91,57 @@ public class ConnectorContractValidatorTest {
     }
 
     @Test
+    void validatorRejectsHashWriteWithoutParallelAndFullSchema() {
+        // Invariant #4: requiresPartitionHashWrite() (hash-by-partition without a local sort) likewise
+        // implies BOTH requiresParallelWrite() AND requiresFullSchemaWriteOrder() — the hash arm in
+        // PhysicalConnectorTableSink indexes partition columns by full-schema position and distributes in
+        // parallel, so declaring hash-write without the other two must fail loud, not silently mis-plan.
+        Connector fake = Mockito.mock(Connector.class);
+        Mockito.when(fake.requiresPartitionHashWrite()).thenReturn(true);
+        Mockito.when(fake.requiresParallelWrite()).thenReturn(false);
+        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(true);
+
+        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
+                () -> ConnectorContractValidator.validate(fake, "fake_hash_no_parallel"));
+        Assertions.assertTrue(ex.getMessage().contains("requiresPartitionHashWrite"), "got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("fake_hash_no_parallel"), "got: " + ex.getMessage());
+    }
+
+    @Test
+    void validatorRejectsBothPartitionDistributionArms() {
+        // Invariant #5: the two hash arms are mutually exclusive. PhysicalConnectorTableSink checks
+        // requirePartitionLocalSortOnWrite() BEFORE requirePartitionHashOnWrite(), so a connector declaring
+        // both would silently get the local-sort arm and never the hash-without-sort it asked for. That is a
+        // misconfiguration, so it must fail loud at registration. Both are otherwise internally consistent
+        // (parallel + full-schema) to isolate the mutual-exclusion check as the sole reason for the throw.
+        Connector fake = Mockito.mock(Connector.class);
+        Mockito.when(fake.requiresParallelWrite()).thenReturn(true);
+        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(true);
+        Mockito.when(fake.requiresPartitionLocalSort()).thenReturn(true);
+        Mockito.when(fake.requiresPartitionHashWrite()).thenReturn(true);
+
+        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
+                () -> ConnectorContractValidator.validate(fake, "fake_both_arms"));
+        Assertions.assertTrue(ex.getMessage().contains("requiresPartitionHashWrite"), "got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("fake_both_arms"), "got: " + ex.getMessage());
+    }
+
+    @Test
+    void validatorPassesForAHashWriteConnector() {
+        // Positive control (Rule 9) for the hive-shaped connector: parallel write + full-schema write order +
+        // hash-write (no local sort), INSERT/OVERWRITE, no branch — internally consistent, must NOT throw.
+        Connector fake = Mockito.mock(Connector.class);
+        Mockito.when(fake.supportedWriteOperations())
+                .thenReturn(EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE));
+        Mockito.when(fake.supportsWriteBranch()).thenReturn(false);
+        Mockito.when(fake.requiresParallelWrite()).thenReturn(true);
+        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(true);
+        Mockito.when(fake.requiresPartitionHashWrite()).thenReturn(true);
+
+        Assertions.assertDoesNotThrow(() -> ConnectorContractValidator.validate(fake, "fake_hash_consistent"));
+    }
+
+    @Test
     void validatorPassesForAnInternallyConsistentConnector() {
         // Positive control (Rule 9): a maxcompute-shaped fake (parallel write + full-schema write order +
         // partition-local sort, INSERT/OVERWRITE, no branch) satisfies both invariants and must NOT throw.

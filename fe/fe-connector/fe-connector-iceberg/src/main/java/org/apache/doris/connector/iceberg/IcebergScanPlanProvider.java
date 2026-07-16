@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.cache.CacheSpec;
@@ -77,6 +78,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.SerializationUtil;
@@ -91,13 +93,16 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -218,6 +223,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // path; pre-flip the provider never runs at all).
     private final IcebergRewritableDeleteStash rewritableDeleteStash;
 
+    // FIX-SCAN-METRICS: per-query stash of the iceberg SDK scan diagnostics captured by the attached
+    // IcebergScanProfileReporter during planScan, keyed by session queryId. fe-core drains it
+    // (collectScanProfiles) right after planScan on the same thread; releaseReadTransaction reclaims any entry
+    // a thrown planScan left behind. Attached only on the synchronous data/count path (never streaming or
+    // system-table, which fe-core never drains), so the value list is appended single-threaded.
+    private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
+
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps) {
         this(properties, catalogOps, null, null, null);
     }
@@ -267,6 +279,53 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean ignorePartitionPruneShortCircuit() {
         return true;
+    }
+
+    /**
+     * The distinct scanned partitions among the just-planned ranges (FIX-L12) — restores legacy
+     * {@code IcebergScanNode}'s {@code selectedPartitionNum = partitionMapInfos.size()} (keyed by
+     * {@code (PartitionData) file().partition()}) so EXPLAIN {@code partition=N/M} and
+     * {@code sql_block_rule} reflect the partitions iceberg's manifest/residual evaluation actually
+     * resolved — including hidden/transform partitioning ({@code days(ts)}, {@code bucket(n,id)}) that the
+     * engine's declared-column Nereids pruning cannot see. The identity is
+     * {@link IcebergScanRange#getScannedPartitionKey()} ({@code specId|partitionDataJson}), which is
+     * distinct-faithful for a single spec's transform partitions. Returns empty when no range carries a
+     * partition key (unpartitioned table), so the engine keeps its own count. Only counts this provider's
+     * own {@link IcebergScanRange} instances.
+     */
+    @Override
+    public OptionalLong scannedPartitionCount(List<ConnectorScanRange> scanRanges) {
+        Set<String> distinctPartitions = new HashSet<>();
+        for (ConnectorScanRange range : scanRanges) {
+            if (range instanceof IcebergScanRange) {
+                String key = ((IcebergScanRange) range).getScannedPartitionKey();
+                if (key != null) {
+                    distinctPartitions.add(key);
+                }
+            }
+        }
+        return distinctPartitions.isEmpty()
+                ? OptionalLong.empty() : OptionalLong.of(distinctPartitions.size());
+    }
+
+    @Override
+    public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        String queryId = session.getQueryId();
+        if (queryId == null || queryId.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ConnectorScanProfile> profiles = scanProfileStash.remove(queryId);
+        return profiles == null ? Collections.emptyList() : profiles;
+    }
+
+    @Override
+    public void releaseReadTransaction(String queryId) {
+        // Iceberg opens no metastore read transaction (it inherits the SPI no-op); this override only reclaims
+        // the scan-metrics stash for a query whose planScan threw AFTER the reporter fired (the normal path
+        // drains it via collectScanProfiles). Same queryId fe-core registered the query-finish callback with.
+        if (queryId != null && !queryId.isEmpty()) {
+            scanProfileStash.remove(queryId);
+        }
     }
 
     /**
@@ -502,6 +561,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
+        // FIX-SCAN-METRICS: attach a per-scan metrics reporter so the iceberg SDK's ScanReport (planning time,
+        // data/delete files, scanned vs skipped manifests) is captured into the query profile — restores the
+        // legacy IcebergScanNode scan-metrics profile the migration dropped. Attached HERE (the synchronous
+        // data/count path), NOT in buildScan, which is also reached by streamSplits/planSystemTableScan whose
+        // report would stash a queryId entry fe-core never drains (leak). The reporter fires on close of the
+        // planFiles iterable, which the data (try-with-resources) and count paths close on this thread.
+        // Guard a null session (offline unit tests) — production planScan always carries one.
+        if (session != null) {
+            scan = scan.metricsReporter(new IcebergScanProfileReporter(session.getQueryId(), scanProfileStash));
+        }
 
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
@@ -914,6 +983,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * The schema AS OF the handle's pinned schema id (for time-travel reads under schema evolution); the latest
      * schema when there is no pinned id or it is absent from {@code table.schemas()} (defensive — legacy
      * {@code IcebergUtils.getSchema} falls back to {@code table.schema()}).
+     *
+     * <p><b>INVARIANT (do not break):</b> this dict-schema selector MUST stay byte-identical — same
+     * {@code getSchemaId()} lookup, same silent fallback to {@code table.schema()} — to the SLOT-schema
+     * selector in {@code IcebergConnectorMetadata.getTableSchema(session, handle, snapshot)}. The field-id
+     * dict's top-level names must equal the BE StructNode scan-slot names; a divergence (e.g. hardening ONE
+     * side to throw-loud on a missing schemaId while the other silently falls back) would make them resolve
+     * DIFFERENT schemas → BE's unconditional {@code children.at(name)} std::out_of_range-SIGABRTs the whole BE
+     * on a schema-evolved time-travel read. Because {@code schemas()} is append-only and the {@code schemaId}
+     * is the atomic pin threaded into both sides, they resolve the same schema by construction TODAY — keep it
+     * that way (reverify #65185 L16).</p>
      */
     private static Schema pinnedSchema(Table table, IcebergTableHandle handle) {
         long schemaId = handle.getSchemaId();
@@ -1220,7 +1299,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Table table = resolveTable(session, iceHandle);
         Map<String, String> props = new LinkedHashMap<>();
-        props.put("file_format_type", "jni");
+        boolean systemTable = iceHandle.isSystemTable();
+        // Scan-level file_format_type is NOT merely a per-range default: BE selects FileScannerV2 vs the V1
+        // FileScanner from it (FileScanLocalState::_should_use_file_scanner_v2), and that selector runs before
+        // any split is fetched -> FORMAT_JNI here pins the ENTIRE scan to V1 whatever IcebergScanRange sets per
+        // range. V1 is the only tree carrying TableSchemaChangeHelper, so pinning there also re-exposes every
+        // V1-only reader bug. Emit the table's real data format (legacy IcebergScanNode.getFileFormatType
+        // parity, same IcebergUtils.getFileFormat resolution, which throws on a non-parquet/orc table); the
+        // per-file format still travels per range, since one table may mix parquet and orc data files.
+        props.put("file_format_type",
+                systemTable ? "jni" : IcebergWriterHelper.getFileFormat(table).name().toLowerCase(Locale.ROOT));
         // [D-065] System (metadata) tables ($snapshots/$files/...) read via the JNI serialized-split path
         // (planSystemTableScan): the metadata-table schema travels INSIDE the serialized FileScanTask, so BE
         // needs neither the base-table path_partition_keys (a metadata table is not base-spec partitioned ->
@@ -1231,7 +1319,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // metadata files). Mirrors paimon, whose getScanNodeProperties skips both for a metadata table
         // (empty partitionKeys + null schema-dict table). resolveTable still loads the base table here for
         // the credential overlay below (the metadata table shares the base table's FileIO).
-        boolean systemTable = iceHandle.isSystemTable();
         if (!systemTable) {
             List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
             if (!partitionKeys.isEmpty()) {
@@ -1280,9 +1367,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (!systemTable) {
             String dict;
             boolean appendRowLineage = getFormatVersion(table) >= 3;
+            // #65502: the catalog's enable.mapping.timestamp_tz flag controls whether a TIMESTAMPTZ column's
+            // iceberg initial default keeps its trailing offset (mapping on) or is rendered as UTC wall time
+            // (mapping off, DATETIMEV2). Thread it into every dict branch so the default matches BE's read.
+            boolean enableTimestampTz = Boolean.parseBoolean(
+                    properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
             if (iceHandle.hasSnapshotPin()) {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, pinnedSchema(table, iceHandle), Collections.emptyList(), appendRowLineage);
+                        table, pinnedSchema(table, iceHandle), Collections.emptyList(), appendRowLineage,
+                        enableTimestampTz);
             } else if (iceHandle.isTopnLazyMaterialize()) {
                 // Top-N lazy materialization (M-4): BE re-fetches the non-projected columns of the surviving
                 // rows by the synthesized row-id, so the dict must span the FULL latest schema, not just the
@@ -1290,10 +1383,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // field-id entry and the native read drops/mis-reads it. An empty requested list builds the
                 // dict over every top-level column (legacy initSchemaInfoForAllColumn parity).
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), Collections.emptyList(), appendRowLineage);
+                        table, table.schema(), Collections.emptyList(), appendRowLineage, enableTimestampTz);
             } else {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), requestedLowerNames(columns), appendRowLineage);
+                        table, table.schema(),
+                        withEqualityDeleteKeyColumns(table, requestedLowerNames(columns)),
+                        appendRowLineage, enableTimestampTz);
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
         } else if (isPositionDeletesSysTable(iceHandle)) {
@@ -1369,6 +1464,59 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             names.add(((IcebergColumnHandle) column).getName());
         }
         return names;
+    }
+
+    /**
+     * Ensure the schema-evolution dict carries the table's equality-delete KEY columns even when the query
+     * does not project them (#65502). Equality-delete keys are hidden scan dependencies: BE resolves a key
+     * that is missing from an OLD data file by looking its field id up in this dict to get the column type +
+     * iceberg initial default; without the entry BE materializes the key as NULL and mis-applies the delete.
+     * The keys are the table's declared identifier fields (what equality-delete writers key on) -> a few
+     * columns, DCHECK-safe superset (BE looks up only its own scan slots; the pin/top-N branches already ship
+     * the full schema). If the table declares NO identifier yet the scan carries equality deletes (whose
+     * equality_ids we cannot cheaply enumerate here), fall back to the full schema. Non-identifier /
+     * append-only / position-delete-only tables are unaffected (the pruned dict is returned verbatim).
+     */
+    private List<String> withEqualityDeleteKeyColumns(Table table, List<String> requested) {
+        if (requested.isEmpty()) {
+            // An empty requested list already makes buildCurrentSchema fall back to the FULL schema (every
+            // top-level column) — a superset that covers every equality-delete key — so there is nothing to
+            // force-include. Returning early also preserves that all-columns fallback (a non-empty identifier
+            // set would otherwise prune it to identifier-only) and skips the table.schema()/currentSnapshot()
+            // probe when it cannot change the result.
+            return requested;
+        }
+        Schema schema = table.schema();
+        Set<Integer> identifierFieldIds = schema.identifierFieldIds();
+        if (identifierFieldIds.isEmpty()) {
+            return hasEqualityDeletes(table) ? Collections.emptyList() : requested;
+        }
+        Set<String> present = new HashSet<>();
+        for (String name : requested) {
+            present.add(name.toLowerCase(Locale.ROOT));
+        }
+        List<String> result = new ArrayList<>(requested);
+        for (int fieldId : identifierFieldIds) {
+            Types.NestedField field = schema.findField(fieldId);
+            if (field == null) {
+                continue;
+            }
+            String lower = field.name().toLowerCase(Locale.ROOT);
+            if (present.add(lower)) {
+                result.add(lower);
+            }
+        }
+        return result;
+    }
+
+    private static boolean hasEqualityDeletes(Table table) {
+        Snapshot snapshot = table.currentSnapshot();
+        if (snapshot == null) {
+            return false;
+        }
+        String equalityDeletes = snapshot.summary().get(TOTAL_EQUALITY_DELETES);
+        // Absent (compaction/replace snapshots omit the counter) -> unknown -> assume present (safe superset).
+        return equalityDeletes == null || !equalityDeletes.equals("0");
     }
 
     /**

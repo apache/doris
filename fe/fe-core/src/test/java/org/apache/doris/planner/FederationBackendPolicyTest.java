@@ -672,6 +672,22 @@ public class FederationBackendPolicyTest {
         Assert.assertEquals(50, fileSplit.getSplitWeight().getRawValue());
     }
 
+    // Regression for the NPE in testGenerateRandomly: FileSplit is Lombok @Data, whose generated
+    // equals()/hashCode() invoke getSelfSplitWeight(). A split that never sets a size-based weight
+    // leaves selfSplitWeight null, so the getter must surface the "-1 = not provided" sentinel
+    // instead of unboxing null (which threw NPE during the multimap comparison).
+    @Test
+    public void testFileSplitEqualsHashCodeWithUnsetWeight() {
+        LocationPath path = LocationPath.of("s1");
+        // Two distinct instances that share the same LocationPath are field-equal, so equals()
+        // proceeds past the identity short-circuit and exercises getSelfSplitWeight().
+        FileSplit a = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
+        FileSplit b = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
+        Assert.assertEquals(-1L, a.getSelfSplitWeight());
+        Assert.assertEquals(a, b);
+        Assert.assertEquals(a.hashCode(), b.hashCode());
+    }
+
     @Test
     public void testBiggerSplit() throws UserException {
         SystemInfoService service = new SystemInfoService();

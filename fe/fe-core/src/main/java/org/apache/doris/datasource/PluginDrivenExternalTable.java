@@ -27,21 +27,31 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorColumnStatistics;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.ExternalAnalysisTask;
+import org.apache.doris.statistics.PluginDrivenSampleAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -52,11 +62,14 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -100,6 +113,51 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Resolves this table's write-target {@link ConnectorTableHandle} for the plugin-driven insert executor's
+     * per-handle transaction selection, failing loud if it cannot be resolved. A heterogeneous gateway needs
+     * the handle to open the SIBLING connector's transaction for a foreign (iceberg-on-HMS) table; a
+     * single-format connector ignores it (its {@code beginTransaction} defaults to the connector-level one), so
+     * this is byte-identical for it. Fails loud rather than returning null: a null handle is not an
+     * {@code instanceof} the gateway's own handle type and would misroute a plain write to the sibling.
+     */
+    public ConnectorTableHandle resolveWriteTargetHandle() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        return resolveConnectorTableHandle(session, pluginCatalog.getConnector().getMetadata(session))
+                .orElseThrow(() -> new DorisConnectorException(
+                        "Cannot resolve the connector table handle for write target " + getName()));
+    }
+
+    /**
+     * Returns the connector's synthetic scan predicates for this table at the given resolved MVCC
+     * {@code snapshot} — a connector "residual predicate" the read cannot enforce by file selection alone
+     * (e.g. a hudi incremental {@code _hoodie_commit_time} commit-time window), expressed in the neutral
+     * {@link ConnectorExpression} grammar. The analysis-time synthetic-predicate rule reverse-converts these
+     * into a {@code LogicalFilter} over this table's scan.
+     *
+     * <p>The {@code snapshot} is the one {@link org.apache.doris.datasource.mvcc.MvccTable#loadSnapshot}
+     * resolved at analysis time (retrieved from {@code StatementContext}), so the row-filter window is the
+     * SAME single resolution the scan-time {@code applySnapshot} threads onto the handle — file selection and
+     * the row filter can never diverge. Returns empty when the snapshot is not a plugin MVCC snapshot, the
+     * handle cannot be resolved, or the connector has no residual predicate (iceberg/paimon/... and every
+     * non-incremental read inherit the empty SPI default) — so the plan stays byte-identical.</p>
+     */
+    public List<ConnectorExpression> getSyntheticScanPredicates(MvccSnapshot snapshot) {
+        if (!(snapshot instanceof PluginDrivenMvccSnapshot) || !(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyList();
+        }
+        ConnectorMvccSnapshot connectorSnapshot = ((PluginDrivenMvccSnapshot) snapshot).getConnectorSnapshot();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        return metadata.getSyntheticScanPredicates(session, handleOpt.get(), connectorSnapshot);
+    }
+
+    /**
      * Returns whether the underlying connector supports multiple concurrent writers.
      * Used by the planner to decide GATHER (single writer) vs parallel distribution.
      */
@@ -108,52 +166,152 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        // requiresParallelWrite is byte-inert for a heterogeneous gateway (hive and iceberg both true), so the
+        // connector-level answer needs no per-handle resolution here.
         return connector != null && connector.requiresParallelWrite();
     }
 
     /**
-     * Returns whether the underlying connector's tables support background per-column auto-analyze.
-     * The statistics auto-collector consults this (in place of the legacy {@code instanceof
-     * IcebergExternalTable} whitelist) to admit a flipped plugin table into the auto-analyze framework
-     * and to force FULL analyze (sample analyze is unimplemented for external SQL-driven tables).
+     * Resolves this table's connector handle for a per-handle write-capability probe, or empty on any miss (a
+     * null connector, or an unresolvable handle). A heterogeneous gateway needs the handle to answer write
+     * capabilities per-table (its iceberg tables differ from its hive tables); a single-format connector ignores
+     * the handle (the per-handle overloads default to connector-level), so this is byte-identical for it.
+     */
+    private Optional<ConnectorTableHandle> resolveWriteCapabilityHandle(Connector connector) {
+        ConnectorSession session = ((PluginDrivenExternalCatalog) catalog).buildConnectorSession();
+        return resolveConnectorTableHandle(session, connector.getMetadata(session));
+    }
+
+    /**
+     * The write operations the connector admits for THIS table, resolved per-handle so a heterogeneous gateway
+     * admits DELETE/MERGE/OVERWRITE for its iceberg tables but only INSERT/OVERWRITE for its hive tables.
+     * Degrades to the empty set (all writes rejected) on any miss, mirroring {@link #fetchSyntheticWriteColumns()}.
+     */
+    public Set<WriteOperation> connectorSupportedWriteOperations() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return EnumSet.noneOf(WriteOperation.class);
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return EnumSet.noneOf(WriteOperation.class);
+        }
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::supportedWriteOperations)
+                .orElseGet(() -> EnumSet.noneOf(WriteOperation.class));
+    }
+
+    /**
+     * Whether the connector admits branch writes for THIS table, resolved per-handle (iceberg supports
+     * write-to-branch, hive does not). Degrades to false on any miss.
+     */
+    public boolean connectorSupportsWriteBranch() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return false;
+        }
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::supportsWriteBranch)
+                .orElse(false);
+    }
+
+    /**
+     * Returns whether THIS table supports background per-column auto-analyze. The statistics auto-collector
+     * consults this (in place of the legacy {@code instanceof IcebergExternalTable} whitelist) to admit a flipped
+     * plugin table into the auto-analyze framework. Resolved per-table via {@link #hasScanCapability} (not the
+     * connector-wide set alone) so a heterogeneous hive catalog can express the legacy
+     * {@code StatisticsUtil.supportAutoAnalyze} gate of {@code dlaType HIVE || ICEBERG} but NOT {@code HUDI}: a
+     * uniform-format connector (native iceberg/paimon) still declares it connector-wide, while hive emits it
+     * per-table for its plain-hive tables and reflects the iceberg sibling's connector-wide set onto an
+     * iceberg-on-HMS table's delegated schema — so hudi-on-HMS, whose connector declares neither, is correctly
+     * withheld. Mirrors {@link #supportsTopNLazyMaterialize} / {@link #supportsNestedColumnPrune}.
      */
     public boolean supportsColumnAutoAnalyze() {
-        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
-            return false;
-        }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+        return hasScanCapability(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
     }
 
     /**
-     * Returns whether the underlying connector's file-scan tables support Top-N lazy materialization.
-     * The nereids Top-N lazy-materialize probe consults this (in place of the legacy exact-class
-     * {@code SUPPORT_RELATION_TYPES} membership) to enable lazy materialization for a flipped plugin table.
+     * Returns whether THIS table supports Top-N lazy materialization. The nereids Top-N lazy-materialize probe
+     * consults this (in place of the legacy exact-class {@code SUPPORT_RELATION_TYPES} membership) to enable
+     * lazy materialization for a flipped plugin table. Resolved per-table via {@link #hasScanCapability}: a
+     * uniform-format connector (iceberg) declares it connector-wide, a heterogeneous connector (hive) emits it
+     * only for its orc/parquet tables — so a hive text/csv/json/view table is correctly excluded, as it was in
+     * legacy {@code MaterializeProbeVisitor}.
      */
     public boolean supportsTopNLazyMaterialize() {
-        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
-            return false;
-        }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+        return hasScanCapability(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
     }
 
     /**
-     * Returns whether the underlying connector's file-scan tables support nested-column pruning (reading only
-     * the accessed STRUCT/ARRAY/MAP sub-fields). The nereids nested-column-prune probe
-     * ({@code LogicalFileScan.supportPruneNestedColumn}) consults this (in place of the legacy exact-class
-     * {@code IcebergExternalTable} arm) to enable pruning for a flipped plugin table, and the
-     * {@code SlotTypeReplacer} name-to-field-id rewrite is gated on the same capability.
+     * Returns whether THIS table supports nested-column pruning (reading only the accessed STRUCT/ARRAY/MAP
+     * sub-fields). The nereids nested-column-prune probe ({@code LogicalFileScan.supportPruneNestedColumn})
+     * consults this (in place of the legacy exact-class {@code IcebergExternalTable} arm) to enable pruning for a
+     * flipped plugin table, and the {@code SlotTypeReplacer} name-to-field-id rewrite is gated on the same
+     * answer. Resolved per-table via {@link #hasScanCapability} for the same reason as Top-N: legacy gated it on
+     * the per-table file format (parquet/orc only), which a connector-wide capability cannot express for a
+     * heterogeneous hive catalog.
      */
     public boolean supportsNestedColumnPrune() {
+        return hasScanCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+    }
+
+    /**
+     * Returns whether THIS table exposes a connector metadata table (e.g. the hudi commit timeline) queryable via
+     * the {@code hudi_meta()} / TIMELINE TVF. Resolved per-table via {@link #hasScanCapability}: a uniform
+     * connector (hudi) declares it connector-wide, and the hive gateway reflects it onto a hudi-on-HMS table's
+     * schema so the TVF keeps serving it after the flip; a connector with no metadata table returns false and the
+     * TVF rejects the table.
+     */
+    public boolean supportsMetadataTable() {
+        return hasScanCapability(ConnectorCapability.SUPPORTS_METADATA_TABLE);
+    }
+
+    /**
+     * Returns whether THIS table supports {@code ANALYZE ... WITH SAMPLE}. Consulted by
+     * {@code AnalysisManager.canSample}, {@code AnalyzeTableCommand.isSamplingPartition}, {@link
+     * #createAnalysisTask} (to return a sample-capable task) and the background auto-analyze method choice.
+     * Resolved per-table via {@link #hasScanCapability}: hive emits it for its plain-hive tables only (legacy
+     * {@code dlaType==HIVE}), so iceberg/hudi-on-HMS are excluded; native iceberg/paimon never declare it (their
+     * {@code doSample} is unimplemented), keeping their current build-time reject. Mirrors
+     * {@link #supportsTopNLazyMaterialize}.
+     */
+    public boolean supportsSampleAnalyze() {
+        return hasScanCapability(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
+    }
+
+    /**
+     * Whether this table supports a per-table-refinable scan-planning capability, resolved connector-wide OR
+     * per-table. A uniform-format connector (iceberg — every table orc/parquet) declares the capability for all
+     * its tables via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is
+     * per-table file-format gated instead emits the capability name per-table in the
+     * {@link ConnectorTableSchema#PER_TABLE_CAPABILITIES_KEY} schema marker, read here from the already-cached
+     * schema (no remote round-trip). The two sources are additive, so single-format connectors never emit the
+     * marker and behave exactly as before. fe-core never inspects the file format — the connector decides which
+     * of its tables qualify by emitting (or not) the capability name.
+     */
+    private boolean hasScanCapability(ConnectorCapability capability) {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+        if (connector == null) {
+            return false;
+        }
+        if (connector.getCapabilities().contains(capability)) {
+            return true;
+        }
+        String csv = rawTableProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
+        if (csv == null || csv.isEmpty()) {
+            return false;
+        }
+        for (String name : csv.split(",")) {
+            if (name.trim().equals(capability.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -202,6 +360,28 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether the underlying connector requires dynamic-partition writes to be hash-distributed by
+     * partition columns but <b>not</b> locally sorted (e.g. Hive: the file writer buffers a per-partition
+     * writer, so the hash alone keeps each partition on one instance without a sort). Used by
+     * {@code PhysicalConnectorTableSink} to require that hash distribution (no {@code MustLocalSortOrderSpec}) for
+     * dynamic-partition writes; a connector sets at most one of this and {@link #requirePartitionLocalSortOnWrite()}.
+     * Defaults to false so non-partitioned connectors are unaffected.
+     */
+    public boolean requirePartitionHashOnWrite() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return false;
+        }
+        // Per-table: hive requires partition-hash writes but iceberg does not, so resolve the handle.
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::requiresPartitionHashWrite)
+                .orElse(false);
+    }
+
+    /**
      * Returns whether the underlying connector maps write data columns positionally against the full
      * table schema (e.g. MaxCompute), requiring the sink to project rows to full-schema order with
      * unmentioned columns filled. Name-mapped connectors (e.g. JDBC) return false and keep their data
@@ -227,7 +407,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null && connector.requiresMaterializeStaticPartitionValues();
+        if (connector == null) {
+            return false;
+        }
+        // Per-table: iceberg retains partition columns (materialize the PARTITION literal), hive does not.
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::requiresMaterializeStaticPartitionValues)
+                .orElse(false);
     }
 
     @Override
@@ -316,15 +502,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
         List<Column> columns = ConnectorColumnConverter.convertColumns(mappedColumns);
 
-        // Identify partition columns from the connector's "partition_columns" property (a CSV of
-        // RAW remote column names; producer: MaxComputeConnectorMetadata). We keep two aligned
+        // Identify partition columns from the connector's reserved PARTITION_COLUMNS_KEY property (a CSV of
+        // RAW remote column names; producer: hive/hudi/iceberg/paimon/maxcompute). We keep two aligned
         // views: the Doris Columns (with mapped/local names, used for getPartitionColumns + types)
         // and the raw remote names (used to index the raw-keyed partition-value maps from the SPI).
         // The columns themselves are already present in `columns` (the connector appends partition
         // columns to the schema, mirroring legacy); here we only mark which ones are partitions.
         List<Column> partitionColumns = new ArrayList<>();
         List<String> partitionColumnRemoteNames = new ArrayList<>();
-        String partColsProp = tableSchema.getProperties().get("partition_columns");
+        String partColsProp = tableSchema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY);
         if (partColsProp != null && !partColsProp.isEmpty()) {
             Map<String, Column> byName = Maps.newHashMapWithExpectedSize(columns.size());
             for (Column c : columns) {
@@ -404,6 +590,31 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return definition.getSql();
     }
 
+    /**
+     * Renders the connector's native {@code SHOW CREATE TABLE} DDL (a fresh, cache-bypassing metastore read) for
+     * the SHOW CREATE TABLE command's connector arm. Mirrors {@link #getViewText}'s single connector round-trip
+     * (and, like it, is safe to call under the command's table read-lock — no {@code makeSureInitialized}). Returns
+     * {@link Optional#empty()} when the connector supplies no native DDL (iceberg/paimon/es/jdbc inherit the empty
+     * SPI default {@link ConnectorMetadata#renderShowCreateTableDdl}), or when the handle cannot be resolved — the
+     * command then falls through to the generic {@code Env.getDdlStmt} rendering unchanged. A native-rendering
+     * connector (hive) returns the full statement, fetched fresh so it reflects a just-applied external ALTER even
+     * while DESC serves a cached schema.
+     */
+    public Optional<String> getShowCreateTableDdl() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Optional.empty();
+        }
+        return metadata.renderShowCreateTableDdl(session, handleOpt.get());
+    }
+
     @Override
     public boolean isPartitionedTable() {
         makeSureInitialized();
@@ -412,7 +623,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        return getPartitionColumns();
+        makeSureInitialized();
+        // Resolve against the CALLER's pin, not the ambient context: a statement pinning this table at two
+        // versions cannot be disambiguated ambiently and would degrade to the LATEST partition columns.
+        return getSchemaCacheValue(snapshot)
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumns())
+                .orElse(Collections.emptyList());
     }
 
     public List<Column> getPartitionColumns() {
@@ -447,7 +663,27 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     @Override
     public List<Column> getFullSchema() {
-        List<Column> schema = super.getFullSchema();
+        return appendSyntheticWriteColumns(super.getFullSchema());
+    }
+
+    /**
+     * Same as {@link #getFullSchema()}, but the BASE schema is resolved AS OF {@code snapshot} (this
+     * reference's own pin). The synthetic write columns are request-scoped, not version-scoped, so they are
+     * appended identically for either form — only the base schema read is version-aware.
+     *
+     * <p><b>Every</b> arity of this method must go through {@link #appendSyntheticWriteColumns}. The plan
+     * path ({@code LogicalFileScan.computePluginDrivenOutput}) calls THIS one, and it must not lose the
+     * append: when it did, iceberg's row-id STRUCT vanished from the scan's output, breaking every
+     * row-level DML with "Unknown column '__DORIS_ICEBERG_ROWID_COL__'" and dropping the column from
+     * {@code SELECT *} under show-hidden. A new overload that reads the schema cache directly silently
+     * bypasses this append — the compiler cannot catch it, since these are overloads, not overrides.</p>
+     */
+    @Override
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        return appendSyntheticWriteColumns(super.getFullSchema(snapshot));
+    }
+
+    private List<Column> appendSyntheticWriteColumns(List<Column> schema) {
         if (schema == null || !(Util.showHiddenColumns() || needInternalHiddenColumns())) {
             return schema;
         }
@@ -474,14 +710,20 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return Collections.emptyList();
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
-        if (writePlanProvider == null) {
-            return Collections.emptyList();
-        }
+        // Resolve the handle first so the write provider is selected per-table (a heterogeneous gateway routes
+        // iceberg-on-HMS to its sibling by the handle type); both null-degrade checks keep the empty fallback.
+        // Equivalent result for single-format connectors (getWritePlanProvider(handle) defaults to the no-arg
+        // one); this gated (show-hidden / row-level-DML) path resolves the handle before the provider-null check,
+        // so a read-only connector now resolves the handle here — a no-op for a write-capable connector, which
+        // resolved it regardless.
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(handleOpt.get());
+        if (writePlanProvider == null) {
             return Collections.emptyList();
         }
         return writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get());
@@ -497,22 +739,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     /**
      * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
-     * write-only), used by SHOW CREATE TABLE to render the PROPERTIES(...) block (D-046). The
-     * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
-     * the connector so {@link #initSchema()} can derive the partition columns) and the SHOW CREATE
-     * render-hint keys ({@code show.location} / {@code show.partition-clause} / {@code show.sort-clause},
-     * rendered as the LOCATION / PARTITION BY / ORDER BY clauses via {@link #getShowLocation()} etc.) are
-     * stripped — they are not user-facing options and must not leak into the rendered PROPERTIES(...).
+     * write-only), used by SHOW CREATE TABLE to render the PROPERTIES(...) block (D-046). Every FE-internal
+     * reserved control key ({@link ConnectorTableSchema#RESERVED_CONTROL_KEYS} — the partition-columns /
+     * primary-keys markers, the SHOW CREATE render hints, and the per-table capability / distribution markers,
+     * all namespaced under {@code __internal.}) is stripped: they are not user-facing options and must not
+     * leak into the rendered PROPERTIES(...). Because the reserved keys are namespaced, a source table's own
+     * user property can never collide with one, so it flows through here unchanged.
      */
     public Map<String, String> getTableProperties() {
         Map<String, String> raw = rawTableProperties();
         Map<String, String> result = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : raw.entrySet()) {
-            String key = entry.getKey();
-            if ("partition_columns".equals(key) || "primary_keys".equals(key)
-                    || ConnectorTableSchema.SHOW_LOCATION_KEY.equals(key)
-                    || ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY.equals(key)
-                    || ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY.equals(key)) {
+            if (ConnectorTableSchema.RESERVED_CONTROL_KEYS.contains(entry.getKey())) {
                 continue;
             }
             result.put(entry.getKey(), entry.getValue());
@@ -560,11 +798,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
-        List<Column> partitionColumns = getPartitionColumns();
+        List<Column> partitionColumns = getPartitionColumns(snapshot);
         if (partitionColumns.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<String> remoteNames = getSchemaCacheValue()
+        List<String> remoteNames = getSchemaCacheValue(snapshot)
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
                 .orElse(Collections.emptyList());
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
@@ -608,6 +846,74 @@ public class PluginDrivenExternalTable extends ExternalTable {
             nameToPartitionItem.put(idToNameMap.get(entry.getKey()), entry.getValue());
         }
         return nameToPartitionItem;
+    }
+
+    /**
+     * Partition display-name -> per-column partition values (in partition-column order), sourced from the
+     * connector's {@code listPartitions} in one round-trip (no FE-side partition-value cache, per the
+     * cutover's connector-owned caching). Values are extracted by the cached remote names; a value absent
+     * from the connector's raw map is left {@code null} (the partition_values() TVF renders it as SQL NULL,
+     * mirroring the legacy HMS {@code HivePartitionValues.getNameToPartitionValues()}). Empty for a
+     * non-partitioned table or an unresolved handle. Partition order preserved via a {@link LinkedHashMap}.
+     *
+     * <p>Deliberately separate from {@link #getNameToPartitionItems} (not a shared helper) so that live
+     * path stays byte- and cost-identical for paimon/iceberg — a shared name-keyed map would collapse the
+     * pathological duplicate-partition-name case that the parallel-list build there tolerates.
+     */
+    public Map<String, List<String>> getNameToPartitionValues(Optional<MvccSnapshot> snapshot) {
+        if (getPartitionColumns(snapshot).isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<String> remoteNames = getSchemaCacheValue(snapshot)
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
+                .orElse(Collections.emptyList());
+
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyMap();
+        }
+        List<ConnectorPartitionInfo> partitions =
+                metadata.listPartitions(session, handleOpt.get(), Optional.empty());
+        Map<String, List<String>> nameToValues = Maps.newLinkedHashMap();
+        for (ConnectorPartitionInfo partition : partitions) {
+            List<String> values = new ArrayList<>(remoteNames.size());
+            for (String remoteName : remoteNames) {
+                values.add(partition.getPartitionValues().get(remoteName));
+            }
+            nameToValues.put(partition.getPartitionName(), values);
+        }
+        return nameToValues;
+    }
+
+    /**
+     * Engine-neutral rows for a connector metadata table (the {@code hudi_meta()} / TIMELINE TVF), sourced from
+     * the connector's {@link ConnectorMetadata#getMetadataTableRows} in one round-trip. {@code kind} selects the
+     * metadata table (currently only {@code "timeline"}). Each returned row is the ordered String cell values the
+     * TVF renders (nulls -> SQL NULL). Empty for an unresolved handle. A NEW standalone method (like
+     * {@link #getNameToPartitionValues}) — byte/cost-invariant for paimon/iceberg, which never declare
+     * {@code SUPPORTS_METADATA_TABLE} and so never reach this via the capability-gated TVF arm. No TCCL pin here;
+     * the connector pins internally (bundled hudi timeline reflection).
+     */
+    public List<List<String>> getMetadataTableRows(String kind) {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyList();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Collections.emptyList();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        return metadata.getMetadataTableRows(session, handleOpt.get(), kind);
     }
 
     @Override
@@ -678,7 +984,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // case-sensitive findSysTable exact-match works, mirroring legacy PaimonSysTable keys.
         Map<String, SysTable> result = Maps.newHashMapWithExpectedSize(names.size());
         for (String sysName : names) {
-            result.put(sysName, new PluginDrivenSysTable(sysName));
+            if (metadata.isPartitionValuesSysTable(session, handleOpt.get(), sysName)) {
+                // Connector declares this name is served by the generic partition_values TVF (e.g. hive
+                // t$partitions), not a native scan. Key on the singleton's OWN name (== "partitions"):
+                // PartitionsSysTable strips its hard-wired "$partitions" suffix in createFunction, so a
+                // differing key would crash there; identical to sysName for hive today, strictly safer.
+                result.put(PartitionsSysTable.INSTANCE.getSysTableName(), PartitionsSysTable.INSTANCE);
+            } else {
+                result.put(sysName, new PluginDrivenSysTable(sysName));
+            }
         }
         return Collections.unmodifiableMap(result);
     }
@@ -697,7 +1011,130 @@ public class PluginDrivenExternalTable extends ExternalTable {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
+        if (supportsSampleAnalyze()) {
+            // A flipped plain-hive table keeps ANALYZE ... WITH SAMPLE working (ExternalAnalysisTask.doSample
+            // throws NotImplementedException). iceberg/paimon do NOT declare the capability, so they stay on the
+            // byte-identical ExternalAnalysisTask path — the extra check is one cached capability lookup.
+            return new PluginDrivenSampleAnalysisTask(info);
+        }
         return new ExternalAnalysisTask(info);
+    }
+
+    /**
+     * The query-planner column-statistics fast path (consulted by {@code ColumnStatisticsCacheLoader} on a
+     * stats-cache miss): asks the connector for the no-scan column stats it can serve cheaply and turns the raw
+     * facts into a Doris {@link ColumnStatistic}. Empty (fe-core falls back to a full ANALYZE) when the
+     * connector has no such stats. Mirrors legacy {@code HMSExternalTable.getHiveColumnStats} +
+     * {@code setStatData}: the connector returns raw ndv / numNulls / (string) avgColLen, and THIS side does the
+     * Doris-type-dependent size math the connector cannot (it must not import fe-type) — a string column's size
+     * is {@code round(avgColLen * count)}, every other type's is {@code count * <slot width>}; min/max stay
+     * unconstrained (the {@link ColumnStatisticBuilder} defaults, i.e. legacy's NEGATIVE/POSITIVE_INFINITY).
+     */
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        makeSureInitialized();
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Optional.empty();
+        }
+        Optional<ConnectorColumnStatistics> statsOpt =
+                metadata.getColumnStatistics(session, handleOpt.get(), colName);
+        if (!statsOpt.isPresent()) {
+            return Optional.empty();
+        }
+        return toColumnStatistic(statsOpt.get(), getColumn(colName));
+    }
+
+    /**
+     * The raw per-file byte sizes that {@code ANALYZE ... WITH SAMPLE} seed-shuffles and cumulates into a sample
+     * scale factor, from the connector's file listing (like legacy {@code HMSExternalTable.getChunkSizes}). The
+     * connector returns only the raw byte lengths; the Doris-type slot-width math stays fe-core-side in the sample
+     * task. Overrides {@link ExternalTable#getChunkSizes()} (which throws {@code NotImplementedException}); returns
+     * empty on any miss (non-plugin catalog / null connector / unresolved handle) so a connector that cannot list
+     * degrades the sampler to scale factor 1. Inert for iceberg/paimon — only reached from the sample task, which
+     * they never create. No TCCL pin here; the hive {@code listFileSizes} impl pins internally (parity with
+     * {@link #fetchRowCount()} / {@link #getColumnStatistic}).
+     */
+    @Override
+    public List<Long> getChunkSizes() {
+        makeSureInitialized();
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyList();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Collections.emptyList();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        return metadata.listFileSizes(session, handleOpt.get());
+    }
+
+    /**
+     * The table's distribution (bucketing) column names, lowercased, from the connector's per-table
+     * {@code connector.distribution-columns} schema marker (read from the already-cached schema, no round-trip).
+     * Overrides the {@code TableIf} empty default so a flipped bucketed hive table matches legacy
+     * {@code HMSExternalTable.getDistributionColumnNames} (which lowercased on this side too). Empty for a
+     * non-bucketed table and for connectors that emit no marker (paimon/iceberg) — byte-invariant for them. Used by
+     * sampled ANALYZE to pick the linear-vs-DUJ1 NDV estimator.
+     */
+    @Override
+    public Set<String> getDistributionColumnNames() {
+        String csv = rawTableProperties().get(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY);
+        if (csv == null || csv.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> result = new HashSet<>();
+        for (String name : csv.split(",")) {
+            String trimmed = name.trim();
+            if (!trimmed.isEmpty()) {
+                result.add(trimmed.toLowerCase());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Turns the connector's raw {@link ConnectorColumnStatistics} into a Doris {@link ColumnStatistic},
+     * doing the Doris-type-dependent size math the connector cannot (legacy {@code setStatData} parity): a
+     * string column (avgSizeBytes &gt;= 0) sizes to {@code round(avgColLen * count)}, every other type to
+     * {@code count * <slot width>}; {@code avgSizeByte = dataSize / count}; min/max stay at the builder's
+     * unconstrained defaults. Empty when the column is unknown or the row count is non-positive (no size
+     * basis, legacy returned empty). Package-private + static so the math can be unit-tested directly.
+     */
+    static Optional<ColumnStatistic> toColumnStatistic(ConnectorColumnStatistics stats, Column column) {
+        long count = stats.getRowCount();
+        if (column == null || count <= 0) {
+            return Optional.empty();
+        }
+        double dataSize;
+        if (stats.getAvgSizeBytes() >= 0) {
+            dataSize = Math.round(stats.getAvgSizeBytes() * count);
+        } else {
+            // Long arithmetic (count * slotSize) exactly like legacy setStatData, then widened.
+            dataSize = count * column.getType().getSlotSize();
+        }
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(count);
+        builder.setNdv(stats.getNdv());
+        builder.setNumNulls(stats.getNumNulls());
+        builder.setDataSize(dataSize);
+        builder.setAvgSizeByte(dataSize / count);
+        return Optional.of(builder.build());
     }
 
     @Override
@@ -714,10 +1151,75 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
 
         Optional<ConnectorTableStatistics> statsOpt = metadata.getTableStatistics(session, handleOpt.get());
-        if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
-            return statsOpt.get().getRowCount();
+        if (statsOpt.isPresent()) {
+            ConnectorTableStatistics stats = statsOpt.get();
+            if (stats.getRowCount() >= 0) {
+                return stats.getRowCount();
+            }
+            // The connector surfaced an on-disk data size but no exact row count (e.g. a hive table with
+            // totalSize set but no numRows). Estimate the cardinality as dataSize / <average Doris row
+            // width> — the Doris-type-dependent division the connector cannot perform (it must not import
+            // fe-type). Connector-agnostic: every other connector reports dataSize -1, so this branch is
+            // inert for them. Mirrors legacy StatisticsUtil.getHiveRowCount's totalSize/estimatedRowSize
+            // path (row width summed over the FULL schema, partition columns included, exactly as legacy).
+            // A quotient that truncates to 0 is NOT a valid "empty table" answer — legacy collapsed 0 ->
+            // UNKNOWN and fell through to the file-list estimate below, so only a positive quotient returns.
+            if (stats.getDataSize() > 0) {
+                long rowWidth = estimatedRowWidth(false);
+                if (rowWidth > 0) {
+                    long rows = stats.getDataSize() / rowWidth;
+                    if (rows > 0) {
+                        return rows;
+                    }
+                }
+            }
+        }
+
+        // Neither an exact count nor a metastore-recorded size: estimate the on-disk data size by listing
+        // the table's data files (connector-provided; every non-file connector returns -1) and divide by the
+        // row width, this time EXCLUDING partition columns because their values live in the directory path,
+        // not the data files. Mirrors legacy HMSExternalTable.getRowCountFromFileList. Gated by the global
+        // feature flag because the listing can be a costly remote round-trip; the connector self-samples,
+        // pins its classloader, and degrades to -1 rather than throwing.
+        if (GlobalVariable.enable_get_row_count_from_file_list) {
+            long dataSize = metadata.estimateDataSizeByListingFiles(session, handleOpt.get());
+            if (dataSize > 0) {
+                long rowWidth = estimatedRowWidth(true);
+                if (rowWidth > 0) {
+                    // 0 -> UNKNOWN (legacy getRowCountFromFileList's `rows > 0 ? rows : UNKNOWN` gate).
+                    long rows = dataSize / rowWidth;
+                    if (rows > 0) {
+                        return rows;
+                    }
+                }
+            }
         }
         return UNKNOWN_ROW_COUNT;
+    }
+
+    /**
+     * Sum of Doris slot sizes over the full schema (or over the non-partition columns when
+     * {@code excludePartitionColumns}) — the average uncompressed row width used to turn a connector-reported
+     * on-disk data size into an estimated row count. Mirrors the two legacy hive formulas: a metastore
+     * {@code totalSize} is divided by the FULL-schema width ({@code StatisticsUtil.getHiveRowCount}), whereas
+     * a file-listed size is divided by the width EXCLUDING partition columns (whose values are not stored in
+     * the data files, {@code HMSExternalTable.getRowCountFromFileList}). Returns 0 for an empty/unavailable
+     * schema, which {@link #fetchRowCount} treats as "cannot estimate" (-> UNKNOWN).
+     */
+    private long estimatedRowWidth(boolean excludePartitionColumns) {
+        List<Column> schema = getFullSchema();
+        if (schema == null) {
+            return 0;
+        }
+        List<Column> partitionColumns = excludePartitionColumns ? getPartitionColumns() : null;
+        long rowWidth = 0;
+        for (Column column : schema) {
+            if (partitionColumns != null && partitionColumns.contains(column)) {
+                continue;
+            }
+            rowWidth += column.getDataType().getSlotSize();
+        }
+        return rowWidth;
     }
 
     @Override
@@ -750,6 +1252,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 // TableType.PAIMON_EXTERNAL_TABLE.toEngineName() returns "paimon",
                 // preserving the legacy PaimonExternalTable engine name.
                 return TableType.PAIMON_EXTERNAL_TABLE.toEngineName();
+            case "hms":
+                // Post-flip an HMS external catalog is a PluginDrivenExternalCatalog (type "hms");
+                // legacy HMSExternalTable displayed engine "hms" (TableType.HMS_EXTERNAL_TABLE.toEngineName()),
+                // NOT "hive" — the CREATE-TABLE engine (CreateTableInfo.pluginCatalogTypeToEngine -> "hive")
+                // is a separate concern. Falling through to "Plugin" would regress SHOW TABLE STATUS /
+                // information_schema.tables.
+                return TableType.HMS_EXTERNAL_TABLE.toEngineName();
             default:
                 return super.getEngine();
         }
@@ -772,6 +1281,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.MAX_COMPUTE_EXTERNAL_TABLE.name();
             case "paimon":
                 return TableType.PAIMON_EXTERNAL_TABLE.name();
+            case "hms":
+                return TableType.HMS_EXTERNAL_TABLE.name();
             default:
                 return TableType.PLUGIN_EXTERNAL_TABLE.name();
         }

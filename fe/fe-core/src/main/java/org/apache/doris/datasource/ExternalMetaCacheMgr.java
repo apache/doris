@@ -21,9 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
-import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
@@ -59,9 +56,6 @@ public class ExternalMetaCacheMgr {
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheMgr.class);
     private static final String ENTRY_SCHEMA = "schema";
     private static final String ENGINE_DEFAULT = "default";
-    private static final String ENGINE_HIVE = "hive";
-    private static final String ENGINE_HUDI = "hudi";
-    private static final String ENGINE_ICEBERG = "iceberg";
     private static final String ENGINE_DORIS = "doris";
 
     /**
@@ -154,21 +148,6 @@ public class ExternalMetaCacheMgr {
 
     ExternalMetaCache engine(String engine) {
         return cacheRegistry.resolve(engine);
-    }
-
-    public HiveExternalMetaCache hive(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_HIVE);
-        return (HiveExternalMetaCache) engine(ENGINE_HIVE);
-    }
-
-    public HudiExternalMetaCache hudi(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_HUDI);
-        return (HudiExternalMetaCache) engine(ENGINE_HUDI);
-    }
-
-    public IcebergExternalMetaCache iceberg(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_ICEBERG);
-        return (IcebergExternalMetaCache) engine(ENGINE_ICEBERG);
     }
 
     public DorisExternalMetaCache doris(long catalogId) {
@@ -289,9 +268,6 @@ public class ExternalMetaCacheMgr {
 
     private void registerBuiltinEngineCaches() {
         cacheRegistry.register(new DefaultExternalMetaCache(ENGINE_DEFAULT, commonRefreshExecutor));
-        cacheRegistry.register(new HiveExternalMetaCache(commonRefreshExecutor, fileListingExecutor));
-        cacheRegistry.register(new HudiExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new IcebergExternalMetaCache(commonRefreshExecutor));
         cacheRegistry.register(new DorisExternalMetaCache(commonRefreshExecutor));
     }
 

@@ -26,7 +26,7 @@ import java.util.Map;
  * <p>
  * In general, the metastore type of a catalog follows a two-level structure:
  * - The first-level type is determined by the catalog type (e.g., "hive", "iceberg").
- * - The second-level type is a subtype that needs to be registered individually (e.g., "hms", "glue", "dlf").
+ * - The second-level type is a subtype that needs to be registered individually (e.g., "hms").
  * <p>
  * Each catalog type should have its own implementation of this factory interface,
  * with its supported subtypes registered internally.

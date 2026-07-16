@@ -109,7 +109,7 @@ suite("test_hive_partition_values_tvf", "p0,external") {
 
         // 13. test all types of partition columns
         sql """switch ${catalog_name}"""
-        sql """drop database if exists partition_values_db""";
+        sql """drop database if exists partition_values_db force""";
         sql """create database partition_values_db"""
         sql """use partition_values_db"""
 

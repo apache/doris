@@ -134,6 +134,26 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
+    public void testHmsCatalogReturnsHmsEngineName() {
+        // HMS cutover: after the flip an HMS external catalog is a PluginDrivenExternalCatalog (type
+        // "hms"); legacy HMSExternalTable displayed engine "hms" (TableType.HMS_EXTERNAL_TABLE.toEngineName()),
+        // NOT "hive" (that is the CREATE-TABLE engine, a separate concern). Without an "hms" case it would
+        // fall through to "Plugin", regressing SHOW TABLE STATUS / information_schema.tables.
+        // MUTATION: dropping the hms case -> "Plugin" -> red; returning "hive" -> red.
+        PluginDrivenExternalTable table = createTableWithCatalogType("hms");
+        Assertions.assertEquals("hms", table.getEngine(),
+                "Hms catalog tables should report engine='hms' (legacy parity), not 'Plugin' or 'hive'");
+    }
+
+    @Test
+    public void testHmsCatalogReturnsHmsEngineTableTypeName() {
+        PluginDrivenExternalTable table = createTableWithCatalogType("hms");
+        Assertions.assertEquals(TableType.HMS_EXTERNAL_TABLE.name(),
+                table.getEngineTableTypeName(),
+                "Hms catalog tables should report HMS_EXTERNAL_TABLE type name");
+    }
+
+    @Test
     public void testTableTypeIsAlwaysPluginExternalTable() {
         PluginDrivenExternalTable jdbcTable = createTableWithCatalogType("jdbc");
         PluginDrivenExternalTable esTable = createTableWithCatalogType("es");

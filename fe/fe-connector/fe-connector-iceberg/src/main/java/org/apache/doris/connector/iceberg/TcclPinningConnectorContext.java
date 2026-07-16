@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -144,8 +145,11 @@ final class TcclPinningConnectorContext implements ConnectorContext {
     }
 
     @Override
-    public Map<String, String> loadHiveConfResources(String resources) {
-        return delegate.loadHiveConfResources(resources);
+    public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+        // Delegate to the raw engine context (not this wrapper): the sibling connector applies its OWN
+        // TCCL/auth pinning over the context it is handed, so it must receive the unwrapped context to avoid
+        // double-pinning to this plugin's loader. Keeps this decorator a true exhaustive pass-through.
+        return delegate.createSiblingConnector(catalogType, properties);
     }
 
     @Override
@@ -181,6 +185,13 @@ final class TcclPinningConnectorContext implements ConnectorContext {
     @Override
     public List<StorageProperties> getStorageProperties() {
         return delegate.getStorageProperties();
+    }
+
+    @Override
+    public void testBackendStorageConnectivity(int storageBackendTypeValue,
+            Map<String, String> backendProperties) throws Exception {
+        // No TCCL pin: this runs entirely engine-side (backend registry + thrift), never in plugin code.
+        delegate.testBackendStorageConnectivity(storageBackendTypeValue, backendProperties);
     }
 
     @Override

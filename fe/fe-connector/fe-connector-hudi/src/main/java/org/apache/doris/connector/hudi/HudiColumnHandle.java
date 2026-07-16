@@ -22,8 +22,9 @@ import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import java.util.Objects;
 
 /**
- * Column handle for Hudi tables, carrying column name, type, and
- * whether the column is a partition key.
+ * Column handle for Hudi tables, carrying column name, type,
+ * whether the column is a partition key, and the Hudi InternalSchema
+ * field id (for schema-evolution BY_FIELD_ID matching; HD-C4b).
  */
 public class HudiColumnHandle implements ConnectorColumnHandle {
 
@@ -32,11 +33,21 @@ public class HudiColumnHandle implements ConnectorColumnHandle {
     private final String name;
     private final String typeName;
     private final boolean isPartitionKey;
+    // Hudi InternalSchema field id (stable across renames), sourced from the mode-aware InternalSchema and
+    // threaded here by HudiConnectorMetadata.getColumnHandles. ConnectorColumn.UNSET_UNIQUE_ID (-1) when no id
+    // was resolved (e.g. a _hoodie_* meta column absent from a commit-metadata schema). BE's field-id mode is
+    // PER-FILE, not per-column, so an unresolved id CANNOT fall back BY_NAME on its own; instead the whole
+    // scan-level dict is gated OFF when any projected column is unresolved (see
+    // HudiSchemaUtils.buildSchemaEvolutionProp) -> BE stays on BY_NAME for the entire scan. Deliberately NOT part
+    // of equals/hashCode: the handle's identity stays name+type (mirror IcebergColumnHandle, which keeps identity
+    // by name and does not fold the field id in).
+    private final int fieldId;
 
-    public HudiColumnHandle(String name, String typeName, boolean isPartitionKey) {
+    public HudiColumnHandle(String name, String typeName, boolean isPartitionKey, int fieldId) {
         this.name = Objects.requireNonNull(name);
         this.typeName = Objects.requireNonNull(typeName);
         this.isPartitionKey = isPartitionKey;
+        this.fieldId = fieldId;
     }
 
     public String getName() {
@@ -49,6 +60,10 @@ public class HudiColumnHandle implements ConnectorColumnHandle {
 
     public boolean isPartitionKey() {
         return isPartitionKey;
+    }
+
+    public int getFieldId() {
+        return fieldId;
     }
 
     public String getColumnName() {
@@ -74,7 +89,7 @@ public class HudiColumnHandle implements ConnectorColumnHandle {
 
     @Override
     public String toString() {
-        return "HudiColumnHandle{" + name + ":" + typeName
+        return "HudiColumnHandle{" + name + ":" + typeName + "[" + fieldId + "]"
                 + (isPartitionKey ? " [partition]" : "") + "}";
     }
 }

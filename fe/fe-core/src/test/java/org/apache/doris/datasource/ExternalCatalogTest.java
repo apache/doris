@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -37,7 +36,6 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -122,27 +120,6 @@ public class ExternalCatalogTest extends TestWithFeService {
         if (logicalPlan instanceof CreateCatalogCommand) {
             ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
         }
-    }
-
-    @Test
-    public void testExternalCatalogAutoAnalyze() throws Exception {
-        HMSExternalCatalog catalog = new HMSExternalCatalog();
-        Assertions.assertFalse(catalog.enableAutoAnalyze());
-
-        HashMap<String, String> prop = Maps.newHashMap();
-        prop.put(ExternalCatalog.ENABLE_AUTO_ANALYZE, "false");
-        catalog.modifyCatalogProps(prop);
-        Assertions.assertFalse(catalog.enableAutoAnalyze());
-
-        prop = Maps.newHashMap();
-        prop.put(ExternalCatalog.ENABLE_AUTO_ANALYZE, "true");
-        catalog.modifyCatalogProps(prop);
-        Assertions.assertTrue(catalog.enableAutoAnalyze());
-
-        prop = Maps.newHashMap();
-        prop.put(ExternalCatalog.ENABLE_AUTO_ANALYZE, "TRUE");
-        catalog.modifyCatalogProps(prop);
-        Assertions.assertTrue(catalog.enableAutoAnalyze());
     }
 
     @Test

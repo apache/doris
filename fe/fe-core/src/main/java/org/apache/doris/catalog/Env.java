@@ -101,11 +101,10 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.MetastoreEventSyncDriver;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.SplitSourceManager;
-import org.apache.doris.datasource.hive.HiveTransactionMgr;
-import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
@@ -407,7 +406,9 @@ public class Env {
     private PartitionInfoCollector partitionInfoCollector;
     private CooldownConfHandler cooldownConfHandler;
     private ExternalMetaIdMgr externalMetaIdMgr;
-    private MetastoreEventsProcessor metastoreEventsProcessor;
+    // Connector-agnostic incremental metastore-event sync driver (Model B). Dormant until an HMS catalog is
+    // served by a PluginDrivenExternalCatalog whose connector exposes an event source.
+    private MetastoreEventSyncDriver metastoreEventSyncDriver;
 
     private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
     private LabelProcessor labelProcessor;
@@ -565,8 +566,6 @@ public class Env {
     private StatisticsJobAppender statisticsJobAppender;
 
     private FollowerColumnSender followerColumnSender;
-
-    private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
 
@@ -762,7 +761,7 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.externalMetaIdMgr = new ExternalMetaIdMgr();
-        this.metastoreEventsProcessor = new MetastoreEventsProcessor();
+        this.metastoreEventSyncDriver = new MetastoreEventSyncDriver();
         this.jobManager = new JobManager<>();
         this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
@@ -863,7 +862,6 @@ public class Env {
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
-        this.hiveTransactionMgr = new HiveTransactionMgr();
         this.binlogManager = new BinlogManager();
         this.constraintManager = new ConstraintManager();
         this.binlogGcer = new BinlogGcer();
@@ -1039,8 +1037,8 @@ public class Env {
         return externalMetaIdMgr;
     }
 
-    public MetastoreEventsProcessor getMetastoreEventsProcessor() {
-        return metastoreEventsProcessor;
+    public MetastoreEventSyncDriver getMetastoreEventSyncDriver() {
+        return metastoreEventSyncDriver;
     }
 
     public KeyManagerStore getKeyManagerStore() {
@@ -1093,14 +1091,6 @@ public class Env {
     // For unit test only
     public Checkpoint getCheckpointer() {
         return checkpointer;
-    }
-
-    public HiveTransactionMgr getHiveTransactionMgr() {
-        return hiveTransactionMgr;
-    }
-
-    public static HiveTransactionMgr getCurrentHiveTransactionMgr() {
-        return getCurrentEnv().getHiveTransactionMgr();
     }
 
     public DNSCache getDnsCache() {
@@ -2098,7 +2088,8 @@ public class Env {
         // fe disk updater
         feDiskUpdater.start();
 
-        metastoreEventsProcessor.start();
+        // Dormant pre-flip: only drives PluginDrivenExternalCatalogs whose connector exposes an event source.
+        metastoreEventSyncDriver.start();
 
         dnsCache.start();
 

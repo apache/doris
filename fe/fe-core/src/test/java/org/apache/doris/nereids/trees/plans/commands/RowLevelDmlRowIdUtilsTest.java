@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 
 import org.junit.jupiter.api.Assertions;
@@ -47,12 +45,10 @@ public class RowLevelDmlRowIdUtilsTest {
         if (supportsMerge) {
             ops.add(WriteOperation.MERGE);
         }
-        Connector connector = Mockito.mock(Connector.class);
-        Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
-        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Mockito.when(catalog.getConnector()).thenReturn(connector);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        // The row-id guard now probes the per-handle write ops via the table helper (which resolves the handle
+        // and calls the connector's per-handle overload); stub the table method directly.
+        Mockito.when(table.connectorSupportedWriteOperations()).thenReturn(ops);
         return table;
     }
 
@@ -91,15 +87,13 @@ public class RowLevelDmlRowIdUtilsTest {
     }
 
     @Test
-    public void isRowIdInjectionTargetDegradesWhenConnectorDropped() {
-        // A catalog dropped mid-DML-planning nulls its transient connector; the guard must degrade to
-        // "not a target" rather than NPE-aborting the query, mirroring the defensive
-        // PluginDrivenExternalTable.fetchSyntheticWriteColumns. MUTATION: dropping the null-connector guard
-        // NPEs here.
-        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Mockito.when(catalog.getConnector()).thenReturn(null);
+    public void isRowIdInjectionTargetDegradesWhenNoWriteOps() {
+        // The per-handle write-op probe degrades to an EMPTY set on a dropped connector / unresolvable handle
+        // (the guard now lives in PluginDrivenExternalTable.connectorSupportedWriteOperations, covered by its own
+        // test); an empty set must read as "not a target" rather than admitting row-id injection. MUTATION:
+        // treating empty ops as a target reddens this.
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.connectorSupportedWriteOperations()).thenReturn(EnumSet.noneOf(WriteOperation.class));
 
         Assertions.assertFalse(RowLevelDmlRowIdUtils.isRowIdInjectionTarget(table));
     }
