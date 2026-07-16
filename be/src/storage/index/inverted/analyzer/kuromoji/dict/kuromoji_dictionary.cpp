@@ -126,6 +126,9 @@ Status KuromojiDictionary::map_system(const std::string& path) {
     if (s.trie_offset % 4 != 0 || s.trie_bytes % 4 != 0) {
         return Status::Corruption("kuromoji dict: trie not 4-byte aligned");
     }
+    if (s.trie_bytes == 0) {
+        return Status::Corruption("kuromoji dict: system.bin has an empty trie");
+    }
     RETURN_IF_ERROR(check_region("system trie", s.trie_offset, s.trie_bytes, 1, kHdrEnd, size));
     RETURN_IF_ERROR(check_region("system runs", s.runs_offset, s.runs_count, sizeof(WordIdRun),
                                  kHdrEnd, size));
@@ -139,10 +142,9 @@ Status KuromojiDictionary::map_system(const std::string& path) {
     _entries_count = s.entries_count;
     _features = p + s.features_offset;
     _features_bytes = s.features_bytes;
-    if (s.trie_bytes > 0) {
-        // size is in 4-byte units; the mmap outlives _trie (both owned by this object).
-        _trie.set_array(p + s.trie_offset, static_cast<std::size_t>(s.trie_bytes / 4));
-    }
+    // trie_bytes is non-zero and in 4-byte units; the mmap
+    // outlives _trie (both owned by this object).
+    _trie.set_array(p + s.trie_offset, static_cast<std::size_t>(s.trie_bytes / 4));
     return Status::OK();
 }
 
@@ -253,6 +255,16 @@ Status KuromojiDictionary::validate_ranges() const {
     RETURN_IF_ERROR(check_entries(_entries, _entries_count, "system"));
     RETURN_IF_ERROR(check_runs(_unk_runs, _unk_runs_count, _unk_entries_count, "unk"));
     RETURN_IF_ERROR(check_entries(_unk_entries, _unk_entries_count, "unk"));
+    for (uint32_t cp = 0; cp < 0x10000; ++cp) {
+        if (_catmap[cp] >= CAT_CLASS_COUNT) {
+            return Status::Corruption(
+                    "kuromoji dict: chardef catmap has out-of-range category {} at code point {}",
+                    static_cast<uint32_t>(_catmap[cp]), cp);
+        }
+    }
+    if (_unk_entries_count == 0) {
+        return Status::Corruption("kuromoji dict: unknown dictionary has no entries");
+    }
     return Status::OK();
 }
 
