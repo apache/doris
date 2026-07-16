@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstring>
@@ -27,6 +28,7 @@
 #include <mutex>
 #include <string>
 
+#include "common/config.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_test_common.h"
 #include "util/defer_op.h"
@@ -140,13 +142,12 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
 }
 
 TEST_F(AsyncCacheWriteServiceTest, PendingLimitRejectsWhileWorkerIsActive) {
-    const int64_t old_max_pending = config::async_file_cache_write_max_pending_tasks_per_disk;
-    config::async_file_cache_write_max_pending_tasks_per_disk = 1;
-    Defer restore_config {
-            [&]() { config::async_file_cache_write_max_pending_tasks_per_disk = old_max_pending; }};
     auto cache = create_cache("async_write_service_backpressure");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
+    auto options = service->options();
+    options.max_pending_tasks = 1;
+    ASSERT_TRUE(service->update_options(options).ok());
 
     std::mutex mutex;
     std::condition_variable cv;
@@ -222,19 +223,15 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitRejectsWhileWorkerIsActive) {
 }
 
 TEST_F(AsyncCacheWriteServiceTest, WatchdogDropsExpiredTaskAndCleansInflightEntry) {
-    const int64_t old_warn_secs = config::async_file_cache_write_watchdog_warn_secs;
-    const int64_t old_drop_secs = config::async_file_cache_write_watchdog_drop_secs;
-    config::async_file_cache_write_watchdog_warn_secs = 0;
-    config::async_file_cache_write_watchdog_drop_secs = 1;
-    Defer restore_config {[&]() {
-        config::async_file_cache_write_watchdog_warn_secs = old_warn_secs;
-        config::async_file_cache_write_watchdog_drop_secs = old_drop_secs;
-    }};
     auto cache = create_cache("async_write_service_watchdog");
     auto* service = cache->async_write_service();
     auto* index = cache->inflight_write_buffer_index();
     ASSERT_NE(service, nullptr);
     ASSERT_NE(index, nullptr);
+    auto options = service->options();
+    options.watchdog_warn_secs = 0;
+    options.watchdog_drop_secs = 1;
+    ASSERT_TRUE(service->update_options(options).ok());
 
     const auto hash = BlockFileCache::hash("watchdog_drop");
     AsyncCacheWriteBufferPtr buffer;
@@ -493,15 +490,100 @@ TEST_F(AsyncCacheWriteServiceTest, EpochChangeAfterFirstCheckDropsTaskAndCleansE
     EXPECT_EQ(probe_result.gaps.front().right, 4095);
 }
 
-TEST_F(AsyncCacheWriteServiceTest, ResizeWorkersAtRuntime) {
+TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsAtRuntime) {
     auto cache = create_cache("async_write_service_resize");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
 
-    ASSERT_TRUE(service->resize_workers(3).ok());
+    auto options = service->options();
+    options.worker_count = 3;
+    options.max_pending_tasks = 7;
+    options.batch_size = 2;
+    options.watchdog_warn_secs = 1;
+    options.watchdog_drop_secs = 2;
+    ASSERT_TRUE(service->update_options(options).ok());
+    const auto updated = service->options();
+    EXPECT_EQ(updated.worker_count, 3);
+    EXPECT_EQ(updated.max_pending_tasks, 7);
+    EXPECT_EQ(updated.batch_size, 2);
+    EXPECT_EQ(updated.watchdog_warn_secs, 1);
+    EXPECT_EQ(updated.watchdog_drop_secs, 2);
     EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 3);
-    ASSERT_TRUE(service->resize_workers(1).ok());
+
+    options.worker_count = 1;
+    ASSERT_TRUE(service->update_options(options).ok());
     EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 1);
+}
+
+TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
+    auto* factory = FileCacheFactory::instance();
+    factory->_caches.clear();
+    factory->_path_to_cache.clear();
+    factory->_capacity = 0;
+
+    const auto path = caches_dir / "async_write_service_config_update";
+    std::error_code error;
+    fs::remove_all(path, error);
+    fs::create_directories(path);
+    ASSERT_TRUE(factory->create_file_cache(path.string(), async_write_cache_settings()).ok());
+    auto* cache = factory->get_by_path(path.string());
+    ASSERT_NE(cache, nullptr);
+    wait_until_cache_ready(*cache);
+
+    const int32_t old_workers = config::async_file_cache_write_workers_per_disk;
+    const int64_t old_max_pending = config::async_file_cache_write_max_pending_tasks_per_disk;
+    const int32_t old_batch_size = config::async_file_cache_write_batch_size;
+    const int64_t old_warn_secs = config::async_file_cache_write_watchdog_warn_secs;
+    const int64_t old_drop_secs = config::async_file_cache_write_watchdog_drop_secs;
+    Defer restore {[&]() {
+        EXPECT_TRUE(config::set_config("async_file_cache_write_workers_per_disk",
+                                       std::to_string(old_workers))
+                            .ok());
+        EXPECT_TRUE(config::set_config("async_file_cache_write_max_pending_tasks_per_disk",
+                                       std::to_string(old_max_pending))
+                            .ok());
+        EXPECT_TRUE(config::set_config("async_file_cache_write_batch_size",
+                                       std::to_string(old_batch_size))
+                            .ok());
+        EXPECT_TRUE(config::set_config("async_file_cache_write_watchdog_warn_secs",
+                                       std::to_string(old_warn_secs))
+                            .ok());
+        EXPECT_TRUE(config::set_config("async_file_cache_write_watchdog_drop_secs",
+                                       std::to_string(old_drop_secs))
+                            .ok());
+        factory->_caches.clear();
+        factory->_path_to_cache.clear();
+        factory->_capacity = 0;
+        fs::remove_all(path, error);
+    }};
+
+    const int32_t new_workers = old_workers == 1 ? 2 : 1;
+    const int64_t new_max_pending = old_max_pending + 1;
+    const int32_t new_batch_size = old_batch_size + 1;
+    const int64_t new_warn_secs = old_warn_secs + 1;
+    const int64_t new_drop_secs = std::max(old_drop_secs + 1, new_warn_secs + 1);
+    ASSERT_TRUE(config::set_config("async_file_cache_write_workers_per_disk",
+                                   std::to_string(new_workers))
+                        .ok());
+    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_tasks_per_disk",
+                                   std::to_string(new_max_pending))
+                        .ok());
+    ASSERT_TRUE(
+            config::set_config("async_file_cache_write_batch_size", std::to_string(new_batch_size))
+                    .ok());
+    ASSERT_TRUE(config::set_config("async_file_cache_write_watchdog_drop_secs",
+                                   std::to_string(new_drop_secs))
+                        .ok());
+    ASSERT_TRUE(config::set_config("async_file_cache_write_watchdog_warn_secs",
+                                   std::to_string(new_warn_secs))
+                        .ok());
+
+    const auto updated = cache->async_write_service()->options();
+    EXPECT_EQ(updated.worker_count, new_workers);
+    EXPECT_EQ(updated.max_pending_tasks, new_max_pending);
+    EXPECT_EQ(updated.batch_size, new_batch_size);
+    EXPECT_EQ(updated.watchdog_warn_secs, new_warn_secs);
+    EXPECT_EQ(updated.watchdog_drop_secs, new_drop_secs);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, ShutdownWaitsForRegisteredSubmitterAndRejectsItsTask) {

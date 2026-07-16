@@ -95,8 +95,10 @@ public:
 
     std::vector<std::string> get_base_paths();
 
-    /// Apply a positive per-disk async-write worker count to every initialized cache instance.
-    Status resize_async_write_workers(size_t worker_count);
+    /// Explicitly replace async-write service settings on every initialized cache disk.
+    /// @param options Complete settings snapshot produced by the configuration adapter.
+    /// @return OK after every service is updated; otherwise the first service update error.
+    Status update_async_write_options(const AsyncCacheWriteServiceOptions& options);
 
     /**
      * Clears data of all file cache instances

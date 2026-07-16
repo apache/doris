@@ -550,8 +550,18 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
 
     _inflight_write_buffer_index = std::make_unique<InflightWriteBufferIndex>(
             static_cast<size_t>(config::inflight_write_buffer_index_shard_count), _cache_base_path);
-    _async_write_service = std::make_unique<AsyncCacheWriteService>(
-            this, AsyncCacheWriteServiceOptions::from_config());
+    // BlockFileCache is the configuration boundary for a newly created per-disk service. Pass a
+    // value snapshot so AsyncCacheWriteService does not need to know where its settings came from.
+    AsyncCacheWriteServiceOptions async_write_options {
+            .worker_count = static_cast<size_t>(config::async_file_cache_write_workers_per_disk),
+            .max_pending_tasks =
+                    static_cast<size_t>(config::async_file_cache_write_max_pending_tasks_per_disk),
+            .batch_size = static_cast<size_t>(config::async_file_cache_write_batch_size),
+            .watchdog_warn_secs = config::async_file_cache_write_watchdog_warn_secs,
+            .watchdog_drop_secs = config::async_file_cache_write_watchdog_drop_secs,
+    };
+    _async_write_service =
+            std::make_unique<AsyncCacheWriteService>(this, std::move(async_write_options));
     RETURN_IF_ERROR(_async_write_service->start());
 
     if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get())) {
