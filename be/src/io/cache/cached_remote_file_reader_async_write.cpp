@@ -27,6 +27,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "cpp/sync_point.h"
 #include "io/cache/async_cache_write_service.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -474,6 +475,9 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
             entry = std::make_shared<InflightWriteBufferEntry>(
                     tracked_buffer, read_block.range.left, read_block.range.size(),
                     task.submit_ts_us, plan.write_epoch);
+            TEST_SYNC_POINT_CALLBACK(
+                    "CachedRemoteFileReader::_submit_async_write_tasks:before_inflight_insert",
+                    &task);
             auto existing =
                     inflight_index->insert_if_absent(_cache_hash, read_block.range.left, entry);
             if (existing) {
