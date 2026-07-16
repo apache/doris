@@ -305,8 +305,8 @@ TEST_F(AnalyticSinkOperatorTest, LagWithLegacyWrappedRowsOffsetUsesCurrentRowDef
     ASSERT_EQ(result->size(), batch_size);
     EXPECT_FALSE(result->is_null_at(0));
     EXPECT_FALSE(result->is_null_at(1));
-    EXPECT_EQ(result->get_int(0), 10);
-    EXPECT_EQ(result->get_int(1), 20);
+    EXPECT_EQ(result->get_nested_column().get_int(0), 10);
+    EXPECT_EQ(result->get_nested_column().get_int(1), 20);
 }
 
 TEST_F(AnalyticSinkOperatorTest, LeadWithMaxRowsOffset) {
@@ -348,8 +348,8 @@ TEST_F(AnalyticSinkOperatorTest, LeadWithMaxRowsOffset) {
     ASSERT_EQ(result->size(), batch_size);
     EXPECT_FALSE(result->is_null_at(0));
     EXPECT_FALSE(result->is_null_at(1));
-    EXPECT_EQ(result->get_int(0), 10);
-    EXPECT_EQ(result->get_int(1), 20);
+    EXPECT_EQ(result->get_nested_column().get_int(0), 10);
+    EXPECT_EQ(result->get_nested_column().get_int(1), 20);
 }
 
 TEST_F(AnalyticSinkOperatorTest, AggFunction) {
