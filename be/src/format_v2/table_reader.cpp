@@ -143,16 +143,19 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
     return field_ptr.field_ptr.get();
 }
 
+// Associates a projected column with its current-schema field (by current name, then aliases).
+// This is the current-schema association phase, NOT legacy-file matching: it must match the field
+// by its own current name so annotate_projected_column can copy the field id / aliases / mapping
+// marker. Strict name-mapping resolution (no physical-name fallback) belongs only to the id-less
+// file matching path in column_mapper (column_names_match), not here.
 bool external_field_matches_name(const schema::external::TField& field, const std::string& name) {
-    if (field.__isset.name_mapping) {
-        // The table defines schema.name-mapping.default: match strictly via the mapping aliases.
-        // A field the mapping does not cover (empty name_mapping) matches nothing instead of falling
-        // back to its own physical name.
-        return std::ranges::any_of(field.name_mapping, [&](const std::string& alias) {
-            return to_lower(alias) == to_lower(name);
-        });
+    if (field.__isset.name && to_lower(field.name) == to_lower(name)) {
+        return true;
     }
-    return field.__isset.name && to_lower(field.name) == to_lower(name);
+    return field.__isset.name_mapping &&
+           std::ranges::any_of(field.name_mapping, [&](const std::string& alias) {
+               return to_lower(alias) == to_lower(name);
+           });
 }
 
 DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struct_type,

@@ -1064,7 +1064,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
             org.apache.iceberg.types.Type newFieldIcebergType =
                     IcebergUtils.dorisTypeToIcebergType(newField.getType());
-            updateSchema.addColumn(path, newField.getName(), newFieldIcebergType, newField.getComment());
+            // Use the original, case-preserved name for the appended nested field. The catalog
+            // StructField name is lowercased, and this immediate child name bypasses the Iceberg
+            // type visitor, so getName() would commit e.g. STRUCT<..., CamelName: ...> as camelname.
+            updateSchema.addColumn(path, newField.getOriginalName(), newFieldIcebergType, newField.getComment());
         }
     }
 
