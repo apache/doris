@@ -354,6 +354,8 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
         DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
+        TEST_SYNC_POINT_CALLBACK("FileCacheBlockDownloader::download_segment_file:before_read",
+                                 &download_ctx);
         st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &download_ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;
