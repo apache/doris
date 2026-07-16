@@ -21,21 +21,90 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
         logger.info("Iceberg test is disabled")
         return
     }
-
     def catalogName = "test_iceberg_v2_to_v3_doris_spark_compare"
     def dbName = "test_v2_to_v3_doris_spark_compare_db"
     def restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     def minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    spark_iceberg_multi """
+        create database if not exists demo.test_v2_to_v3_doris_spark_compare_db;
+        use demo.test_v2_to_v3_doris_spark_compare_db;
+        
+        drop table if exists v2v3_doris_upd_case5;
+        drop table if exists v2v3_doris_upd_case5_orc;
+        
+        create table v2v3_doris_upd_case5 (
+            id int,
+            tag string,
+            score int,
+            dt date
+        ) using iceberg
+        partitioned by (days(dt))
+        tblproperties (
+            'format-version' = '2',
+            'write.format.default' = 'parquet',
+            'write.delete.mode' = 'merge-on-read',
+            'write.update.mode' = 'merge-on-read',
+            'write.merge.mode' = 'merge-on-read'
+        );
+        
+        insert into v2v3_doris_upd_case5 values
+        (1, 'base', 100, date '2024-01-01'),
+        (2, 'base', 200, date '2024-01-02');
+        
+        insert into v2v3_doris_upd_case5 values
+        (3, 'base', 300, date '2024-01-03');
+        
+        update v2v3_doris_upd_case5
+        set tag = 'base_u', score = score + 10
+        where id = 1;
+        
+        delete from v2v3_doris_upd_case5
+        where id = 2;
+        
+        alter table v2v3_doris_upd_case5
+        set tblproperties ('format-version' = '3');
+        
+        create table v2v3_doris_upd_case5_orc (
+            id int,
+            tag string,
+            score int,
+            dt date
+        ) using iceberg
+        partitioned by (days(dt))
+        tblproperties (
+            'format-version' = '2',
+            'write.format.default' = 'orc',
+            'write.delete.mode' = 'merge-on-read',
+            'write.update.mode' = 'merge-on-read',
+            'write.merge.mode' = 'merge-on-read'
+        );
+        
+        insert into v2v3_doris_upd_case5_orc values
+        (1, 'base', 100, date '2024-01-01'),
+        (2, 'base', 200, date '2024-01-02');
+        
+        insert into v2v3_doris_upd_case5_orc values
+        (3, 'base', 300, date '2024-01-03');
+        
+        update v2v3_doris_upd_case5_orc
+        set tag = 'base_u', score = score + 10
+        where id = 1;
+        
+        delete from v2v3_doris_upd_case5_orc
+        where id = 2;
+        
+        alter table v2v3_doris_upd_case5_orc
+        set tblproperties ('format-version' = '3');
+
+    """
 
     def formats = ["parquet", "orc"]
 
-    def tableNameForFormat = { baseName, format ->
-        return format == "parquet" ? baseName : "${baseName}_orc"
+    def tableNameForFormat = { baseName, format -> return format == "parquet" ? baseName : "${baseName}_orc"
     }
 
-    def unpartitionedTableNameForFormat = { baseName, format ->
-        return "${baseName}_${format}"
+    def unpartitionedTableNameForFormat = { baseName, format -> return "${baseName}_${format}"
     }
 
     sql """drop catalog if exists ${catalogName}"""
@@ -73,15 +142,14 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                     from demo.${dbName}.${tableName}
                     order by id, tag, score
                 """
-                log.info("Unexpected v2-to-v3 precheck row count for ${tableName}: lineageRows=${rows}, "
-                        + "dorisBusinessRows=${dorisBusinessRows}, sparkBusinessRows=${sparkBusinessRows}")
+                log.info("Unexpected v2-to-v3 precheck row count for ${tableName}: lineageRows=${rows}, " + "dorisBusinessRows=${dorisBusinessRows}, sparkBusinessRows=${sparkBusinessRows}")
             }
             assertEquals(2, rows.size())
             rows.each { row ->
                 assertTrue(row[1] == null,
-                        "_row_id should be null for v2 rows after upgrade in ${tableName}, row=${row}")
+                    "_row_id should be null for v2 rows after upgrade in ${tableName}, row=${row}")
                 assertTrue(row[2] == null,
-                        "_last_updated_sequence_number should be null for v2 rows after upgrade in ${tableName}, row=${row}")
+                    "_last_updated_sequence_number should be null for v2 rows after upgrade in ${tableName}, row=${row}")
             }
         }
 
@@ -93,8 +161,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             """
             log.info("Lineage state for ${tableName}: ${rows}")
             Map<Integer, List<Object>> rowsById = [:]
-            rows.each { row ->
-                rowsById[row[0].toString().toInteger()] = row
+            rows.each { row -> rowsById[row[0].toString().toInteger()] = row
             }
             nonNullIds.each { id ->
                 assertTrue(rowsById.containsKey(id), "id=${id} should exist in ${tableName}, rows=${rows}")
@@ -108,20 +175,18 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                 assertTrue(rowsById.containsKey(id), "id=${id} should exist in ${tableName}, rows=${rows}")
                 def row = rowsById[id]
                 assertTrue(row[1] == null,
-                        "_row_id should stay null for historical v2 row in ${tableName}, row=${row}")
+                    "_row_id should stay null for historical v2 row in ${tableName}, row=${row}")
                 assertTrue(row[2] == null,
-                        "_last_updated_sequence_number should stay null for historical v2 row in ${tableName}, row=${row}")
+                    "_last_updated_sequence_number should stay null for historical v2 row in ${tableName}, row=${row}")
             }
         }
 
         def normalizeBusinessRows = { rows ->
             return rows.collect { row ->
-                [
-                    row[0].toString().toInteger(),
-                    row[1].toString(),
-                    row[2].toString().toInteger(),
-                    row[3].toString()
-                ]
+                [row[0].toString().toInteger(),
+                 row[1].toString(),
+                 row[2].toString().toInteger(),
+                 row[3].toString()]
             }
         }
 
@@ -213,7 +278,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                 )
             """)
             assertTrue(rewriteResult.size() > 0,
-                    "rewrite_data_files should return summary rows for ${tableName}")
+                "rewrite_data_files should return summary rows for ${tableName}")
 
             def rowCount = sql """
                 select count(*)
@@ -257,7 +322,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             rows.each { row ->
                 assertTrue(row[3] != null, "_row_id should be non-null after MERGE for ${tableName}, row=${row}")
                 assertTrue(row[4] != null,
-                        "_last_updated_sequence_number should be non-null after MERGE for ${tableName}, row=${row}")
+                    "_last_updated_sequence_number should be non-null after MERGE for ${tableName}, row=${row}")
             }
             assertSparkBusinessRowsEqual(tableName)
         }
@@ -276,9 +341,9 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             assertEquals(3, scenario1Rows.size())
             scenario1Rows.each { row ->
                 assertTrue(row[1] == null,
-                        "_row_id should be null for rows written before v3 upgrade, row=${row}")
+                    "_row_id should be null for rows written before v3 upgrade, row=${row}")
                 assertTrue(row[2] == null,
-                        "_last_updated_sequence_number should be null for rows written before v3 upgrade, row=${row}")
+                    "_last_updated_sequence_number should be null for rows written before v3 upgrade, row=${row}")
             }
 
             sql """
@@ -300,7 +365,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                 )
             """)
             assertTrue(dorisRewriteResult.size() > 0,
-                    "Doris rewrite_data_files should return summary rows")
+                "Doris rewrite_data_files should return summary rows")
             assertLineageState(dorisTargetTable, [1, 2, 3, 4], [])
 
             check_sqls_result_equal """
