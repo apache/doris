@@ -124,8 +124,9 @@ public:
     Status start();
 
     /// Reserve one pending slot and enqueue `task` without blocking the query thread.
-    /// @return true if ownership was transferred to the queue; false on shutdown, backpressure, or
-    /// queue rejection. A rejected task's finalization callback is not invoked.
+    /// @return true if ownership was transferred to the queue; false when workers have not been
+    /// started, during shutdown, on backpressure, or on queue rejection. A rejected task's
+    /// finalization callback is not invoked.
     bool try_submit(AsyncCacheWriteTask task);
 
     /// Allocate `size` payload bytes charged to the service tracker and return them in `buffer`.
