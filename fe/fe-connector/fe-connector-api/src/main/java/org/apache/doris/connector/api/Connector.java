@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.event.ConnectorEventSource;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
@@ -42,9 +44,46 @@ public interface Connector extends Closeable {
     /** Returns the metadata interface for the given session. */
     ConnectorMetadata getMetadata(ConnectorSession session);
 
+    /**
+     * Whether {@code handle} is one of THIS connector's own concrete {@link ConnectorTableHandle} subclasses.
+     *
+     * <p>A heterogeneous gateway connector that serves several table formats through embedded <em>sibling</em>
+     * connectors uses this to route a foreign handle to the sibling that produced it: the sibling's concrete
+     * handle type is invisible across the plugin classloader split, so the gateway cannot {@code instanceof} it
+     * directly — it asks each sibling, and the sibling tests its OWN in-loader type. The default returns
+     * {@code false} (a connector owns no handle it did not define), so every non-gateway connector is
+     * unaffected.</p>
+     *
+     * <p>fe-core NEVER calls this — it is a connector-to-sibling routing predicate only, so the engine stays
+     * format-agnostic (it discriminates handles solely by the gateway's own handle type, never by asking a
+     * connector to classify one).</p>
+     */
+    default boolean ownsHandle(ConnectorTableHandle handle) {
+        return false;
+    }
+
     /** Returns the scan plan provider for split generation. */
     default ConnectorScanPlanProvider getScanPlanProvider() {
         return null;
+    }
+
+    /**
+     * Returns the scan plan provider for the given table, allowing one connector to select a
+     * different provider <b>per table</b>.
+     *
+     * <p>The selection MUST happen here, at provider-acquisition time — not inside a single
+     * dispatching provider — because {@link ConnectorScanPlanProvider} has methods that do not
+     * carry the handle (e.g. {@code appendExplainInfo}) and providers are built fresh/stateless
+     * per call, so a provider returned here must already be bound to the correct backing scanner
+     * for {@code handle}. This is the seam a heterogeneous gateway connector (one catalog serving
+     * multiple table formats) overrides to delegate to per-format sub-providers by the concrete
+     * (connector-defined) handle type; the engine never inspects the format.</p>
+     *
+     * <p>The default ignores {@code handle} and returns the connector-level
+     * {@link #getScanPlanProvider()}, so every single-format connector is unaffected.</p>
+     */
+    default ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
+        return getScanPlanProvider();
     }
 
     /**
@@ -53,6 +92,19 @@ public interface Connector extends Closeable {
      */
     default ConnectorWritePlanProvider getWritePlanProvider() {
         return null;
+    }
+
+    /**
+     * Returns the write plan provider for the given table, allowing one connector to select a different
+     * provider <b>per table</b> — the write-side analogue of {@link #getScanPlanProvider(ConnectorTableHandle)}.
+     *
+     * <p>The default ignores {@code handle} and returns the connector-level {@link #getWritePlanProvider()}, so
+     * every single-format connector is unaffected. A heterogeneous gateway connector (one catalog serving
+     * multiple table formats) overrides this to delegate to a per-format sub-provider by the concrete
+     * (connector-defined) handle type; the engine never inspects the format.</p>
+     */
+    default ConnectorWritePlanProvider getWritePlanProvider(ConnectorTableHandle handle) {
+        return getWritePlanProvider();
     }
 
     /**
@@ -65,9 +117,26 @@ public interface Connector extends Closeable {
         return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
     }
 
+    /**
+     * Per-table view of {@link #supportedWriteOperations()}: derives from {@link #getWritePlanProvider(
+     * ConnectorTableHandle)} so a heterogeneous gateway admits the right operations for {@code handle} (e.g. an
+     * iceberg-on-HMS table admits DELETE/MERGE that the hive provider does not). The default routes through the
+     * per-handle provider, so every single-format connector is unaffected.
+     */
+    default Set<WriteOperation> supportedWriteOperations(ConnectorTableHandle handle) {
+        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
+        return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
+    }
+
     /** Null-safe view of {@link ConnectorWritePlanProvider#supportsWriteBranch()}. No provider ⇒ false. */
     default boolean supportsWriteBranch() {
         ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.supportsWriteBranch();
+    }
+
+    /** Per-table view of {@link #supportsWriteBranch()} (derives from the per-handle provider). */
+    default boolean supportsWriteBranch(ConnectorTableHandle handle) {
+        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
         return p != null && p.supportsWriteBranch();
     }
 
@@ -89,6 +158,18 @@ public interface Connector extends Closeable {
         return p != null && p.requiresPartitionLocalSort();
     }
 
+    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresPartitionHashWrite()}. No provider ⇒ false. */
+    default boolean requiresPartitionHashWrite() {
+        ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.requiresPartitionHashWrite();
+    }
+
+    /** Per-table view of {@link #requiresPartitionHashWrite()} (derives from the per-handle provider). */
+    default boolean requiresPartitionHashWrite(ConnectorTableHandle handle) {
+        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
+        return p != null && p.requiresPartitionHashWrite();
+    }
+
     /**
      * Null-safe view of {@link ConnectorWritePlanProvider#requiresMaterializeStaticPartitionValues()}. No
      * provider ⇒ false.
@@ -98,12 +179,32 @@ public interface Connector extends Closeable {
         return p != null && p.requiresMaterializeStaticPartitionValues();
     }
 
+    /** Per-table view of {@link #requiresMaterializeStaticPartitionValues()} (derives from the per-handle provider). */
+    default boolean requiresMaterializeStaticPartitionValues(ConnectorTableHandle handle) {
+        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
+        return p != null && p.requiresMaterializeStaticPartitionValues();
+    }
+
     /**
      * Returns the procedure ops for {@code ALTER TABLE EXECUTE} dispatch, or {@code null} if this
      * connector exposes no table procedures. Procedure-side analogue of {@link #getWritePlanProvider()}.
      */
     default ConnectorProcedureOps getProcedureOps() {
         return null;
+    }
+
+    /**
+     * Returns the procedure ops for the given table, allowing one connector to select a different set of
+     * procedures <b>per table</b> — the procedure-side analogue of {@link #getScanPlanProvider(
+     * ConnectorTableHandle)} / {@link #getWritePlanProvider(ConnectorTableHandle)}.
+     *
+     * <p>The default ignores {@code handle} and returns the connector-level {@link #getProcedureOps()}, so every
+     * single-format connector is unaffected. A heterogeneous gateway connector (one catalog serving multiple
+     * table formats) overrides this to delegate a foreign (e.g. iceberg-on-HMS) handle to a sibling connector's
+     * procedure ops by the concrete (connector-defined) handle type; the engine never inspects the format.</p>
+     */
+    default ConnectorProcedureOps getProcedureOps(ConnectorTableHandle handle) {
+        return getProcedureOps();
     }
 
     /** Returns the set of capabilities this connector supports. */
@@ -213,6 +314,38 @@ public interface Connector extends Closeable {
 
     /** Invalidates all connector-side per-table caches. Default no-op. */
     default void invalidateAll() {
+    }
+
+    /**
+     * Invalidates the connector-side caches for every table in one database. Called by the engine on
+     * {@code REFRESH DATABASE}. The name is the REMOTE db name (as seen by the connector). Default no-op for
+     * connectors that cache nothing.
+     */
+    default void invalidateDb(String dbName) {
+    }
+
+    /**
+     * Invalidates the connector-side caches for specific partitions of a table so a subsequent read
+     * reflects the latest external state. Driven by the engine's metastore-event sync when partitions
+     * are added/dropped/altered. The names are the REMOTE db/table names and canonical partition names
+     * ({@code "col=val/.../colN=valN"}); an empty/whole-table drop is expressed by
+     * {@link #invalidateTable(String, String)}. A connector whose partition cache cannot target a single
+     * name may degrade to invalidating the whole table's partition caches (correctness-safe when the
+     * cache re-lists on miss). Default no-op for connectors that cache nothing.
+     */
+    default void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
+    }
+
+    /**
+     * Returns this connector's incremental metadata-change source, or {@code null} if it has none.
+     * A capability-probe getter (mirrors {@link #getScanPlanProvider()} / {@link #getProcedureOps()}):
+     * the engine's single, connector-agnostic, role-aware event driver iterates catalogs and calls
+     * {@link ConnectorEventSource#pollOnce} only on connectors that expose a source, never via
+     * {@code instanceof}. The default returns {@code null}, so every connector without a metastore-event
+     * feed is unaffected.
+     */
+    default ConnectorEventSource getEventSource() {
+        return null;
     }
 
     /**

@@ -114,4 +114,79 @@ public class PaimonSchemaAtMemoTest {
         Assertions.assertEquals(4, loads.get(), "an evicted key must re-read (never serve a stale value)");
         Assertions.assertTrue(memo.size() <= 2, "the memo must stay bounded");
     }
+
+    @Test
+    public void invalidateDropsAllSchemaIdsOfOneTableOnly() {
+        PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(100);
+        memo.getOrLoad(handle("db", "t"), 0L, PaimonSchemaAtMemoTest::snap);
+        memo.getOrLoad(handle("db", "t"), 1L, PaimonSchemaAtMemoTest::snap);   // same (db,t), other schemaId
+        memo.getOrLoad(handle("db", "other"), 0L, PaimonSchemaAtMemoTest::snap);
+        memo.getOrLoad(handle("db2", "t"), 0L, PaimonSchemaAtMemoTest::snap);  // same table name, other db
+        Assertions.assertEquals(4, memo.size());
+
+        memo.invalidate("db", "t");
+
+        // WHY (Rule 9 / the §3 drop+recreate fix): invalidate must drop EVERY schemaId of (db,t) so a recreate
+        // reusing schema 0 with different content cannot serve a stale schema-at memo, while leaving other
+        // tables/dbs intact. A mutation matching on schemaId, or matching db only, changes this count.
+        Assertions.assertEquals(2, memo.size(), "both (db,t) schemaIds gone; (db,other) and (db2,t) survive");
+
+        AtomicInteger loads = new AtomicInteger();
+        memo.getOrLoad(handle("db", "other"), 0L, () -> {
+            loads.incrementAndGet();
+            return snap();
+        });
+        memo.getOrLoad(handle("db2", "t"), 0L, () -> {
+            loads.incrementAndGet();
+            return snap();
+        });
+        Assertions.assertEquals(0, loads.get(), "unrelated (db,other) and (db2,t) must stay cached hits");
+        memo.getOrLoad(handle("db", "t"), 0L, () -> {
+            loads.incrementAndGet();
+            return snap();
+        });
+        Assertions.assertEquals(1, loads.get(), "(db,t) must re-read after invalidate");
+    }
+
+    @Test
+    public void invalidateDbDropsEveryTableOfOneDbOnly() {
+        PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(100);
+        memo.getOrLoad(handle("db", "t"), 0L, PaimonSchemaAtMemoTest::snap);
+        memo.getOrLoad(handle("db", "t"), 1L, PaimonSchemaAtMemoTest::snap);   // same (db,t), other schemaId
+        memo.getOrLoad(handle("db", "other"), 0L, PaimonSchemaAtMemoTest::snap); // same db, other table
+        memo.getOrLoad(handle("db2", "t"), 0L, PaimonSchemaAtMemoTest::snap);  // other db
+        Assertions.assertEquals(4, memo.size());
+
+        memo.invalidateDb("db");
+
+        // WHY (R2 / the DROP DATABASE + REFRESH DATABASE fix): invalidateDb must drop EVERY table (and every
+        // schemaId) of db so a same-name recreate under that db cannot serve a stale time-travel schema, while
+        // leaving other dbs intact. A mutation matching (db,table) instead of db-only, or a no-op, changes this.
+        Assertions.assertEquals(1, memo.size(), "all of db's entries gone; only (db2,t) survives");
+
+        AtomicInteger loads = new AtomicInteger();
+        memo.getOrLoad(handle("db2", "t"), 0L, () -> {
+            loads.incrementAndGet();
+            return snap();
+        });
+        Assertions.assertEquals(0, loads.get(), "the other db's entry must stay a cached hit");
+        memo.getOrLoad(handle("db", "other"), 0L, () -> {
+            loads.incrementAndGet();
+            return snap();
+        });
+        Assertions.assertEquals(1, loads.get(), "a table in the invalidated db must re-read");
+    }
+
+    @Test
+    public void invalidateAllClearsEverything() {
+        PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(100);
+        memo.getOrLoad(handle("db", "t"), 0L, PaimonSchemaAtMemoTest::snap);
+        memo.getOrLoad(handle("db2", "t2"), 0L, PaimonSchemaAtMemoTest::snap);
+        Assertions.assertEquals(2, memo.size());
+
+        memo.invalidateAll();
+
+        // REFRESH CATALOG parity: the whole memo is dropped (the connector is rebuilt around it too).
+        Assertions.assertEquals(0, memo.size(), "invalidateAll must clear the whole memo");
+    }
 }

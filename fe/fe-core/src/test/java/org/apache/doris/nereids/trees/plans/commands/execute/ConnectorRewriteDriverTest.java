@@ -89,8 +89,10 @@ public class ConnectorRewriteDriverTest {
         // Single all-zero row: nothing to rewrite.
         Assertions.assertEquals(Collections.singletonList(Arrays.asList("0", "0", "0", "0")), result.getRows());
         // MUTATION: dropping the empty-groups early return is killed — no transaction may be opened, and no
-        // group work scheduled, when there is nothing to rewrite.
-        Mockito.verify(metadata, Mockito.never()).beginTransaction(Mockito.any());
+        // group work scheduled, when there is nothing to rewrite. The driver opens the txn via the per-handle
+        // beginTransaction(session, handle) overload, so watch that one (the single-arg matcher would go
+        // vacuous once the call site passes the resolved tableHandle).
+        Mockito.verify(metadata, Mockito.never()).beginTransaction(Mockito.any(), Mockito.any());
     }
 
     @Test

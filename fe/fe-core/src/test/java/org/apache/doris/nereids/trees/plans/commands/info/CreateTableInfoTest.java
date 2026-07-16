@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.types.BigIntType;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -85,37 +84,12 @@ public class CreateTableInfoTest {
                 "partition expression literal is illegal!");
     }
 
-    // Re-homed from the retired IcebergDDLAndDMLPlanTest (P6.6 iceberg SPI cutover). That test drove the
-    // check through a live iceberg catalog (CREATE TABLE ... engine=iceberg), a path no longer reachable in
-    // fe-core UT after iceberg moved to the connector-plugin path. validateIcebergRowLineageColumns(int) is
-    // live production code: called from validate() for engine=iceberg (CreateTableInfo.java:801) and from
-    // IcebergMetadataOps.createTable. It rejects Iceberg's reserved row-lineage columns at format-version >=
-    // ICEBERG_ROW_LINEAGE_MIN_VERSION (3), and must leave them untouched below it. The leaf predicate
-    // IcebergUtils.isIcebergRowLineageColumn is covered by IcebergUtilsTest; the effective-format-version
-    // derivation by IcebergMetadataOpTest; these two pin the CreateTableInfo integration + the version gate.
-    @Test
-    public void testValidateIcebergRowLineageColumnsRejectsReservedAtV3() {
-        for (String reserved : new String[] {"_row_id", "_last_updated_sequence_number"}) {
-            List<ColumnDefinition> columns =
-                    Lists.newArrayList(new ColumnDefinition(reserved, BigIntType.INSTANCE, true));
-            CreateTableInfo info = new CreateTableInfo(false, false, false, "iceberg_ctl", "test_db", "test_tbl",
-                    columns, new ArrayList<>(), "iceberg", null, new ArrayList<>(), null, null, null,
-                    new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
-            Assertions.assertThrows(AnalysisException.class, () -> info.validateIcebergRowLineageColumns(3),
-                    reserved + " must be rejected as a reserved Iceberg v3 row-lineage column");
-        }
-    }
-
-    @Test
-    public void testValidateIcebergRowLineageColumnsAllowsReservedBelowV3() {
-        List<ColumnDefinition> columns =
-                Lists.newArrayList(new ColumnDefinition("_row_id", BigIntType.INSTANCE, true));
-        CreateTableInfo info = new CreateTableInfo(false, false, false, "iceberg_ctl", "test_db", "test_tbl",
-                columns, new ArrayList<>(), "iceberg", null, new ArrayList<>(), null, null, null,
-                new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
-        Assertions.assertDoesNotThrow(() -> info.validateIcebergRowLineageColumns(2),
-                "_row_id must be allowed for Iceberg format-version < 3 (below ICEBERG_ROW_LINEAGE_MIN_VERSION)");
-    }
+    // NOTE: the LIVE iceberg v3 reserved-row-lineage-column rejection moved off fe-core into the iceberg
+    // connector (IcebergConnectorMetadata.createTable); it is now covered by IcebergConnectorMetadataDdlTest
+    // (request-level + catalog table-default/override format-version precedence). CreateTableInfo's
+    // validateIcebergRowLineageColumns(int) is no longer on the live path (the engine gate was removed) and
+    // survives only for the legacy dead IcebergMetadataOps caller (deleted with it in the deletion phase), so
+    // the former fe-core unit tests that drove it directly were dropped.
 
     @Test
     public void testCheckPartitionNullity1() {

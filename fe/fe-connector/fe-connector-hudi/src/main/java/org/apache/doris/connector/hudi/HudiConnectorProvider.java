@@ -27,13 +27,23 @@ import java.util.Map;
  * SPI entry point for the Hudi connector plugin.
  *
  * <p>Registered via {@code META-INF/services/org.apache.doris.connector.spi.ConnectorProvider}.
- * The type is {@code "hudi"} for dedicated Hudi catalogs that connect to HMS
- * and expose Hudi tables.</p>
+ *
+ * <p><b>The type {@code "hudi"} is a SIBLING-ONLY type string — NOT a user-facing catalog type.</b> There is no
+ * {@code type=hudi} catalog and no {@code HudiExternalCatalog}: a hudi table is always parasitic on an HMS
+ * catalog (legacy {@code HMSExternalTable} with {@code dlaType == HUDI}). After the HMS cutover this connector is
+ * built only as an embedded <em>sibling</em> of the hive {@code hms} gateway, resolved through
+ * {@code ConnectorContext.createSiblingConnector("hudi", ...)} — which bypasses
+ * {@code CatalogFactory.SPI_READY_TYPES}. <b>NEVER add {@code "hudi"} to {@code SPI_READY_TYPES}</b> and never add
+ * a {@code case "hudi"} to the catalog factory: doing so would build a standalone
+ * {@code PluginDrivenExternalCatalog} around this connector with no fe-core catalog class backing it (the exact
+ * model mismatch this type string otherwise invites).
  */
 public class HudiConnectorProvider implements ConnectorProvider {
 
     @Override
     public String getType() {
+        // Sibling-only lookup key for createSiblingConnector("hudi", ...); see the class javadoc.
+        // NOT a user-facing catalog type; never add "hudi" to CatalogFactory.SPI_READY_TYPES.
         return "hudi";
     }
 

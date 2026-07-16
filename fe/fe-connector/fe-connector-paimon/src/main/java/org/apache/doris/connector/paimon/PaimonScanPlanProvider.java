@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -59,6 +60,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
+import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
@@ -86,11 +88,16 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 /**
@@ -152,6 +159,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // bypassing the native ORC/Parquet readers to dodge native-reader bugs. Default false (legacy default).
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    // Session variable name (byte-identical to SessionVariable.IGNORE_SPLIT_TYPE) surfaced through the same
+    // VariableMgr.toMap channel. A debugging escape hatch to isolate reader bugs: IGNORE_JNI drops every JNI
+    // split, IGNORE_NATIVE drops every native split (legacy PaimonScanNode.getSplits). IGNORE_PAIMON_CPP is a
+    // documented option but was NEVER consulted by legacy getSplits, so it stays a no-op here (legacy parity).
+    // Default NONE, so normal reads are unaffected.
+    private static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
+    private static final String IGNORE_SPLIT_TYPE_JNI = "IGNORE_JNI";
+    private static final String IGNORE_SPLIT_TYPE_NATIVE = "IGNORE_NATIVE";
+
     // FIX-NATIVE-SUBSPLIT (M-3): file-split session vars (byte-identical to SessionVariable.{FILE_SPLIT_SIZE,
     // MAX_INITIAL_FILE_SPLIT_SIZE, MAX_FILE_SPLIT_SIZE, MAX_INITIAL_FILE_SPLIT_NUM, MAX_FILE_SPLIT_NUM}),
     // read via the same VariableMgr.toMap channel as ENABLE_PAIMON_CPP_READER. They drive the native
@@ -201,6 +217,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // the existing construction sites are unchanged (first build = direct read = pre-fix behavior).
     private final PaimonSchemaAtMemo schemaAtMemo;
 
+    // FIX-SCAN-METRICS: per-query stash of the paimon SDK scan diagnostics harvested during planScan, keyed
+    // by session queryId. fe-core drains it (collectScanProfiles) right after planScan on the same thread;
+    // releaseReadTransaction reclaims any entry a thrown planScan left behind. Bounded to the sync planScan
+    // path (paimon never streams), so the CopyOnWriteArrayList value is only ever appended single-threaded.
+    private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
+
     public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps) {
         this(properties, catalogOps, null);
     }
@@ -248,6 +270,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
+    }
+
+    /**
+     * Reads the {@code ignore_split_type} session variable (same {@code VariableMgr.toMap} channel as
+     * {@link #isCppReaderEnabled}). Returns {@code "NONE"} when the session is absent (offline unit tests)
+     * or the variable is unset, matching this file's null-tolerant session-read convention. Only
+     * {@code IGNORE_JNI} / {@code IGNORE_NATIVE} carry behavior (skip the matching split type, legacy
+     * {@code PaimonScanNode.getSplits}); every other value (incl. {@code NONE} / {@code IGNORE_PAIMON_CPP})
+     * is a no-op. Package-private static for offline unit testing.
+     */
+    static String resolveIgnoreSplitType(ConnectorSession session) {
+        if (session == null) {
+            return "NONE";
+        }
+        return session.getSessionProperties().getOrDefault(IGNORE_SPLIT_TYPE, "NONE");
     }
 
     /**
@@ -320,6 +357,74 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean ignorePartitionPruneShortCircuit() {
         return true;
+    }
+
+    /**
+     * The distinct scanned partitions among the just-planned ranges (FIX-L12) — restores legacy
+     * {@code PaimonScanNode}'s {@code selectedPartitionNum = partitionInfoMaps.size()} (keyed by
+     * {@code dataSplit.partition()}) so EXPLAIN {@code partition=N/M} and {@code sql_block_rule} reflect
+     * the partitions the paimon SDK actually resolved after manifest/file-stat pruning, not the engine's
+     * declared-column Nereids count. The identity is the rendered {@link PaimonScanRange#getPartitionValues()}
+     * map — {@code getPartitionInfoMap(table, dataSplit.partition(), tz)}, deterministic and injective per
+     * partition within a scan, so distinct maps == distinct native partitions (multiple ranges of one
+     * partition de-dup). Returns empty for an unpartitioned table (every range's partition map is empty),
+     * so the engine keeps its own count. A partition column whose type is unserializable makes
+     * {@code getPartitionInfoMap} drop the whole map to empty too → empty here → engine keeps the (safe,
+     * &ge; real) Nereids count. Only counts this provider's own {@link PaimonScanRange} instances.
+     */
+    @Override
+    public OptionalLong scannedPartitionCount(List<ConnectorScanRange> scanRanges) {
+        Set<Map<String, String>> distinctPartitions = new HashSet<>();
+        for (ConnectorScanRange range : scanRanges) {
+            if (range instanceof PaimonScanRange) {
+                Map<String, String> partitionValues = range.getPartitionValues();
+                if (partitionValues != null && !partitionValues.isEmpty()) {
+                    distinctPartitions.add(partitionValues);
+                }
+            }
+        }
+        return distinctPartitions.isEmpty()
+                ? OptionalLong.empty() : OptionalLong.of(distinctPartitions.size());
+    }
+
+    /**
+     * Harvest the paimon SDK scan metrics recorded into {@code registry} by {@code scan.plan()} and stash
+     * them keyed by the session queryId for fe-core to drain (FIX-SCAN-METRICS). No-op for a blank queryId
+     * (offline/no-session) or a scan the SDK recorded no metrics for.
+     */
+    private void stashScanProfile(ConnectorSession session, Table table, PaimonTableHandle handle,
+            PaimonMetricRegistry registry) {
+        // Guard a null session (offline unit tests) — production planScan always carries one.
+        if (session == null) {
+            return;
+        }
+        String queryId = session.getQueryId();
+        if (queryId == null || queryId.isEmpty()) {
+            return;
+        }
+        String scanLabel = "Table Scan (" + handle.getDatabaseName() + "." + handle.getTableName() + ")";
+        PaimonScanMetrics.harvest(registry, table.name(), scanLabel).ifPresent(profile ->
+                scanProfileStash.computeIfAbsent(queryId, k -> new CopyOnWriteArrayList<>()).add(profile));
+    }
+
+    @Override
+    public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        String queryId = session.getQueryId();
+        if (queryId == null || queryId.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ConnectorScanProfile> profiles = scanProfileStash.remove(queryId);
+        return profiles == null ? Collections.emptyList() : profiles;
+    }
+
+    @Override
+    public void releaseReadTransaction(String queryId) {
+        // Paimon opens no metastore read transaction (it inherits the SPI no-op); this override only reclaims
+        // the scan-metrics stash for a query whose planScan threw AFTER harvesting (the normal path drains it
+        // via collectScanProfiles). Same queryId fe-core registered the query-finish callback with.
+        if (queryId != null && !queryId.isEmpty()) {
+            scanProfileStash.remove(queryId);
+        }
     }
 
     /**
@@ -404,7 +509,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             readBuilder.withProjection(projected);
         }
         TableScan scan = readBuilder.newScan();
+        // FIX-SCAN-METRICS: attach a metric registry so scan.plan() records its ScanMetrics (manifest cache
+        // hit/miss, scan durations, table files skipped/resulted), then harvest them below — restores the
+        // legacy PaimonScanNode scan-metrics profile. InnerTableScan.withMetricRegistry is a real body on the
+        // AbstractDataTableScan a data table returns; other scan types keep the no-op default (no metrics).
+        PaimonMetricRegistry metricRegistry = new PaimonMetricRegistry();
+        if (scan instanceof InnerTableScan) {
+            scan = ((InnerTableScan) scan).withMetricRegistry(metricRegistry);
+        }
         List<Split> paimonSplits = planSplits(scan);
+        stashScanProfile(session, table, paimonHandle, metricRegistry);
 
         // Determine table location
         String tableLocation = getTableLocation(table);
@@ -427,6 +541,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Read the cpp-reader flag once: it selects the JNI split serialization format (see encodeSplit).
         boolean cppReader = isCppReaderEnabled(session);
 
+        // FIX-L14: honor the ignore_split_type debugging escape hatch (legacy PaimonScanNode.getSplits):
+        // IGNORE_JNI drops JNI splits (nonDataSplit + DataSplit-JNI arms), IGNORE_NATIVE drops native splits.
+        // The COUNT(*) arm is never dropped (legacy parity); IGNORE_PAIMON_CPP stays a no-op (legacy getSplits
+        // never consulted it). Read once here, null-tolerant like the flags above.
+        String ignoreSplitType = resolveIgnoreSplitType(session);
+        boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
+        boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
+
         // FIX-REST-VENDED-URI-NORMALIZE (P9-1): extract the per-table vended token ONCE per scan
         // (validToken() may refresh; legacy computes its storage map once in doInitialize), threaded into
         // the native-path URI normalization below so REST object-store reads normalize via the vended
@@ -444,6 +566,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
+            if (ignoreJni) {
+                // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:401).
+                continue;
+            }
             ranges.add(buildJniScanRange(split, tableLocation, defaultFileFormat,
                     Collections.emptyMap(), false, cppReader, weightDenominator));
         }
@@ -484,6 +610,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
             if (shouldUseNativeReader(paimonHandle.isForceJni(),
                     isForceJniScannerEnabled(session), optRawFiles)) {
+                if (ignoreNative) {
+                    // FIX-L14: ignore_split_type=IGNORE_NATIVE drops native splits (legacy getSplits:443).
+                    continue;
+                }
                 // Native reader path: sub-split large ORC/Parquet files for read parallelism
                 // (FIX-NATIVE-SUBSPLIT), mirroring legacy fileSplitter.splitFile. Under COUNT(*) pushdown
                 // legacy passes splittable=!applyCountPushdown, so a native split that reaches this arm
@@ -506,6 +636,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 }
             } else {
                 // JNI reader path
+                if (ignoreJni) {
+                    // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
+                    continue;
+                }
                 ranges.add(buildJniScanRange(
                         dataSplit, tableLocation, defaultFileFormat,
                         partitionValues, true, cppReader, weightDenominator));
@@ -804,13 +938,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         String serializedSplit = encodeSplit(split, cppReader);
 
-        // FIX-JNI-FILE-FORMAT (P7-1): emit the real data-file format (orc/parquet), NOT "jni". JNI routing
-        // is gated by the paimon.split property (PaimonScanRange.populateRangeParams), so this string only
-        // feeds fileDesc.file_format, which BE's paimon_cpp_reader backfills into FILE_FORMAT/MANIFEST_FORMAT
-        // (an invalid "jni" breaks the manifest read). Mirrors legacy PaimonScanNode.setPaimonParams's
-        // fileDesc.setFileFormat(getFileFormat(...)).
+        // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: emit the real data-file format (orc/parquet/avro), NOT "jni".
+        // JNI routing is gated by the paimon.split property (PaimonScanRange.populateRangeParams), so this
+        // string only feeds fileDesc.file_format, which BE's paimon_cpp_reader backfills into
+        // FILE_FORMAT/MANIFEST_FORMAT (an invalid "jni" breaks the manifest read). Mirrors legacy
+        // PaimonScanNode.setPaimonParams's fileDesc.setFileFormat(getFileFormat(getPathString())): for a
+        // DataSplit the format is the FIRST data-file suffix (falling back to the table default); a
+        // non-DataSplit has no data file and falls back to the table default (legacy DUMMY_PATH -> orElse).
+        String fileFormat = isDataSplit
+                ? dataSplitFileFormat((DataSplit) split, defaultFileFormat)
+                : defaultFileFormat;
         return new PaimonScanRange.Builder()
-                .fileFormat(defaultFileFormat)
+                .fileFormat(fileFormat)
                 .paimonSplit(serializedSplit)
                 // FIX-READER-TYPE (3645dc94306): lockstep with encodeSplit above — PAIMON_CPP iff we
                 // native-serialized a DataSplit for the paimon-cpp reader, else PAIMON_JNI.
@@ -844,9 +983,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             String defaultFileFormat, Map<String, String> partitionValues, boolean cppReader, long rowCount,
             long weightDenominator) {
         String serializedSplit = encodeSplit(dataSplit, cppReader);
-        // FIX-JNI-FILE-FORMAT (P7-1): real data-file format, not "jni" (see buildJniScanRange).
+        // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: real data-file format from the first data-file suffix, not
+        // "jni" and not the bare table default (see buildJniScanRange / dataSplitFileFormat).
         return new PaimonScanRange.Builder()
-                .fileFormat(defaultFileFormat)
+                .fileFormat(dataSplitFileFormat(dataSplit, defaultFileFormat))
                 .paimonSplit(serializedSplit)
                 // FIX-READER-TYPE (3645dc94306): dataSplit is always a DataSplit here, so cpp-reader
                 // serialization (hence PAIMON_CPP) is chosen iff the flag is on — matches encodeSplit above.
@@ -1179,12 +1319,31 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return options;
     }
 
+    /**
+     * The real data-file format of a {@link DataSplit}: the suffix of its FIRST data file (legacy
+     * {@code PaimonSplit} path = {@code "/" + dataFiles().get(0).fileName()}), falling back to the table
+     * default when the suffix is unrecognized or the split carries no data file. Ports legacy
+     * {@code PaimonScanNode.getFileFormat(getPathString())} for the JNI/COUNT arms, where HEAD had regressed
+     * to the bare table-level {@code file.format} default (wrong when the option differs from the on-disk
+     * files, e.g. an altered/mixed-format table). Package-private static so the suffix-over-default decision
+     * is unit-testable, like {@link #isCountPushdownSplit} / {@link #computeFileSplitOffsets}.
+     */
+    static String dataSplitFileFormat(DataSplit dataSplit, String defaultFileFormat) {
+        List<DataFileMeta> files = dataSplit.dataFiles();
+        if (files == null || files.isEmpty()) {
+            return defaultFileFormat;
+        }
+        return getFileFormatBySuffix("/" + files.get(0).fileName()).orElse(defaultFileFormat);
+    }
+
     private static Optional<String> getFileFormatBySuffix(String path) {
         if (path == null) {
             return Optional.empty();
         }
         String lower = path.toLowerCase();
-        if (lower.endsWith(".orc")) {
+        if (lower.endsWith(".avro")) {
+            return Optional.of("avro");
+        } else if (lower.endsWith(".orc")) {
             return Optional.of("orc");
         } else if (lower.endsWith(".parquet") || lower.endsWith(".parq")) {
             return Optional.of("parquet");

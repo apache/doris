@@ -15,7 +15,6 @@
 # specific language governing permissions and limitations
 # under the License.
 org.apache.doris.connector.metastore.paimon.hms.PaimonHmsMetaStoreProvider
-org.apache.doris.connector.metastore.paimon.dlf.PaimonDlfMetaStoreProvider
 org.apache.doris.connector.metastore.paimon.rest.PaimonRestMetaStoreProvider
 org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProvider
 org.apache.doris.connector.metastore.paimon.fs.PaimonFileSystemMetaStoreProvider

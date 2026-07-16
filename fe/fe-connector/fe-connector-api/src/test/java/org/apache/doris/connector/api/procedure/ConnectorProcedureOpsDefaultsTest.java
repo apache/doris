@@ -75,6 +75,72 @@ public class ConnectorProcedureOpsDefaultsTest {
     }
 
     @Test
+    public void getProcedureOpsPerHandleDefaultsToNoArg() {
+        // A single-format connector overrides only the no-arg getter; the per-handle default must delegate to it
+        // (NOT return null), so every existing connector routes ALTER TABLE EXECUTE unchanged after the seam is
+        // added. MUTATION: making the default return null instead of getProcedureOps() -> non-null assert red.
+        ConnectorProcedureOps only = new BareProcedureOps();
+        Connector connector = new Connector() {
+            @Override
+            public ConnectorMetadata getMetadata(ConnectorSession session) {
+                return null;
+            }
+
+            @Override
+            public ConnectorProcedureOps getProcedureOps() {
+                return only;
+            }
+        };
+
+        Assertions.assertSame(only, connector.getProcedureOps(handle()),
+                "the per-handle default must delegate to the connector-level no-arg procedure ops");
+    }
+
+    @Test
+    public void getProcedureOpsPerHandleStaysNullWhenConnectorHasNoProcedures() {
+        // A connector with no procedures (no-arg default returns null) must keep returning null through the
+        // per-handle seam, so ALTER TABLE EXECUTE is never dispatched to it.
+        Assertions.assertNull(new BareConnector().getProcedureOps(handle()),
+                "with no procedure ops at all the per-handle seam stays null");
+    }
+
+    @Test
+    public void getProcedureOpsPerHandleOverrideSelectsPerHandle() {
+        // A heterogeneous gateway overrides the per-handle seam and returns the SIBLING's ops for a foreign
+        // handle while a plain (hive) handle keeps the connector-level null, and must NOT fall back to the no-arg
+        // getter once it has a per-handle answer. MUTATION: keying the override on the no-arg getter (ignoring
+        // the handle) -> the foreign-handle assert reads null -> red.
+        ConnectorTableHandle foreignHandle = handle();
+        ConnectorProcedureOps siblingOps = new BareProcedureOps();
+        Connector gateway = new Connector() {
+            @Override
+            public ConnectorMetadata getMetadata(ConnectorSession session) {
+                return null;
+            }
+
+            @Override
+            public ConnectorProcedureOps getProcedureOps() {
+                return null;
+            }
+
+            @Override
+            public ConnectorProcedureOps getProcedureOps(ConnectorTableHandle handle) {
+                return handle == foreignHandle ? siblingOps : getProcedureOps();
+            }
+        };
+
+        Assertions.assertSame(siblingOps, gateway.getProcedureOps(foreignHandle),
+                "a gateway routes the foreign (iceberg-on-HMS) handle to the sibling's procedure ops");
+        Assertions.assertNull(gateway.getProcedureOps(handle()),
+                "a non-foreign (plain-hive) handle keeps the connector-level null (no procedures)");
+    }
+
+    private static ConnectorTableHandle handle() {
+        return new ConnectorTableHandle() {
+        };
+    }
+
+    @Test
     public void getExecutionModeDefaultsToSingleCall() {
         // A connector that declares only synchronous procedures inherits SINGLE_CALL for every name, so the
         // engine never attempts distributed orchestration on a procedure that has none. Only a connector with

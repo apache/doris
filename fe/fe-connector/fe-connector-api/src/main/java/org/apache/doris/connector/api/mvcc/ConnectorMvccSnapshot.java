@@ -38,6 +38,7 @@ public final class ConnectorMvccSnapshot {
     private final String description;
     private final long schemaId;
     private final Map<String, String> properties;
+    private final boolean lastModifiedFreshness;
 
     private ConnectorMvccSnapshot(Builder b) {
         this.snapshotId = b.snapshotId;
@@ -47,6 +48,7 @@ public final class ConnectorMvccSnapshot {
         this.properties = b.properties.isEmpty()
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new HashMap<>(b.properties));
+        this.lastModifiedFreshness = b.lastModifiedFreshness;
     }
 
     /** Connector-assigned snapshot identifier (e.g. Iceberg snapshot id). */
@@ -77,6 +79,19 @@ public final class ConnectorMvccSnapshot {
         return properties;
     }
 
+    /**
+     * Whether this table's MTMV freshness is a last-modified TIMESTAMP rather than a snapshot id. When
+     * {@code true} the generic model ({@code PluginDrivenMvccExternalTable}) serves the table/partition MTMV
+     * snapshots from {@code ConnectorMetadata.getTableFreshness} / {@code getPartitionFreshnessMillis} (fetched
+     * on the MTMV refresh path only); when {@code false} (the default, e.g. paimon/iceberg — a snapshot-id
+     * connector) it keeps the snapshot-id / pin-timestamp freshness with NO extra metadata call. The flag rides
+     * on the query-begin pin so fe-core reads it off the pin it already holds — a snapshot-id connector pays
+     * zero extra round-trips.
+     */
+    public boolean isLastModifiedFreshness() {
+        return lastModifiedFreshness;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -88,9 +103,16 @@ public final class ConnectorMvccSnapshot {
         private String description = "";
         private long schemaId = -1;
         private final Map<String, String> properties = new HashMap<>();
+        private boolean lastModifiedFreshness;
 
         public Builder snapshotId(long snapshotId) {
             this.snapshotId = snapshotId;
+            return this;
+        }
+
+        /** Marks this table's MTMV freshness as last-modified (see {@link #isLastModifiedFreshness()}). */
+        public Builder lastModifiedFreshness(boolean lastModifiedFreshness) {
+            this.lastModifiedFreshness = lastModifiedFreshness;
             return this;
         }
 

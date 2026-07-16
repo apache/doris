@@ -22,9 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
@@ -185,10 +185,10 @@ public class DbsProcDirTest {
 
     @Test
     public void testListTableNameFailed() throws AnalysisException {
-        HMSExternalCatalog ctlg = Mockito.mock(HMSExternalCatalog.class);
+        ExternalCatalog ctlg = Mockito.mock(ExternalCatalog.class);
         Mockito.when(ctlg.getDbNames()).thenReturn(Lists.newArrayList("db1"));
 
-        HMSExternalDatabase mockDb = Mockito.mock(HMSExternalDatabase.class);
+        ExternalDatabase mockDb = Mockito.mock(ExternalDatabase.class);
         Mockito.when(mockDb.getId()).thenReturn(3L);
         Mockito.when(mockDb.getTables()).thenThrow(new RuntimeException("list table failed"));
         Mockito.doReturn(mockDb).when(ctlg).getDbNullable("db1");

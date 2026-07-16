@@ -30,7 +30,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -39,7 +38,6 @@ import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -286,12 +284,6 @@ public class InsertUtils {
                                      Optional<CascadesContext> analyzeContext,
                                      Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hiveTable = (HMSExternalTable) table;
-            if (hiveTable.isView()) {
-                throw new AnalysisException("View is not support in hive external table.");
-            }
-        }
         // Plugin-driven (flipped) external views: the legacy engine sinks rejected writes to a view (e.g.
         // IcebergTableSink threw on isView()); on the neutral write path that guard must live here, since a
         // flipped catalog reaches a connector sink, not the engine-specific sink.
@@ -602,8 +594,6 @@ public class InsertUtils {
         UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundHiveTableSink) {
-            unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundIcebergTableSink) {
             unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundDictionarySink) {

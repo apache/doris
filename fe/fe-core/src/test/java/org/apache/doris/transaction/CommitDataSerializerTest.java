@@ -17,8 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.datasource.hive.HMSTransaction;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -29,9 +27,7 @@ import org.apache.thrift.TBase;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
-import org.junit.After;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -54,21 +50,6 @@ import java.util.List;
  * mismatch corrupts the round trip and fails these tests.</p>
  */
 public class CommitDataSerializerTest {
-
-    private ConnectContext connectContext;
-
-    @Before
-    public void setUp() {
-        // HMSTransaction's constructor reads ConnectContext.get(); install one on the thread.
-        connectContext = new ConnectContext();
-        connectContext.setThreadLocalInfo();
-    }
-
-    @After
-    public void tearDown() {
-        ConnectContext.remove();
-        connectContext = null;
-    }
 
     private static TMCCommitData mcData(String session, long rowCount, String commitMessage) {
         return new TMCCommitData()
@@ -154,26 +135,6 @@ public class CommitDataSerializerTest {
             new TDeserializer(new TBinaryProtocol.Factory()).deserialize(roundTripped, payloads.get(i));
             Assert.assertEquals(input.get(i), roundTripped);
         }
-    }
-
-    /**
-     * Hive: feeding each fragment through {@link CommitDataSerializer} accumulates
-     * the identical list as the legacy whole-list {@code updateHivePartitionUpdates}.
-     */
-    @Test
-    public void hmsFeedEqualsLegacyUpdate() {
-        List<THivePartitionUpdate> input = Arrays.asList(
-                hiveData("dt=2026-06-06", 7L, "f1", "f2"),
-                hiveData("dt=2026-06-07", 9L, "f3"));
-
-        HMSTransaction legacy = new HMSTransaction(null, null, null);
-        legacy.updateHivePartitionUpdates(input);
-
-        HMSTransaction viaFeed = new HMSTransaction(null, null, null);
-        CommitDataSerializer.feed(viaFeed, input);
-
-        Assert.assertEquals(legacy.getHivePartitionUpdates(), viaFeed.getHivePartitionUpdates());
-        Assert.assertEquals(2, viaFeed.getHivePartitionUpdates().size());
     }
 
 }

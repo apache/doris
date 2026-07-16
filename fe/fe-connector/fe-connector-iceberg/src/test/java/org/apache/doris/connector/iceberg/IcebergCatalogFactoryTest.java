@@ -23,9 +23,14 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.iceberg.aws.AwsClientProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 
@@ -42,8 +47,8 @@ import java.util.Optional;
  * (no env, no clock, no live catalog), so the tests are entirely offline. No Mockito.
  *
  * <p>P6.1 baseline: the per-flavor catalog-impl class names MUST mirror the legacy fe-core
- * {@code IcebergConnector.resolveCatalogImpl} switch. The s3tables/dlf bespoke instantiation fixes
- * are later tasks; here we pin the impl-name routing the current production code performs.
+ * {@code IcebergConnector.resolveCatalogImpl} switch. Here we pin the impl-name routing the current
+ * production code performs.
  */
 public class IcebergCatalogFactoryTest {
 
@@ -132,9 +137,19 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
-    public void resolveCatalogImplMapsDlfToDorisDlfCatalog() {
-        Assertions.assertEquals("org.apache.doris.connector.iceberg.dlf.DLFCatalog",
-                IcebergCatalogFactory.resolveCatalogImpl("dlf"));
+    public void resolveCatalogImplRejectsRemovedDlfFlavor() {
+        // WHY: iceberg.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed, so
+        // it must now hit the default arm and fail loud like any unknown flavor — never resolve to a class that
+        // no longer ships. MUTATION: re-adding a dlf arm -> red.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergCatalogFactory.resolveCatalogImpl("dlf"));
+        // Assert on the supported-types LIST only: the message also echoes the rejected input, so a naive
+        // contains("dlf") over the whole message would match the echo and never fail.
+        String supported = ex.getMessage().substring(ex.getMessage().indexOf("Supported types:"));
+        Assertions.assertFalse(supported.contains("dlf"),
+                "the supported-types list must no longer advertise dlf: " + supported);
+        Assertions.assertTrue(supported.contains("glue"),
+                "glue is the iceberg-native backend and must stay supported: " + supported);
     }
 
     @Test
@@ -544,23 +559,68 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void appendGlueAccessKeyBranchEmitsProviderKeysAndWins() {
-        // WHY: when glue access_key & secret_key are both set, legacy emits the ConfigurationAWSCredentialsProvider2x
-        // provider keys + factory class and RETURNS (mutually exclusive with the IAM-role branch). MUTATION: wrong
-        // key/value, or also emitting client.factory (IAM branch) -> red.
+        // WHY: when glue access_key & secret_key are both set, emit the ConfigurationAWSCredentialsProvider2x
+        // provider keys and RETURN (mutually exclusive with the IAM-role branch). MUTATION: wrong key/value, or
+        // also emitting client.factory (IAM branch) -> red.
         Map<String, String> opts = new HashMap<>();
         IcebergCatalogFactory.appendGlueProperties(opts,
                 props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
                         "glue.role_arn", "arn:aws:iam::1:role/should-not-fire",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
                 Optional.empty());
-        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x",
+        Assertions.assertEquals("org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x",
                 opts.get("client.credentials-provider"));
         Assertions.assertEquals("GAK", opts.get("client.credentials-provider.glue.access_key"));
         Assertions.assertEquals("GSK", opts.get("client.credentials-provider.glue.secret_key"));
         Assertions.assertEquals("GST", opts.get("client.credentials-provider.glue.session_token"));
-        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory",
-                opts.get("aws.catalog.credentials.provider.factory.class"));
+        Assertions.assertNull(opts.get("aws.catalog.credentials.provider.factory.class"),
+                "the factory key was only ever read by the removed thrift-generation Glue client");
         Assertions.assertNull(opts.get("client.factory"), "AK/SK branch must short-circuit the IAM-role branch");
+    }
+
+    @Test
+    public void glueSessionTokenSurvivesToTheResolvedCredential() {
+        // Drives the REAL iceberg plumbing end to end -- emit -> AwsClientProperties strips the
+        // "client.credentials-provider." prefix -> DynMethods reflects into create(Map) -> we read the token.
+        // Asserting the emission alone (see the test above) cannot catch the two halves drifting apart: the
+        // provider used to read only ak/sk, so a supplied token was dropped here and AWS then rejected the
+        // temporary credentials. MUTATION: dropping the token read in create() -> AwsBasicCredentials -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(opts,
+                props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
+                        "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
+                Optional.empty());
+
+        // null ak/sk so iceberg falls back to the named client.credentials-provider (the glue client's path).
+        AwsCredentials resolved = new AwsClientProperties(opts)
+                .credentialsProvider(null, null, null)
+                .resolveCredentials();
+
+        Assertions.assertInstanceOf(AwsSessionCredentials.class, resolved,
+                "a supplied glue session token must yield session credentials, not basic ones");
+        Assertions.assertEquals("GST", ((AwsSessionCredentials) resolved).sessionToken());
+        Assertions.assertEquals("GAK", resolved.accessKeyId());
+        Assertions.assertEquals("GSK", resolved.secretAccessKey());
+    }
+
+    @Test
+    public void glueWithoutSessionTokenStaysBasicCredentials() {
+        // The no-token path must keep today's behaviour. MUTATION: building session credentials unconditionally
+        // -> AwsSessionCredentials.create accepts a blank token silently -> this turns red instead of AWS
+        // rejecting it much later with a confusing 4xx.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(opts,
+                props("glue.access_key", "GAK", "glue.secret_key", "GSK",
+                        "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
+                Optional.empty());
+
+        AwsCredentials resolved = new AwsClientProperties(opts)
+                .credentialsProvider(null, null, null)
+                .resolveCredentials();
+
+        Assertions.assertInstanceOf(AwsBasicCredentials.class, resolved);
+        Assertions.assertEquals("GAK", resolved.accessKeyId());
+        Assertions.assertEquals("GSK", resolved.secretAccessKey());
     }
 
     @Test
@@ -720,6 +780,30 @@ public class IcebergCatalogFactoryTest {
                 "vended REST (no bound S3) must still translate s3.region -> client.region");
     }
 
+    @Test
+    public void buildCatalogPropertiesRestVendedResolvesRegionFromWidenedAliases() {
+        // WHY: the empty-chosenS3 region fallback must scan the SAME region aliases legacy getRegionFromProperties
+        // did (the fe-core S3Properties isRegionField set), not just {s3.region, aws.region, region, client.region}.
+        // A vended REST catalog whose region arrives only via AWS_REGION or iceberg.rest.signing-region would
+        // otherwise yield no client.region -> AWS SDK DefaultAwsRegionProviderChain -> "Unable to load region".
+        // RED before widening: AWS_REGION (uppercase) does not match the narrow lowercase aws.region and
+        // iceberg.rest.signing-region is absent from the narrow 4-alias set -> client.region null.
+        Map<String, String> viaAwsRegion = IcebergCatalogFactory.buildCatalogProperties(
+                props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "iceberg.rest.vended-credentials-enabled", "true", "AWS_REGION", "us-east-1"),
+                "rest", Optional.empty());
+        Assertions.assertEquals("us-east-1", viaAwsRegion.get("client.region"),
+                "region supplied only via AWS_REGION must translate to client.region");
+
+        Map<String, String> viaSigningRegion = IcebergCatalogFactory.buildCatalogProperties(
+                props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "iceberg.rest.vended-credentials-enabled", "true",
+                        "iceberg.rest.signing-region", "eu-west-1"),
+                "rest", Optional.empty());
+        Assertions.assertEquals("eu-west-1", viaSigningRegion.get("client.region"),
+                "region supplied only via iceberg.rest.signing-region must translate to client.region");
+    }
+
     // ---------------------------------------------------------------------
     // buildS3TablesCatalogProperties — bespoke s3tables options (NO catalog-impl, NO type removal)
     // ---------------------------------------------------------------------
@@ -802,9 +886,10 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void buildS3TablesCatalogPropertiesWithoutStorageOmitsS3FileIo() {
-        // WHY: with no bound S3-compatible storage the props carry only the base (warehouse + manifest-cache);
-        // no S3FileIO keys are fabricated (the connector fails loud before building the client). MUTATION:
-        // emitting any s3.* / client.region without a storage -> red.
+        // WHY: with no bound S3-compatible storage AND no region alias in the props, only the base keys are present
+        // (warehouse + manifest-cache) — no s3.* credential keys are fabricated, and client.region stays absent
+        // because there is no region to propagate. (When a region IS present it is now emitted; see
+        // buildS3TablesCatalogPropertiesPropagatesClientRegionWithoutBoundS3.) MUTATION: fabricating any s3.* -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
                 props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b"),
                 Optional.empty());
@@ -812,6 +897,21 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertNull(opts.get("s3.access-key-id"));
         Assertions.assertNull(opts.get("client.region"));
         Assertions.assertNull(opts.get("catalog-impl"));
+    }
+
+    @Test
+    public void buildS3TablesCatalogPropertiesPropagatesClientRegionWithoutBoundS3() {
+        // WHY: an EC2 instance-profile s3tables catalog (no bound storage) must still propagate an explicit
+        // s3.region to the data-plane S3FileIO as client.region, or S3FileIO falls to IMDS /
+        // DefaultAwsRegionProviderChain. Parallels the REST vended-cred region test. RED at HEAD (the old
+        // ifPresent-only path emitted nothing without a storage). No s3.* credential keys (none are bound).
+        Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
+                        "s3.region", "us-east-1"),
+                Optional.empty());
+        Assertions.assertEquals("us-east-1", opts.get("client.region"),
+                "no-storage s3tables must propagate s3.region -> client.region for the data-plane S3FileIO");
+        Assertions.assertNull(opts.get("s3.access-key-id"), "no credentials are bound");
     }
 
     // ---------------------------------------------------------------------
@@ -861,34 +961,53 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
-    public void assembleHiveConfLayersOverridesOverBase() {
-        // WHY: the external hive-site.xml base is seeded first, then the metastore-spi overrides win
-        // (last-write-wins), so a connection key in the overrides correctly overrides the file. MUTATION:
-        // reversing the order -> the base value would win -> red.
-        Map<String, String> base = new HashMap<>();
-        base.put("hive.metastore.uris", "thrift://from-file:9083");
-        base.put("base.only", "kept");
-        Map<String, String> overrides = new HashMap<>();
-        overrides.put("hive.metastore.uris", "thrift://override:9083");
-        HiveConf conf = IcebergCatalogFactory.assembleHiveConf(base, overrides);
-        Assertions.assertEquals("thrift://override:9083", conf.get("hive.metastore.uris"));
-        Assertions.assertEquals("kept", conf.get("base.only"));
+    public void assembleHiveConfLayersOverridesOverBase(@TempDir java.nio.file.Path tmp) throws Exception {
+        // WHY: the external hive-site.xml named by hive.conf.resources is seeded first, then the
+        // metastore-spi overrides win, so a connection key in the overrides correctly overrides the file.
+        // MUTATION: reversing the order -> the base value would win -> red.
+        // The connector resolves the file itself, so this drives the REAL file->HiveConf path: it writes a
+        // real XML and reads the values back off the HiveConf.
+        java.nio.file.Files.write(tmp.resolve("hive-site.xml"),
+                ("<?xml version=\"1.0\"?><configuration>"
+                        + "<property><name>hive.metastore.uris</name><value>thrift://from-file:9083</value></property>"
+                        + "<property><name>base.only</name><value>kept</value></property>"
+                        + "</configuration>").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        String prev = System.getProperty("doris.hadoop.config.dir");
+        System.setProperty("doris.hadoop.config.dir", tmp.toString() + java.io.File.separator);
+        try {
+            Map<String, String> overrides = new HashMap<>();
+            overrides.put("hive.metastore.uris", "thrift://override:9083");
+            HiveConf conf = IcebergCatalogFactory.assembleHiveConf("hive-site.xml", overrides);
+            Assertions.assertEquals("thrift://override:9083", conf.get("hive.metastore.uris"));
+            Assertions.assertEquals("kept", conf.get("base.only"));
+        } finally {
+            if (prev == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", prev);
+            }
+        }
     }
 
     @Test
-    public void buildDlfConfigurationAddsLegacyHiveKeysOnTopOfDlfCatalogConf() {
-        // WHY: legacy IcebergAliyunDLFMetaStoreProperties.initCatalog sets the DataLakeConfig.CATALOG_* keys (=
-        // the dlf.catalog.* keys toDlfCatalogConf already produces) AND the two fixed hive keys
-        // hive.metastore.type=dlf + type=hms on the DLF Configuration. MUTATION: dropping either hive key, or not
-        // carrying the toDlfCatalogConf entries through, -> red.
-        Map<String, String> dlfConf = new HashMap<>();
-        dlfConf.put("dlf.catalog.accessKeyId", "AK");
-        dlfConf.put("dlf.catalog.endpoint", "dlf-vpc.cn-hangzhou.aliyuncs.com");
-        Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlfConf);
-        Assertions.assertEquals("AK", conf.get("dlf.catalog.accessKeyId"));
-        Assertions.assertEquals("dlf-vpc.cn-hangzhou.aliyuncs.com", conf.get("dlf.catalog.endpoint"));
-        Assertions.assertEquals("dlf", conf.get("hive.metastore.type"),
-                "legacy sets hive.metastore.type=dlf on the DLF Configuration");
-        Assertions.assertEquals("hms", conf.get("type"), "legacy sets type=hms on the DLF Configuration");
+    public void assembleHiveConfFailsLoudOnMissingFile(@TempDir java.nio.file.Path tmp) {
+        // WHY: the operator named a file carrying connection-critical settings; a missing file must fail
+        // loud, never degrade to "connect with defaults". MUTATION: swallowing the miss -> red.
+        String prev = System.getProperty("doris.hadoop.config.dir");
+        System.setProperty("doris.hadoop.config.dir", tmp.toString() + java.io.File.separator);
+        try {
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> IcebergCatalogFactory.assembleHiveConf("absent.xml", Collections.emptyMap()));
+            Assertions.assertTrue(e.getMessage().contains("Config resource file does not exist"),
+                    "message must name the unresolvable file; was: " + e.getMessage());
+        } finally {
+            if (prev == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", prev);
+            }
+        }
     }
+
 }

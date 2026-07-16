@@ -23,7 +23,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -57,8 +56,6 @@ public class UnboundTableSinkCreator {
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, partitions, query);
-        } else if (curCatalog instanceof HMSExternalCatalog) {
-            return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions, query);
         }
@@ -90,9 +87,6 @@ public class UnboundTableSinkCreator {
             return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
-        } else if (curCatalog instanceof HMSExternalCatalog) {
-            return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
@@ -125,9 +119,6 @@ public class UnboundTableSinkCreator {
                     isAutoDetectPartition,
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
-        } else if (curCatalog instanceof HMSExternalCatalog && !isAutoDetectPartition) {
-            return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog && !isAutoDetectPartition) {
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
