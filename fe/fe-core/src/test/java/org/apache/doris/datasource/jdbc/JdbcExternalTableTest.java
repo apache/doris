@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.jdbc;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mapping.IdentifierMapping;
@@ -29,13 +30,14 @@ import org.junit.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
+import java.util.Map;
 import java.util.Optional;
 
 public class JdbcExternalTableTest {
     private JdbcExternalCatalog catalog;
     private JdbcExternalDatabase database;
     private IdentifierMapping identifierMapping;
-    private JdbcExternalTable table;
+    private TestJdbcExternalTable table;
 
     @Before
     public void setUp() {
@@ -51,7 +53,7 @@ public class JdbcExternalTableTest {
                         Mockito.anyString(), ArgumentMatchers.nullable(String.class), Mockito.anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(2));
 
-        table = new JdbcExternalTable(1L, "local_table", null, catalog, database);
+        table = new TestJdbcExternalTable(1L, "local_table", null, catalog, database);
     }
 
     @Test
@@ -79,5 +81,33 @@ public class JdbcExternalTableTest {
 
         Assert.assertTrue(exception.getMessage(),
                 exception.getMessage().contains("remote table 'remote_db.local_table'"));
+    }
+
+    @Test
+    public void testFetchRowCountUsesEffectiveRemoteTableName() {
+        Mockito.when(catalog.getDatabaseTypeName()).thenReturn(JdbcResource.MYSQL);
+
+        Assert.assertEquals(1L, table.fetchRowCount());
+
+        Assert.assertEquals("local_table", table.rowCountParams.get("tblName"));
+    }
+
+    private static class TestJdbcExternalTable extends JdbcExternalTable {
+        private Map<String, String> rowCountParams;
+
+        TestJdbcExternalTable(long id, String name, String remoteName,
+                JdbcExternalCatalog catalog, JdbcExternalDatabase database) {
+            super(id, name, remoteName, catalog, database);
+        }
+
+        @Override
+        protected synchronized void makeSureInitialized() {
+        }
+
+        @Override
+        protected long getRowCount(Map<String, String> params) {
+            rowCountParams = params;
+            return 1L;
+        }
     }
 }

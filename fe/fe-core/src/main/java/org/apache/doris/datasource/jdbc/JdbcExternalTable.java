@@ -242,7 +242,8 @@ public class JdbcExternalTable extends ExternalTable {
         Map<String, String> params = new HashMap<>();
         params.put("ctlName", catalog.getName());
         params.put("dbName", this.db.getRemoteName());
-        params.put("tblName", this.remoteName);
+        // Keep row count lookup consistent with schema and scan paths when the stored remote name is absent.
+        params.put("tblName", getRemoteName());
         switch (((JdbcExternalCatalog) catalog).getDatabaseTypeName()) {
             case JdbcResource.MYSQL:
                 params.put("sql", MYSQL_ROW_COUNT_SQL);
