@@ -44,6 +44,20 @@ public:
     }
 
     template <typename T, int BIT_WIDTH>
+    static constexpr bool should_use() {
+        // Keep the generic implementation available for benchmarking all supported widths, but
+        // only select PDEP in the production path for widths below 16. These widths can use the
+        // byte/word deposit layouts and the AVX2 widening specializations below. At 16 bits and
+        // above, unpack32() falls back to multiple generic 64-bit PDEP groups per batch and
+        // competes with efficient scalar specializations, including copy-like 16- and 32-bit
+        // cases. Benchmarks with L1-, L2-, and larger working sets show non-monotonic results and
+        // repeatable regressions for multiple high widths. Because the profitable high widths are
+        // CPU- and working-set-dependent, an irregular per-width allowlist would not be portable;
+        // use the scalar implementation conservatively instead.
+        return is_supported_type<T, BIT_WIDTH>() && BIT_WIDTH < 16;
+    }
+
+    template <typename T, int BIT_WIDTH>
     __attribute__((target("bmi2,avx2"))) static void unpack32(const uint8_t* input, T* output) {
         static_assert(is_supported_type<T, BIT_WIDTH>());
         if constexpr (std::is_same_v<T, uint8_t>) {

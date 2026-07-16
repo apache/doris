@@ -26,6 +26,14 @@
 namespace doris {
 namespace {
 
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+static_assert(PdepUnpack::should_use<uint16_t, 15>());
+static_assert(PdepUnpack::should_use<uint32_t, 15>());
+static_assert(!PdepUnpack::should_use<uint16_t, 16>());
+static_assert(!PdepUnpack::should_use<uint32_t, 16>());
+static_assert(!PdepUnpack::should_use<uint32_t, 32>());
+#endif
+
 template <typename T>
 std::vector<T> make_values(int bit_width, int num_values) {
     const uint64_t mask = bit_width == std::numeric_limits<T>::digits
