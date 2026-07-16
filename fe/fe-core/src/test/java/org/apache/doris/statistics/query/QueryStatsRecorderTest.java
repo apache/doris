@@ -2083,7 +2083,8 @@ public class QueryStatsRecorderTest {
         Mockito.when(anchor.getCteId()).thenReturn(cteId);
         Mockito.when(anchor.children()).thenReturn(ImmutableList.of(scan));
 
-        PhysicalWorkTableReference workTable = Mockito.mock(PhysicalWorkTableReference.class);
+        PhysicalWorkTableReference workTable = Mockito.mock(PhysicalWorkTableReference.class,
+                Mockito.CALLS_REAL_METHODS);
         Mockito.when(workTable.getCteId()).thenReturn(cteId);
         Mockito.when(workTable.getOutput()).thenReturn(ImmutableList.of(workTableSlot));
         Mockito.when(workTable.children()).thenReturn(ImmutableList.of());
@@ -2092,7 +2093,10 @@ public class QueryStatsRecorderTest {
         Expression recursiveFilterExpr = Mockito.mock(Expression.class);
         Mockito.when(recursiveFilterExpr.getInputSlots()).thenReturn(ImmutableSet.of(workTableSlot));
 
-        PhysicalFilter<?> recursiveFilter = Mockito.mock(PhysicalFilter.class);
+        // CALLS_REAL_METHODS so collectToList()/foreach() (default TreeNode methods used by the
+        // production code to locate the work-table reference) actually walk into the stubbed
+        // children() below, instead of Mockito's default answer short-circuiting to an empty result.
+        PhysicalFilter<?> recursiveFilter = Mockito.mock(PhysicalFilter.class, Mockito.CALLS_REAL_METHODS);
         Mockito.when(recursiveFilter.children()).thenReturn(ImmutableList.of(workTable));
         Mockito.when(recursiveFilter.getConjuncts()).thenReturn(ImmutableSet.of(recursiveFilterExpr));
 
@@ -2230,11 +2234,14 @@ public class QueryStatsRecorderTest {
 
     /**
      * SELECT u.k1 FROM (SELECT k1, k2 FROM t1 EXCEPT SELECT k1, k2 FROM t2) u
-     * The outer PhysicalProject only selects k1; k2 is never read by the visible query.
-     * Adversarial check: does k2 still get queryHit=true via recordSetOpChildrenOutputs?
+     * The outer PhysicalProject only selects k1; k2 is never read by the visible query, but it
+     * is still physically scanned and compared by the EXCEPT itself (ColumnPruning intentionally
+     * retains it for row comparison — see the "Accepted as-is" note in the PR description for #6).
+     * Expected: k2 still gets queryHit=true on BOTH branches, since both branches' k2 columns are
+     * genuinely read to perform the row comparison, even though neither is in the final SELECT list.
      */
     @Test
-    public void adversarialExceptUnusedColumnShouldNotGetQueryHit() {
+    public void adversarialExceptUnusedColumnStillGetsQueryHitForRowComparison() {
         ExprId k1LeftId = new ExprId(1);
         ExprId k2LeftId = new ExprId(2);
         ExprId k1RightId = new ExprId(3);
@@ -2253,7 +2260,7 @@ public class QueryStatsRecorderTest {
         SlotReference setK1 = mockSlot(setK1Id, "k1");
         SlotReference setK2 = mockSlot(setK2Id, "k2");
 
-        PhysicalSetOperation except = Mockito.mock(PhysicalSetOperation.class);
+        PhysicalExcept except = Mockito.mock(PhysicalExcept.class);
         Mockito.when(except.children()).thenReturn(ImmutableList.of(scan1, scan2));
         Mockito.when(except.getRegularChildrenOutputs())
                 .thenReturn(ImmutableList.of(
@@ -2275,8 +2282,10 @@ public class QueryStatsRecorderTest {
             Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit,
                     "k1 is selected by the outer query and must get queryHit");
             if (delta.getColumnStats().containsKey("k2")) {
-                Assertions.assertFalse(delta.getColumnStats().get("k2").queryHit,
-                        "k2 is never selected by the outer query and must NOT get queryHit");
+                Assertions.assertTrue(delta.getColumnStats().get("k2").queryHit,
+                        "k2 is retained by ColumnPruning for EXCEPT row comparison, so it is "
+                                + "genuinely read and must get queryHit even though it's not in "
+                                + "the outer SELECT list — this is the accepted #6 behavior");
             }
         }
     }
