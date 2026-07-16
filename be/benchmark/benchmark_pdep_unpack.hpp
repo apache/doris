@@ -31,8 +31,10 @@
 namespace doris {
 namespace {
 
-constexpr int kPdepUnpackNumValues = 4096;
 constexpr int kPdepUnpackBatchSize = 32;
+constexpr int kPdepUnpackL1NumValues = 1 << 12;
+constexpr int kPdepUnpackL2NumValues = 1 << 18;
+constexpr int kPdepUnpackLargeNumValues = 1 << 20;
 
 template <typename T, int BIT_WIDTH>
 void scalar_unpack(const uint8_t* input, int num_values, T* output) {
@@ -111,16 +113,15 @@ void unpack(int bit_width, const uint8_t* input, int num_values, T* output) {
 
 template <typename T>
 struct PdepUnpackBenchmarkData {
-    explicit PdepUnpackBenchmarkData(int bit_width)
-            : input(kPdepUnpackNumValues * bit_width / 8),
-              scalar_output(kPdepUnpackNumValues),
-              pdep_output(kPdepUnpackNumValues) {
+    PdepUnpackBenchmarkData(int bit_width, int num_values)
+            : input(num_values * bit_width / 8),
+              scalar_output(num_values),
+              pdep_output(num_values) {
         std::mt19937_64 rng(0x17993);
         for (auto& byte : input) {
             byte = static_cast<uint8_t>(rng());
         }
-        unpack<T, false>(bit_width, input.data(), kPdepUnpackNumValues, scalar_output.data());
-        unpack<T, true>(bit_width, input.data(), kPdepUnpackNumValues, pdep_output.data());
+        unpack<T, false>(bit_width, input.data(), num_values, scalar_output.data());
     }
 
     std::vector<uint8_t> input;
@@ -131,49 +132,75 @@ struct PdepUnpackBenchmarkData {
 template <typename T>
 void BM_ScalarUnpack(benchmark::State& state) {
     const int bit_width = static_cast<int>(state.range(0));
-    if (!PdepUnpack::is_supported()) {
-        state.SkipWithError("CPU does not support BMI2 and AVX2");
-        return;
-    }
-    PdepUnpackBenchmarkData<T> data(bit_width);
-    if (data.scalar_output != data.pdep_output) {
-        state.SkipWithError("PDEP+AVX2 output differs from scalar output");
-        return;
-    }
+    const int num_values = static_cast<int>(state.range(1));
+    PdepUnpackBenchmarkData<T> data(bit_width, num_values);
     for (auto _ : state) {
-        unpack<T, false>(bit_width, data.input.data(), kPdepUnpackNumValues,
-                         data.scalar_output.data());
+        unpack<T, false>(bit_width, data.input.data(), num_values, data.scalar_output.data());
         benchmark::ClobberMemory();
     }
-    state.SetItemsProcessed(state.iterations() * kPdepUnpackNumValues);
+    state.SetItemsProcessed(state.iterations() * num_values);
 }
 
 template <typename T>
 void BM_PdepUnpack(benchmark::State& state) {
     const int bit_width = static_cast<int>(state.range(0));
+    const int num_values = static_cast<int>(state.range(1));
     if (!PdepUnpack::is_supported()) {
         state.SkipWithError("CPU does not support BMI2 and AVX2");
         return;
     }
-    PdepUnpackBenchmarkData<T> data(bit_width);
+    PdepUnpackBenchmarkData<T> data(bit_width, num_values);
+    unpack<T, true>(bit_width, data.input.data(), num_values, data.pdep_output.data());
     if (data.scalar_output != data.pdep_output) {
         state.SkipWithError("PDEP+AVX2 output differs from scalar output");
         return;
     }
     for (auto _ : state) {
-        unpack<T, true>(bit_width, data.input.data(), kPdepUnpackNumValues,
-                        data.pdep_output.data());
+        unpack<T, true>(bit_width, data.input.data(), num_values, data.pdep_output.data());
         benchmark::ClobberMemory();
     }
-    state.SetItemsProcessed(state.iterations() * kPdepUnpackNumValues);
+    state.SetItemsProcessed(state.iterations() * num_values);
 }
 
-BENCHMARK_TEMPLATE(BM_ScalarUnpack, uint8_t)->DenseRange(1, 8);
-BENCHMARK_TEMPLATE(BM_PdepUnpack, uint8_t)->DenseRange(1, 8);
-BENCHMARK_TEMPLATE(BM_ScalarUnpack, uint16_t)->DenseRange(1, 16);
-BENCHMARK_TEMPLATE(BM_PdepUnpack, uint16_t)->DenseRange(1, 16);
-BENCHMARK_TEMPLATE(BM_ScalarUnpack, uint32_t)->DenseRange(1, 32);
-BENCHMARK_TEMPLATE(BM_PdepUnpack, uint32_t)->DenseRange(1, 32);
+template <typename T>
+void BM_ActualUnpack(benchmark::State& state) {
+    const int bit_width = static_cast<int>(state.range(0));
+    const int num_values = static_cast<int>(state.range(1));
+    PdepUnpackBenchmarkData<T> data(bit_width, num_values);
+    auto result = BitPacking::UnpackValues(bit_width, data.input.data(), data.input.size(),
+                                           num_values, data.pdep_output.data());
+    if (data.scalar_output != data.pdep_output) {
+        state.SkipWithError("Actual output differs from scalar output");
+        return;
+    }
+    for (auto _ : state) {
+        result = BitPacking::UnpackValues(bit_width, data.input.data(), data.input.size(),
+                                          num_values, data.pdep_output.data());
+        benchmark::DoNotOptimize(result);
+        benchmark::ClobberMemory();
+    }
+    state.SetItemsProcessed(state.iterations() * num_values);
+}
+
+#define REGISTER_PDEP_UNPACK_BENCHMARK(type, max_bit_width)                  \
+    BENCHMARK_TEMPLATE(BM_ScalarUnpack, type)                                \
+            ->ArgsProduct({benchmark::CreateDenseRange(1, max_bit_width, 1), \
+                           {kPdepUnpackL1NumValues, kPdepUnpackL2NumValues,  \
+                            kPdepUnpackLargeNumValues}});                    \
+    BENCHMARK_TEMPLATE(BM_PdepUnpack, type)                                  \
+            ->ArgsProduct({benchmark::CreateDenseRange(1, max_bit_width, 1), \
+                           {kPdepUnpackL1NumValues, kPdepUnpackL2NumValues,  \
+                            kPdepUnpackLargeNumValues}});                    \
+    BENCHMARK_TEMPLATE(BM_ActualUnpack, type)                                \
+            ->ArgsProduct(                                                   \
+                    {benchmark::CreateDenseRange(1, max_bit_width, 1),       \
+                     {kPdepUnpackL1NumValues, kPdepUnpackL2NumValues, kPdepUnpackLargeNumValues}})
+
+REGISTER_PDEP_UNPACK_BENCHMARK(uint8_t, 8);
+REGISTER_PDEP_UNPACK_BENCHMARK(uint16_t, 16);
+REGISTER_PDEP_UNPACK_BENCHMARK(uint32_t, 32);
+
+#undef REGISTER_PDEP_UNPACK_BENCHMARK
 
 } // namespace
 } // namespace doris
