@@ -291,29 +291,62 @@ public class PlanReceiver extends AbstractReceiver {
 
     private LogicalPlan proposeProject(LogicalPlan join, List<Edge> edges, long left, long right) {
         Set<Slot> outputSet = join.getOutputSet();
-        // calculate required columns by all parents
-        Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
+        // calculate required columns by all parents (final outputs + unused edges)
+        Set<Slot> parentRequireSlots = calculateRequiredSlots(left, right, edges);
+        // Pending projected aliases may reference input slots (e.g., A.v, B.v for
+        // s=A.v+B.v) that are not in finalRequiredSlots or unused edges. Preserve
+        // them so the join output still contains the base columns needed to evaluate
+        // the alias expressions, both for aliases emitted at this stage and those
+        // deferred to a later join whose bitmap is a superset.
+        Set<Slot> aliasInputSlots = hyperGraph.getAllAliasInputSlotsForNodes(
+                LongBitmap.newBitmapUnion(left, right));
+        Set<Slot> requireSlots = new HashSet<>(parentRequireSlots);
+        requireSlots.addAll(aliasInputSlots);
         List<NamedExpression> allProjects = new ArrayList<>(outputSet.size());
         for (Slot slot : outputSet) {
             if (requireSlots.contains(slot)) {
                 allProjects.add(slot);
             }
         }
-        if (hyperGraph.hasLiteralAlias()) {
-            allProjects.addAll(hyperGraph.getLiteralAlias(left, right));
-        }
 
         if (allProjects.isEmpty()) {
             allProjects.add(new Alias(new ExprId(-1), new TinyIntLiteral((byte) 1)));
         }
 
-        // propose logical project
+        // propose logical project for the slot pass-through
         LogicalPlan logicalPlan;
         if (outputSet.equals(new HashSet<>(allProjects))) {
             logicalPlan = join;
         } else {
             logicalPlan = new LogicalProject<>(allProjects, join);
         }
+
+        // Emit projected alias layers as separate LogicalProject nodes.
+        // Each layer corresponds to one original Project in the source plan,
+        // preserving materialization boundaries for volatile expressions
+        // (e.g., uuid()) that cannot be flattened into a single Project.
+        // Carry forward child slots still required by parents (e.g., join keys)
+        // that the layer's aliases do not produce, so the parent plan can still
+        // reference them. Use parentRequireSlots (not requireSlots) so that raw
+        // alias inputs like B.payload are dropped after the alias materializes,
+        // matching the original Project's output boundary.
+        if (hyperGraph.hasProjectedAliases()) {
+            for (List<NamedExpression> layer : hyperGraph.getProjectedAliasLayers(left, right)) {
+                List<NamedExpression> mergedLayer = new ArrayList<>(layer);
+                Set<ExprId> layerExprIds = new HashSet<>();
+                for (NamedExpression a : layer) {
+                    layerExprIds.add(a.getExprId());
+                }
+                for (Slot childSlot : logicalPlan.getOutputSet()) {
+                    if (parentRequireSlots.contains(childSlot)
+                            && !layerExprIds.contains(childSlot.getExprId())) {
+                        mergedLayer.add(childSlot);
+                    }
+                }
+                logicalPlan = new LogicalProject<>(mergedLayer, logicalPlan);
+            }
+        }
+
         if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
                 && !logicalPlan.getOutputSet().equals(new HashSet<>(finalProjects))) {
             logicalPlan = new LogicalProject<>(finalProjects, logicalPlan);
