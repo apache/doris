@@ -32,6 +32,8 @@ trino-connector 迁入 `fe/fe-connector` 框架后，两个目录的语义分层
 
 ## 3. 约束
 
+> **已被 §12 推翻（2026-07-16 用户拍板）**：不再考虑任何兼容，FE/BE 兜底全删。C2、C3 不受影响。
+
 **C1（用户拍板）：必须兼容。** 老部署 `plugins/connectors/` 里的 Trino 插件升级后必须继续可用。失效的表现是 `LOG.warn` 吞掉 + catalog 建得出来但查不了，排查代价高。
 
 **C2：`connectors` 这个名字永久烧毁，谁都不能占。** 因为 C1 要求 fallback 永远去读 `plugins/connectors/` 找遗留 Trino 插件；若新框架占用该名，老部署里这个目录装的是 Doris 连接器插件 → fallback 判"非空" → 把 Doris 连接器插件喂给 Trino 的 `ServerPluginsProvider` → 灾难。
@@ -56,6 +58,8 @@ plugins/
 `build.sh` 不再 `mkdir` `connectors/` 是设计的一部分：**全新安装从此不存在该目录**，fallback 的"存在且非空"自然永不触发。
 
 ## 5. 解析链
+
+> **已被 §12 推翻**：第 3、4 步（legacy 目录探测）已删除，解析链只剩「属性优先，否则逐字使用配置值」两步。§5.1 的同步点与 §5.2 的 memoize 随之整体消失。下文保留原始记录。
 
 FE 与 BE 各自独立解析，但用同一套优先级。以 `TrinoBootstrap.resolvePluginDir()` 为准：
 
@@ -117,6 +121,8 @@ FE 与 BE 各自独立解析，但用同一套优先级。以 `TrinoBootstrap.re
 **不改**：`regression-test/.../Suite.groovy:1304-1306`。回归环境在 fe.conf/be.conf 里显式设 `trino_connector_plugin_dir=/tmp/trino_connector/connectors`，走第 2 步"显式设过"直接返回，不受默认值变更影响，行为零变化。
 
 ## 7. 兼容矩阵
+
+> **已被 §12 推翻**：兼容行为已删除，真实的升级影响见 §12.5（含破坏性变更说明）。下表保留原始记录。
 
 | 部署形态 | `connectors/` | `plugins/connectors/` | 解析结果 | 结论 |
 |---|---|---|---|---|
@@ -181,6 +187,8 @@ FE 与 BE 各自独立解析，但用同一套优先级。以 `TrinoBootstrap.re
 
 ### 11.3 替代方案
 
+> **已被 §12 取代**：`TrinoPluginDirs` 已删除。放弃兼容后插件根本不需要默认值，共享常量失去存在意义。§11 的问题诊断仍成立，解法以 §12 为准。
+
 新增 `fe-common` 的 `org.apache.doris.trinoconnector.TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR` 作为 Java 侧唯一真相，三个消费方共享：
 
 | 消费方 | 模块 | 取用方式 |
@@ -213,3 +221,73 @@ FE 与 BE 各自独立解析，但用同一套优先级。以 `TrinoBootstrap.re
 
 1. **`LEGACY_PLUGIN_SUBDIRS` 仍是两份无守门的重复**（`TrinoBootstrap.java` 与 `TrinoConnectorPluginLoader.java`，值均为 `{"/connectors", "/plugins/connectors"}`）。漂移后果：FE 与 BE 回退到不同的遗留目录。属既有问题，本次未动（见 §11.3 末）。
 2. **`build.sh` 另有两处 `plugins/trino_plugins/` 字面量**（约 1049 / 1276 行，创建投放目录用），未纳入交叉注释网。它们只决定"建哪个空目录"，与"判断用户是否显式设过"的语义链无关，漂移不会误判配置，但全新安装的投放点会与默认解析结果不一致。
+
+## 12. 方案再定：放弃兼容，解析链砍到两步（2026-07-16 用户拍板）
+
+**本节推翻 §3 的 C1、§5 的解析链、§7 的兼容矩阵，以及 §11 的常量去重方案。** §11 记录的问题诊断仍然成立，但它的解法已被更简单的方案取代。
+
+### 12.1 决策
+
+用户明确：**FE 与 BE 都不再考虑任何兼容**。只识别两个来源：
+
+```
+1. catalog 属性 trino.plugin.dir 非空  → 用它
+2. 否则                                 → trino_connector_plugin_dir 配置值，逐字使用
+                                          （默认 DORIS_HOME/plugins/trino_plugins）
+```
+
+§5 原链的第 3、4 步（探测 `DORIS_HOME/connectors` 与 `DORIS_HOME/plugins/connectors`）**全部删除**，FE、BE 两侧同步删。
+
+### 12.2 连锁反应：默认值常量整体消失
+
+这不只是删掉两个 if。**"判断用户是否显式设过"这个语义整体没了**——原第 2 步要靠"配置值 ≠ 默认值"反推用户意图，而这个反推唯一的用途就是决定要不要走第 3、4 步的兼容兜底。兜底既然不存在，反推就没有消费者。
+
+于是 §5.1 那个"隐蔽同步点"从根上蒸发：
+
+| 原先 | 现在 |
+|---|---|
+| 4 处默认值字面量必须同步，漂移会静默误判 | 插件与 scanner **完全不需要知道默认值**，各自逐字使用传入的配置值 |
+| `TrinoPluginDirs`（§11 引入的共享常量） | **删除**——只剩 `Config.java` 与 `config.cpp` 各持一份普通配置默认值，不参与任何推断 |
+| `Config` 依赖 `org.apache.doris.trinoconnector` | **解除**——`Config` 回到纯字面量，不再依赖 trino |
+
+`Config.java` 与 `config.cpp` 两份默认值仍需一致，但耦合强度已完全不同：它只是"FE 和 BE 该去同一个地方找插件"这种普通的 FE/BE 配置对齐，漂移的后果是直白的加载不到，**不再有"把没设过误判成设过"这种静默错判**。
+
+### 12.3 顺带消失的复杂度
+
+- `LEGACY_PLUGIN_SUBDIRS`（FE + BE 各一份，§11.5 记的第 1 条欠账）——**随兜底一起删除，该欠账关闭**。
+- `probeLegacyDirs()` / `isNonEmptyDir()`（FE）、`checkAndReturnPluginDir()` 的探测分支（BE）——删除。
+- `RESOLVED_DEFAULT_DIRS` 的 memoize 与 §5.2 那一整节的分析——**删除**。memoize 的存在理由是"探测读文件系统，答案会随磁盘状态变化，而单例 fail-loud 受不了答案漂移"。现在 `resolvePluginDir()` 是入参 `(properties, environment)` 的纯函数，不碰文件系统，§5.2 描述的 `IllegalStateException` 场景从"靠 memoize 压住"变成结构上不可能。
+- `TrinoBootstrap` 不再需要 env 里的 `doris_home`（仅日志路径仍用 `System.getenv("DORIS_HOME")`，与解析无关）。
+
+### 12.4 fail-loud 的取舍
+
+`DefaultConnectorContext:563` 无条件 `env.put("trino_connector_plugin_dir", Config.trino_connector_plugin_dir)`，而 `Config` 的该字段恒有值，故 env 里缺这个 key 只可能是引擎侧的 bug。此时**抛 `IllegalStateException`**，而不是猜一个目录：猜错的表现是"catalog 建得出来但每个查询都失败"，排查代价极高；抛在解析点则原因就在现场。
+
+### 12.5 用户可见的破坏性变更（必须写 release note）
+
+**这是本设计里唯一一处真正的破坏性变更，且失败是静默的。**
+
+已发布版本（2.1.8 起）的默认投放点是 `DORIS_HOME/plugins/connectors`。升级到本改动后：
+
+| 部署形态 | 升级后行为 |
+|---|---|
+| 插件在 `plugins/connectors/`，fe.conf/be.conf 未设该配置 | **插件不再被加载**。catalog 建得出来，每个查询报 "Cannot find Trino ConnectorFactory" |
+| 插件在 `DORIS_HOME/connectors/`（pre-2.1.8），未设配置 | 同上 |
+| fe.conf/be.conf 显式设了 `trino_connector_plugin_dir` | 行为不变（含回归环境，见 §6"不改"一节） |
+| 全新安装 | 行为不变，投放到 `plugins/trino_plugins/` |
+
+**操作者需二选一**：把插件移到 `plugins/trino_plugins/`，或把 `trino_connector_plugin_dir` 指到现有目录。FE 与 BE 两侧都要做。
+
+### 12.6 验证
+
+- 门禁 exit 0；`Config.java` 已无任何 trino import（本轮三条要求之一）。
+- fe-common / fe-connector-trino / trino-connector-scanner 三模块编译 + checkstyle 通过（`-Dmaven.build.cache.enabled=false` 强制真跑，避免 build cache 静默跳过）。
+- `TrinoBootstrapTest` 重写为 4 case、全绿 0 skip：属性优先、配置逐字生效、**legacy 目录即使有插件也不被理会**、env 缺 key 则 fail-loud。
+- **变异测试**（证明回归锁咬得住）：把 legacy 兜底加回 `resolvePluginDir()` → `legacyPluginDirsAreNotConsultedEvenWhenTheyHoldPlugins` 如期变红（`expected: .../plugins/trino_plugins but was: .../plugins/connectors`），其余 3 条不受影响；还原后复绿。
+
+### 12.7 本节关闭/保留的欠账
+
+- **关闭**：§11.5 第 1 条（`LEGACY_PLUGIN_SUBDIRS` 重复）——数组已随兜底删除。
+- **保留**：§11.5 第 2 条（`build.sh` 两处 `plugins/trino_plugins/` 字面量）。
+- **保留并升级为必办**：§8 欠账第 3 条（release note）。原先它只是"新装用户投放点变了"的提示，现在是**升级即静默失效**的破坏性变更，doris-website 的 trino-connector 安装说明必须同步。
+- **保留**：§8 欠账第 1、2 条（BE 未全量构建、无 e2e）。

@@ -40,13 +40,10 @@ import java.util.logging.SimpleFormatter;
 public class TrinoConnectorPluginLoader {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
 
-    // Legacy dirs to fall back to when the config is left at its default, oldest first. The default
-    // moved DORIS_HOME/connectors -> DORIS_HOME/plugins/connectors (2.1.8) -> the current default in
-    // TrinoPluginDirs; oldest-non-empty-wins preserves the precedence 2.1.8 shipped, so a BE that
-    // never migrated keeps loading the plugins it already has.
-    private static final String[] LEGACY_PLUGIN_SUBDIRS = {"/connectors", "/plugins/connectors"};
-
-    private static String pluginsDir = EnvUtils.getDorisHome() + TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR;
+    // Overwritten via setPluginsDir() with BE config trino_connector_plugin_dir before the plugins are
+    // loaded (see be/src/format*/**/trino_connector_jni_reader.cpp); this initializer only matters if
+    // that call is ever missed. Mirrors that config's default.
+    private static String pluginsDir = EnvUtils.getDorisHome() + "/plugins/trino_plugins";
 
     // Suppress default constructor for noninstantiability
     private TrinoConnectorPluginLoader() {
@@ -93,7 +90,7 @@ public class TrinoConnectorPluginLoader {
                 TypeRegistry typeRegistry = new TypeRegistry(typeOperators, featuresConfig);
 
                 ServerPluginsProviderConfig serverPluginsProviderConfig = new ServerPluginsProviderConfig()
-                        .setInstalledPluginsDir(new File(checkAndReturnPluginDir()));
+                        .setInstalledPluginsDir(new File(pluginsDir));
                 ServerPluginsProvider serverPluginsProvider = new ServerPluginsProvider(serverPluginsProviderConfig,
                         MoreExecutors.directExecutor());
                 HandleResolver handleResolver = new HandleResolver();
@@ -101,9 +98,9 @@ public class TrinoConnectorPluginLoader {
                         typeRegistry, handleResolver);
                 trinoConnectorPluginManager.loadPlugins();
 
-                LOG.info("TrinoConnectorPluginLoader successfully loaded plugins from: " + checkAndReturnPluginDir());
+                LOG.info("TrinoConnectorPluginLoader successfully loaded plugins from: " + pluginsDir);
             } catch (Exception e) {
-                LOG.warn("Failed load trino-connector plugins from  " + checkAndReturnPluginDir()
+                LOG.warn("Failed load trino-connector plugins from  " + pluginsDir
                         + ", Exception:" + e.getMessage(), e);
             }
         }
@@ -122,31 +119,6 @@ public class TrinoConnectorPluginLoader {
     // called by c++
     public static void setPluginsDir(String pluginsDir) {
         TrinoConnectorPluginLoader.pluginsDir = pluginsDir;
-    }
-
-    private static String checkAndReturnPluginDir() {
-        final String dorisHome = System.getenv("DORIS_HOME");
-        final String defaultDir = dorisHome + TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR;
-        if (!TrinoConnectorPluginLoader.pluginsDir.equals(defaultDir)) {
-            // Return user specified dir directly.
-            return TrinoConnectorPluginLoader.pluginsDir;
-        }
-        // User did not set `trino_connector_plugin_dir` and is on the default. The default moved from
-        // `DORIS_HOME/connectors` to `DORIS_HOME/plugins/connectors` in 2.1.8 and to
-        // `DORIS_HOME/plugins/trino_plugins` since, so fall back to whichever legacy dir still holds
-        // plugins. Mirrors TrinoBootstrap.probeLegacyDirs on the FE side.
-        for (String legacySubdir : LEGACY_PLUGIN_SUBDIRS) {
-            final String legacyDir = dorisHome + legacySubdir;
-            File dir = new File(legacyDir);
-            if (dir.exists() && dir.isDirectory()) {
-                String[] contents = dir.list();
-                if (contents != null && contents.length > 0) {
-                    // there are contents in the legacy dir, keep using it
-                    return legacyDir;
-                }
-            }
-        }
-        return defaultDir;
     }
 
     public static TrinoConnectorPluginManager getTrinoConnectorPluginManager() {

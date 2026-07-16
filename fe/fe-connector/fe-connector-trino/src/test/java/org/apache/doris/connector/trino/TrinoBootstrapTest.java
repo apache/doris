@@ -38,18 +38,13 @@ import java.util.Map;
  * environment map. A regression once made every {@code trino-connector} catalog fail with
  * "Cannot find Trino ConnectorFactory" because that override was not honored.
  *
- * <p>Also guards backward compatibility across the two moves of the default dir
- * ({@code DORIS_HOME/connectors} -> {@code DORIS_HOME/plugins/connectors} in 2.1.8 ->
- * {@code DORIS_HOME/plugins/trino_plugins}). A deployment that upgrades without moving its
- * plugins must keep loading them; the failure mode is silent (the load is caught and logged),
- * surfacing only as "catalog creates fine but every query fails".
- *
- * <p>Each test that reaches the legacy probe uses its own {@link TempDir} as {@code doris_home}:
- * the probe is memoized per home, so a shared home would leak results between tests.
+ * <p>Resolution is deliberately only two steps deep — per-catalog property, else the config
+ * verbatim. The legacy-dir fallbacks that used to sit under them were dropped, so the cases here
+ * are as much about what is <em>not</em> consulted as about what is.
  */
 public class TrinoBootstrapTest {
 
-    /** A Trino plugin is a directory of jars; the probe only cares that the dir is non-empty. */
+    /** A Trino plugin is a directory of jars; a probe would only care that the dir is non-empty. */
     private static void installPluginIn(Path dorisHome, String subdir) throws IOException {
         Files.createDirectories(dorisHome.resolve(subdir).resolve("trino-hive"));
     }
@@ -82,74 +77,26 @@ public class TrinoBootstrapTest {
     }
 
     @Test
-    public void freshInstallGetsTheCurrentDefault(@TempDir Path dorisHome) {
-        // Nothing legacy on disk: build.sh no longer creates plugins/connectors/, so a fresh
-        // install has no legacy dir at all and must land on the current default.
-        String resolved = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), envAtDefault(dorisHome));
-        Assertions.assertEquals(dorisHome + "/plugins/trino_plugins", resolved);
-    }
-
-    @Test
-    public void upgradeFromTwoOneEightKeepsLoadingItsExistingPlugins(@TempDir Path dorisHome) throws IOException {
-        // The compatibility case that motivates the fallback: an existing deployment has its Trino
-        // plugins in plugins/connectors/ and upgrades without touching them. Resolving to the new
-        // default here would silently break every trino-connector catalog.
-        installPluginIn(dorisHome, "plugins/connectors");
-
-        String resolved = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), envAtDefault(dorisHome));
-        Assertions.assertEquals(dorisHome + "/plugins/connectors", resolved);
-    }
-
-    @Test
-    public void preTwoOneEightDirStillWinsOverTheTwoOneEightDir(@TempDir Path dorisHome) throws IOException {
-        // Precedence is oldest-first, unchanged from what 2.1.8 shipped. Asserted explicitly because
-        // adding plugins/connectors/ to the chain must not reorder the existing two entries: a
-        // deployment that never migrated off DORIS_HOME/connectors keeps resolving there.
+    public void legacyPluginDirsAreNotConsultedEvenWhenTheyHoldPlugins(@TempDir Path dorisHome) throws IOException {
+        // The config names the dir; nothing probes the filesystem behind it. Both dirs that earlier
+        // versions fell back to are populated here and both must be ignored -- an upgrade only picks
+        // them up if the operator points the config at one. Asserted because the alternative is
+        // invisible: resolving to a legacy dir silently loads a different set of plugins, and
+        // re-introducing the fallback would otherwise pass every other case in this file.
         installPluginIn(dorisHome, "connectors");
         installPluginIn(dorisHome, "plugins/connectors");
 
         String resolved = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), envAtDefault(dorisHome));
-        Assertions.assertEquals(dorisHome + "/connectors", resolved);
-    }
-
-    @Test
-    public void emptyLegacyDirsDoNotDivertFromTheDefault(@TempDir Path dorisHome) throws IOException {
-        // An empty legacy dir means "nothing to be compatible with". This is what an operator is left
-        // with after moving their plugins out, and what older build.sh versions created on install.
-        Files.createDirectories(dorisHome.resolve("connectors"));
-        Files.createDirectories(dorisHome.resolve("plugins/connectors"));
-
-        String resolved = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), envAtDefault(dorisHome));
         Assertions.assertEquals(dorisHome + "/plugins/trino_plugins", resolved);
     }
 
     @Test
-    public void spellingTheOldDefaultInFeConfCountsAsAnExplicitOverride(@TempDir Path dorisHome) {
-        // An operator who pinned the pre-move default in fe.conf gets exactly what they asked for:
-        // it no longer equals the built-in default, so it is honored as an explicit override and the
-        // legacy probe is skipped entirely (note nothing is on disk here).
-        Map<String, String> env = ImmutableMap.of(
-                "doris_home", dorisHome.toString(),
-                "trino_connector_plugin_dir", dorisHome + "/plugins/connectors");
-
-        String resolved = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), env);
-        Assertions.assertEquals(dorisHome + "/plugins/connectors", resolved);
-    }
-
-    @Test
-    public void legacyProbeIsMemoizedSoEveryCatalogInAProcessAgrees(@TempDir Path dorisHome) throws IOException {
-        // TrinoBootstrap.getInstance() throws when a later catalog asks for a different plugin dir than
-        // the singleton was built with, and the plugins are loaded exactly once per process. So the
-        // probe must not change its answer mid-life: a user dropping plugins into a legacy dir after the
-        // first catalog exists would otherwise break every later catalog with an IllegalStateException,
-        // pointing at plugins that could never be loaded without an FE restart anyway.
-        Map<String, String> env = envAtDefault(dorisHome);
-        String firstCatalog = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), env);
-        Assertions.assertEquals(dorisHome + "/plugins/trino_plugins", firstCatalog);
-
-        installPluginIn(dorisHome, "plugins/connectors");
-
-        String laterCatalog = TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), env);
-        Assertions.assertEquals(firstCatalog, laterCatalog);
+    public void missingConfigInTheEnvironmentFailsLoud() {
+        // DefaultConnectorContext always passes the FE config, so an absent key means the engine
+        // failed to deliver it. Guessing a dir would surface far away as "catalog creates fine but
+        // every query fails"; throwing keeps the cause at the point of breakage.
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> TrinoBootstrap.resolvePluginDir(
+                        Collections.emptyMap(), ImmutableMap.of("doris_home", "/opt/doris")));
     }
 }

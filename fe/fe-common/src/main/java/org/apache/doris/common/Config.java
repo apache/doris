@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.trinoconnector.TrinoPluginDirs;
-
 import java.io.File;
 
 public class Config extends ConfigBase {
@@ -2870,12 +2868,12 @@ public class Config extends ConfigBase {
                     + "multiple integration names are comma-separated"})
     public static String authentication_chain = "";
 
-    // Keep in sync with BE config trino_connector_plugin_dir, which decides "did the user set this
-    // explicitly?" by comparing against it. The Java side shares TrinoPluginDirs instead of copying.
+    // The dir the trino-connector catalog loads Trino's own plugins from, used verbatim. Keep the
+    // default in sync with BE config trino_connector_plugin_dir: FE and BE load the same plugins and
+    // an operator who leaves both untouched expects both to find them.
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
-    public static String trino_connector_plugin_dir =
-            EnvUtils.getDorisHome() + TrinoPluginDirs.DEFAULT_PLUGIN_SUBDIR;
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/trino_plugins";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
