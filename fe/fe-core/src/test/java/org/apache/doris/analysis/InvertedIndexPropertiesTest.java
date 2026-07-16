@@ -118,6 +118,23 @@ public class InvertedIndexPropertiesTest {
                 InvertedIndexProperties.getInvertedIndexParserMode(props));
     }
 
+    @Test
+    public void testGetParserModeDefaultForAnalyzerKuromoji() {
+        Map<String, String> props = new HashMap<>();
+        props.put("analyzer", "kuromoji");
+        Assertions.assertEquals("search",
+                InvertedIndexProperties.getInvertedIndexParserMode(props));
+    }
+
+    @Test
+    public void testGetParserModeExplicitForAnalyzerKuromoji() {
+        Map<String, String> props = new HashMap<>();
+        props.put("analyzer", "kuromoji");
+        props.put("parser_mode", "normal");
+        Assertions.assertEquals("normal",
+                InvertedIndexProperties.getInvertedIndexParserMode(props));
+    }
+
     // --- getInvertedIndexFieldPattern ---
 
     @Test

@@ -85,14 +85,24 @@ public class InvertedIndexProperties {
             return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
         }
         String mode = properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
+        if (mode != null) {
+            return mode;
+        }
         String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
         if (parser == null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
         }
-        return mode != null ? mode :
-            INVERTED_INDEX_PARSER_IK.equals(parser) ? INVERTED_INDEX_PARSER_SMART :
-                INVERTED_INDEX_PARSER_KUROMOJI.equals(parser) ? INVERTED_INDEX_PARSER_KUROMOJI_SEARCH :
-                    INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+        if (INVERTED_INDEX_PARSER_IK.equals(parser)) {
+            return INVERTED_INDEX_PARSER_SMART;
+        }
+        if (INVERTED_INDEX_PARSER_KUROMOJI.equals(parser)) {
+            return INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
+        }
+        String analyzer = properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        if (INVERTED_INDEX_PARSER_KUROMOJI.equals(analyzer)) {
+            return INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
+        }
+        return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 
     public static String getInvertedIndexFieldPattern(Map<String, String> properties) {
