@@ -19,7 +19,6 @@
 
 #include <string>
 
-#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column_array.h"
@@ -31,6 +30,8 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/function.h"
@@ -150,13 +151,17 @@ private:
             CASE_TYPE(TYPE_BITMAP, ColumnBitmap)
             CASE_TYPE(TYPE_HLL, ColumnHLL)
             CASE_TYPE(TYPE_QUANTILE_STATE, ColumnQuantileState)
-        case PrimitiveType::TYPE_VARIANT:
-            if (config::enable_variant_v2) {
+        case PrimitiveType::TYPE_VARIANT: {
+            const auto* variant_type =
+                    dynamic_cast<const DataTypeVariant*>(remove_nullable(data_type()).get());
+            DORIS_CHECK(variant_type != nullptr);
+            if (variant_type->is_variant_v2()) {
                 return _execute_update_result_impl<IndexType, ColumnVariantV2>(
                         then_idx, then_columns, rows_count);
             }
             return _execute_update_result_impl<IndexType, ColumnVariant>(then_idx, then_columns,
                                                                          rows_count);
+        }
         default:
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "argument_type {} not supported",
                             data_type()->get_name());

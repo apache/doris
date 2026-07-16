@@ -18,7 +18,7 @@
 suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
-    setBeConfigTemporary([enable_variant_v2: true]) {
+    sql "SET enable_variant_v2 = true"
 
     test {
         sql """
@@ -107,5 +107,4 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
         exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
     }
 
-    }
 }

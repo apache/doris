@@ -26,7 +26,6 @@
 #include <random>
 #include <utility>
 
-#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -43,7 +42,6 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-#include "util/defer_op.h"
 
 namespace doris {
 
@@ -260,11 +258,7 @@ TEST_F(MergeSorterStateTest, test_reset_on_fresh_state) {
 }
 
 TEST_F(MergeSorterStateTest, variant_v2_state_uses_matching_physical_column) {
-    const bool previous = config::enable_variant_v2;
-    config::enable_variant_v2 = true;
-    Defer restore_config([previous] { config::enable_variant_v2 = previous; });
-
-    DataTypePtr type = make_nullable(std::make_shared<DataTypeVariant>());
+    DataTypePtr type = make_nullable(std::make_shared<DataTypeVariantV2>());
     MockRowDescriptor variant_row_desc({type}, &pool);
     state = std::make_shared<MergeSorterState>(variant_row_desc, 0);
 

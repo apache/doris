@@ -81,10 +81,7 @@ public:
                 << " should be String or Integer but it has type " << arguments[1]->get_name()
                 << ".";
         auto arg_variant = remove_nullable(arguments[0]);
-        const auto& data_type_object = assert_cast<const DataTypeVariant&>(*arg_variant);
-        return make_nullable(
-                std::make_shared<DataTypeVariant>(data_type_object.variant_max_subcolumns_count(),
-                                                  data_type_object.enable_doc_mode()));
+        return make_nullable(std::move(arg_variant));
     }
 
     // wrap variant column with nullable

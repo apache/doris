@@ -17,11 +17,11 @@
 
 #include <utility>
 
-#include "common/config.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
+#include "core/data_type/data_type_variant.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/cast_to_array.h"
 #include "exprs/function/cast/cast_to_jsonb.h"
@@ -232,16 +232,26 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_identity_wrapper(from_type);
     }
 
+    const auto* from_variant =
+            dynamic_cast<const DataTypeVariant*>(remove_nullable(from_type).get());
+    const auto* to_variant = dynamic_cast<const DataTypeVariant*>(remove_nullable(to_type).get());
+    if (from_variant != nullptr && to_variant != nullptr &&
+        from_variant->is_variant_v2() != to_variant->is_variant_v2()) {
+        return CastWrapper::create_unsupport_wrapper(
+                "Cast between legacy Variant and compute-only Variant V2 is not supported");
+    }
+
     // variant needs to be judged first
     if (to_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        if (config::enable_variant_v2) {
+        DORIS_CHECK(to_variant != nullptr);
+        if (to_variant->is_variant_v2()) {
             return create_cast_to_variant_v2_wrapper(from_type);
         }
-        return create_cast_to_variant_wrapper(from_type,
-                                              static_cast<const DataTypeVariant&>(*to_type));
+        return create_cast_to_variant_wrapper(from_type, *to_variant);
     }
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        if (config::enable_variant_v2) {
+        DORIS_CHECK(from_variant != nullptr);
+        if (from_variant->is_variant_v2()) {
             auto wrapper = create_cast_from_variant_v2_wrapper(to_type);
             return [wrapper = std::move(wrapper)](
                            FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -257,8 +267,7 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
                 return Status::OK();
             };
         }
-        return create_cast_from_variant_wrapper(static_cast<const DataTypeVariant&>(*from_type),
-                                                to_type);
+        return create_cast_from_variant_wrapper(*from_variant, to_type);
     }
 
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {

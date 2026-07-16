@@ -76,6 +76,19 @@ public class ElementAtTest {
     }
 
     @Test
+    public void testComputeSignaturePreservesVariantV2Marker() {
+        ElementAt elementAt = new ElementAt(
+                new MockVariantExpression(VariantType.COMPUTE_V2_INSTANCE), new VarcharLiteral("k"));
+        FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
+                .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT);
+
+        signature = elementAt.computeSignature(signature);
+
+        Assertions.assertTrue(((VariantType) signature.returnType).isComputeV2());
+        Assertions.assertTrue(((VariantType) signature.getArgType(0)).isComputeV2());
+    }
+
+    @Test
     public void testComputeSignatureWithNullLiteral() {
         ElementAt elementAt = new ElementAt(new NullLiteral(), new VarcharLiteral("k"));
         FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)

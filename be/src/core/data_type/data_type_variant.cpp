@@ -29,7 +29,6 @@
 #include <utility>
 #include <vector>
 
-#include "common/config.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -62,9 +61,10 @@ DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_m
                        max_subcolumns_count, enable_doc_mode);
 }
 bool DataTypeVariant::equals(const IDataType& rhs) const {
-    auto rhs_type = typeid_cast<const DataTypeVariant*>(&rhs);
+    const auto* rhs_type = dynamic_cast<const DataTypeVariant*>(&rhs);
     return rhs_type && _max_subcolumns_count == rhs_type->variant_max_subcolumns_count() &&
-           _enable_doc_mode == rhs_type->enable_doc_mode();
+           _enable_doc_mode == rhs_type->enable_doc_mode() &&
+           is_variant_v2() == rhs_type->is_variant_v2();
 }
 
 int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column,
@@ -277,12 +277,10 @@ void DataTypeVariant::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     col_meta->set_variant_max_subcolumns_count(_max_subcolumns_count);
     col_meta->set_variant_enable_doc_mode(_enable_doc_mode);
+    col_meta->set_variant_is_v2(is_variant_v2());
 }
 
 MutableColumnPtr DataTypeVariant::create_column() const {
-    if (config::enable_variant_v2) {
-        return ColumnVariantV2::create();
-    }
     return ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
 }
 

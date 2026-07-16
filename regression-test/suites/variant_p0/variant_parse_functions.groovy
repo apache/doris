@@ -16,7 +16,7 @@
 // under the License.
 
 suite("variant_parse_functions", "p0,nonConcurrent") {
-    setBeConfigTemporary([enable_variant_v2: true]) {
+    sql "SET enable_variant_v2 = true"
 
     order_qt_valid_json """
         SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
@@ -117,6 +117,5 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
                 CAST(parse_to_variant('{"dup":1,"dup":2}') AS STRING),
                 CAST(parse_to_variant_error_to_null('{"dup":1,"dup":2}') AS STRING)
         """
-    }
     }
 }

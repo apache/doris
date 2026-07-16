@@ -3384,13 +3384,36 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public DataType visitCastDataType(CastDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             if (ctx.dataType() != null) {
-                return ((DataType) typedVisit(ctx.dataType())).conversion();
+                DataType dataType = ((DataType) typedVisit(ctx.dataType())).conversion();
+                ConnectContext connectContext = ConnectContext.get();
+                if (connectContext != null && connectContext.getSessionVariable().isEnableVariantV2()) {
+                    return withComputeVariantV2(dataType);
+                }
+                return dataType;
             } else if (ctx.UNSIGNED() != null) {
                 return LargeIntType.UNSIGNED;
             } else {
                 return BigIntType.SIGNED;
             }
         });
+    }
+
+    private DataType withComputeVariantV2(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return ((VariantType) dataType).withComputeV2(true);
+        } else if (dataType instanceof ArrayType) {
+            return ArrayType.of(withComputeVariantV2(((ArrayType) dataType).getItemType()));
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return MapType.of(withComputeVariantV2(mapType.getKeyType()),
+                    withComputeVariantV2(mapType.getValueType()));
+        } else if (dataType instanceof StructType) {
+            StructType structType = (StructType) dataType;
+            return new StructType(structType.getFields().stream()
+                    .map(field -> field.withDataType(withComputeVariantV2(field.getDataType())))
+                    .collect(Collectors.toList()));
+        }
+        return dataType;
     }
 
     private Expression processCast(Expression expression, CastDataTypeContext castDataTypeContext) {
