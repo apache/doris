@@ -865,11 +865,13 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         // If the query is a pure load task, then should not modify its limit. Or it will reserve
         // memory failed and we did not hanle it.
         if (!resource_ctx->task_controller()->is_pure_load_task()) {
-            // If user's set mem limit is less than query weighted mem limit, then should not modify its limit.
-            // Use user settings.
-            if (resource_ctx->memory_context()->user_set_mem_limit() > query_weighted_mem_limit) {
-                resource_ctx->memory_context()->set_mem_limit(query_weighted_mem_limit);
-            }
+            // The effective limit should be min(user_set_mem_limit, query_weighted_mem_limit).
+            // This ensures limits are both lowered under memory pressure and restored when
+            // pressure eases (e.g., when concurrent queries finish or WG memory drops below
+            // low watermark).
+            int64_t effective_limit = std::min(resource_ctx->memory_context()->user_set_mem_limit(),
+                                               query_weighted_mem_limit);
+            resource_ctx->memory_context()->set_mem_limit(effective_limit);
             resource_ctx->memory_context()->set_adjusted_mem_limit(
                     expected_query_weighted_mem_limit);
         }

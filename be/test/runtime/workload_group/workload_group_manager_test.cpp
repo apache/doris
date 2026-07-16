@@ -35,6 +35,9 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group.h"
+#include "testutil/mock/mock_query_task_controller.h"
+#include "util/defer_op.h"
+#include "util/mem_info.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
@@ -125,6 +128,29 @@ TEST_F(WorkloadGroupManagerTest, get_or_create_workload_group) {
     ASSERT_EQ(wg->id(), 0);
 }
 
+TEST_F(WorkloadGroupManagerTest, refresh_memory_usage_updates_memory_limits) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    const int64_t initial_mem_limit = 1024L * 1024 * 1024;
+    MemInfo::set_mem_limit_for_test(initial_mem_limit);
+
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = initial_mem_limit / 2,
+                               .min_memory_percent = 25,
+                               .max_memory_percent = 50};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+
+    EXPECT_EQ(wg->memory_limit(), initial_mem_limit / 2);
+    EXPECT_EQ(wg->min_memory_limit(), initial_mem_limit / 4);
+
+    const int64_t updated_mem_limit = initial_mem_limit * 2;
+    MemInfo::set_mem_limit_for_test(updated_mem_limit);
+    wg->refresh_memory_usage();
+
+    EXPECT_EQ(wg->memory_limit(), updated_mem_limit / 2);
+    EXPECT_EQ(wg->min_memory_limit(), updated_mem_limit / 4);
+}
+
 // Query is paused due to query memlimit exceed, after waiting in queue for  spill_in_paused_queue_timeout_ms
 // it should be resumed
 TEST_F(WorkloadGroupManagerTest, query_exceed) {
@@ -208,8 +234,13 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed2) {
 // query limit > workload group limit
 // query's limit will be set to workload group limit
 TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
-    WorkloadGroupInfo wg_info {
-            .id = 1, .memory_limit = 1024L * 1024, .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 100);
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = 1024L * 1024,
+                               .max_memory_percent = 1,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
     auto query_context = _generate_on_query(wg);
 
@@ -250,6 +281,9 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
 // TWgSlotMemoryPolicy::FIXED
 TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 100);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 100,
                                .memory_low_watermark = 80,
@@ -287,6 +321,9 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
 
 // TWgSlotMemoryPolicy::DYNAMIC
 TEST_F(WorkloadGroupManagerTest, wg_exceed5) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 100);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 100,
                                .min_memory_percent = 10,
@@ -406,6 +443,9 @@ TEST_F(WorkloadGroupManagerTest, query_released) {
 }
 
 TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 1000);
     WorkloadGroupInfo wg1_info {.id = 1,
                                 .memory_limit = 1024L * 1024 * 1000,
                                 .min_memory_percent = 10,
