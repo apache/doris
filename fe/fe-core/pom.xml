@@ -228,6 +228,10 @@ under the License.
             <artifactId>guava-testlib</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-ratelimiter</artifactId>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/com.googlecode.java-ipv6/java-ipv6 -->
         <dependency>
             <groupId>com.googlecode.java-ipv6</groupId>
