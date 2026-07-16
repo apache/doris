@@ -264,7 +264,7 @@ TEST_F(AnalyticSinkOperatorTest, withoutAggFunction) {
     std::cout << "######### withoutAggFunction test end #########" << std::endl;
 }
 
-TEST_F(AnalyticSinkOperatorTest, LagWithLegacyWrappedRowsOffset) {
+TEST_F(AnalyticSinkOperatorTest, LagWithLegacyWrappedRowsOffsetUsesCurrentRowDefault) {
     constexpr int batch_size = 2;
     Initialize(batch_size);
 
@@ -291,7 +291,7 @@ TEST_F(AnalyticSinkOperatorTest, LagWithLegacyWrappedRowsOffset) {
     input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
             {std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()}));
     input_block.insert(
-            ColumnHelper::create_nullable_column_with_name<DataTypeInt64>({0, 0}, {1, 1}));
+            ColumnHelper::create_nullable_column_with_name<DataTypeInt64>({10, 20}, {0, 0}));
     auto status = sink->sink(state.get(), &input_block, true);
     EXPECT_TRUE(status.ok()) << status.to_string();
 
@@ -303,8 +303,53 @@ TEST_F(AnalyticSinkOperatorTest, LagWithLegacyWrappedRowsOffset) {
     const auto* result =
             assert_cast<const ColumnNullable*>(output_block.get_by_position(3).column.get());
     ASSERT_EQ(result->size(), batch_size);
-    EXPECT_TRUE(result->is_null_at(0));
-    EXPECT_TRUE(result->is_null_at(1));
+    EXPECT_FALSE(result->is_null_at(0));
+    EXPECT_FALSE(result->is_null_at(1));
+    EXPECT_EQ(result->get_int(0), 10);
+    EXPECT_EQ(result->get_int(1), 20);
+}
+
+TEST_F(AnalyticSinkOperatorTest, LeadWithMaxRowsOffset) {
+    constexpr int batch_size = 2;
+    Initialize(batch_size);
+
+    auto int64_type = std::make_shared<DataTypeInt64>();
+    auto nullable_int64_type = make_nullable(int64_type);
+    DataTypes argument_types {int64_type, int64_type, nullable_int64_type};
+    create_operator(true, 1, "lead", argument_types, nullable_int64_type, true);
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] = MockSlotRef::create_mock_contexts(argument_types);
+
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::FOLLOWING;
+    window_end.__set_rows_offset_value(std::numeric_limits<int64_t>::max());
+    window.__set_window_end(window_end);
+    create_window_type(false, true, window);
+    create_local_state();
+
+    Block input_block;
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2}));
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
+            {std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()}));
+    input_block.insert(
+            ColumnHelper::create_nullable_column_with_name<DataTypeInt64>({10, 20}, {0, 0}));
+    auto status = sink->sink(state.get(), &input_block, true);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+
+    Block output_block;
+    bool eos = false;
+    status = source->get_block(state.get(), &output_block, &eos);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(output_block.columns(), 4);
+    const auto* result =
+            assert_cast<const ColumnNullable*>(output_block.get_by_position(3).column.get());
+    ASSERT_EQ(result->size(), batch_size);
+    EXPECT_FALSE(result->is_null_at(0));
+    EXPECT_FALSE(result->is_null_at(1));
+    EXPECT_EQ(result->get_int(0), 10);
+    EXPECT_EQ(result->get_int(1), 20);
 }
 
 TEST_F(AnalyticSinkOperatorTest, AggFunction) {

@@ -239,7 +239,7 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
 
         WindowFrame windowFrame2 = new WindowFrame(FrameUnitsType.ROWS,
                 FrameBoundary.newFollowingBoundary(new IntegerLiteral(5)), FrameBoundary.newFollowingBoundary(new IntegerLiteral(4)));
-        String errorMsg2 = "WindowFrame with FOLLOWING boundary requires that leftBoundOffset >= rightBoundOffset";
+        String errorMsg2 = "WindowFrame with FOLLOWING boundary requires that leftBoundOffset <= rightBoundOffset";
         forCheckWindowFrameBeforeFunc(windowFrame2, errorMsg2);
     }
 

@@ -401,6 +401,7 @@ struct FirstLastData
         : public ReaderFirstAndLastData<void, result_is_nullable, arg_is_nullable, false> {
 public:
     void set_is_null() { this->_data_value.reset(); }
+    void set_current_row_position(int64_t) {}
 };
 
 template <bool result_is_nullable, bool arg_is_nullable>
@@ -432,8 +433,7 @@ public:
     static constexpr bool result_nullable = result_is_nullable;
     void reset() {
         _data_value.reset();
-        _is_inited = false;
-        _offset_value = 0;
+        _current_row_position = 0;
     }
 
     void insert_result_into(IColumn& to) const {
@@ -480,21 +480,15 @@ public:
         }
     }
 
-    void set_offset_value(const IColumn* column) {
-        if (!_is_inited) {
-            const auto* column_number =
-                    assert_cast<const ColumnInt64*, TypeCheckOnRelease::DISABLE>(column);
-            _offset_value = column_number->get_data()[0];
-            _is_inited = true;
-        }
+    void set_current_row_position(int64_t current_row_position) {
+        _current_row_position = current_row_position;
     }
 
-    int64_t get_offset_value() const { return _offset_value; }
+    int64_t get_current_row_position() const { return _current_row_position; }
 
 private:
     BaseValue<arg_is_nullable> _data_value;
-    bool _is_inited = false;
-    int64_t _offset_value = 0;
+    int64_t _current_row_position = 0;
 };
 
 template <typename Data, bool = false>
@@ -502,11 +496,9 @@ struct WindowFunctionLeadImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
         if (frame_end > partition_end) { //output default value, win end is under partition
-            this->set_offset_value(columns[1]);
-            // eg: lead(column, 10, default_value), column size maybe 3 rows
-            // offset value 10 is from second argument, pos: 11 is calculated as frame_end
-            auto pos = frame_end - 1 - this->get_offset_value();
-            this->set_value_from_default(columns[2], pos);
+            // frame_end can saturate for a large offset, so it cannot reliably identify the
+            // current row from which the default expression must be read.
+            this->set_value_from_default(columns[2], this->get_current_row_position());
             return;
         }
         this->set_value(columns, frame_end - 1);
@@ -521,9 +513,7 @@ struct WindowFunctionLagImpl : Data {
                                 int64_t frame_end, const IColumn** columns) {
         // window start is beyond partition
         if (partition_start >= frame_end) { //[unbound preceding(0), offset preceding(-123)]
-            this->set_offset_value(columns[1]);
-            auto pos = frame_end - 1 + this->get_offset_value();
-            this->set_value_from_default(columns[2], pos);
+            this->set_value_from_default(columns[2], this->get_current_row_position());
             return;
         }
         this->set_value(columns, frame_end - 1);
@@ -676,6 +666,11 @@ public:
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
+
+    void set_window_current_position(AggregateDataPtr place,
+                                     int64_t current_position) const override {
+        this->data(place).set_current_row_position(current_position);
+    }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         this->data(place).insert_result_into(to);

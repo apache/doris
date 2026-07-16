@@ -405,6 +405,8 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
         for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
             agg_columns.push_back(_agg_input_columns[i][j].get());
         }
+        _agg_functions[i]->function()->set_window_current_position(
+                _fn_place_ptr + _offsets_of_aggregate_states[i], _current_row_position);
         if constexpr (incremental) {
             _agg_functions[i]->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
