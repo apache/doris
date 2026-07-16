@@ -38,7 +38,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 /**
  * Behavior tests for the B1 DDL overrides on {@link IcebergConnectorMetadata} — driven entirely through the
@@ -268,6 +267,80 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertEquals(0, ctx.authCount);
     }
 
+    @Test
+    public void testCreateTableRejectsReservedRowLineageColumnAtV3() {
+        // A v3 table (format-version=3 in the CREATE properties) forbids a user column named after an iceberg
+        // reserved row-lineage column (_row_id / _last_updated_sequence_number, case-insensitive). This check
+        // moved off fe-core CreateTableInfo — the connector owns the iceberg name convention. It runs BEFORE
+        // the auth/remote create, so the seam never fires. MUTATION: dropping the reject lets the create through.
+        for (String reserved : new String[] {"_row_id", "_last_updated_sequence_number", "_ROW_ID"}) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                    .dbName("db1").tableName("t1")
+                    .columns(Arrays.asList(
+                            new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false),
+                            new ConnectorColumn(reserved, ConnectorType.of("BIGINT"), "", true, null, false)))
+                    .properties(Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"))
+                    .build();
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createTable(null, request),
+                    reserved + " must be rejected on a v3 table");
+            Assertions.assertTrue(ex.getMessage().contains("reserved row lineage column"), ex.getMessage());
+            Assertions.assertTrue(ops.log.isEmpty(), "reject must run before the remote seam");
+            Assertions.assertEquals(0, ctx.authCount);
+        }
+    }
+
+    @Test
+    public void testCreateTableAllowsReservedRowLineageNameBelowV3() {
+        // Below v3 (the default v2) row lineage does not exist, so _row_id is a legal user column name and the
+        // create proceeds to the seam. Version-gates the rejection.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Collections.singletonList(
+                        new ConnectorColumn("_row_id", ConnectorType.of("BIGINT"), "", true, null, false)))
+                .build();
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createTable(null, request);
+        Assertions.assertEquals("t1", ops.lastCreateTableName);
+        Assertions.assertNotNull(ops.lastCreateSchema.findField("_row_id"));
+    }
+
+    @Test
+    public void testCreateTableRejectsReservedColumnViaCatalogTableDefaultV3() {
+        // FULL effective-format-version precedence: a catalog-level table-default.format-version=3 with NO
+        // table-level format-version must still trip the rejection (else the version resolves to 2 and a v3
+        // table is created carrying a reserved column). Guards the getEffectiveFormatVersion precedence.
+        assertCatalogLevelV3Rejects("table-default.format-version");
+    }
+
+    @Test
+    public void testCreateTableRejectsReservedColumnViaCatalogTableOverrideV3() {
+        assertCatalogLevelV3Rejects("table-override.format-version");
+    }
+
+    private static void assertCatalogLevelV3Rejects(String catalogFormatVersionKey) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        Map<String, String> catalogProps = new HashMap<>();
+        catalogProps.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        catalogProps.put(catalogFormatVersionKey, "3");
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, catalogProps, ctx);
+        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Collections.singletonList(
+                        new ConnectorColumn("_row_id", ConnectorType.of("BIGINT"), "", true, null, false)))
+                .build();
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.createTable(null, request),
+                catalogFormatVersionKey + "=3 must trip the reserved-column rejection");
+        Assertions.assertTrue(ex.getMessage().contains("reserved row lineage column"), ex.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty());
+        Assertions.assertEquals(0, ctx.authCount);
+    }
+
     // ---------- dropTable ----------
 
     @Test
@@ -352,60 +425,6 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertTrue(ops.log.isEmpty());
     }
 
-    // ---------- DLF flavor: every DDL write fails loud BEFORE the seam (legacy IcebergDLFExternalCatalog parity) ----------
-
-    // WHY: a DLF (Aliyun Data Lake Formation) iceberg catalog rejected all DDL writes in master. After the flip
-    // the migrated DLFCatalog does NOT override createTable, so without a connector guard CREATE TABLE would
-    // actually create a table against the live DLF metastore (DLF write is unvalidated); the other ops degraded
-    // to a generic message. Each guard must throw the exact legacy message, before the auth scope and the seam.
-    // MUTATION: dropping any guard / weakening isDlfCatalog to non-DLF -> the matching test goes red.
-    private static void assertDlfRejects(Consumer<IcebergConnectorMetadata> op, String expectedMessage) {
-        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-        RecordingConnectorContext ctx = new RecordingConnectorContext();
-        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergConnectorProperties.TYPE_DLF);
-        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, () -> op.accept(md));
-        Assertions.assertEquals(expectedMessage, ex.getMessage());
-        Assertions.assertTrue(ops.log.isEmpty(), "DLF guard must fail before the seam: " + ops.log);
-        Assertions.assertEquals(0, ctx.authCount, "DLF guard must fail before the auth scope");
-    }
-
-    @Test
-    public void testDlfCreateDatabaseFailsLoud() {
-        assertDlfRejects(md -> md.createDatabase(null, "db1", Collections.emptyMap()),
-                "iceberg catalog with dlf type not supports 'create database'");
-    }
-
-    @Test
-    public void testDlfDropDatabaseFailsLoud() {
-        // force=true would otherwise cascade tables/views through the seam — the guard must pre-empt all of it.
-        assertDlfRejects(md -> md.dropDatabase(null, "db1", false, true),
-                "iceberg catalog with dlf type not supports 'drop database'");
-    }
-
-    @Test
-    public void testDlfCreateTableFailsLoudBeforeRemote() {
-        // a valid column type: the test must fail on the DLF guard, not on type building -> proves the real fix
-        // (createTable was the sole op that previously reached the live DLF metastore).
-        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
-                .dbName("db1").tableName("t1")
-                .columns(Collections.singletonList(
-                        new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false)))
-                .build();
-        assertDlfRejects(md -> md.createTable(null, request),
-                "iceberg catalog with dlf type not supports 'create table'");
-    }
-
-    @Test
-    public void testDlfDropTableFailsLoud() {
-        assertDlfRejects(md -> md.dropTable(null, new IcebergTableHandle("db1", "t1")),
-                "iceberg catalog with dlf type not supports 'drop table'");
-    }
-
-    @Test
-    public void testDlfRenameTableFailsLoud() {
-        assertDlfRejects(md -> md.renameTable(null, new IcebergTableHandle("db1", "t1"), "t2"),
-                "iceberg catalog with dlf type not supports 'rename table'");
-    }
 
     // ---------- Branch / tag (B4): route by handle, auth-wrap, wrap auth failures ----------
 

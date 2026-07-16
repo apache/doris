@@ -169,6 +169,17 @@ public final class CacheSpec {
     }
 
     /**
+     * Build the standard external meta cache TTL key for one engine+entry.
+     * Example: {@code meta.cache.hive.file.ttl-second}.
+     *
+     * <p>Used to translate a legacy catalog TTL knob (e.g. {@code file.meta.cache.ttl-second}) into the
+     * namespaced key a cache actually reads, via {@link #applyCompatibilityMap}.
+     */
+    public static String metaCacheTtlKey(String engine, String entryName) {
+        return META_CACHE_PREFIX + engine + "." + entryName + KEY_TTL_SECOND;
+    }
+
+    /**
      * Returns true when the given property key belongs to one engine's meta cache namespace.
      */
     public static boolean isMetaCacheKeyForEngine(String key, String engine) {

@@ -299,15 +299,18 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
             Map<String, ExprId> columnExprIdMap) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         Connector connector = catalog.getConnector();
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
-        if (writePlanProvider == null) {
-            return new InsertPartitionFieldResult(false, false, null);
-        }
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
+        // Resolve the handle first so the write provider is selected per-table (a heterogeneous gateway routes
+        // iceberg-on-HMS to its sibling by the handle type); both null-degrade checks keep the non-partitioned
+        // fallback. Byte-identical for single-format connectors (getWritePlanProvider(handle) defaults through).
         ConnectorTableHandle handle = metadata.getTableHandle(
                 session, table.getRemoteDbName(), table.getRemoteName()).orElse(null);
         if (handle == null) {
+            return new InsertPartitionFieldResult(false, false, null);
+        }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(handle);
+        if (writePlanProvider == null) {
             return new InsertPartitionFieldResult(false, false, null);
         }
         ConnectorWritePartitionSpec spec = writePlanProvider.getWritePartitioning(session, handle);

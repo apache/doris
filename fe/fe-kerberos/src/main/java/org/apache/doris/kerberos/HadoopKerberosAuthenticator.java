@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,15 +47,35 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
     private long nextRefreshTime;
     private UserGroupInformation ugi;
 
+    // The authentication method the first caller published to the process-wide UGI configuration.
+    // Guarded by HadoopKerberosAuthenticator.class; null until the first setConfiguration.
+    private static UserGroupInformation.AuthenticationMethod configuredAuthMethod = null;
+
     public HadoopKerberosAuthenticator(KerberosAuthenticationConfig config) {
         this.config = config;
     }
 
     public static void initializeAuthConfig(Configuration hadoopConf) {
         hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
+        // UserGroupInformation.setConfiguration mutates a single process-wide global, so multiple HDFS
+        // catalogs with differing hadoop.security.authentication cannot truly coexist. First-writer-wins:
+        // only the first caller publishes the global config; later catalogs (and every ticket refresh,
+        // which re-enters this method via login()) skip it so they don't stomp on each other. A WARN
+        // fires only on a genuine auth-method mismatch. We compare against a remembered method rather than
+        // UserGroupInformation.getLoginUser() on purpose: Doris never establishes a process-wide login user
+        // (per-instance getUGIFromSubject only), and getLoginUser() would trigger exactly that.
+        UserGroupInformation.AuthenticationMethod desired = SecurityUtil.getAuthenticationMethod(hadoopConf);
         synchronized (HadoopKerberosAuthenticator.class) {
-            // avoid other catalog set conf at the same time
-            UserGroupInformation.setConfiguration(hadoopConf);
+            if (configuredAuthMethod == null) {
+                UserGroupInformation.setConfiguration(hadoopConf);
+                configuredAuthMethod = desired;
+                return;
+            }
+            if (configuredAuthMethod != desired) {
+                LOG.warn("UGI already configured with authentication={} but this catalog requests {}; "
+                        + "keeping existing JVM-global setting (first-writer-wins).",
+                        configuredAuthMethod, desired);
+            }
         }
     }
 

@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -28,6 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Plans the set of scan ranges (splits) needed to read a connector table.
@@ -105,6 +107,23 @@ public interface ConnectorScanPlanProvider {
      */
     default ConnectorColumnCategory classifyColumn(String columnName) {
         return ConnectorColumnCategory.DEFAULT;
+    }
+
+    /**
+     * Lets a connector adjust the file compression type the generic node inferred from the file path/extension
+     * (via {@code Util.inferFileCompressTypeByPath}) before it is shipped to BE on the scan range. The default
+     * is identity — the inferred type is used as-is.
+     *
+     * <p>Hive overrides this to remap {@code LZ4FRAME -> LZ4BLOCK}: hadoop/hive write {@code .lz4} files with
+     * the LZ4 <em>block</em> codec, not the LZ4 frame format the {@code .lz4} extension implies, so the frame
+     * inferred from the path would make BE's frame decoder fail ({@code LZ4F_getFrameInfo ERROR_frameType_unknown}).
+     * This keeps that hadoop-specific fact inside the connector; the generic node stays connector-agnostic.</p>
+     *
+     * @param inferred the compression type the generic node inferred from the file path
+     * @return the compression type to actually send to BE (identity by default)
+     */
+    default TFileCompressType adjustFileCompressType(TFileCompressType inferred) {
+        return inferred;
     }
 
     /**
@@ -230,6 +249,67 @@ public interface ConnectorScanPlanProvider {
      */
     default boolean supportsBatchScan(ConnectorSession session, ConnectorTableHandle handle) {
         return false;
+    }
+
+    /**
+     * Whether this connector's scan ranges carry meaningful byte lengths
+     * ({@link ConnectorScanRange#getLength()}) so the engine can apply {@code TABLESAMPLE} by
+     * size-weighted split selection ({@code PluginDrivenScanNode.sampleSplits}). Returning
+     * {@code false} (the default) makes {@code TABLESAMPLE} a no-op — the full table is scanned (with a
+     * warning) — matching these connectors' behavior before the SPI migration (only the legacy Hive scan
+     * node ever sampled). A connector must NOT return {@code true} unless EVERY range it plans exposes a
+     * positive, byte-proportional length: MaxCompute's default byte-size ranges and Paimon's JNI-read
+     * ranges report {@code -1}, and MaxCompute row_offset ranges report a ROW count (not bytes), so they
+     * must stay {@code false}. Mirrors {@link #supportsBatchScan}'s opt-in shape and Trino's
+     * {@code ConnectorMetadata.applySample}.
+     *
+     * @return whether split-size TABLESAMPLE is valid for this connector (default: false)
+     */
+    default boolean supportsTableSample() {
+        return false;
+    }
+
+    /**
+     * The number of DISTINCT native partitions among the just-planned scan ranges — the count the
+     * connector's SDK actually resolved after ITS full manifest/residual/transform/bucket pruning.
+     * Feeds the scan node's {@code selectedPartitionNum} (EXPLAIN {@code partition=N/M} and the
+     * {@code sql_block_rule} {@code partition_num} guard), so the reported count reflects what is
+     * really scanned rather than the engine's declared-partition-column (Nereids) prune count.
+     *
+     * <p>The default returns {@link OptionalLong#empty()}, so the generic node keeps its Nereids-pruned
+     * count — correct for directory-partitioned / requiredPartition-driven connectors (hive, MaxCompute),
+     * where the two coincide. A predicate-driven connector whose SDK prunes beyond the engine (Paimon
+     * manifest pruning, Iceberg hidden/transform partitioning) overrides this. Mirrors the
+     * {@link #supportsTableSample} opt-in shape; the connector downcasts its OWN range type (it produced
+     * these very ranges) to read partition identity, so the generic node stays connector-agnostic. It
+     * must never over-count (each native partition must map to exactly one identity within a scan), so it
+     * can only tighten, never loosen, the {@code partition_num} guard relative to the Nereids count.</p>
+     *
+     * @param scanRanges the ranges this provider just returned from {@code planScan}
+     * @return the distinct scanned-partition count, or empty to keep the engine's Nereids count (default)
+     */
+    default OptionalLong scannedPartitionCount(List<ConnectorScanRange> scanRanges) {
+        return OptionalLong.empty();
+    }
+
+    /**
+     * Connector SDK scan diagnostics harvested during the just-finished {@link #planScan} — manifest cache
+     * hit/miss, scan/planning durations, files and manifests scanned vs skipped — as connector-neutral
+     * {@link ConnectorScanProfile} groups the engine writes into the query's profile execution summary.
+     *
+     * <p>The default returns an empty list (connector reports nothing). A connector that wants scan
+     * diagnostics harvests them from its SDK during {@code planScan} (the paimon SDK exposes a metric
+     * registry, the iceberg SDK a metrics reporter), stashes them keyed by {@link ConnectorSession#getQueryId()},
+     * and drains them here — mirroring the per-query queryId stashes this SPI already uses (read-transaction
+     * release, rewritable-delete supply). The engine calls this immediately after {@code planScan} on the
+     * same thread, so the harvest is complete; the connector must also drop its stash on
+     * {@link #releaseReadTransaction} to reclaim any entry a thrown {@code planScan} left behind.</p>
+     *
+     * @param session the current session (its queryId keys the connector's per-query stash)
+     * @return this scan's diagnostics, or an empty list (the default) to contribute nothing to the profile
+     */
+    default List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        return Collections.emptyList();
     }
 
     /**
@@ -439,5 +519,24 @@ public interface ConnectorScanPlanProvider {
      */
     default String getSerializedTable(Map<String, String> nodeProperties) {
         return null;
+    }
+
+    /**
+     * Releases any per-query read transaction this provider opened, called by the engine when the query
+     * finishes (via the generic query-finish callback registry). The default is a no-op: connectors that do
+     * not open a per-query read transaction (every connector except transactional/ACID hive) need not override
+     * it.
+     *
+     * <p>A connector that opens a metastore read transaction + shared read lock during {@link #planScan} (hive
+     * full-ACID / insert-only reads) MUST override this to commit that transaction and release the lock, else
+     * the shared read lock leaks for the metastore's lifetime. Best-effort: an implementation should log and
+     * swallow a commit failure rather than propagate (the callback registry isolates exceptions anyway).
+     * {@code queryId} is the engine query id string ({@link ConnectorSession#getQueryId()}), the same key the
+     * provider registered the transaction under.</p>
+     *
+     * @param queryId the finishing query's id (== {@link ConnectorSession#getQueryId()})
+     */
+    default void releaseReadTransaction(String queryId) {
+        // default: no per-query read transaction to release
     }
 }

@@ -251,12 +251,16 @@ public final class PaimonTypeMapping {
             case "VARIANT":
                 return new VariantType();
             case "ARRAY":
-                return new ArrayType(toPaimonType(type.getChildren().get(0)));
+                // FIX-L13: preserve the declared element nullability (legacy DorisToPaimonTypeVisitor
+                // array = elementResult.copy(array.getContainsNull())).
+                return new ArrayType(
+                        toPaimonType(type.getChildren().get(0)).copy(type.isChildNullable(0)));
             case "MAP":
-                // Legacy forces the map key non-null via .copy(false).
+                // Legacy forces the map key non-null via .copy(false); the value preserves the declared
+                // nullability (FIX-L13: legacy map = valueResult.copy(map.getIsValueContainsNull())).
                 return new MapType(
                         toPaimonType(type.getChildren().get(0)).copy(false),
-                        toPaimonType(type.getChildren().get(1)));
+                        toPaimonType(type.getChildren().get(1)).copy(type.isChildNullable(1)));
             case "STRUCT":
             case "ROW":
                 return toPaimonRowType(type);
@@ -274,8 +278,11 @@ public final class PaimonTypeMapping {
         AtomicInteger fieldId = new AtomicInteger(-1);
         for (int i = 0; i < children.size(); i++) {
             String fieldName = i < names.size() && names.get(i) != null ? names.get(i) : "col" + i;
-            fields.add(new DataField(
-                    fieldId.incrementAndGet(), fieldName, toPaimonType(children.get(i))));
+            // FIX-L13: preserve the declared field nullability (legacy struct =
+            // fieldResults.get(i).copy(field.getContainsNull())). The field comment stays dropped
+            // (accepted display-only deviation DV-035 M10.1) and the field id stays sequential (legacy parity).
+            fields.add(new DataField(fieldId.incrementAndGet(), fieldName,
+                    toPaimonType(children.get(i)).copy(type.isChildNullable(i))));
         }
         return new RowType(fields);
     }

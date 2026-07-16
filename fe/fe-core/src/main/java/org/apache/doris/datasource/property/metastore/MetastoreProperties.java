@@ -85,10 +85,10 @@ public class MetastoreProperties extends ConnectionProperties {
 
     static {
         //subclasses should be registered here
-        register(Type.HMS, new HivePropertiesFactory());
-        // Design S7: iceberg/paimon are plugin (SPI) catalogs whose metastore properties live connector-side;
-        // fe-core no longer parses them. The Type.ICEBERG/PAIMON enum values remain (so a stray create() fails
-        // loud with "Unsupported metastore type") but their factories are intentionally not registered.
+        // Design S7: hms/iceberg/paimon are plugin (SPI) catalogs whose metastore properties live
+        // connector-side; fe-core no longer parses them. The Type.HMS/ICEBERG/PAIMON enum values remain (so a
+        // stray create() fails loud with "Unsupported metastore type") but their factories are intentionally
+        // not registered.
         register(Type.TRINO_CONNECTOR, new TrinoConnectorPropertiesFactory());
     }
 
@@ -130,9 +130,8 @@ public class MetastoreProperties extends ConnectionProperties {
 
     /**
      * Returns the execution authenticator for this metastore.
-     * Subclasses that support Kerberos (e.g., {@link HiveHMSProperties})
-     * override this via their {@code @Getter executionAuthenticator} field
-     * to return a Kerberos-capable authenticator.
+     * Subclasses that support Kerberos override this via their
+     * {@code @Getter executionAuthenticator} field to return a Kerberos-capable authenticator.
      *
      * <p>The default implementation returns a simple no-op authenticator.</p>
      */

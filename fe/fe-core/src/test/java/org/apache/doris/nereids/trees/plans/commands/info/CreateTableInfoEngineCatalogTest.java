@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -36,8 +35,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Tests engine-padding / catalog-engine-consistency in {@link CreateTableInfo} for a
@@ -62,11 +59,9 @@ public class CreateTableInfoEngineCatalogTest {
 
     // Mirror of CreateTableInfo.ENGINE_MAXCOMPUTE (private constant).
     private static final String ENGINE_MAXCOMPUTE = "maxcompute";
-    // Iceberg catalog-level format-version property keys (literal values of iceberg SDK
-    // CatalogProperties.TABLE_DEFAULT_PREFIX/TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION;
-    // spelled out to avoid importing org.apache.iceberg into this nereids test package).
-    private static final String TABLE_DEFAULT_FORMAT_VERSION = "table-default.format-version";
-    private static final String TABLE_OVERRIDE_FORMAT_VERSION = "table-override.format-version";
+    // Mirror of CreateTableInfo.ENGINE_HIVE (private constant) — the CREATE-TABLE engine a flipped
+    // hms catalog pads to.
+    private static final String ENGINE_HIVE = "hive";
 
     private MockedStatic<Env> mockedEnv;
     private CatalogMgr catalogMgr;
@@ -198,112 +193,72 @@ public class CreateTableInfoEngineCatalogTest {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // ENG-1 / F1: getEffectiveIcebergFormatVersion must consult catalog-level
-    // table-default/override.format-version for a flipped (PluginDrivenExternalCatalog) iceberg
-    // catalog, so the v3 row-lineage reserved-column check is not silently no-op'd to v2 while the
-    // connector creates a v3 table. Mirrors the paddingEngineName plugin-iceberg arm.
+    // HMS cutover: a flipped hms external catalog is a PluginDrivenExternalCatalog (type "hms").
+    // pluginCatalogTypeToEngine must map "hms" -> ENGINE_HIVE so a no-ENGINE CREATE pads engine=hive
+    // (legacy hms catalogs always create hive-engine tables) and the catalog-engine consistency check
+    // still rejects a non-hive explicit ENGINE. Class A (unreachable until "hms" enters
+    // SPI_READY_TYPES); getType() is mocked to "hms" to prove the switch entry without an actual flip.
     // ---------------------------------------------------------------------------------------------
 
-    /** Registers a PluginDriven catalog of the given connector type, exposing the given catalog properties. */
-    private void registerPluginCatalogWithProps(String ctlName, String type, Map<String, String> props) {
-        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Mockito.doReturn(type).when(catalog).getType();
-        Mockito.doReturn(props).when(catalog).getProperties();
-        Mockito.when(catalogMgr.getCatalog(ctlName)).thenReturn(catalog);
+    @Test
+    public void noEnginePaddedToHiveForPluginDrivenHms() throws Throwable {
+        registerPluginCatalog("hms_ctl", "hms");
+        CreateTableInfo info = newInfo("hms_ctl", null);
+
+        invokePadding(info, "hms_ctl");
+
+        // Why: a no-ENGINE CREATE TABLE under a flipped hms catalog must auto-pad the hive engine,
+        // exactly as legacy HMSExternalCatalog did (paddingEngineName :913-914), instead of throwing
+        // "Current catalog does not support create table". MUTATION: dropping the "hms" case ->
+        // pluginCatalogTypeToEngine returns null -> throw -> this test fails.
+        Assertions.assertEquals(ENGINE_HIVE, info.getEngineName(),
+                "no-ENGINE CREATE TABLE on a PluginDriven hms catalog must pad engine=hive");
     }
 
-    private static CreateTableInfo newInfoWithColumns(String ctlName, List<ColumnDefinition> columns) {
-        return new CreateTableInfo(false, false, false, ctlName, "db", "tbl",
-                columns, new ArrayList<>(), null, null,
-                new ArrayList<>(), null, null, null,
-                new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
-    }
+    @Test
+    public void ctasNoEnginePaddedToHiveForHms() {
+        registerPluginCatalog("hms_ctl", "hms");
+        CreateTableInfo info = newInfo("hms_ctl", null);
 
-    private static int invokeEffectiveVersion(CreateTableInfo info) throws Throwable {
-        Method m = CreateTableInfo.class.getDeclaredMethod("getEffectiveIcebergFormatVersion");
-        m.setAccessible(true);
+        // CTAS routes through validateCreateTableAsSelect, whose first action is paddingEngineName.
+        // The downstream validate(ctx) is heavy and not exercised here; assert only the padding side
+        // effect. Pre-fix, paddingEngineName throws before setting engineName.
         try {
-            return (int) m.invoke(info);
-        } catch (InvocationTargetException e) {
-            throw e.getCause();
+            info.validateCreateTableAsSelect(Lists.newArrayList("hms_ctl"), new ArrayList<>(),
+                    Mockito.mock(ConnectContext.class));
+        } catch (Exception ignored) {
+            // Only the engine-padding side effect is under test here.
         }
-    }
 
-    private static void invokeValidateRowLineage(CreateTableInfo info) throws Throwable {
-        Method m = CreateTableInfo.class.getDeclaredMethod("validateIcebergRowLineageColumns");
-        m.setAccessible(true);
-        try {
-            m.invoke(info);
-        } catch (InvocationTargetException e) {
-            throw e.getCause();
-        }
-    }
-
-    private static Map<String, String> propMap(String key, String value) {
-        Map<String, String> m = new HashMap<>();
-        m.put(key, value);
-        return m;
+        Assertions.assertEquals(ENGINE_HIVE, info.getEngineName(),
+                "CTAS into a PluginDriven hms catalog must pad engine=hive via validateCreateTableAsSelect");
     }
 
     @Test
-    public void catalogLevelTableDefaultFormatVersionResolvedForPluginIceberg() throws Throwable {
-        registerPluginCatalogWithProps("ice_ctl", "iceberg", propMap(TABLE_DEFAULT_FORMAT_VERSION, "3"));
-        CreateTableInfo info = newInfoWithColumns("ice_ctl", new ArrayList<>());
+    public void wrongExplicitEngineRejectedForPluginDrivenHms() {
+        registerPluginCatalog("hms_ctl", "hms");
+        // Legacy HMSExternalCatalog rejected any ENGINE != hive ("Hms type catalog can only use `hive`
+        // engine."); the flipped PluginDriven path mirrors that via checkEngineWithCatalog + the "hms"
+        // switch entry. An explicit iceberg engine on an hms catalog must be rejected.
+        CreateTableInfo info = newInfo("hms_ctl", "iceberg");
 
-        // Why: a flipped iceberg catalog is a PluginDrivenExternalCatalog, so the legacy
-        // instanceof IcebergExternalCatalog gate is false; without the parallel plugin-iceberg arm the
-        // catalog-level table-default.format-version=3 is ignored and the version resolves to 2.
-        Assertions.assertEquals(3, invokeEffectiveVersion(info),
-                "catalog-level table-default.format-version=3 must be honored for a PluginDriven iceberg catalog");
+        Assertions.assertThrows(AnalysisException.class, () -> invokeCheck(info),
+                "explicit ENGINE=iceberg on a PluginDriven hms catalog must be rejected");
     }
 
     @Test
-    public void catalogLevelTableOverrideFormatVersionResolvedForPluginIceberg() throws Throwable {
-        registerPluginCatalogWithProps("ice_ctl", "iceberg", propMap(TABLE_OVERRIDE_FORMAT_VERSION, "3"));
-        CreateTableInfo info = newInfoWithColumns("ice_ctl", new ArrayList<>());
+    public void correctExplicitEngineHivePassesForPluginDrivenHms() {
+        registerPluginCatalog("hms_ctl", "hms");
+        CreateTableInfo info = newInfo("hms_ctl", ENGINE_HIVE);
 
-        Assertions.assertEquals(3, invokeEffectiveVersion(info),
-                "catalog-level table-override.format-version=3 must be honored for a PluginDriven iceberg catalog");
+        Assertions.assertDoesNotThrow(() -> invokeCheck(info),
+                "explicit ENGINE=hive on a PluginDriven hms catalog must pass the check");
     }
 
-    @Test
-    public void catalogLevelV3RejectsReservedRowLineageColumnForPluginIceberg() {
-        registerPluginCatalogWithProps("ice_ctl", "iceberg", propMap(TABLE_DEFAULT_FORMAT_VERSION, "3"));
-        List<ColumnDefinition> columns =
-                Lists.newArrayList(new ColumnDefinition("_row_id", BigIntType.INSTANCE, true));
-        CreateTableInfo info = newInfoWithColumns("ice_ctl", columns);
-
-        // End-to-end user-facing behavior: master rejected this at analysis; post-flip it must still
-        // reject (else a v3 table with a colliding reserved column is silently created).
-        Assertions.assertThrows(AnalysisException.class, () -> invokeValidateRowLineage(info),
-                "CREATE TABLE(_row_id) under a PluginDriven iceberg catalog with catalog-level "
-                        + "format-version=3 must be rejected");
-    }
-
-    @Test
-    public void noCatalogLevelFormatVersionResolvesToV2ForPluginIceberg() throws Throwable {
-        registerPluginCatalogWithProps("ice_ctl", "iceberg", new HashMap<>());
-        List<ColumnDefinition> columns =
-                Lists.newArrayList(new ColumnDefinition("_row_id", BigIntType.INSTANCE, true));
-        CreateTableInfo info = newInfoWithColumns("ice_ctl", columns);
-
-        // Not over-broadened: with no catalog-level format-version and no table-level one, the version
-        // resolves to 2, so _row_id is allowed (v3 check does not fire).
-        Assertions.assertEquals(2, invokeEffectiveVersion(info),
-                "absent any format-version, a PluginDriven iceberg catalog must resolve to v2");
-        Assertions.assertDoesNotThrow(() -> invokeValidateRowLineage(info),
-                "_row_id must be allowed when the resolved format-version is 2");
-    }
-
-    @Test
-    public void catalogLevelFormatVersionIgnoredForNonIcebergPluginCatalog() throws Throwable {
-        // A max_compute PluginDriven catalog that happens to carry a table-default.format-version must NOT
-        // have it read (the plugin-iceberg arm is gated on pluginCatalogTypeToEngine == iceberg): resolves
-        // to 2 via the emptyMap branch.
-        registerPluginCatalogWithProps("mc_ctl", "max_compute", propMap(TABLE_DEFAULT_FORMAT_VERSION, "3"));
-        CreateTableInfo info = newInfoWithColumns("mc_ctl", new ArrayList<>());
-
-        Assertions.assertEquals(2, invokeEffectiveVersion(info),
-                "a non-iceberg PluginDriven catalog must not consult catalog-level format-version");
-    }
+    // NOTE: the iceberg v3 effective-format-version derivation + reserved-row-lineage-column rejection moved
+    // off fe-core CreateTableInfo into the iceberg connector (IcebergSchemaBuilder.getEffectiveFormatVersion +
+    // IcebergConnectorMetadata.createTable). The catalog-level table-default/override.format-version precedence
+    // is now covered by IcebergConnectorMetadataDdlTest; the former reflective tests that drove the deleted
+    // CreateTableInfo.getEffectiveIcebergFormatVersion / validateIcebergRowLineageColumns were removed with
+    // those methods.
 }

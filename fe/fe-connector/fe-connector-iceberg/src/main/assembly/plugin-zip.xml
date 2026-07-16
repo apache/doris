@@ -50,6 +50,9 @@ under the License.
                      original-package fe-thrift / libthrift out of the plugin (same as fe-connector-hive). -->
                 <exclude>org.apache.doris:fe-thrift</exclude>
                 <exclude>org.apache.thrift:libthrift</exclude>
+                <!-- QUIC natives are unused: netty-bom force-manages the classifier jars to
+                     runtime scope, dragging ~11.7MB of unused native libs into the plugin. -->
+                <exclude>io.netty:netty-codec-native-quic</exclude>
                 <!-- Logging provided by host -->
                 <exclude>org.apache.logging.log4j:*</exclude>
                 <exclude>org.slf4j:*</exclude>

@@ -32,6 +32,9 @@ public interface HadoopAuthenticator {
         try {
             return getUGI().doAs(action);
         } catch (InterruptedException e) {
+            // Restore the interrupt flag: we are swallowing InterruptedException by rethrowing it as a
+            // checked IOException, so callers up the stack can still observe that the thread was interrupted.
+            Thread.currentThread().interrupt();
             throw new IOException(e);
         } catch (UndeclaredThrowableException e) {
             if (e.getCause() instanceof RuntimeException) {

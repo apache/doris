@@ -36,7 +36,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jline.internal.Nullable;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
@@ -61,6 +60,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import javax.net.ssl.HttpsURLConnection;
 
 public class RestBaseController extends BaseController {

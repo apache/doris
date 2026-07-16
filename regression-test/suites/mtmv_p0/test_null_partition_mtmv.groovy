@@ -56,7 +56,7 @@ suite("test_null_partition_mtmv") {
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertTrue(showPartitionsResult.toString().contains("p_1"))
-    assertTrue(showPartitionsResult.toString().contains("p_NULL"))
+    assertTrue(showPartitionsResult.toString().contains("pn_NULL"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} AUTO
@@ -65,7 +65,7 @@ suite("test_null_partition_mtmv") {
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
 
-    order_qt_list_null "SELECT * FROM ${mvName} partitions(p_NULL) order by user_id,num"
+    order_qt_list_null "SELECT * FROM ${mvName} partitions(pn_NULL) order by user_id,num"
     order_qt_list_1 "SELECT * FROM ${mvName} partitions(p_1) order by user_id,num"
 
     sql """drop table if exists `${tableName}`"""

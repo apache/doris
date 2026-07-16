@@ -77,7 +77,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
-                ctx.getStatementContext().getSnapshot(externalTable)))) {
+                ctx.getStatementContext().getSnapshot(externalTable,
+                        scan.getTableSnapshot(), scan.getScanParams())))) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
             return SelectedPartitions.NOT_PRUNED;
@@ -86,7 +87,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .stream()
                 .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
         List<Slot> partitionSlots = externalTable.getPartitionColumns(
-                        ctx.getStatementContext().getSnapshot(externalTable))
+                        ctx.getStatementContext().getSnapshot(externalTable,
+                        scan.getTableSnapshot(), scan.getScanParams()))
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
