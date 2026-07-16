@@ -22,7 +22,6 @@
 #include <thread>
 #include <utility>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "core/allocator.h"
 #include "cpp/sync_point.h"
@@ -48,26 +47,17 @@ AsyncCacheWriteBuffer::~AsyncCacheWriteBuffer() {
     allocator.free(_data, _size);
 }
 
-AsyncCacheWriteServiceOptions AsyncCacheWriteServiceOptions::from_config() {
-    return AsyncCacheWriteServiceOptions {
-            .worker_count = static_cast<size_t>(config::async_file_cache_write_workers_per_disk),
-            .max_pending_tasks =
-                    static_cast<size_t>(config::async_file_cache_write_max_pending_tasks_per_disk),
-            .batch_size = static_cast<size_t>(config::async_file_cache_write_batch_size),
-            .watchdog_warn_secs = config::async_file_cache_write_watchdog_warn_secs,
-            .watchdog_drop_secs = config::async_file_cache_write_watchdog_drop_secs,
-            .follow_global_config = true,
-    };
-}
-
 AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
                                                AsyncCacheWriteServiceOptions options)
-        : _cache(cache), _options(std::move(options)) {
+        : _cache(cache),
+          _options(std::make_shared<const AsyncCacheWriteServiceOptions>(options)),
+          _desired_worker_count(options.worker_count) {
     DORIS_CHECK(_cache != nullptr);
-    DORIS_CHECK(_options.worker_count > 0);
-    DORIS_CHECK(_options.max_pending_tasks > 0);
-    DORIS_CHECK(_options.batch_size > 0);
-    DORIS_CHECK(_options.watchdog_drop_secs > _options.watchdog_warn_secs);
+    DORIS_CHECK(options.worker_count > 0);
+    DORIS_CHECK(options.max_pending_tasks > 0);
+    DORIS_CHECK(options.batch_size > 0);
+    DORIS_CHECK(options.watchdog_warn_secs >= 0);
+    DORIS_CHECK(options.watchdog_drop_secs > options.watchdog_warn_secs);
 
     const char* prefix = _cache->get_base_path().c_str();
     _mem_tracker = MemTrackerLimiter::create_shared(
@@ -119,7 +109,7 @@ Status AsyncCacheWriteService::start() {
         return Status::OK();
     }
 
-    const size_t worker_count = _options.worker_count;
+    const size_t worker_count = _desired_worker_count.load(std::memory_order_acquire);
     RETURN_IF_ERROR(
             ThreadPoolBuilder(fmt::format("AsyncFileCacheWrite-{}",
                                           std::hash<std::string> {}(_cache->get_base_path())))
@@ -144,7 +134,8 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
         return false;
     }
 
-    const size_t max_pending = _max_pending_tasks();
+    const auto options = _options.load(std::memory_order_acquire);
+    const size_t max_pending = options->max_pending_tasks;
     size_t current = _pending_count.load(std::memory_order_relaxed);
     while (current < max_pending) {
         if (_pending_count.compare_exchange_weak(current, current + 1, std::memory_order_acq_rel,
@@ -213,9 +204,9 @@ void AsyncCacheWriteService::_worker_loop(size_t worker_id) {
         }
 
         size_t processed = 0;
-        const size_t batch_size = _batch_size();
+        const auto options = _options.load(std::memory_order_acquire);
         AsyncCacheWriteTask task;
-        while (processed < batch_size && _queue.try_dequeue(task)) {
+        while (processed < options->batch_size && _queue.try_dequeue(task)) {
             ++processed;
             Defer finish {[&]() {
                 _finish_task(task);
@@ -223,8 +214,8 @@ void AsyncCacheWriteService::_worker_loop(size_t worker_id) {
             }};
 
             const int64_t age_us = MonotonicMicros() - task.submit_ts_us;
-            const int64_t warn_us = _watchdog_warn_secs() * 1000 * 1000;
-            const int64_t drop_us = _watchdog_drop_secs() * 1000 * 1000;
+            const int64_t warn_us = options->watchdog_warn_secs * 1000 * 1000;
+            const int64_t drop_us = options->watchdog_drop_secs * 1000 * 1000;
             if (age_us > warn_us) {
                 *_watchdog_timeout_metric << 1;
                 LOG(WARNING) << "Async file cache write task waited " << age_us
@@ -361,7 +352,7 @@ Status AsyncCacheWriteService::resize_workers(size_t worker_count) {
     }
     std::lock_guard resize_lock(_resize_mutex);
     if (!_started.load(std::memory_order_acquire)) {
-        _options.worker_count = worker_count;
+        _desired_worker_count.store(worker_count, std::memory_order_release);
         return Status::OK();
     }
     if (_shutdown_requested.load(std::memory_order_acquire)) {
@@ -395,6 +386,35 @@ Status AsyncCacheWriteService::resize_workers(size_t worker_count) {
         RETURN_IF_ERROR(_schedule_worker(worker_id));
     }
     return Status::OK();
+}
+
+Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOptions& options) {
+    if (options.worker_count == 0) {
+        return Status::InvalidArgument("async file cache write worker count must be positive");
+    }
+    if (options.max_pending_tasks == 0) {
+        return Status::InvalidArgument(
+                "async file cache write pending task limit must be positive");
+    }
+    if (options.batch_size == 0) {
+        return Status::InvalidArgument("async file cache write batch size must be positive");
+    }
+    if (options.watchdog_warn_secs < 0 ||
+        options.watchdog_drop_secs <= options.watchdog_warn_secs) {
+        return Status::InvalidArgument(
+                "async file cache write watchdog thresholds must satisfy 0 <= warn < drop");
+    }
+
+    auto next_options = std::make_shared<const AsyncCacheWriteServiceOptions>(options);
+    RETURN_IF_ERROR(resize_workers(options.worker_count));
+    _options.store(std::move(next_options), std::memory_order_release);
+    return Status::OK();
+}
+
+AsyncCacheWriteServiceOptions AsyncCacheWriteService::options() const {
+    AsyncCacheWriteServiceOptions result = *_options.load(std::memory_order_acquire);
+    result.worker_count = _desired_worker_count.load(std::memory_order_acquire);
+    return result;
 }
 
 void AsyncCacheWriteService::shutdown() {
@@ -436,30 +456,6 @@ AsyncCacheWriteServiceStats AsyncCacheWriteService::stats() const {
             .append_fail = _append_fail_metric->get_value(),
             .watchdog_timeout = _watchdog_timeout_metric->get_value(),
     };
-}
-
-size_t AsyncCacheWriteService::_max_pending_tasks() const {
-    if (_options.follow_global_config) {
-        return static_cast<size_t>(config::async_file_cache_write_max_pending_tasks_per_disk);
-    }
-    return _options.max_pending_tasks;
-}
-
-size_t AsyncCacheWriteService::_batch_size() const {
-    if (_options.follow_global_config) {
-        return static_cast<size_t>(config::async_file_cache_write_batch_size);
-    }
-    return _options.batch_size;
-}
-
-int64_t AsyncCacheWriteService::_watchdog_warn_secs() const {
-    return _options.follow_global_config ? config::async_file_cache_write_watchdog_warn_secs
-                                         : _options.watchdog_warn_secs;
-}
-
-int64_t AsyncCacheWriteService::_watchdog_drop_secs() const {
-    return _options.follow_global_config ? config::async_file_cache_write_watchdog_drop_secs
-                                         : _options.watchdog_drop_secs;
 }
 
 } // namespace doris::io

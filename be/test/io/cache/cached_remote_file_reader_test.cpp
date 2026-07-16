@@ -570,20 +570,17 @@ TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
     const bool old_enable_direct = config::enable_read_cache_file_directly;
     const bool old_enable_peer = config::enable_cache_read_from_peer;
     const int64_t old_block_size = config::file_cache_each_block_size;
-    const int64_t old_max_pending = config::async_file_cache_write_max_pending_tasks_per_disk;
     config::enable_async_file_cache_write = true;
     config::enable_inflight_write_buffer_index = true;
     config::enable_read_cache_file_directly = false;
     config::enable_cache_read_from_peer = false;
     config::file_cache_each_block_size = 1_mb;
-    config::async_file_cache_write_max_pending_tasks_per_disk = 1;
     Defer restore_config {[&]() {
         config::enable_async_file_cache_write = old_enable_async;
         config::enable_inflight_write_buffer_index = old_enable_inflight;
         config::enable_read_cache_file_directly = old_enable_direct;
         config::enable_cache_read_from_peer = old_enable_peer;
         config::file_cache_each_block_size = old_block_size;
-        config::async_file_cache_write_max_pending_tasks_per_disk = old_max_pending;
     }};
 
     reset_async_reader_cache_factory();
@@ -602,6 +599,9 @@ TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
     auto* cache = FileCacheFactory::instance()->_path_to_cache[cache_path.string()];
     ASSERT_NE(cache, nullptr);
     wait_until_cache_ready(*cache);
+    auto async_write_options = cache->async_write_service()->options();
+    async_write_options.max_pending_tasks = 1;
+    ASSERT_TRUE(cache->async_write_service()->update_options(async_write_options).ok());
 
     std::mutex mutex;
     std::condition_variable cv;

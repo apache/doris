@@ -30,6 +30,7 @@
 #include <string>
 #include <vector>
 
+#include "common/atomic_shared_ptr.h"
 #include "common/status.h"
 #include "io/cache/file_cache_common.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -83,18 +84,14 @@ struct AsyncCacheWriteTask {
     std::function<void(const AsyncCacheWriteTask&)> on_finalized;
 };
 
-/// Per-cache-disk worker and queue limits. Tests may supply fixed values; production instances set
-/// `follow_global_config` so mutable limits are read when each task is handled.
+/// Complete per-cache-disk worker, queue, batch, and watchdog settings. The service receives this
+/// value explicitly at construction and through update_options(); it never reads global config.
 struct AsyncCacheWriteServiceOptions {
     size_t worker_count {1};
     size_t max_pending_tasks {1};
     size_t batch_size {1};
     int64_t watchdog_warn_secs {30};
     int64_t watchdog_drop_secs {120};
-    bool follow_global_config {false};
-
-    /// Build production options from the current BE configuration.
-    static AsyncCacheWriteServiceOptions from_config();
 };
 
 /// Snapshot of service counters used by tests and cache-stat reporting.
@@ -150,6 +147,16 @@ public:
     /// @param worker_count Positive target worker count for this cache disk.
     Status resize_workers(size_t worker_count);
 
+    /// Replace all mutable service settings with one coherent snapshot. Configuration adapters
+    /// call this method explicitly; the service itself has no dependency on global config.
+    /// @param options Complete validated settings, including the desired worker count.
+    /// @return OK after the new snapshot is active; InvalidArgument for invalid limits, or a
+    /// worker-resize error when the requested concurrency cannot be applied.
+    Status update_options(const AsyncCacheWriteServiceOptions& options);
+
+    /// Return the currently active settings as a value snapshot.
+    AsyncCacheWriteServiceOptions options() const;
+
     /// Stop submissions, drain all accepted tasks, and join worker loops. Idempotent.
     void shutdown();
 
@@ -175,14 +182,8 @@ private:
     /// Release one pending slot and invoke the inflight-index cleanup callback.
     void _finish_task(const AsyncCacheWriteTask& task);
 
-    /// Read queue/batch/watchdog limits from mutable config or fixed test options.
-    size_t _max_pending_tasks() const;
-    size_t _batch_size() const;
-    int64_t _watchdog_warn_secs() const;
-    int64_t _watchdog_drop_secs() const;
-
     BlockFileCache* _cache;
-    AsyncCacheWriteServiceOptions _options;
+    atomic_shared_ptr<const AsyncCacheWriteServiceOptions> _options;
     moodycamel::ConcurrentQueue<AsyncCacheWriteTask> _queue;
     std::atomic<size_t> _pending_count {0};
     std::condition_variable _cv;
