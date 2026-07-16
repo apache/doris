@@ -65,6 +65,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -674,11 +675,25 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void unprotectModifyProperties(AlterRoutineLoadCommand command) throws UserException {
+    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KinesisDataSourceProperties dataSourceProperties =
                 (KinesisDataSourceProperties) command.getDataSourceProperties();
-        modifyPropertiesInternal(jobProperties, dataSourceProperties);
+
+        writeLock();
+        try {
+            if (getState() != JobState.PAUSED) {
+                throw new DdlException("Only supports modification of PAUSED jobs");
+            }
+
+            modifyPropertiesInternal(jobProperties, dataSourceProperties);
+
+            AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
+                    jobProperties, dataSourceProperties);
+            Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
+        } finally {
+            writeUnlock();
+        }
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
@@ -695,10 +710,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 customKinesisProperties = dataSourceProperties.getCustomKinesisProperties();
                 hasExplicitShardPositions = !shardPositions.isEmpty();
             }
-            resetProgress = !Strings.isNullOrEmpty(dataSourceProperties.getStream());
-            if (hasExplicitShardPositions && !resetProgress) {
-                ((KinesisProgress) progress).checkShards(shardPositions);
-            }
 
             // Update custom properties
             if (!customKinesisProperties.isEmpty()) {
@@ -709,6 +720,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             // Modify stream if provided
             if (!Strings.isNullOrEmpty(dataSourceProperties.getStream())) {
                 this.stream = dataSourceProperties.getStream();
+                resetProgress = true;
             }
 
             // Modify region if provided
@@ -739,6 +751,9 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             }
 
             if (!shardPositions.isEmpty()) {
+                if (!resetProgress) {
+                    ((KinesisProgress) progress).checkShards(shardPositions);
+                }
                 ((KinesisProgress) progress).modifyPosition(shardPositions);
             }
         }
@@ -747,6 +762,9 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
             modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
+            }
             if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
                 String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
                 if ("ERROR".equalsIgnoreCase(policy)) {
@@ -765,9 +783,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         try {
             modifyPropertiesInternal(log.getJobProperties(),
                     (KinesisDataSourceProperties) log.getDataSourceProperties());
-            if (log.getTargetTableId() != 0) {
-                this.tableId = log.getTargetTableId();
-            }
         } catch (UserException e) {
             LOG.error("failed to replay modify kinesis routine load job: {}", id, e);
         }

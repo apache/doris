@@ -29,7 +29,6 @@ import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
-import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -218,18 +217,14 @@ public class AlterRoutineLoadCommandTest {
     }
 
     @Test
-    public void testValidateTargetTableWithKinesisProperties() throws Exception {
+    public void testValidateTargetTableRejectsKinesisJob() throws Exception {
         runBefore();
-        Mockito.when(currentTable.getId()).thenReturn(3000L);
         Mockito.when(routineLoadJob.getDataSourceType()).thenReturn(LoadDataSourceType.KINESIS);
-        mockTargetTable(currentTable);
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
-                        + "FROM KINESIS(\"property.max_connections\"=\"10\")");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
 
-        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
-        Assertions.assertInstanceOf(KinesisDataSourceProperties.class, command.getDataSourceProperties());
-        Assertions.assertEquals(3000L, command.getTargetTableId());
+        Assertions.assertTrue(Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext)).getMessage().contains("only supports Kafka jobs"));
     }
 
     @Test

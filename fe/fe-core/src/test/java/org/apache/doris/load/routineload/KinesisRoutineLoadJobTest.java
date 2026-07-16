@@ -18,25 +18,19 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
-import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
-import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.junit.Assert;
 import org.junit.Test;
-import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -44,7 +38,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class KinesisRoutineLoadJobTest {
 
@@ -106,47 +99,6 @@ public class KinesisRoutineLoadJobTest {
         Assert.assertEquals(3L, ((Number) statistic.get("cachedMillisBehindLatestShardNum")).longValue());
         Assert.assertEquals(100L, ((Number) statistic.get("totalMillisBehindLatest")).longValue());
         Assert.assertEquals(100L, ((Number) statistic.get("maxMillisBehindLatest")).longValue());
-    }
-
-    @Test
-    public void testModifyPropertiesHonorsExplicitUniqueKeyUpdateModePrecedence() throws Exception {
-        KinesisRoutineLoadJob routineLoadJob =
-                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
-                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
-        Deencapsulation.setField(routineLoadJob, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
-        Deencapsulation.setField(routineLoadJob, "isPartialUpdate", false);
-
-        Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPSERT");
-        jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "true");
-
-        Deencapsulation.invoke(routineLoadJob, "modifyPropertiesInternal", jobProperties,
-                new KinesisDataSourceProperties(Maps.newHashMap()));
-
-        Assert.assertEquals(TUniqueKeyUpdateMode.UPSERT, routineLoadJob.getUniqueKeyUpdateMode());
-        Assert.assertFalse(routineLoadJob.isFixedPartialUpdate());
-    }
-
-    @Test
-    public void testModifyPropertiesRevalidatesWhileHoldingWriteLock() throws Exception {
-        KinesisRoutineLoadJob routineLoadJob = Mockito.spy(new KinesisRoutineLoadJob(1L,
-                "kinesis_routine_load_job", 1L, 1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN));
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
-        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
-
-        Mockito.doAnswer(invocation -> {
-            ReentrantReadWriteLock lock = Deencapsulation.getField(routineLoadJob, "lock");
-            Assert.assertTrue(lock.isWriteLockedByCurrentThread());
-            throw new DdlException("stop after validation");
-        }).when(routineLoadJob).validateAlterJobPropertiesForMutation(command);
-
-        try {
-            routineLoadJob.modifyProperties(command);
-            Assert.fail("Expected mutation-time validation to fail");
-        } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("stop after validation"));
-        }
     }
 
     @Test
@@ -218,10 +170,6 @@ public class KinesisRoutineLoadJobTest {
         Map<String, Long> oldLag = new HashMap<>();
         oldLag.put("shard-old-0", 10L);
         Deencapsulation.setField(routineLoadJob, "cachedShardWithMillsBehindLatest", oldLag);
-        Deencapsulation.setField(routineLoadJob, "customProperties",
-                Maps.newHashMap(Map.of("kinesis_default_pos", KinesisDataSourceProperties.POSITION_TRIM_HORIZON)));
-        Deencapsulation.setField(routineLoadJob, "kinesisDefaultPosition",
-                KinesisDataSourceProperties.POSITION_TRIM_HORIZON);
 
         Map<String, String> alterProps = new HashMap<>();
         alterProps.put(KinesisConfiguration.KINESIS_STREAM.getName(), "stream-2");
@@ -229,7 +177,6 @@ public class KinesisRoutineLoadJobTest {
         dataSourceProperties.setAlter(true);
         dataSourceProperties.setTimezone("Asia/Shanghai");
         dataSourceProperties.analyze();
-        Assert.assertFalse(dataSourceProperties.getCustomKinesisProperties().containsKey("kinesis_default_pos"));
 
         Deencapsulation.invoke(routineLoadJob, "modifyPropertiesInternal",
                 new HashMap<String, String>(), dataSourceProperties);
@@ -247,19 +194,6 @@ public class KinesisRoutineLoadJobTest {
         Assert.assertFalse(progress.hasShards());
         Map<String, Long> cachedLag = Deencapsulation.getField(routineLoadJob, "cachedShardWithMillsBehindLatest");
         Assert.assertTrue(cachedLag.isEmpty());
-        Assert.assertEquals(KinesisDataSourceProperties.POSITION_TRIM_HORIZON,
-                Deencapsulation.getField(routineLoadJob, "kinesisDefaultPosition"));
-    }
-
-    @Test
-    public void testAlterRejectsEmptyKinesisDefaultPosition() {
-        Map<String, String> alterProperties = Maps.newHashMap();
-        alterProperties.put(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(), "");
-        KinesisDataSourceProperties dataSourceProperties = new KinesisDataSourceProperties(alterProperties);
-        dataSourceProperties.setAlter(true);
-        dataSourceProperties.setTimezone("UTC");
-
-        Assert.assertThrows(AnalysisException.class, dataSourceProperties::analyze);
     }
 
     @Test
@@ -293,48 +227,6 @@ public class KinesisRoutineLoadJobTest {
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
         Assert.assertEquals("101", progress.getSequenceNumberByShard("shard-1"));
         Assert.assertEquals("202", progress.getSequenceNumberByShard("shard-2"));
-    }
-
-    @Test
-    public void testModifyPropertiesKeepsKinesisStateWhenShardValidationFails() throws Exception {
-        KinesisRoutineLoadJob routineLoadJob = new KinesisRoutineLoadJob(1L,
-                "kinesis_routine_load_job", 1L, 1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-        Deencapsulation.setField(routineLoadJob, "customKinesisShards", Lists.newArrayList("shard-0"));
-        Deencapsulation.setField(routineLoadJob, "progress",
-                new KinesisProgress(Maps.newHashMap(Map.of("shard-0", "10"))));
-        Deencapsulation.setField(routineLoadJob, "customProperties",
-                Maps.newHashMap(Map.of("max_connections", "5")));
-        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties",
-                Maps.newHashMap(Map.of("max_connections", "5")));
-
-        Map<String, String> alterProperties = Maps.newHashMap();
-        alterProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), "us-east-1");
-        alterProperties.put(KinesisConfiguration.KINESIS_SHARDS.getName(), "shard-missing");
-        alterProperties.put(KinesisConfiguration.KINESIS_POSITIONS.getName(), "101");
-        alterProperties.put("property.max_connections", "10");
-        KinesisDataSourceProperties dataSourceProperties = new KinesisDataSourceProperties(alterProperties);
-        dataSourceProperties.setAlter(true);
-        dataSourceProperties.setTimezone("UTC");
-        dataSourceProperties.analyze();
-        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
-        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
-        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
-
-        try {
-            routineLoadJob.modifyProperties(command);
-            Assert.fail("Expected unknown shard to reject ALTER");
-        } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("shard-missing"));
-        }
-
-        Assert.assertEquals("ap-southeast-1", routineLoadJob.getRegion());
-        Assert.assertEquals(Lists.newArrayList("shard-0"),
-                Deencapsulation.getField(routineLoadJob, "customKinesisShards"));
-        Assert.assertEquals("5",
-                Deencapsulation.<Map<String, String>>getField(routineLoadJob, "customProperties")
-                        .get("max_connections"));
-        Assert.assertEquals("5", routineLoadJob.getConvertedCustomProperties().get("max_connections"));
     }
 
     @Test
