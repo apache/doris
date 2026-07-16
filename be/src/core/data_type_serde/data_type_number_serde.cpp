@@ -759,8 +759,8 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
 // Format by type:
 //   - BOOLEAN:  "0" or "1" (via snprintf "%d")
 //   - TINYINT/SMALLINT/INT/BIGINT: standard integer string, e.g. "42", "-100"
-//   - FLOAT:    fmt::format("{:.7g}", value), e.g. "3.14", "NaN", "Infinity"
-//   - DOUBLE:   fmt::format("{:.16g}", value), e.g. "3.141592653589793"
+//   - FLOAT:    fmt::format("{}", value) for finite values, e.g. "3.14"
+//   - DOUBLE:   fmt::format("{}", value) for finite values, e.g. "3.141592653589793"
 //   - LARGEINT: fmt::format("{}", value), e.g. "170141183460469231731687303715884105727"
 //
 // Examples:
@@ -773,8 +773,18 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
         char buf[8] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", field.get<T>());
         return std::string(buf);
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        auto v = field.get<T>();
+        // inf/nan are stored as zone-map flags, not in min/max strings; route them
+        // through CastToString to keep the "Infinity"/"NaN" spelling used elsewhere.
+        if (std::isinf(v) || std::isnan(v)) {
+            return CastToString::from_number(v);
+        }
+        // CastToString uses digits10 + 1 significant digits, which may lose precision.
+        // ZoneMap bounds must round-trip exactly, so use fmt's shortest round-trippable form.
+        return fmt::format("{}", v);
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-                         T == TYPE_BIGINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+                         T == TYPE_BIGINT) {
         return CastToString::from_number(field.get<T>());
     } else if constexpr (T == TYPE_LARGEINT) {
         auto value = field.get<T>();
