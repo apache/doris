@@ -23,10 +23,13 @@
 
 #include <cstdint>
 
+#include "common/config.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
@@ -109,6 +112,9 @@ Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const N
 Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& col_data = static_cast<ColumnDateV2&>(column).get_data();
     const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
     const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
@@ -120,6 +126,29 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
         DateV2Value<DateV2ValueType> v;
         v.get_date_from_daynr(date_value + date_threshold);
         col_data.emplace_back(v);
+    }
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
+                                                            const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT32) {
+        return decoded_column_view_handle_conversion_failure(
+                column, view, Status::NotSupported("DATEV2 decoded reader expects INT32 source"));
+    }
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data = assert_cast<ColumnDateV2&>(column).get_data();
+    const auto* values = reinterpret_cast<const int32_t*>(view.values);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DateV2Value<DateV2ValueType>());
+            continue;
+        }
+        DateV2Value<DateV2ValueType> date_v2;
+        date_v2.get_date_from_daynr(values[row] + date_threshold);
+        data.push_back(date_v2);
     }
     return Status::OK();
 }

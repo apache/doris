@@ -275,8 +275,10 @@ public abstract class RoutineLoadJob
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
-    // save the latest 3 error log urls
-    private Queue<String> errorLogUrls = EvictingQueue.create(3);
+    // Save the latest 3 error log URLs in memory. The corresponding first error message
+    // uses the same lifecycle and should not be persisted with the job.
+    private transient Queue<String> errorLogUrls = EvictingQueue.create(3);
+    private transient String firstErrorMsg = "";
 
     @SerializedName("ccid")
     private String cloudClusterId;
@@ -901,6 +903,10 @@ public abstract class RoutineLoadJob
         return errorLogUrls;
     }
 
+    public String getFirstErrorMsg() {
+        return Strings.nullToEmpty(firstErrorMsg);
+    }
+
     // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
     public void processTimeoutTasks() {
         writeLock();
@@ -1046,10 +1052,7 @@ public abstract class RoutineLoadJob
                                 + "when current total rows is more than base or the filter ratio is more than the max")
                         .build());
             }
-            // reset currentTotalNum, currentErrorNum and otherMsg
-            this.jobStatistic.currentErrorRows = 0;
-            this.jobStatistic.currentTotalRows = 0;
-            this.otherMsg = "";
+            resetCurrentErrorStatistics();
             this.jobStatistic.currentAbortedTaskNum = 0;
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
@@ -1069,11 +1072,16 @@ public abstract class RoutineLoadJob
                         "current error rows is more than max_error_number "
                             + "or the max_filter_ratio is more than the value set"), isReplay);
             }
-            // reset currentTotalNum, currentErrorNum and otherMsg
-            this.jobStatistic.currentErrorRows = 0;
-            this.jobStatistic.currentTotalRows = 0;
-            this.otherMsg = "";
+            resetCurrentErrorStatistics();
         }
+    }
+
+    private void resetCurrentErrorStatistics() {
+        this.jobStatistic.currentErrorRows = 0;
+        this.jobStatistic.currentTotalRows = 0;
+        this.otherMsg = "";
+        this.errorLogUrls.clear();
+        this.firstErrorMsg = "";
     }
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
@@ -1500,8 +1508,10 @@ public abstract class RoutineLoadJob
             routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
-        if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
+        if (rlTaskTxnCommitAttachment != null
+                && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
             errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
+            firstErrorMsg = Strings.nullToEmpty(rlTaskTxnCommitAttachment.getFirstErrorMsg());
         }
 
         routineLoadTaskInfo.setTxnStatus(txnStatus);
@@ -1803,6 +1813,7 @@ public abstract class RoutineLoadJob
             row.add(userIdentity.getQualifiedUser());
             row.add(comment);
             row.add(getClusterInfo());
+            row.add(getFirstErrorMsg());
             return row;
         } finally {
             readUnlock();
@@ -2051,6 +2062,8 @@ public abstract class RoutineLoadJob
 
     @Override
     public void gsonPostProcess() throws IOException {
+        errorLogUrls = EvictingQueue.create(3);
+        firstErrorMsg = "";
         if (tableId == 0) {
             isMultiTable = true;
         }

@@ -379,9 +379,9 @@ bool ColumnStruct::has_enough_capacity(const IColumn& src) const {
     return true;
 }
 
-void ColumnStruct::for_each_subcolumn(MutableColumnCallback callback) {
+void ColumnStruct::mutate_subcolumns() {
     for (auto& column : columns) {
-        callback(column);
+        mutate_subcolumn(column);
     }
 }
 

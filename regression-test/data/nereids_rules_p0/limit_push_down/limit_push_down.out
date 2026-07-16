@@ -270,7 +270,7 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------PhysicalUnion
 --------PhysicalLimit[LOCAL]
-----------filter((cast(msg as DECIMALV3(38, 6)) > 100.000000))
+----------filter((cast(t1.msg as DECIMALV3(38, 6)) > 100.000000))
 ------------PhysicalOlapScan[t1]
 --------PhysicalLimit[LOCAL]
 ----------filter((t2.id > 100))

@@ -17,13 +17,129 @@
 
 #include "core/data_type_serde/data_type_string_serde.h"
 
+#include <array>
+#include <cstring>
+
+#include "common/config.h"
 #include "core/column/column_string.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
 namespace doris {
+namespace {
+
+template <typename ColumnType>
+Status read_string_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.binary_values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded binary values are null for {}", column.get_name());
+    }
+    auto& string_column = assert_cast<ColumnType&>(column);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            string_column.insert_default();
+            continue;
+        }
+        const auto& value = (*view.binary_values)[row];
+        if (value.data == nullptr && value.size > 0) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            return Status::Corruption("Decoded string binary value is null for {} at row {}",
+                                      column.get_name(), row);
+        }
+        string_column.insert_data(value.data, value.size);
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+namespace {
+
+int hex_value(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+Status parse_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
+    if (uuid.size != 32 && uuid.size != 36) {
+        return Status::InvalidArgument("Invalid UUID string length: {}", uuid.size);
+    }
+
+    int hex_count = 0;
+    int high_nibble = -1;
+    int byte_index = 0;
+    for (size_t i = 0; i < uuid.size; ++i) {
+        char c = uuid.data[i];
+        if (uuid.size == 36 && (i == 8 || i == 13 || i == 18 || i == 23)) {
+            if (c != '-') {
+                return Status::InvalidArgument("Invalid UUID string format");
+            }
+            continue;
+        }
+        if (c == '-') {
+            return Status::InvalidArgument("Invalid UUID string format");
+        }
+
+        int value = hex_value(c);
+        if (value < 0) {
+            return Status::InvalidArgument("Invalid UUID string format");
+        }
+        if (hex_count % 2 == 0) {
+            high_nibble = value;
+        } else {
+            (*bytes)[byte_index++] = static_cast<uint8_t>((high_nibble << 4) | value);
+        }
+        ++hex_count;
+    }
+
+    if (hex_count != 32 || byte_index != 16) {
+        return Status::InvalidArgument("Invalid UUID string format");
+    }
+    return Status::OK();
+}
+
+Status append_fixed_size_binary(arrow::FixedSizeBinaryBuilder& builder, const IColumn& column,
+                                StringRef string_ref, int byte_width, bool pad_char_value,
+                                bool convert_uuid_string) {
+    if (convert_uuid_string && byte_width == 16 &&
+        (string_ref.size == 32 || string_ref.size == 36)) {
+        std::array<uint8_t, 16> bytes;
+        RETURN_IF_ERROR(parse_uuid_to_bytes(string_ref, &bytes));
+        return checkArrowStatus(builder.Append(bytes.data()), column, builder);
+    }
+
+    if (string_ref.size == byte_width) {
+        return checkArrowStatus(builder.Append(reinterpret_cast<const uint8_t*>(string_ref.data)),
+                                column, builder);
+    }
+
+    if (pad_char_value && string_ref.size < byte_width) {
+        std::string padded_value(byte_width, '\0');
+        std::memcpy(padded_value.data(), string_ref.data, string_ref.size);
+        return checkArrowStatus(
+                builder.Append(reinterpret_cast<const uint8_t*>(padded_value.data())), column,
+                builder);
+    }
+
+    return Status::InvalidArgument("Fixed size binary column expects {} bytes, got {}", byte_width,
+                                   string_ref.size);
+}
+
+} // namespace
 
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_json(const IColumn& column,
@@ -243,9 +359,42 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
     if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
         auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
         return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::LARGE_BINARY) {
+        auto& builder = assert_cast<arrow::LargeBinaryBuilder&>(*array_builder);
+        const auto& string_column = assert_cast<const ColumnType&>(column);
+        for (size_t string_i = start; string_i < end; ++string_i) {
+            if (null_map && (*null_map)[string_i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            auto string_ref = string_column.get_data_at(string_i);
+            RETURN_IF_ERROR(checkArrowStatus(
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_ref.data),
+                                   cast_set<int64_t, size_t, false>(string_ref.size)),
+                    column, builder));
+        }
+        return Status::OK();
     } else if (array_builder->type()->id() == arrow::Type::STRING) {
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::BINARY) {
+        auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
+        return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::FIXED_SIZE_BINARY) {
+        auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+        const int byte_width =
+                static_cast<const arrow::FixedSizeBinaryType&>(*array_builder->type()).byte_width();
+        const auto& string_column = assert_cast<const ColumnType&>(column);
+        for (size_t string_i = start; string_i < end; ++string_i) {
+            if (null_map && (*null_map)[string_i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            auto string_ref = string_column.get_data_at(string_i);
+            RETURN_IF_ERROR(append_fixed_size_binary(builder, column, string_ref, byte_width,
+                                                     _type == TYPE_CHAR, _type != TYPE_CHAR));
+        }
+        return Status::OK();
     } else {
         return Status::InvalidArgument("Unsupported arrow type for string column: {}",
                                        array_builder->type()->name());
@@ -259,7 +408,12 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_binary_offsets_buffer(*concrete_array);
+        }
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const size_t buffer_size = buffer ? static_cast<size_t>(buffer->size()) : 0;
         const uint8_t* offsets_data = concrete_array->value_offsets()->data();
         const size_t offset_size = sizeof(int32_t);
 
@@ -270,22 +424,28 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
                         unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 int32_t length = end_offset - start_offset;
-                const auto* raw_data = buffer->data() + start_offset;
-
-                assert_cast<ColumnType&>(column).insert_data(
-                        reinterpret_cast<const char*>(raw_data), length);
+                if (config::enable_arrow_input_validation) {
+                    check_arrow_value_range(*concrete_array, start_offset, length, buffer_size);
+                }
+                // insert_data() does not read the input pointer when length is zero.
+                const auto* raw_data = reinterpret_cast<const char*>(buffer->data() + start_offset);
+                assert_cast<ColumnType&>(column).insert_data(raw_data, length);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
             }
         }
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_fixed_width_buffer(*concrete_array,
+                                           static_cast<size_t>(concrete_array->byte_width()));
+        }
         uint32_t width = concrete_array->byte_width();
-        const auto* array_data = concrete_array->GetValue(start);
 
-        for (size_t offset_i = 0; offset_i < end - start; ++offset_i) {
+        for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = array_data + (offset_i * width);
+                const auto* raw_data = concrete_array->GetValue(offset_i);
                 assert_cast<ColumnType&>(column).insert_data((char*)raw_data, width);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
@@ -294,13 +454,24 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
     } else if (arrow_array->type_id() == arrow::Type::LARGE_STRING ||
                arrow_array->type_id() == arrow::Type::LARGE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::LargeBinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_binary_offsets_buffer(*concrete_array);
+        }
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const size_t buffer_size = buffer ? static_cast<size_t>(buffer->size()) : 0;
 
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
-                assert_cast<ColumnType&>(column).insert_data(
-                        (char*)raw_data, concrete_array->value_length(offset_i));
+                const auto value_offset = concrete_array->value_offset(offset_i);
+                const auto value_length = concrete_array->value_length(offset_i);
+                if (config::enable_arrow_input_validation) {
+                    check_arrow_value_range(*concrete_array, value_offset, value_length,
+                                            buffer_size);
+                }
+                // insert_data() does not read the input pointer when length is zero.
+                const auto* raw_data = reinterpret_cast<const char*>(buffer->data() + value_offset);
+                assert_cast<ColumnType&>(column).insert_data(raw_data, value_length);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
             }
@@ -310,6 +481,19 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
                                        arrow_array->type_id());
     }
     return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::BINARY &&
+        view.value_kind != DecodedValueKind::FIXED_BINARY) {
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                     get_name(), static_cast<int>(view.value_kind)));
+    }
+    return read_string_decoded_values<ColumnType>(column, view);
 }
 
 template <typename ColumnType>

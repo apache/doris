@@ -474,6 +474,7 @@ public class PipelineCoordinator {
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;
+        int ddlCount = 0;
         SplitReadResult readResult = null;
         boolean hasExecuteDDL = false;
         boolean isSnapshotSplit = false;
@@ -589,13 +590,13 @@ public class PipelineCoordinator {
                                         && maxIntervalMillis > 0
                                         && elapsedTime >= maxIntervalMillis;
 
-                        if (!isSnapshotSplit && timeoutReached) {
+                        if (!isSnapshotSplit && timeoutReached && !shouldStop) {
                             LOG.info(
-                                    "Binlog split max interval reached and heartbeat received, stopping data reading");
+                                    "Binlog split max interval reached; draining current batch before stopping");
                             shouldStop = true;
-                            break;
                         }
-                        // Skip heartbeat messages during normal processing
+                        // Drain the rest of this batch instead of breaking: records after the
+                        // heartbeat are already dequeued and the reused reader won't re-read them.
                         continue;
                     }
 
@@ -606,7 +607,11 @@ public class PipelineCoordinator {
                     if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
                         // Flush pending data before DDL
                         batchStreamLoad.forceFlush();
-                        SchemaChangeManager.executeDdls(feAddr, targetDb, token, result.getDdls());
+                        if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
+                            ddlCount += result.getSchemaChanges().size();
+                        }
+                        SchemaChangeManager.executeChanges(
+                                feAddr, targetDb, token, result.getSchemaChanges());
                         hasExecuteDDL = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;
@@ -628,8 +633,9 @@ public class PipelineCoordinator {
                 }
             }
             LOG.info(
-                    "Fetched {} records and {} heartbeats in {} ms for jobId={} taskId={}",
+                    "Fetched {} records, {} DDLs and {} heartbeats in {} ms for jobId={} taskId={}",
                     scannedRows,
+                    ddlCount,
                     heartbeatCount,
                     System.currentTimeMillis() - startTime,
                     writeRecordRequest.getJobId(),

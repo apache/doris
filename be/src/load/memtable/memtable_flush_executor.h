@@ -38,7 +38,6 @@ class MemTableMemoryLimiter;
 class Block;
 class GroupRowsetWriter;
 class OlapTableSchemaParam;
-class AutoIncIDBuffer;
 class RowsetWriter;
 class SystemMetrics;
 class WorkloadGroup;
@@ -114,13 +113,6 @@ public:
         _table_schema_param = std::move(table_schema_param);
     }
 
-#ifdef BE_TEST
-    void set_row_binlog_lsn_buffer_for_test(
-            std::shared_ptr<AutoIncIDBuffer> row_binlog_lsn_buffer) {
-        _row_binlog_lsn_buffer = std::move(row_binlog_lsn_buffer);
-    }
-#endif
-
     const MemTableStat& memtable_stat() { return _memtable_stat; }
 
 private:
@@ -160,7 +152,6 @@ private:
     std::shared_ptr<RowsetWriter> _rowset_writer = nullptr;
 
     std::shared_ptr<OlapTableSchemaParam> _table_schema_param = nullptr;
-    std::shared_ptr<AutoIncIDBuffer> _row_binlog_lsn_buffer = nullptr;
 
     MemTableStat _memtable_stat;
 

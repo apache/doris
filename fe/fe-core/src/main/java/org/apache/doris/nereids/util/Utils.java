@@ -131,6 +131,22 @@ public class Utils {
     }
 
     /**
+     * Whether {@code a + b} overflows the signed long range. {@code a} and {@code b} are expected to
+     * be non-negative (e.g. a limit and an offset).
+     *
+     * <p>When combining a {@code limit} and an {@code offset} into the number of rows a child must
+     * keep (e.g. pushing a TopN/Limit down, or building a two-phase sort), the raw {@code limit +
+     * offset} can exceed the long range when both are close to {@code BIGINT_MAX}; it then wraps to a
+     * negative number, which is an illegal limit and produces a broken plan. Overflow here means the
+     * child would need more rows than any relation can hold (no relation exceeds {@code
+     * Long.MAX_VALUE} rows), so the optimization cannot reduce anything: callers should skip the
+     * rewrite and fall back to the correct unoptimized execution.
+     */
+    public static boolean addOverflows(long a, long b) {
+        return a > Long.MAX_VALUE - b;
+    }
+
+    /**
      * Wrapper to a function without return value.
      */
     public interface FuncWrapper {

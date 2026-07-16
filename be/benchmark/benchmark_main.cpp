@@ -17,12 +17,14 @@
 
 #include <benchmark/benchmark.h>
 
+#include "benchmark_arrow_validation.hpp"
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_bits.hpp"
 #include "benchmark_block_bloom_filter.hpp"
 #include "benchmark_column_array_view.hpp"
 #include "benchmark_column_array_view_distance.hpp"
 #include "benchmark_column_view.hpp"
+#include "benchmark_damerau_levenshtein.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"

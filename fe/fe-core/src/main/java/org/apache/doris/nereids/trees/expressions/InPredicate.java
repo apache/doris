@@ -220,6 +220,13 @@ public class InPredicate extends Expression {
     }
 
     @Override
+    public String shapeInfo() {
+        return compareExpr.shapeInfo() + " IN " + options.stream()
+            .map(Expression::shapeInfo).sorted()
+            .collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

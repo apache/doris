@@ -16,7 +16,7 @@ PhysicalResultSink
 
 -- !filter_through_window_unique_3 --
 PhysicalResultSink
---filter(((cast(id as BIGINT) + random(1, 100)) > 5))
+--filter(((cast(v.id as BIGINT) + random(1, 100)) > 5))
 ----PhysicalWindow
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalOlapScan[t1]

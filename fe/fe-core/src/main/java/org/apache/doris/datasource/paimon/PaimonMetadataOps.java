@@ -57,6 +57,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -218,7 +219,9 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
                     col.getComment(), col.isNullable()))
                 .collect(Collectors.toList());
         StructType structType = new StructType(new ArrayList<>(collect));
-        Schema schema = toPaimonSchema(structType, createTableInfo.getPartitionDesc(), createTableInfo.getProperties());
+        List<String> rootFieldNames = columns.stream().map(ColumnDefinition::getName).collect(Collectors.toList());
+        Schema schema = toPaimonSchema(structType, rootFieldNames, createTableInfo.getPartitionDesc(),
+                createTableInfo.getProperties());
         try {
             catalog.createTable(new Identifier(createTableInfo.getDbName(), createTableInfo.getTableName()),
                     schema, createTableInfo.isIfNotExists());
@@ -228,7 +231,8 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         return false;
     }
 
-    private Schema toPaimonSchema(StructType structType, PartitionDesc partitionDesc, Map<String, String> properties) {
+    private Schema toPaimonSchema(StructType structType, List<String> rootFieldNames, PartitionDesc partitionDesc,
+            Map<String, String> properties) {
         Map<String, String> normalizedProperties = new HashMap<>(properties);
         normalizedProperties.remove(PRIMARY_KEY_IDENTIFIER);
         normalizedProperties.remove(PROP_COMMENT);
@@ -242,17 +246,29 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
                 .map(String::trim)
                 .collect(Collectors.toList());
         List<String> partitionKeys = partitionDesc == null ? new ArrayList<>() : partitionDesc.getPartitionColNames();
+        primaryKeys = getPaimonColumnNames(rootFieldNames, primaryKeys);
+        partitionKeys = getPaimonColumnNames(rootFieldNames, partitionKeys);
         Schema.Builder schemaBuilder = Schema.newBuilder()
                 .options(normalizedProperties)
                 .primaryKey(primaryKeys)
                 .partitionKeys(partitionKeys)
                 .comment(properties.getOrDefault(PROP_COMMENT, null));
-        for (StructField field : structType.getFields()) {
-            schemaBuilder.column(field.getName(),
+        List<StructField> fields = structType.getFields();
+        for (int i = 0; i < fields.size(); i++) {
+            StructField field = fields.get(i);
+            schemaBuilder.column(rootFieldNames.get(i),
                     toPaimontype(field.getType()).copy(field.getContainsNull()),
                     field.getComment());
         }
         return schemaBuilder.build();
+    }
+
+    private List<String> getPaimonColumnNames(List<String> paimonColumnNames, List<String> dorisColumnNames) {
+        Map<String, String> paimonColumnNameMap = paimonColumnNames.stream()
+                .collect(Collectors.toMap(name -> name.toLowerCase(Locale.ROOT), name -> name));
+        return dorisColumnNames.stream()
+                .map(name -> paimonColumnNameMap.getOrDefault(name.toLowerCase(Locale.ROOT), name))
+                .collect(Collectors.toList());
     }
 
     private DataType toPaimontype(Type type) {

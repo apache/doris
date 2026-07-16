@@ -210,6 +210,15 @@ public:
         _nested_func->insert_result_into(get_nested_place(place), to);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->check_columns_type(_arguments, columns);
+        _nested_func->check_input_columns_type(columns);
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        _nested_func->check_result_column_type(to);
+    }
+
     size_t size_of_data() const override { return prefix_size + _nested_func->size_of_data(); }
 
     size_t align_of_data() const override { return _nested_func->align_of_data(); }

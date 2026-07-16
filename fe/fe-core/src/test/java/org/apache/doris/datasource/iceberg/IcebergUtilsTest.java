@@ -20,9 +20,16 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.GenericPartitionFieldSummary;
@@ -47,8 +54,10 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
+import org.apache.iceberg.view.View;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -66,8 +75,83 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testGetIcebergViewUsesSessionCatalogWithDelegatedCredential() {
+        ConnectContext context = new ConnectContext();
+        SessionContext sessionContext = SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
+        context.setSessionContext(sessionContext);
+        context.setThreadLocalInfo();
+
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        IcebergRestExternalCatalog catalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        IcebergMetadataOps ops = Mockito.mock(IcebergMetadataOps.class);
+        View delegatedView = Mockito.mock(View.class);
+        View cachedView = Mockito.mock(View.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getRemoteName()).thenReturn("view1");
+        Mockito.when(catalog.useSessionCatalog(Mockito.any())).thenReturn(true);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(ops.loadView(Mockito.same(sessionContext), Mockito.eq("db"), Mockito.eq("view1")))
+                .thenReturn(delegatedView);
+
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        IcebergExternalMetaCache cache = Mockito.mock(IcebergExternalMetaCache.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(cacheMgr.iceberg(1L)).thenReturn(cache);
+        Mockito.when(cache.getIcebergView(dorisTable)).thenReturn(cachedView);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            Assert.assertSame(delegatedView, IcebergUtils.getIcebergView(dorisTable));
+            Mockito.verify(cache, Mockito.never()).getIcebergView(dorisTable);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testGetIcebergSchemaUsesSessionCatalogForView() {
+        ConnectContext context = new ConnectContext();
+        SessionContext sessionContext = SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
+        context.setSessionContext(sessionContext);
+        context.setThreadLocalInfo();
+
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        IcebergRestExternalCatalog catalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        IcebergMetadataOps ops = Mockito.mock(IcebergMetadataOps.class);
+        View delegatedView = Mockito.mock(View.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getRemoteName()).thenReturn("view1");
+        Mockito.when(dorisTable.isView()).thenReturn(true);
+        Mockito.when(catalog.useSessionCatalog(Mockito.any())).thenReturn(true);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        Mockito.when(ops.loadView(Mockito.same(sessionContext), Mockito.eq("db"), Mockito.eq("view1")))
+                .thenReturn(delegatedView);
+        Mockito.when(delegatedView.schema()).thenReturn(new Schema(
+                Types.NestedField.required(1, "c1", Types.IntegerType.get())));
+
+        try {
+            List<Column> schema = IcebergUtils.getIcebergSchema(dorisTable);
+
+            Assert.assertEquals(1, schema.size());
+            Assert.assertEquals("c1", schema.get(0).getName());
+            Mockito.verify(ops, Mockito.never()).loadTable(Mockito.any(), Mockito.anyString(), Mockito.anyString());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     @Test
     public void testParseTableName() {
         try {
@@ -205,6 +289,60 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseSchemaPreservesNonLowercaseColumnNames() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "mIxEd_COL", Types.IntegerType.get()),
+                Types.NestedField.required(2, "PART", Types.StringType.get()));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+
+        Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
+        Assert.assertEquals("PART", columns.get(1).getName());
+    }
+
+    @Test
+    public void testParseSchemaPreservesInitialDefault() {
+        Schema schema = new Schema(
+                Types.NestedField.optional("added_column")
+                        .withId(1)
+                        .ofType(Types.IntegerType.get())
+                        .withInitialDefault(7)
+                        .build(),
+                Types.NestedField.optional("added_timestamp")
+                        .withId(2)
+                        .ofType(Types.TimestampType.withoutZone())
+                        .withInitialDefault(1_704_067_200_123_456L)
+                        .build(),
+                Types.NestedField.optional("added_uuid")
+                        .withId(3)
+                        .ofType(Types.UUIDType.get())
+                        .withInitialDefault(UUID.fromString("00000000-0000-0000-0000-000000000000"))
+                        .build(),
+                Types.NestedField.optional("added_binary")
+                        .withId(4)
+                        .ofType(Types.BinaryType.get())
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                        .build(),
+                Types.NestedField.optional("added_fixed")
+                        .withId(5)
+                        .ofType(Types.FixedType.ofLength(4))
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {3, 2, 1, 0}))
+                        .build());
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
+
+        Assert.assertEquals("7", columns.get(0).getDefaultValue());
+        Assert.assertEquals("2024-01-01 00:00:00.123456", columns.get(1).getDefaultValue());
+        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", columns.get(2).getDefaultValue());
+        Assert.assertEquals("AAEC/w==", columns.get(3).getDefaultValue());
+
+        Map<Integer, String> base64Defaults = IcebergUtils.getBase64EncodedInitialDefaults(schema);
+        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", base64Defaults.get(3));
+        Assert.assertEquals("AAEC/w==", base64Defaults.get(4));
+        Assert.assertEquals("AwIBAA==", base64Defaults.get(5));
+    }
+
+    @Test
     public void testGetPartitionInfoMapSkipBinaryIdentityPartition() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -222,11 +360,11 @@ public class IcebergUtilsTest {
     public void testGetIdentityPartitionColumnsIgnoresTransformPartitions() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
-                Types.NestedField.required(2, "dt", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
                 Types.NestedField.required(3, "ts", Types.TimestampType.withoutZone()));
         PartitionSpec specWithTransform = PartitionSpec.builderFor(schema)
                 .withSpecId(1)
-                .identity("dt")
+                .identity("Dt")
                 .day("ts")
                 .build();
         PartitionSpec identityOnlySpec = PartitionSpec.builderFor(schema)
@@ -241,16 +379,16 @@ public class IcebergUtilsTest {
         Mockito.when(table.schema()).thenReturn(schema);
         Mockito.when(table.specs()).thenReturn(specs);
 
-        Assert.assertEquals(Arrays.asList("dt", "id"), IcebergUtils.getIdentityPartitionColumns(table));
+        Assert.assertEquals(Arrays.asList("Dt", "id"), IcebergUtils.getIdentityPartitionColumns(table));
     }
 
     @Test
     public void testGetIdentityPartitionInfoMapReturnsIdentityColumnsOnly() {
         Schema schema = new Schema(
-                Types.NestedField.required(1, "dt", Types.StringType.get()),
+                Types.NestedField.required(1, "Dt", Types.StringType.get()),
                 Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone()));
         PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
-                .identity("dt")
+                .identity("Dt")
                 .day("ts")
                 .build();
         PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
@@ -262,7 +400,7 @@ public class IcebergUtilsTest {
 
         Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
                 partitionData, partitionSpec, table, "UTC");
-        Assert.assertEquals(Collections.singletonMap("dt", "2025-01-01"), partitionInfoMap);
+        Assert.assertEquals(Collections.singletonMap("Dt", "2025-01-01"), partitionInfoMap);
     }
 
     @Test

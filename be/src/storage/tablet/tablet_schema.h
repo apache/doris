@@ -467,9 +467,21 @@ public:
             return column->visible() && !column->is_key();
         });
     }
+    // num_key_columns: Total number of sort key columns in the table, determined by the key columns
+    // specified in DUPLICATE KEY/UNIQUE KEY/AGGREGATE KEY when creating the table, used for complete data sorting
+    // Example: CREATE TABLE t(a INT, b DATE, c VARCHAR) DUPLICATE KEY(a, b, c)
+    //          Then num_key_columns = 3 (columns a, b, c are all sort keys)
     size_t num_key_columns() const { return _num_key_columns; }
     const std::vector<uint32_t>& cluster_key_uids() const { return _cluster_key_uids; }
     size_t num_null_columns() const { return _num_null_columns; }
+    // num_short_key_columns: Number of columns used to build the Short Key Index, automatically calculated by FE
+    // Limited by max column count (default 3) and max bytes (default 36 bytes). Types like float/double/STRING/JSONB
+    // cannot be used as short keys. VARCHAR can only be the last short key column. Optimizes index size and query performance.
+    // Example: CREATE TABLE t(a INT, b DATE, c VARCHAR) DUPLICATE KEY(a, b, c)
+    //          Then num_short_key_columns = 3 (a, b, c all meet criteria, c as VARCHAR is the last short key)
+    // Example: CREATE TABLE t(a INT, b DOUBLE, c DATE) DUPLICATE KEY(a, b, c)
+    //          Then num_short_key_columns = 1 (b is DOUBLE type which cannot be short key, stops at b)
+    // short key's size is limited to 36 bytes, because it will be loaded to memory during segment loaded.
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
     size_t num_variant_columns() const { return _num_variant_columns; };
@@ -508,8 +520,10 @@ public:
     int32_t version_col_idx() const { return _version_col_idx; }
     bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
-    int32_t binlog_timestamp_col_idx() const { return _binlog_timestamp_col_idx; }
+    int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
+    int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
+    int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
@@ -809,8 +823,10 @@ private:
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
-    int32_t _binlog_timestamp_col_idx = -1;
+    int32_t _commit_tso_col_idx = -1;
+    int32_t _binlog_tso_col_idx = -1;
     int32_t _binlog_lsn_col_idx = -1;
+    int32_t _binlog_op_col_idx = -1;
     int32_t _schema_version = -1;
     int64_t _table_id = -1;
     int64_t _db_id = -1;

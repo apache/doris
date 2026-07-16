@@ -9,6 +9,6 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
 ----------------PhysicalProject
-------------------filter(( not (length(SearchPhrase) = 0)))
+------------------filter(( not (length(hits.SearchPhrase) = 0)))
 --------------------PhysicalOlapScan[hits]
 

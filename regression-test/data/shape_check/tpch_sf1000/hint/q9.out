@@ -20,7 +20,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[lineitem]
 ------------------------------PhysicalProject
---------------------------------filter((p_name like '%green%'))
+--------------------------------filter((part.p_name like '%green%'))
 ----------------------------------PhysicalOlapScan[part]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()

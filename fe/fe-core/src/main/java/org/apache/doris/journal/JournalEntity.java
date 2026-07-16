@@ -87,6 +87,7 @@ import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateDictionaryPersistInfo;
+import org.apache.doris.persist.CreateFunctionInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
@@ -496,6 +497,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_FUNCTION: {
                 data = Function.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_FUNCTIONS: {
+                data = CreateFunctionInfo.read(in);
                 isRead = true;
                 break;
             }

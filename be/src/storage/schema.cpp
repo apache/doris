@@ -55,13 +55,16 @@ Schema& Schema::operator=(const Schema& other) {
 
 void Schema::_copy_from(const Schema& other) {
     _col_ids = other._col_ids;
+    _column_id_to_index = other._column_id_to_index;
     _num_key_columns = other._num_key_columns;
     _delete_sign_idx = other._delete_sign_idx;
     _has_sequence_col = other._has_sequence_col;
     _rowid_col_idx = other._rowid_col_idx;
     _version_col_idx = other._version_col_idx;
-    _lsn_col_idx = other._lsn_col_idx;
+    _commit_tso_col_idx = other._commit_tso_col_idx;
     _tso_col_idx = other._tso_col_idx;
+    _lsn_col_idx = other._lsn_col_idx;
+    _op_col_idx = other._op_col_idx;
 
     _cols.resize(other._cols.size());
     for (auto cid : _col_ids) {
@@ -77,6 +80,11 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
     _cols.resize(cols.size());
 
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
+    _column_id_to_index.assign(cols.size(), -1);
+    for (size_t i = 0; i < col_ids.size(); ++i) {
+        _column_id_to_index[col_ids[i]] = static_cast<int>(i);
+    }
+
     for (int cid = 0; cid < cols.size(); ++cid) {
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
