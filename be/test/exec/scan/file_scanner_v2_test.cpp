@@ -580,6 +580,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
             {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
+            {TFileFormatType::FORMAT_LANCE, format::FileFormat::LANCE},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 
