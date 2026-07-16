@@ -62,6 +62,7 @@ protected:
         auto cache = std::make_unique<BlockFileCache>(path.string(), async_write_cache_settings());
         EXPECT_TRUE(cache->initialize().ok());
         wait_until_cache_ready(*cache);
+        EXPECT_TRUE(cache->async_write_service()->start().ok());
         return cache;
     }
 
@@ -515,26 +516,97 @@ TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsAtRuntime) {
     EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 1);
 }
 
+TEST_F(AsyncCacheWriteServiceTest, MultipleWorkersConsumeQueueConcurrently) {
+    auto cache = create_cache("async_write_service_mpmc_consumers");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+
+    constexpr size_t worker_count = 8;
+    auto options = service->options();
+    options.worker_count = worker_count;
+    options.max_pending_tasks = worker_count;
+    options.batch_size = 1;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    size_t entered_workers = 0;
+    size_t finished_tasks = 0;
+    bool release_workers = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                ++entered_workers;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_workers; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_workers = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    for (size_t task_id = 0; task_id < worker_count; ++task_id) {
+        AsyncCacheWriteBufferPtr buffer;
+        ASSERT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
+        memset(buffer->data(), static_cast<int>('a' + task_id), buffer->size());
+        AsyncCacheWriteTask task {
+                .cache_hash = BlockFileCache::hash("mpmc_consumer_" + std::to_string(task_id)),
+                .file_offset = 0,
+                .file_size = buffer->size(),
+                .buffer = buffer,
+                .admission_ctx = {},
+                .submit_ts_us = MonotonicMicros(),
+                .write_epoch = service->current_write_epoch(),
+                .on_finalized =
+                        [&](const AsyncCacheWriteTask&) {
+                            std::lock_guard lock(mutex);
+                            ++finished_tasks;
+                            cv.notify_all();
+                        },
+        };
+        ASSERT_TRUE(service->try_submit(std::move(task)));
+    }
+
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
+                                [&]() { return entered_workers == worker_count; }));
+        EXPECT_EQ(service->pending_count(), worker_count);
+        release_workers = true;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
+                                [&]() { return finished_tasks == worker_count; }));
+    }
+    EXPECT_EQ(service->pending_count(), 0);
+}
+
 TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     auto* factory = FileCacheFactory::instance();
     factory->_caches.clear();
     factory->_path_to_cache.clear();
     factory->_capacity = 0;
 
-    const auto path = caches_dir / "async_write_service_config_update";
-    std::error_code error;
-    fs::remove_all(path, error);
-    fs::create_directories(path);
-    ASSERT_TRUE(factory->create_file_cache(path.string(), async_write_cache_settings()).ok());
-    auto* cache = factory->get_by_path(path.string());
-    ASSERT_NE(cache, nullptr);
-    wait_until_cache_ready(*cache);
-
+    const bool old_enable = config::enable_async_file_cache_write;
     const int32_t old_workers = config::async_file_cache_write_workers_per_disk;
     const int64_t old_max_pending = config::async_file_cache_write_max_pending_tasks_per_disk;
     const int32_t old_batch_size = config::async_file_cache_write_batch_size;
     const int64_t old_warn_secs = config::async_file_cache_write_watchdog_warn_secs;
     const int64_t old_drop_secs = config::async_file_cache_write_watchdog_drop_secs;
+    const auto path = caches_dir / "async_write_service_config_update";
+    std::error_code error;
     Defer restore {[&]() {
         EXPECT_TRUE(config::set_config("async_file_cache_write_workers_per_disk",
                                        std::to_string(old_workers))
@@ -551,11 +623,37 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
         EXPECT_TRUE(config::set_config("async_file_cache_write_watchdog_drop_secs",
                                        std::to_string(old_drop_secs))
                             .ok());
+        EXPECT_TRUE(
+                config::set_config("enable_async_file_cache_write", old_enable ? "true" : "false")
+                        .ok());
         factory->_caches.clear();
         factory->_path_to_cache.clear();
         factory->_capacity = 0;
         fs::remove_all(path, error);
     }};
+
+    ASSERT_TRUE(config::set_config("enable_async_file_cache_write", "false").ok());
+    fs::remove_all(path, error);
+    fs::create_directories(path);
+    ASSERT_TRUE(factory->create_file_cache(path.string(), async_write_cache_settings()).ok());
+    auto* cache = factory->get_by_path(path.string());
+    ASSERT_NE(cache, nullptr);
+    wait_until_cache_ready(*cache);
+    ASSERT_FALSE(cache->async_write_service()->_started.load(std::memory_order_acquire));
+    AsyncCacheWriteBufferPtr disabled_buffer;
+    ASSERT_TRUE(cache->async_write_service()->allocate_tracked_buffer(4096, &disabled_buffer).ok());
+    AsyncCacheWriteTask disabled_task {
+            .cache_hash = BlockFileCache::hash("disabled_async_write_service"),
+            .file_offset = 0,
+            .file_size = disabled_buffer->size(),
+            .buffer = disabled_buffer,
+            .admission_ctx = {},
+            .submit_ts_us = MonotonicMicros(),
+            .write_epoch = cache->async_write_service()->current_write_epoch(),
+            .on_finalized = nullptr,
+    };
+    EXPECT_FALSE(cache->async_write_service()->try_submit(std::move(disabled_task)));
+    EXPECT_EQ(cache->async_write_service()->pending_count(), 0);
 
     const int32_t new_workers = old_workers == 1 ? 2 : 1;
     const int64_t new_max_pending = old_max_pending + 1;
@@ -577,8 +675,10 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     ASSERT_TRUE(config::set_config("async_file_cache_write_watchdog_warn_secs",
                                    std::to_string(new_warn_secs))
                         .ok());
+    ASSERT_TRUE(config::set_config("enable_async_file_cache_write", "true").ok());
 
     const auto updated = cache->async_write_service()->options();
+    EXPECT_TRUE(cache->async_write_service()->_started.load(std::memory_order_acquire));
     EXPECT_EQ(updated.worker_count, new_workers);
     EXPECT_EQ(updated.max_pending_tasks, new_max_pending);
     EXPECT_EQ(updated.batch_size, new_batch_size);

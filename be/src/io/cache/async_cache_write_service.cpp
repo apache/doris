@@ -104,24 +104,47 @@ AsyncCacheWriteService::~AsyncCacheWriteService() {
 }
 
 Status AsyncCacheWriteService::start() {
-    bool expected = false;
-    if (!_started.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+    std::lock_guard resize_lock(_resize_mutex);
+    if (_shutdown_requested.load(std::memory_order_acquire) ||
+        !_accepting.load(std::memory_order_acquire)) {
+        return Status::InternalError("async file cache write service is shutting down");
+    }
+    if (_started.load(std::memory_order_acquire)) {
         return Status::OK();
     }
 
     const size_t worker_count = _desired_worker_count.load(std::memory_order_acquire);
-    RETURN_IF_ERROR(
-            ThreadPoolBuilder(fmt::format("AsyncFileCacheWrite-{}",
-                                          std::hash<std::string> {}(_cache->get_base_path())))
-                    .set_min_threads(0)
-                    .set_max_threads(static_cast<int>(worker_count))
-                    .set_max_queue_size(128)
-                    .build(&_worker_pool));
-    _desired_worker_count.store(worker_count, std::memory_order_release);
-    _worker_scheduled.resize(worker_count, false);
-    for (size_t worker_id = 0; worker_id < worker_count; ++worker_id) {
-        RETURN_IF_ERROR(_schedule_worker(worker_id));
+    if (_worker_pool == nullptr) {
+        RETURN_IF_ERROR(
+                ThreadPoolBuilder(fmt::format("AsyncFileCacheWrite-{}",
+                                              std::hash<std::string> {}(_cache->get_base_path())))
+                        .set_min_threads(0)
+                        .set_max_threads(static_cast<int>(worker_count))
+                        .set_max_queue_size(128)
+                        .build(&_worker_pool));
+    } else {
+        // A previous start may have created only part of the requested workers before returning an
+        // error. Reuse that pool and apply the latest desired size before filling the missing ids.
+        RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
     }
+    {
+        std::lock_guard state_lock(_worker_state_mutex);
+        if (_worker_scheduled.size() < worker_count) {
+            _worker_scheduled.resize(worker_count, false);
+        }
+    }
+    for (size_t worker_id = 0; worker_id < worker_count; ++worker_id) {
+        bool scheduled = false;
+        {
+            std::lock_guard state_lock(_worker_state_mutex);
+            scheduled = _worker_scheduled[worker_id];
+        }
+        if (!scheduled) {
+            RETURN_IF_ERROR(_schedule_worker(worker_id));
+        }
+    }
+    // Publish readiness only after every configured worker loop has been accepted by the pool.
+    _started.store(true, std::memory_order_release);
     return Status::OK();
 }
 
@@ -129,7 +152,7 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
     _active_submitters.fetch_add(1, std::memory_order_acq_rel);
     Defer submitter_done {[&]() { _active_submitters.fetch_sub(1, std::memory_order_acq_rel); }};
     TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::try_submit:after_register", &task);
-    if (!_accepting.load(std::memory_order_acquire)) {
+    if (!_started.load(std::memory_order_acquire) || !_accepting.load(std::memory_order_acquire)) {
         *_rejected_metric << 1;
         return false;
     }
@@ -197,6 +220,10 @@ void AsyncCacheWriteService::_worker_loop(size_t worker_id) {
         _worker_state_cv.notify_all();
     }};
 
+    // Keep one consumer cursor per worker so concurrent consumers rotate across the queue's
+    // producer streams instead of rescanning them from scratch for every disk-write task.
+    moodycamel::ConsumerToken consumer_token(_queue);
+
     while (true) {
         if (!_shutdown_requested.load(std::memory_order_acquire) &&
             worker_id >= _desired_worker_count.load(std::memory_order_acquire)) {
@@ -206,7 +233,7 @@ void AsyncCacheWriteService::_worker_loop(size_t worker_id) {
         size_t processed = 0;
         const auto options = _options.load(std::memory_order_acquire);
         AsyncCacheWriteTask task;
-        while (processed < options->batch_size && _queue.try_dequeue(task)) {
+        while (processed < options->batch_size && _queue.try_dequeue(consumer_token, task)) {
             ++processed;
             Defer finish {[&]() {
                 _finish_task(task);
