@@ -117,7 +117,9 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             TableType type) {
         this.id = id;
         this.name = name;
-        this.remoteName = remoteName;
+        // External tables are rebuilt lazily, so materialize the fallback before publication
+        // instead of relying on a persistence callback that the live reconstruction path does not use.
+        this.remoteName = Strings.isNullOrEmpty(remoteName) ? name : remoteName;
         this.catalog = catalog;
         this.db = db;
         this.dbName = db.getFullName();
@@ -399,9 +401,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         objectCreated = false;
-        // Older metadata may not contain remoteName. Materialize the same fallback
-        // used by getRemoteName() so no metadata path can observe a null table name.
-        remoteName = getRemoteName();
     }
 
     @Override

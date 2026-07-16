@@ -100,14 +100,11 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
-    public void testGsonPostProcessRestoresMissingRemoteName() throws Exception {
-        PluginDrivenExternalTable table = createTableWithCatalogType("jdbc");
-        table.setRemoteName(null);
-
-        table.gsonPostProcess();
-
+    public void testConstructorMaterializesMissingRemoteName() {
+        PluginDrivenExternalTable table = createTableWithCatalogType(
+                "jdbc", createMockConnector(true, false), null);
         Assertions.assertEquals("test_table", table.remoteName,
-                "Deserialized external tables should materialize the effective remote table name");
+                "New external tables should materialize the effective remote table name");
     }
 
     @Test
@@ -139,13 +136,18 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     private PluginDrivenExternalTable createTableWithCatalogType(String catalogType, Connector connector) {
+        return createTableWithCatalogType(catalogType, connector, "test_table");
+    }
+
+    private PluginDrivenExternalTable createTableWithCatalogType(
+            String catalogType, Connector connector, String remoteName) {
         TestablePluginCatalog catalog = new TestablePluginCatalog(catalogType, connector);
         ExternalDatabase<PluginDrivenExternalTable> db = mockExternalDatabase();
         Mockito.when(db.getFullName()).thenReturn("test_db");
         Mockito.when(db.getRemoteName()).thenReturn("test_db");
 
         PluginDrivenExternalTable table = new PluginDrivenExternalTable(
-                1L, "test_table", "test_table", catalog, db);
+                1L, "test_table", remoteName, catalog, db);
         return table;
     }
 
