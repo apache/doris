@@ -43,6 +43,7 @@ public class JdbcSourceOffsetProviderOffsetTest {
         Map<String, String> currentOffset = Collections.singletonMap("lsn", "100");
         Map<String, String> endOffset = Collections.singletonMap("lsn", "200");
         provider.setEndBinlogOffset(endOffset);
+        provider.setHasMoreData(false);
         provider.updateOffset(new JdbcOffset(
                 Collections.singletonList(new BinlogSplit(currentOffset))));
 
@@ -58,13 +59,28 @@ public class JdbcSourceOffsetProviderOffsetTest {
                 Collections.singletonList(new BinlogSplit(Collections.singletonMap("lsn", "200")))));
 
         Assert.assertTrue(provider.hasMoreDataToConsume());
+        Assert.assertTrue(provider.hasMoreData);
         Assert.assertEquals(Collections.singletonMap("lsn", "300"), provider.getEndBinlogOffset());
+    }
+
+    @Test
+    public void testStaleCompareDoesNotOverwriteAlteredCurrentOffsetState() {
+        JdbcSourceOffsetProvider provider = new AlteringCurrentOffsetProvider();
+        provider.setEndBinlogOffset(Collections.singletonMap("lsn", "200"));
+        provider.updateOffset(new JdbcOffset(
+                Collections.singletonList(new BinlogSplit(Collections.singletonMap("lsn", "200")))));
+
+        Assert.assertTrue(provider.hasMoreDataToConsume());
+        Assert.assertTrue(provider.hasMoreData);
+        Assert.assertEquals(Collections.singletonMap("lsn", "100"),
+                ((BinlogSplit) provider.currentOffset.getSplits().get(0)).getStartingOffset());
     }
 
     private static void assertEndOffsetAdvancesWhenCurrentOffsetIsAhead(JdbcSourceOffsetProvider provider) {
         Map<String, String> staleEndOffset = Collections.singletonMap("lsn", "100");
         Map<String, String> committedOffset = Collections.singletonMap("lsn", "200");
         provider.setEndBinlogOffset(staleEndOffset);
+        provider.setHasMoreData(false);
 
         provider.updateOffset(new JdbcOffset(
                 Collections.singletonList(new BinlogSplit(committedOffset))));
@@ -106,9 +122,18 @@ public class JdbcSourceOffsetProviderOffsetTest {
         protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond) {
             synchronized (splitsLock) {
                 endBinlogOffset = Collections.singletonMap("lsn", "300");
-                hasMoreData = true;
+                hasMoreData = false;
             }
             return -1;
+        }
+    }
+
+    private static class AlteringCurrentOffsetProvider extends JdbcSourceOffsetProvider {
+        @Override
+        protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond) {
+            updateOffset(new JdbcOffset(
+                    Collections.singletonList(new BinlogSplit(Collections.singletonMap("lsn", "100")))));
+            return 0;
         }
     }
 }

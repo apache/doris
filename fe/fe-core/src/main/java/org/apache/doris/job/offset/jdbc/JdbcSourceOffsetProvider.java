@@ -117,7 +117,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     /** Cache of Job.syncTables, set by initSplitProgress / replayIfNeed. */
     transient List<String> cachedSyncTables;
 
-    /** Guards cdcSplitProgress/committedSplitProgress/remainingSplits/finishedSplits. */
+    /**
+     * Guards cdcSplitProgress/committedSplitProgress/remainingSplits/finishedSplits
+     * and compound binlog updates to currentOffset/endBinlogOffset/hasMoreData.
+     */
     protected final transient Object splitsLock = new Object();
 
     /**
@@ -251,9 +254,14 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 }
             }
         } else {
-            BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
-            binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
-            binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            synchronized (splitsLock) {
+                BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
+                binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
+                binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                currentOffset = newOffset;
+                hasMoreData = true;
+            }
+            return;
         }
         this.currentOffset = newOffset;
     }
@@ -310,6 +318,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
 
+        JdbcOffset currentOffsetAtCompare;
         Map<String, String> endOffsetAtCompare;
         synchronized (splitsLock) {
             if (currentOffset.snapshotSplit()) {
@@ -331,14 +340,15 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (CollectionUtils.isNotEmpty(remainingSplits)) {
                 return true;
             }
+            currentOffsetAtCompare = currentOffset;
             endOffsetAtCompare = endBinlogOffset;
         }
         if (MapUtils.isEmpty(endOffsetAtCompare)) {
             return false;
         }
         try {
-            if (!currentOffset.snapshotSplit()) {
-                BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+            if (!currentOffsetAtCompare.snapshotSplit()) {
+                BinlogSplit binlogSplit = (BinlogSplit) currentOffsetAtCompare.getSplits().get(0);
                 if (MapUtils.isEmpty(binlogSplit.getStartingOffset())) {
                     // snapshot to binlog phase
                     return true;
@@ -346,8 +356,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 Map<String, String> currentBinlogOffset = new HashMap<>(binlogSplit.getStartingOffset());
                 int compareResult = compareOffset(endOffsetAtCompare, currentBinlogOffset);
                 synchronized (splitsLock) {
-                    if (endBinlogOffset != endOffsetAtCompare) {
-                        return hasMoreData;
+                    if (currentOffset != currentOffsetAtCompare || endBinlogOffset != endOffsetAtCompare) {
+                        // The stale result cannot prove that the latest offsets have caught up.
+                        hasMoreData = true;
+                        return true;
                     }
                     if (compareResult < 0) {
                         endBinlogOffset = currentBinlogOffset;
