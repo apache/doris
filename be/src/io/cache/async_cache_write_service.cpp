@@ -181,6 +181,13 @@ Status AsyncCacheWriteService::allocate_tracked_buffer(size_t size,
                                                        AsyncCacheWriteBufferPtr* buffer) {
     DORIS_CHECK(buffer != nullptr);
     DORIS_CHECK(size > 0);
+    Status injected_status;
+    TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::allocate_tracked_buffer:inject_failure",
+                             &injected_status);
+    if (!injected_status.ok()) {
+        *_buffer_alloc_fail_metric << 1;
+        return injected_status;
+    }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     Status status = Status::OK();
     try {

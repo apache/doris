@@ -141,6 +141,17 @@ TEST(FileCacheProfileReporterTest, DiffReturnsZeroWithoutNewData) {
                                make_file_cache_stats(0));
 }
 
+TEST(FileCacheProfileReporterTest, MergeIncludesEveryAsyncReadAndWriteField) {
+    auto aggregate = make_file_cache_stats(2);
+    aggregate.merge_from(make_file_cache_stats(3));
+
+    auto expected = make_file_cache_stats(5);
+    // These two pre-existing fields merge by OR/max instead of addition.
+    expected.remote_only_on_miss_triggered = true;
+    expected.remote_only_on_miss_threshold_bytes = 90;
+    expect_file_cache_stats_eq(aggregate, expected);
+}
+
 TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTotals) {
     auto profile = std::make_unique<RuntimeProfile>("test_profile");
     io::FileCacheProfileReporter reporter(profile.get());
@@ -167,9 +178,21 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
               after_second_report.async_cache_write_submitted);
     EXPECT_EQ(profile->get_counter("AsyncCacheWriteRejected")->value(),
               after_second_report.async_cache_write_rejected);
+    EXPECT_EQ(profile->get_counter("AsyncCacheWriteBufferAllocFail")->value(),
+              after_second_report.async_cache_write_buffer_alloc_fail);
+    EXPECT_EQ(profile->get_counter("AsyncCacheWriteDropStaleEpoch")->value(),
+              after_second_report.async_cache_write_drop_stale_epoch);
     EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexHit")->value(),
               after_second_report.inflight_write_buffer_index_hit);
+    EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexMiss")->value(),
+              after_second_report.inflight_write_buffer_index_miss);
+    EXPECT_EQ(profile->get_counter("ProbeDownloadedHit")->value(),
+              after_second_report.probe_downloaded_hit);
+    EXPECT_EQ(profile->get_counter("ProbeDownloadingHit")->value(),
+              after_second_report.probe_downloading_hit);
     EXPECT_EQ(profile->get_counter("ProbeMiss")->value(), after_second_report.probe_miss);
+    EXPECT_EQ(profile->get_counter("BlockWaitSuccess")->value(),
+              after_second_report.block_wait_success);
     EXPECT_EQ(profile->get_counter("BlockWaitTimeout")->value(),
               after_second_report.block_wait_timeout);
 }

@@ -404,6 +404,8 @@ protected:
                     EXPECT_TRUE(io_ctx->is_index_data);
                     EXPECT_TRUE(io_ctx->is_dryrun);
                     EXPECT_FALSE(io_ctx->is_warmup);
+                    ASSERT_TRUE(io_ctx->cache_write_mode_override.has_value());
+                    EXPECT_EQ(*io_ctx->cache_write_mode_override, io::CacheWriteMode::SYNC_WRITE);
                     observed->push_back(ObservedIndexPreload {
                             .reason = ctx->reason,
                             .segment_id = ctx->segment_id,
