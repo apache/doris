@@ -136,7 +136,7 @@ TEST_F(KuromojiDictionaryTest, RejectsEmptyTrie) {
 TEST_F(KuromojiDictionaryTest, RejectsOutOfRangeCatmap) {
     CharDefInput cd;
     cd.catmap.fill(CAT_DEFAULT);
-    cd.catmap[U'A'] = CAT_CLASS_COUNT; 
+    cd.catmap[U'A'] = CAT_CLASS_COUNT;
     cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
     cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
