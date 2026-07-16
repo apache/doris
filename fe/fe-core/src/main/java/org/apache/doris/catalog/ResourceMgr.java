@@ -84,23 +84,38 @@ public class ResourceMgr implements Writable {
                     "Only support SPARK, ODBC_CATALOG, JDBC, S3_COOLDOWN, S3, HDFS(JFS/JUICEFS), and HMS resource.");
         }
         Resource resource = Resource.fromCommand(command);
-        if (createResource(resource, info.isIfNotExists())) {
-            Env.getCurrentEnv().getEditLog().logCreateResource(resource);
-            LOG.info("Create resource success. Resource: {}", resource.getName());
+        Resource logResource;
+        EditLog.EditLogItem logItem;
+        synchronized (nameToResource) {
+            if (nameToResource.containsKey(resource.getName())) {
+                if (info.isIfNotExists()) {
+                    return;
+                }
+                throw new DdlException("Resource(" + resource.getName() + ") already exist");
+            }
+            logResource = getCreateLogResource(resource);
+            // Queue CREATE before publishing the live object so dependent operations cannot journal first.
+            logItem = Env.getCurrentEnv().getEditLog()
+                    .submitEdit(OperationType.OP_CREATE_RESOURCE, logResource);
+            nameToResource.put(resource.getName(), resource);
         }
+        logItem.await();
+        LOG.info("Create resource success. Resource: {}", logResource.getName());
     }
 
     // Return true if the resource is truly added,
     // otherwise, return false or throw exception.
     public boolean createResource(Resource resource, boolean ifNotExists) throws DdlException {
         String resourceName = resource.getName();
-        if (nameToResource.putIfAbsent(resourceName, resource) != null) {
-            if (ifNotExists) {
-                return false;
+        synchronized (nameToResource) {
+            if (nameToResource.putIfAbsent(resourceName, resource) != null) {
+                if (ifNotExists) {
+                    return false;
+                }
+                throw new DdlException("Resource(" + resourceName + ") already exist");
             }
-            throw new DdlException("Resource(" + resourceName + ") already exist");
+            return true;
         }
-        return true;
     }
 
     public void replayCreateResource(Resource resource) {
@@ -110,35 +125,54 @@ public class ResourceMgr implements Writable {
 
     public void dropResource(DropResourceCommand dropResourceCommand) throws DdlException {
         String resourceName = dropResourceCommand.getResourceName();
-        if (!nameToResource.containsKey(resourceName)) {
+        Resource resource = nameToResource.get(resourceName);
+        if (resource == null) {
             if (dropResourceCommand.isIfExists()) {
                 return;
             }
             throw new DdlException("Resource(" + resourceName + ") does not exist");
         }
 
-        Resource resource = nameToResource.get(resourceName);
-        resource.dropResource();
+        EditLog.EditLogItem logItem;
+        synchronized (resource.getAlterLock()) {
+            if (nameToResource.get(resourceName) != resource) {
+                if (dropResourceCommand.isIfExists() && !nameToResource.containsKey(resourceName)) {
+                    return;
+                }
+                throw new DdlException("Resource(" + resourceName + ") changed concurrently");
+            }
 
-        // Check whether the resource is in use before deleting it, except spark resource
-        StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(null);
-        checkedStoragePolicy.setStorageResource(resourceName);
-        if (Env.getCurrentEnv().getPolicyMgr().existPolicy(checkedStoragePolicy)) {
-            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedStoragePolicy);
-            LOG.warn("Can not drop resource, since it's used in policy {}", policy.getPolicyName());
-            throw new DdlException("Can not drop resource, since it's used in policy " + policy.getPolicyName());
+            resource.dropResource();
+
+            // Check whether the resource is in use before deleting it, except spark resource
+            StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(null);
+            checkedStoragePolicy.setStorageResource(resourceName);
+            if (Env.getCurrentEnv().getPolicyMgr().existPolicy(checkedStoragePolicy)) {
+                Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedStoragePolicy);
+                LOG.warn("Can not drop resource, since it's used in policy {}", policy.getPolicyName());
+                throw new DdlException("Can not drop resource, since it's used in policy " + policy.getPolicyName());
+            }
+
+            logItem = Env.getCurrentEnv().getEditLog().submitEdit(
+                    OperationType.OP_DROP_RESOURCE, new DropResourceOperationLog(resourceName));
+            if (!nameToResource.remove(resourceName, resource)) {
+                LOG.error("Fatal Error: failed to remove resource {} after submitting its drop log", resourceName);
+                System.exit(-1);
+                throw new IllegalStateException("failed to remove resource " + resourceName);
+            }
         }
-        nameToResource.remove(resourceName);
-        // log drop
-        Env.getCurrentEnv().getEditLog().logDropResource(new DropResourceOperationLog(resourceName));
+
+        logItem.await();
         LOG.info("Drop resource success. Resource resourceName: {}", resourceName);
     }
 
     // Drop resource whether successful or not
     public void dropResource(Resource resource) {
         String name = resource.getName();
-        if (nameToResource.remove(name) == null) {
-            LOG.info("resource " + name + " does not exists.");
+        synchronized (resource.getAlterLock()) {
+            if (!nameToResource.remove(name, resource)) {
+                LOG.info("resource " + name + " does not exists.");
+            }
         }
     }
 
@@ -155,6 +189,9 @@ public class ResourceMgr implements Writable {
         Resource logResource;
         EditLog.EditLogItem logItem;
         synchronized (resource.getAlterLock()) {
+            if (nameToResource.get(resourceName) != resource) {
+                throw new DdlException("Resource(" + resourceName + ") changed concurrently");
+            }
             resource.modifyProperties(properties);
             // Keep mutation, snapshot, and submission ordered without holding the resource state lock.
             logResource = getAlterLogResource(resource);
@@ -166,7 +203,18 @@ public class ResourceMgr implements Writable {
     }
 
     public void replayAlterResource(Resource resource) {
-        nameToResource.put(resource.getName(), resource);
+        Resource replayed = nameToResource.computeIfPresent(resource.getName(), (name, currentResource) -> {
+            if (resource.getId() != currentResource.getId()) {
+                LOG.warn("Ignore alter log for replaced resource {} with id {}, current id is {}",
+                        name, resource.getId(), currentResource.getId());
+                return currentResource;
+            }
+            resource.copyReferencesFrom(currentResource);
+            return resource;
+        });
+        if (replayed == null) {
+            LOG.warn("Ignore alter log for non-existent resource {}", resource.getName());
+        }
     }
 
     public boolean containsResource(String name) {
@@ -239,13 +287,33 @@ public class ResourceMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
+        String json = GsonUtils.GSON.toJson(getCopiedResourceMgr());
         Text.writeString(out, json);
+    }
+
+    private ResourceMgr getCopiedResourceMgr() throws IOException {
+        ResourceMgr copied = new ResourceMgr();
+        try {
+            for (Map.Entry<String, Resource> entry : nameToResource.entrySet()) {
+                copied.nameToResource.put(entry.getKey(), entry.getValue().getCopiedResourceSnapshot());
+            }
+        } catch (RuntimeException e) {
+            throw new IOException("failed to snapshot resources for image", e);
+        }
+        return copied;
+    }
+
+    private Resource getCreateLogResource(Resource resource) throws DdlException {
+        try {
+            return resource.getCopiedResourceSnapshot();
+        } catch (RuntimeException e) {
+            throw new DdlException("failed to copy created resource " + resource.getName(), e);
+        }
     }
 
     private Resource getAlterLogResource(Resource resource) {
         try {
-            return resource.getCopiedResourceSnapshot();
+            return resource.getAlterLogResourceSnapshot();
         } catch (Throwable t) {
             LOG.error("Fatal Error: failed to copy altered resource {}", resource.getName(), t);
             System.exit(-1);

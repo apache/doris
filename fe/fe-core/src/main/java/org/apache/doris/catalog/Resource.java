@@ -370,6 +370,25 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         return GsonUtils.GSON.fromJson(json, Resource.class);
     }
 
+    final Resource getAlterLogResourceSnapshot() {
+        Resource copied = getCopiedResourceSnapshot();
+        // Reference changes are persisted by their owners (for example, storage policy journals).
+        synchronized (copied) {
+            copied.references.clear();
+        }
+        return copied;
+    }
+
+    final void copyReferencesFrom(Resource resource) {
+        Map<String, ReferenceType> copiedReferences;
+        synchronized (resource) {
+            copiedReferences = Maps.newHashMap(resource.references);
+        }
+        synchronized (this) {
+            references = copiedReferences;
+        }
+    }
+
     private void notifyUpdate(Map<String, String> properties) {
         synchronized (this) {
             references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
