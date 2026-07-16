@@ -35,16 +35,17 @@ PhysicalResultSink
 --------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF6 RF8 RF10
 ----------------------------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------filter((date_dim.d_moy = 1) and (date_dim.d_year = 1999))
-----------------------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store]
-----------------------------PhysicalProject
-------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) <= d_month_seq+3)
+--------------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF5 RF7 RF9 RF11
+--------------------------------------------------PhysicalProject
+----------------------------------------------------filter((item.i_category = 'Music') and (item.i_class = 'country'))
+------------------------------------------------------PhysicalOlapScan[item]
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((date_dim.d_moy = 1) and (date_dim.d_year = 1999))
+--------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalProject
-----------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) >= d_month_seq+1)
+----------------------------------NestedLoopJoin[INNER_JOIN](cast(date_dim.d_month_seq as BIGINT) <= d_month_seq+3)
 ------------------------------------PhysicalProject
---------------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) >= d_month_seq+1)
+--------------------------------------NestedLoopJoin[INNER_JOIN](cast(date_dim.d_month_seq as BIGINT) >= d_month_seq+1)
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------PhysicalAssertNumRows
