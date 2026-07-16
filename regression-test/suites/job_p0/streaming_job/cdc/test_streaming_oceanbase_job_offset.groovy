@@ -59,6 +59,12 @@ suite("test_streaming_oceanbase_job_offset",
                 rows.size() == 1 && rows[0][0] == count
             })
         }
+        def waitForRowId = { String tableName, int id ->
+            Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
+                def rows = sql """SELECT COUNT(*) FROM ${currentDb}.${tableName} WHERE id = ${id}"""
+                rows.size() == 1 && rows[0][0] == 1
+            })
+        }
         def dumpJobState = { String jobName ->
             log.info("jobs: " + sql("""SELECT * FROM jobs("type"="insert") WHERE Name='${jobName}'"""))
             log.info("tasks: " + sql("""SELECT * FROM tasks("type"="insert") WHERE JobName='${jobName}'"""))
@@ -74,6 +80,49 @@ suite("test_streaming_oceanbase_job_offset",
                     ) ENGINE=InnoDB"""
             sql """INSERT INTO ${sourceDb}.${latestTable} VALUES (1, 'before_latest')"""
         }
+
+        // Consume later records first to ensure before_latest is visible in OBBinlog.
+        def binlogFile = ""
+        def binlogPosition = ""
+        connect("root@test", "123456", sourceUrl) {
+            sql """DROP TABLE IF EXISTS ${sourceDb}.${specificTable}"""
+            sql """CREATE TABLE ${sourceDb}.${specificTable} (
+                        id INT NOT NULL,
+                        name VARCHAR(100),
+                        PRIMARY KEY (id)
+                    ) ENGINE=InnoDB"""
+            def masterStatus = sql """SHOW MASTER STATUS"""
+            binlogFile = masterStatus[0][0]
+            binlogPosition = masterStatus[0][1].toString()
+            sql """INSERT INTO ${sourceDb}.${specificTable} VALUES
+                        (10, 'specific_one'),
+                        (11, 'specific_two')"""
+        }
+        def offsetJson = """{"file":"${binlogFile}","pos":"${binlogPosition}"}"""
+
+        sql """CREATE JOB ${specificJob}
+                ON STREAMING
+                FROM OCEANBASE (
+                    "jdbc_url" = "${sourceUrl}",
+                    "driver_url" = "${driverUrl}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root@test",
+                    "password" = "123456",
+                    "database" = "${sourceDb}",
+                    "include_tables" = "${specificTable}",
+                    "offset" = '${offsetJson}'
+                )
+                TO DATABASE ${currentDb} (
+                    "table.create.properties.replication_num" = "1"
+                )"""
+
+        try {
+            waitForRows(specificTable, 2)
+        } catch (Exception ex) {
+            dumpJobState(specificJob)
+            throw ex
+        }
+        sql """DROP JOB IF EXISTS WHERE jobname='${specificJob}'"""
 
         sql """CREATE JOB ${latestJob}
                 ON STREAMING
@@ -96,7 +145,7 @@ suite("test_streaming_oceanbase_job_offset",
             connect("root@test", "123456", sourceUrl) {
                 sql """INSERT INTO ${sourceDb}.${latestTable} VALUES (2, 'after_latest')"""
             }
-            waitForRows(latestTable, 1)
+            waitForRowId(latestTable, 2)
         } catch (Exception ex) {
             dumpJobState(latestJob)
             throw ex
@@ -147,50 +196,8 @@ suite("test_streaming_oceanbase_job_offset",
         """
         sql """DROP JOB IF EXISTS WHERE jobname='${earliestJob}'"""
 
-        def binlogFile = ""
-        def binlogPosition = ""
-        connect("root@test", "123456", sourceUrl) {
-            sql """DROP TABLE IF EXISTS ${sourceDb}.${specificTable}"""
-            sql """CREATE TABLE ${sourceDb}.${specificTable} (
-                        id INT NOT NULL,
-                        name VARCHAR(100),
-                        PRIMARY KEY (id)
-                    ) ENGINE=InnoDB"""
-            def masterStatus = sql """SHOW MASTER STATUS"""
-            binlogFile = masterStatus[0][0]
-            binlogPosition = masterStatus[0][1].toString()
-            sql """INSERT INTO ${sourceDb}.${specificTable} VALUES
-                        (10, 'specific_one'),
-                        (11, 'specific_two')"""
-        }
-        def offsetJson = """{"file":"${binlogFile}","pos":"${binlogPosition}"}"""
-
-        sql """CREATE JOB ${specificJob}
-                ON STREAMING
-                FROM OCEANBASE (
-                    "jdbc_url" = "${sourceUrl}",
-                    "driver_url" = "${driverUrl}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root@test",
-                    "password" = "123456",
-                    "database" = "${sourceDb}",
-                    "include_tables" = "${specificTable}",
-                    "offset" = '${offsetJson}'
-                )
-                TO DATABASE ${currentDb} (
-                    "table.create.properties.replication_num" = "1"
-                )"""
-
-        try {
-            waitForRows(specificTable, 2)
-        } catch (Exception ex) {
-            dumpJobState(specificJob)
-            throw ex
-        }
-
         order_qt_oceanbase_offset_specific """
             SELECT id, name FROM ${currentDb}.${specificTable} ORDER BY id
         """
-        sql """DROP JOB IF EXISTS WHERE jobname='${specificJob}'"""
     }
 }

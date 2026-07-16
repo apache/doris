@@ -33,7 +33,7 @@ suite("test_oceanbase_jdbc_catalog", "p2,external") {
                     "type"="jdbc",
                     "user"="root@test",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:oceanbase://${externalEnvIp}:${oceanbase_port}/doris_test",
+                    "jdbc_url" = "jdbc:oceanbase://${externalEnvIp}:${oceanbase_port}/doris_test?serverTimezone=UTC",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.oceanbase.jdbc.Driver"
         );"""
