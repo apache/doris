@@ -21,12 +21,15 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.RuntimeProfile;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
@@ -41,6 +44,7 @@ import org.apache.doris.connector.api.pushdown.LimitApplicationResult;
 import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
@@ -51,11 +55,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPart
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -73,6 +79,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -197,6 +205,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Resolves the scan plan provider for the table being scanned, allowing a heterogeneous gateway
+     * connector to select a per-table (per-format) provider. Keyed on {@link #currentHandle} — the
+     * same handle the rest of the scan uses (pushdown may refine it, but a table's format, and thus
+     * the selected provider, does not change across a scan). For every single-format connector the
+     * SPI default ignores the handle and returns the connector-level provider, so this stays
+     * byte-identical to the former {@code connector.getScanPlanProvider()} and may still be
+     * {@code null} for connectors without scan capability.
+     */
+    private ConnectorScanPlanProvider resolveScanProvider() {
+        return connector.getScanPlanProvider(currentHandle);
+    }
+
+    /**
      * Injects the Nereids partition-pruning result. Called by the translator so the pruned
      * partition set can be pushed down to the connector's scan plan (see {@link #getSplits}).
      */
@@ -223,14 +244,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      *
      * <p>A connector whose {@link ConnectorScanPlanProvider#ignorePartitionPruneShortCircuit()} is {@code
      * true} (e.g. paimon, whose {@code planScan} ignores {@code requiredPartitions} and re-plans through the
-     * SDK with the pushed predicate) must NOT be short-circuited to zero rows when FE pruning empties the
-     * partition set: with master-parity {@code isNull=false} a genuine-null partition renders as a non-null
-     * sentinel, so {@code col IS NULL} prunes every partition away, yet the genuine-null rows must still be
-     * returned via the pushed predicate (regression {@code qt_null_partition_4}). For such a connector a
-     * prune-to-zero maps to {@code null} (scan-all) instead of the empty list, exactly as the legacy
-     * {@code PaimonScanNode} (which never consults {@code selectedPartitions}). A non-empty pruned set is
-     * still forwarded unchanged. For every other connector ({@code ignorePartitionPruneShortCircuit=false})
-     * the behavior is identical to {@link #resolveRequiredPartitions(SelectedPartitions)}.</p>
+     * SDK with the pushed predicate) must NOT be short-circuited to zero rows when FE pruning genuinely empties
+     * the partition set — e.g. {@code col = <value absent from every partition>} prunes every partition away,
+     * yet planScan must still run and answer from the pushed predicate. For such a connector a prune-to-zero
+     * maps to {@code null} (scan-all) instead of the empty list, exactly as the legacy {@code PaimonScanNode}
+     * (which never consults {@code selectedPartitions}). A non-empty pruned set is still forwarded unchanged.
+     * (Note: {@code col IS NULL} over a connector-supplied genuine-NULL partition now prunes ACCURATELY to that
+     * {@code NullLiteral} partition — a non-empty set — so it no longer relies on this opt-out; see
+     * {@code PluginDrivenMvccExternalTable.toListPartitionItem}.) For every other connector
+     * ({@code ignorePartitionPruneShortCircuit=false}) the behavior is identical to
+     * {@link #resolveRequiredPartitions(SelectedPartitions)}.</p>
      */
     static List<String> resolveRequiredPartitions(SelectedPartitions selectedPartitions,
             boolean ignorePartitionPruneShortCircuit) {
@@ -254,8 +277,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         // A predicate-driven connector re-plans through its SDK with the pushed predicate (its planScan
         // ignores requiredPartitions), so a GENUINE prune-to-zero must NOT short-circuit the scan — return
-        // scan-all (null) and let planScan answer from the predicate (e.g. paimon `col IS NULL` over a
-        // genuine-null partition the FE pruner rendered as a non-null sentinel). Master PaimonScanNode parity.
+        // scan-all (null) and let planScan answer from the predicate (e.g. paimon `col = <value absent from
+        // every partition>`). Master PaimonScanNode parity.
         if (ignorePartitionPruneShortCircuit && selectedPartitions.selectedPartitions.isEmpty()) {
             return null;
         }
@@ -286,6 +309,73 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         return new long[] {
                 selectedPartitions.selectedPartitions.size(), selectedPartitions.totalPartitionNum};
+    }
+
+    /**
+     * The {@code selectedPartitionNum} to surface (EXPLAIN {@code partition=N/M} + {@code sql_block_rule}
+     * {@code partition_num}): the connector's real scanned-partition count when it reports one
+     * ({@link ConnectorScanPlanProvider#scannedPartitionCount}), else the engine's Nereids-pruned count
+     * (the {@code displayPartitionCounts} value already set on the node).
+     *
+     * <p>A predicate-driven connector (paimon manifest pruning, iceberg hidden/transform partitioning)
+     * scans fewer distinct partitions than Nereids' declared-partition-column pruning can see, so its
+     * reported count is the faithful one. Directory-partitioned / requiredPartition-driven connectors
+     * (hive, MaxCompute) report {@code empty} and keep the Nereids count (the two coincide).</p>
+     *
+     * <p>Suppressed under {@code COUNT(*)} pushdown: the connector collapses its splits into one count
+     * range (paimon {@code countRepresentative}, iceberg's single count range), so per-partition info is
+     * lost from the returned ranges — the engine keeps its conservative Nereids count there (Nereids
+     * &ge; real, so the {@code partition_num} guard only tightens, never under-blocks). Pure so the gate
+     * is unit-testable.</p>
+     */
+    static long resolveSelectedPartitionNum(long nereidsSelectedPartitionNum, boolean countPushdown,
+            OptionalLong connectorScannedPartitionCount) {
+        if (!countPushdown && connectorScannedPartitionCount.isPresent()) {
+            return connectorScannedPartitionCount.getAsLong();
+        }
+        return nereidsSelectedPartitionNum;
+    }
+
+    /**
+     * Write the connector's SDK scan diagnostics ({@link ConnectorScanProfile}s harvested during planScan)
+     * into this query's profile execution summary. Looks up the query's {@link SummaryProfile} and delegates
+     * the tree-building to the pure {@link #writeScanProfilesInto}. No-op when there is no profile (e.g. a
+     * statement not collecting one) or nothing to write.
+     */
+    private void appendConnectorScanProfiles(List<ConnectorScanProfile> profiles) {
+        if (profiles == null || profiles.isEmpty()) {
+            return;
+        }
+        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        if (summaryProfile == null) {
+            return;
+        }
+        writeScanProfilesInto(summaryProfile.getExecutionSummary(), profiles);
+    }
+
+    /**
+     * Transcribe connector-supplied scan profiles into {@code executionSummary}: get-or-create a group named
+     * {@link ConnectorScanProfile#getGroupName()}, add a child named {@link ConnectorScanProfile#getScanLabel()},
+     * and write each metric as an info string. Purely connector-agnostic (no source-type branch) — the engine
+     * only transcribes what the connector produced. Pure and takes a bare {@link RuntimeProfile} so the
+     * tree-building is unit-testable without a {@code ConnectContext}.
+     */
+    static void writeScanProfilesInto(RuntimeProfile executionSummary, List<ConnectorScanProfile> profiles) {
+        if (executionSummary == null || profiles == null || profiles.isEmpty()) {
+            return;
+        }
+        for (ConnectorScanProfile profile : profiles) {
+            RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
+            if (group == null) {
+                group = new RuntimeProfile(profile.getGroupName());
+                executionSummary.addChild(group, true);
+            }
+            RuntimeProfile scan = new RuntimeProfile(profile.getScanLabel());
+            for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
+                scan.addInfoString(entry.getKey(), entry.getValue());
+            }
+            group.addChild(scan, true);
+        }
     }
 
     @Override
@@ -355,6 +445,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
                 appendBackendScanRangeDetail(output, prefix);
             }
+            // R5 (explain gap): FileScanNode#getNodeExplainString emits the cardinality/avgRowSize/numNodes
+            // line right after the VERBOSE block; this override drops it by not calling super, so
+            // test_hive_statistics_p0's `cardinality=66` assertion failed. Re-emit it verbatim -- like the
+            // sibling inputSplitNum / partition / backend-detail / nested-columns lines -- because row-count
+            // stats visibility is universal FileScanNode info, not connector-specific (the cardinality field
+            // is populated for every plugin FileScan via PhysicalPlanTranslator#setCardinality).
+            output.append(prefix);
+            if (cardinality > 0) {
+                output.append(String.format("cardinality=%s, ", cardinality));
+            }
+            if (avgRowSize > 0) {
+                output.append(String.format("avgRowSize=%s, ", avgRowSize));
+            }
+            output.append(String.format("numNodes=%s", numNodes)).append("\n");
             // F6/F7 (explain gap): the parent FileScanNode emits the "nested columns:" block (pruned type /
             // sub path / all + predicate access paths) via printNestedColumns, which this override drops by
             // not calling super, so the ENTIRE block vanished for every plugin FileScan connector (broader
@@ -372,7 +476,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // keys, so a connector that distinguishes native/JNI reads (paimon) can emit its
             // "paimonNativeReadSplits=<raw>/<total>" line without an SPI signature change. The copy keeps
             // the cached scanNodeProperties unpolluted; non-paimon providers ignore the extra keys.
-            ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+            ConnectorScanPlanProvider scanProvider = resolveScanProvider();
             if (scanProvider != null) {
                 Map<String, String> explainProps = new HashMap<>(props);
                 explainProps.put(NATIVE_READ_SPLITS_KEY, String.valueOf(nativeReadSplitNum));
@@ -472,11 +576,29 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * A connector with no scan provider (no scan capability) contributes no special columns ({@code DEFAULT}).
      */
     ConnectorColumnCategory classifyColumnByConnector(String columnName) {
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
             return ConnectorColumnCategory.DEFAULT;
         }
         return onPluginClassLoader(scanProvider, () -> scanProvider.classifyColumn(columnName));
+    }
+
+    /**
+     * Lets the owning connector adjust the compression type this node inferred from the split's file path
+     * before it is shipped to BE, WITHOUT any source-specific code here: the base inference runs first, then
+     * the connector's {@link ConnectorScanPlanProvider#adjustFileCompressType} (identity by default) gets the
+     * final say. Hive uses it to remap {@code LZ4FRAME -> LZ4BLOCK} (hadoop writes {@code .lz4} as block codec);
+     * every other connector inherits the identity default and is byte-unchanged. A connector with no scan
+     * provider keeps the inferred type. Mirrors {@link #classifyColumnByConnector} (same resolve + TCCL pin).
+     */
+    @Override
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        TFileCompressType inferred = super.getFileCompressType(fileSplit);
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null) {
+            return inferred;
+        }
+        return onPluginClassLoader(scanProvider, () -> scanProvider.adjustFileCompressType(inferred));
     }
 
     @Override
@@ -511,6 +633,26 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Builds the query-finish callback that releases a connector's per-query read transaction. Hive full-ACID /
+     * insert-only reads open a metastore read transaction + shared read lock during {@code planScan}; this
+     * callback commits it (releasing the lock) when the query finishes. Registered UNCONDITIONALLY for every
+     * plugin scan in {@link #getSplits} — connector-agnostic, since a connector that opens no read transaction
+     * inherits the no-op {@link ConnectorScanPlanProvider#releaseReadTransaction} default and the callback is
+     * inert for it. The release runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
+     * loader, so it MUST be pinned to the provider's plugin classloader ({@link #onPluginClassLoader}) or the
+     * commit's by-name class resolution (metastore/thrift) would split-brain against the app loader's copies.
+     * Extracted as a pure function of {@code (scanProvider, queryId)} so the release + TCCL-pin behavior is
+     * unit-testable without driving a full {@code getSplits}.
+     */
+    public static Runnable buildReadTransactionReleaseCallback(
+            ConnectorScanPlanProvider scanProvider, String queryId) {
+        return () -> onPluginClassLoader(scanProvider, () -> {
+            scanProvider.releaseReadTransaction(queryId);
+            return null;
+        });
+    }
+
+    /**
      * FIX-E (explain gap): delegates the VERBOSE per-backend block's delete-file lookup to the
      * connector SPI. The parent {@link FileScanNode#getDeleteFiles} returns empty; a connector that
      * threads delete files onto its per-range thrift (paimon's deletion vectors) overrides
@@ -521,7 +663,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null || rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
             return Collections.emptyList();
         }
@@ -587,6 +729,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         String enclose = props.get(PROP_HIVE_TEXT_PREFIX + "enclose");
         if (enclose != null && !enclose.isEmpty()) {
             textParams.setEnclose(enclose.getBytes()[0]);
+        }
+        // #65501: trimming wrapping double quotes is valid only when the enclose char is '"'. The connector
+        // owns that CSV-serde decision (HiveTextProperties.extractCsvSerDeProps) and passes it as an explicit
+        // flag; the generic node just applies it (rather than trimming for any enclose char).
+        if ("true".equals(props.get(PROP_HIVE_TEXT_PREFIX + "trim_double_quotes"))) {
             attrs.setTrimDoubleQuotes(true);
         }
 
@@ -598,6 +745,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if ("true".equals(isJson)) {
             attrs.setReadJsonByLine(true);
             attrs.setReadByColumnDef(true);
+            // OpenX JSON "ignore.malformed.json": skip malformed rows instead of erroring. The connector emits
+            // this only for the OpenX serde (absent otherwise); mirrors legacy HiveScanNode's openx branch.
+            String ignoreMalformed = props.get(PROP_HIVE_TEXT_PREFIX + "openx_ignore_malformed");
+            if (ignoreMalformed != null) {
+                attrs.setOpenxJsonIgnoreMalformed(Boolean.parseBoolean(ignoreMalformed));
+            }
         }
 
         return attrs;
@@ -731,7 +884,94 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // reading latest. Returns empty for every other case, so the normal-table path is unchanged.
             snapshot = resolveSysTableSnapshotPin();
         }
+        // L17 fail-loud guard: this scan reads at its version-aware snapshot (resolved above), but the
+        // table's schema binding (PluginDrivenMvccExternalTable.getSchemaCacheValue) is version-BLIND, so a
+        // same-table multi-version reference (e.g. self-join FOR VERSION AS OF v1 vs v2 across a schema
+        // change, or v1 joined with a latest reference) can carry an FE tuple bound at a DIFFERENT schema
+        // than the version this reference scans -> BE field-id/name-mismatches file columns to tuple slots
+        // (crash / wrong NULLs). Verify every bound tuple column resolves in THIS reference's pinned schema;
+        // throw a clear error instead of silently skewing. Deterministic + per-reference (runs with all pins
+        // loaded, checks this reference's own pin), so it catches the latest-masked / @incr / MTMV-refresh
+        // cases the version-blind analysis-time binding cannot. Per user decision 2026-07-13: throw for now;
+        // the per-reference version-aware schema-binding refactor is tracked as D-MVCC-VERSION-SCHEMA. A
+        // latest / @incr / hive scan carries a null pinnedSchema -> no-op; so does a sys-table scan on a
+        // connector that rejects sys-table time travel (resolveSysTableSnapshotPin returns empty). A sys-table
+        // scan on a connector that DOES honor it (iceberg) is excluded inside the guard — see there.
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            List<Column> boundColumns = new ArrayList<>();
+            for (SlotDescriptor slot : desc.getSlots()) {
+                if (slot.getColumn() != null) {
+                    boundColumns.add(slot.getColumn());
+                }
+            }
+            assertBoundColumnsResolveInPinnedSchema(boundColumns,
+                    ((PluginDrivenMvccSnapshot) snapshot.get()).getPinnedSchema(),
+                    getTargetTable());
+        }
         currentHandle = applyMvccSnapshotPin(metadata, connectorSession, currentHandle, snapshot);
+    }
+
+    /**
+     * Fail-loud guard for the version-blind schema-binding gap (reverify #65185 L17). {@code boundColumns}
+     * are the projected tuple-slot columns (what the FE tuple / BE scan slots expect); {@code pinnedSchema}
+     * is the schema AS OF the version THIS reference actually scans. If any bound column cannot be resolved in
+     * the pinned schema, the tuple was bound at a different version than the scan reads and BE would
+     * mismatch — throw instead of silently returning wrong rows.
+     *
+     * <p>Matching keys on whether the column carries a field id (a generic {@link Column} property, NOT a
+     * source-name branch): {@code uniqueId >= 0} (iceberg carries the iceberg field-id) matches by field-id
+     * (BE matches iceberg columns by id, so a rename that keeps the id is fine, a renumber / added column is
+     * caught); {@code uniqueId < 0} (paimon has no top-level field-id) matches by name. Reader-synthesized
+     * row-id columns ({@link Column#GLOBAL_ROWID_COL}) are skipped — they are not table columns and are
+     * absent from every pinned schema by construction.</p>
+     *
+     * <p>Two no-ops, both because the guard's precondition — {@code boundColumns} and {@code pinnedSchema}
+     * describe the SAME table — does not hold:
+     * <ul>
+     *   <li>A {@code null} pinnedSchema (latest / {@code @incr} / hive reference): nothing to compare.</li>
+     *   <li>A {@code table} that is a {@link PluginDrivenSysExternalTable}: a sys-table scan's pin is BY
+     *       CONSTRUCTION resolved off the SOURCE table ({@code resolveSysTableSnapshotPin}), so pinnedSchema
+     *       carries the source's columns while boundColumns carries the sys table's synthetic ones
+     *       (file_path / pos / row / spec_id / ...). Comparing them is a category error that can never
+     *       resolve — it threw a bogus "multiple versions" error on every iceberg sys-table time travel
+     *       (CI 997422). Same class of exclusion as {@code GLOBAL_ROWID_COL} above. Connectors that reject
+     *       sys-table time travel never get here (their pin resolves empty), so this changes nothing for
+     *       them.</li>
+     * </ul>
+     * The guard keeps full strength for real MVCC tables: {@link PluginDrivenSysExternalTable} and
+     * {@link PluginDrivenMvccExternalTable} are sibling subclasses, so no normal table matches.</p>
+     */
+    static void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
+            SchemaCacheValue pinnedSchema, TableIf table) throws UserException {
+        if (pinnedSchema == null || table instanceof PluginDrivenSysExternalTable) {
+            return;
+        }
+        String tableName = table.getName();
+        Set<Integer> pinnedFieldIds = new HashSet<>();
+        Set<String> pinnedNames = new HashSet<>();
+        for (Column c : pinnedSchema.getSchema()) {
+            pinnedFieldIds.add(c.getUniqueId());
+            pinnedNames.add(c.getName().toLowerCase());
+        }
+        for (Column bound : boundColumns) {
+            if (bound.getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+                // Reader-synthesized row-id injected by topn lazy materialization (LazyMaterializeTopN),
+                // not a table column: it carries uniqueId = Integer.MAX_VALUE, so it is BY CONSTRUCTION
+                // absent from every pinned schema and would make this guard fire on every
+                // "pinned version + order by/limit" query. Excluded exactly like classifyColumn() and
+                // hasTopnLazyMaterializeSlot() already do.
+                continue;
+            }
+            boolean resolved = bound.getUniqueId() >= 0
+                    ? pinnedFieldIds.contains(bound.getUniqueId())
+                    : pinnedNames.contains(bound.getName().toLowerCase());
+            if (!resolved) {
+                throw new UserException("Reading the same table at multiple versions with different schemas "
+                        + "in one statement is not supported yet: column '" + bound.getName() + "' of table '"
+                        + tableName + "' is bound at a different version than the one this reference scans. "
+                        + "Rewrite as separate statements.");
+            }
+        }
     }
 
     /**
@@ -823,8 +1063,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * pinned SYSTEM handle (the connector's {@code planSystemTableScan} applies it).
      *
      * <p>Returns empty (no pin) when the target is not a sys table, when there is no time-travel selector,
-     * or — defensively — when the source is not MVCC-capable (the guard
-     * {@link #checkSysTableScanConstraints} already rejects that case for the relevant connectors).
+     * when the connector does not honor sys-table time travel ({@link #sysTableSupportsTimeTravel()} —
+     * paimon, the default), or — defensively — when the source is not MVCC-capable.
+     *
+     * <p><b>The capability check must stay here, not be left to {@link #checkSysTableScanConstraints}.</b>
+     * That guard is the one that produces the intended user-facing message, but it only runs at split
+     * generation ({@link #getSplits} / {@code startSplit}) — long AFTER this method runs at init. Resolving
+     * a pin for a connector that rejects sys-table time travel therefore hands the SOURCE table's snapshot
+     * (and its non-null pinned schema) to a scan whose tuple carries the SYS table's columns, and the
+     * failure surfaces first — as a bogus L17 "multiple versions" error, or as {@code loadSnapshot}'s own
+     * not-found {@link RuntimeException} (which is not a {@link UserException} and so escapes uncaught) —
+     * masking the intended message. Returning empty here lets the query reach the real guard.
      *
      * <p>Package-private + overridable so the resolution is unit-testable on a Mockito mock without a live
      * connector (mirrors {@link #applyMvccSnapshotPin} / {@link #checkSysTableScanConstraints}).
@@ -834,6 +1083,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return Optional.empty();
         }
         if (getQueryTableSnapshot() == null && getScanParams() == null) {
+            return Optional.empty();
+        }
+        if (!sysTableSupportsTimeTravel()) {
+            // Connector rejects sys-table time travel (paimon, the default). Do NOT resolve a pin: leave the
+            // rejection to checkSysTableScanConstraints, which owns the user-facing message. See the class
+            // note above on why deferring the capability check to that guard does not work.
             return Optional.empty();
         }
         PluginDrivenExternalTable source = ((PluginDrivenSysExternalTable) getTargetTable()).getSourceTable();
@@ -882,7 +1137,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * stays unit-testable on a Mockito mock without a live connector (mirrors the guard's own visibility).
      */
     boolean sysTableSupportsTimeTravel() {
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
             return false;
         }
@@ -895,11 +1150,23 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // Attempt limit and projection pushdown via SPI protocol
         tryPushDownLimit();
 
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
             LOG.warn("Connector does not provide a scan plan provider, returning empty splits");
             return Collections.emptyList();
         }
+
+        // Register the per-query read-transaction release BEFORE planScan (and before the pruned-to-zero
+        // short-circuit below), so a planScan that opens a metastore read transaction and then throws still has
+        // its release callback in place. Unconditional and connector-agnostic: a connector that opens no read
+        // transaction (every connector except transactional/ACID hive) inherits the no-op
+        // releaseReadTransaction default, so this is inert for it (the callback only pins TCCL and calls the
+        // no-op). The callback runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
+        // loader, so the release is pinned to the provider's plugin classloader (see the helper). One string:
+        // connectorSession.getQueryId() == the query-finish registry key == the connector's txnMap key.
+        String readTxnQueryId = connectorSession.getQueryId();
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId,
+                buildReadTransactionReleaseCallback(scanProvider, readTxnQueryId));
 
         // Push the Nereids partition-pruning result down to the connector so the read session
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,
@@ -942,13 +1209,28 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // the rows the source returns, that would under-return. Legacy disabled limit-split whenever
         // a non-partition-equality (incl. CAST) predicate was present; this mirrors it.
         long sourceLimit = effectiveSourceLimit(limit, filteredToOriginalIndex != null);
+        // TABLESAMPLE (FIX-M1): applied (sampleSplits below) only when the connector declares its scan
+        // ranges carry byte lengths (supportsTableSample), so the size-weighted selection is valid. Only
+        // Hive sampled pre-SPI; connectors whose ranges lack byte-proportional lengths keep the default
+        // false and no-op the sample (full-table scan, as before) — surfaced with a warning rather than
+        // silently dropped. connector-agnostic: a generic capability, not a source-type branch.
+        boolean applySample = tableSample != null
+                && onPluginClassLoader(scanProvider, scanProvider::supportsTableSample);
+        if (tableSample != null && !applySample) {
+            LOG.warn("TABLESAMPLE is not supported by connector [{}]; scanning the full table",
+                    desc.getTable().getDatabase().getCatalog().getType());
+        }
         // Forward the no-grouping COUNT(*) signal to the connector (FIX-COUNT-PUSHDOWN). The op is set
         // on this node by the Nereids translator (PhysicalPlanTranslator) and shipped to BE via
         // FileScanNode.toThrift, but a connector that can serve a precomputed row count
         // (paimon DataSplit.mergedRowCount()) needs the signal here to emit it; otherwise BE
         // materializes the full post-merge row set just to count. Connectors that do not override the
         // count-pushdown overload ignore the flag (default delegates to the 6-arg planScan).
-        boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
+        // Suppressed under TABLESAMPLE (applySample): a connector that collapses count-eligible splits
+        // into ONE range carrying the precomputed FULL-table count (paimon/iceberg) would ignore the
+        // sample and return full cardinality; with sampling active BE counts rows over the sampled splits
+        // instead (mirrors legacy HiveScanNode, whose tableSample branch precedes the count-only opt).
+        boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT && !applySample;
         List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider, () -> scanProvider.planScan(
                 connectorSession, currentHandle, columns, remainingFilter, sourceLimit,
                 requiredPartitions, countPushdown));
@@ -963,6 +1245,24 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // ConnectorScanRange getters (default false / -1), so non-paimon connectors are unaffected.
         this.nativeReadSplitNum = countNativeReadRanges(ranges);
         this.totalReadSplitNum = ranges.size();
+        // FIX-L12: prefer the connector's real scanned-partition count (distinct native partitions after
+        // its SDK's manifest/residual/transform pruning) over the Nereids declared-column prune count set
+        // at displayPartitionCounts above, so partition=N/M and sql_block_rule reflect what is actually
+        // scanned. Opt-in: the default returns empty and the Nereids count stands (correct for
+        // hive/MaxCompute, where the two coincide). Suppressed under COUNT(*) pushdown (collapsed ranges
+        // lost per-partition info). connector-agnostic: one uniform SPI call + a pure helper, no source
+        // branch — the connector downcasts its own range type to read partition identity.
+        OptionalLong connectorScannedPartitions = onPluginClassLoader(scanProvider,
+                () -> scanProvider.scannedPartitionCount(ranges));
+        this.selectedPartitionNum = resolveSelectedPartitionNum(
+                this.selectedPartitionNum, countPushdown, connectorScannedPartitions);
+        // FIX-SCAN-METRICS: drain the connector's SDK scan diagnostics (harvested during planScan, keyed by
+        // queryId) and write them into the query profile. connector-agnostic: the connector supplies the
+        // group/label/metrics, the engine only transcribes them (no source branch). Default empty for
+        // connectors that don't harvest. Same thread as planScan, so the harvest is complete.
+        List<ConnectorScanProfile> scanProfiles = onPluginClassLoader(scanProvider,
+                () -> scanProvider.collectScanProfiles(connectorSession));
+        appendConnectorScanProfiles(scanProfiles);
         long pushDownRowCount = resolvePushDownRowCount(countPushdown, ranges);
         if (pushDownRowCount >= 0) {
             // Only set when a range actually carries a precomputed count (e.g. paimon's collapsed count
@@ -970,7 +1270,52 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // line renders the (-1) sentinel — the correctness-critical no-precomputed-count case.
             setPushDownCount(pushDownRowCount);
         }
+        // TABLESAMPLE (FIX-M1): keep a size-weighted random subset of the planned splits. Only reached
+        // when the connector opted in (applySample), i.e. its ranges carry byte lengths — so operating on
+        // the generic Split.getLength() is valid. estimatedRowSize (ROWS mode) = sum of column slot sizes,
+        // mirroring legacy HiveScanNode.selectFiles.
+        if (applySample) {
+            long estimatedRowSize = 0;
+            for (Column column : desc.getTable().getFullSchema()) {
+                estimatedRowSize += column.getDataType().getSlotSize();
+            }
+            splits = sampleSplits(splits, tableSample, estimatedRowSize);
+        }
         return splits;
+    }
+
+    /**
+     * Connector-agnostic TABLESAMPLE: keeps a size-weighted random subset of splits, mirroring legacy
+     * {@code HiveScanNode.selectFiles} but operating on the generic {@link Split#getLength()}. Only called
+     * when the connector declares {@code supportsTableSample()} (its ranges carry positive byte lengths),
+     * so a negative/row-count length can never corrupt the accumulation. PERCENT targets
+     * {@code totalSize * value / 100}; ROWS targets {@code estimatedRowSize * value} (estimatedRowSize = sum
+     * of column slot sizes). The shuffle is seeded by the sample's REPEATABLE seek so a repeated query
+     * returns the same subset. Pure static so the size-accumulation + seed determinism is unit-testable
+     * without driving a full {@code planScan}.
+     */
+    static List<Split> sampleSplits(List<Split> splits, TableSample tableSample, long estimatedRowSize) {
+        long totalSize = 0;
+        for (Split split : splits) {
+            totalSize += split.getLength();
+        }
+        long sampleSize;
+        if (tableSample.isPercent()) {
+            sampleSize = totalSize * tableSample.getSampleValue() / 100;
+        } else {
+            sampleSize = estimatedRowSize * tableSample.getSampleValue();
+        }
+        Collections.shuffle(splits, new Random(tableSample.getSeek()));
+        long selectedSize = 0;
+        int index = 0;
+        for (Split split : splits) {
+            selectedSize += split.getLength();
+            index += 1;
+            if (selectedSize >= sampleSize) {
+                break;
+            }
+        }
+        return splits.subList(0, index);
     }
 
     /**
@@ -1039,8 +1384,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private boolean computeBatchMode() {
         // getScanPlanProvider() may be null for connectors without scan capability; mirror the
         // null-guard in getSplits() so isBatchMode (run on the dispatch + explain paths) never NPEs.
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
+            return false;
+        }
+        // TABLESAMPLE (FIX-M1) is applied in the synchronous getSplits() path (sampleSplits); the batch
+        // path (startSplit) never samples. Force sync when the sample WILL be applied (connector opted in),
+        // so a sampled scan never silently skips sampling on the batch/streaming path. Sampling shuffles the
+        // whole split set anyway, so batch generation offers no benefit here. Gated on supportsTableSample
+        // so a non-sampling connector's TABLESAMPLE no-op does not lose its batch path.
+        if (tableSample != null && onPluginClassLoader(scanProvider, scanProvider::supportsTableSample)) {
             return false;
         }
         boolean hasSlots = !desc.getSlots().isEmpty();
@@ -1073,21 +1426,28 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * {@link FileQueryScanNode} (the async/wiring half is covered by live e2e — see DV-019).
      *
      * <ul>
-     *   <li>not partitioned / not pruned ({@code selectedPartitions} null or {@code !isPruned}) &rarr; false;</li>
+     *   <li>null or the {@link SelectedPartitions#NOT_PRUNED} sentinel (non-partitioned, or Nereids
+     *       pruning not applicable) &rarr; false;</li>
      *   <li>no required slots &rarr; false;</li>
      *   <li>connector does not support batch scan (incl. no scan provider) &rarr; false;</li>
-     *   <li>otherwise batch iff {@code numPartitionsInBatchMode > 0} and the pruned partition count
+     *   <li>otherwise batch iff {@code numPartitionsInBatchMode > 0} and the selected partition count
      *       reaches that threshold.</li>
      * </ul>
      *
-     * <p>The {@code !isPruned} check subsumes BOTH legacy gates ({@code getPartitionColumns().isEmpty()}
-     * and the reference check {@code != NOT_PRUNED}): a non-partitioned external table always carries
-     * {@code NOT_PRUNED} (which has {@code isPruned=false}), so collapsing them is not a dropped gate —
-     * it is in fact marginally stronger than legacy's reference identity check.</p>
+     * <p>The gate is {@code == NOT_PRUNED}, deliberately <b>not</b> {@code !isPruned} — mirroring legacy
+     * {@code MaxComputeScanNode.isBatchMode}'s {@code != NOT_PRUNED} and the sibling
+     * {@link #displayPartitionCounts}. The two are <b>not</b> equivalent: a partitioned table with no
+     * partition predicate is initialized by {@link ExternalTable#initSelectedPartitions} to a full,
+     * non-{@code NOT_PRUNED} map with {@code isPruned=false} ({@code PruneFileScanPartition} only runs
+     * under a {@code LogicalFilter}). Legacy batches that case — a large full scan is exactly what most
+     * needs async/streaming split generation — whereas an {@code !isPruned} gate wrongly forces it
+     * synchronous (the split-materialization regression this restores). The {@code == NOT_PRUNED} sentinel
+     * check still folds in the non-partitioned gate ({@code getPartitionColumns().isEmpty()}), which
+     * always carries the {@code NOT_PRUNED} singleton, so no gate is dropped.</p>
      */
     static boolean shouldUseBatchMode(SelectedPartitions selectedPartitions, boolean hasSlots,
             boolean supportsBatchScan, int numPartitionsInBatchMode) {
-        if (selectedPartitions == null || !selectedPartitions.isPruned) {
+        if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
             return false;
         }
         if (!hasSlots) {
@@ -1171,7 +1531,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
-        final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
         final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
@@ -1257,7 +1617,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
-        final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         CompletableFuture.runAsync(() -> {
             ConnectorSplitSource source = null;
@@ -1310,7 +1670,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     protected Optional<String> getSerializedTable() {
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider != null) {
             Map<String, String> props = getOrLoadScanNodeProperties();
             String serialized = onPluginClassLoader(scanProvider, () -> scanProvider.getSerializedTable(props));
@@ -1325,7 +1685,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
         // Delegate scan-level Thrift params to the connector SPI
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider != null) {
             Map<String, String> props = getOrLoadScanNodeProperties();
             onPluginClassLoader(scanProvider, () -> {
@@ -1407,7 +1767,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     private ScanNodePropertiesResult getOrLoadPropertiesResult() {
         if (cachedPropertiesResult == null) {
-            ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+            ConnectorScanPlanProvider scanProvider = resolveScanProvider();
             if (scanProvider != null) {
                 List<ConnectorColumnHandle> columns = buildColumnHandles();
                 Optional<ConnectorExpression> filter = buildRemainingFilter();
@@ -1464,6 +1824,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             case "orc":
                 return TFileFormatType.FORMAT_ORC;
             case "text":
+                // Hive text serde family (LazySimpleSerDe / MultiDelimitSerDe): the BE text reader honors hive
+                // collection/map delimiters, \N nulls and hive escaping — distinct from the flat CSV reader.
+                return TFileFormatType.FORMAT_TEXT;
             case "csv":
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             case "json":

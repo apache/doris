@@ -157,6 +157,45 @@ public class MetaCacheEntry<K, V> {
         data.put(key, value);
     }
 
+    /**
+     * The current invalidation generation. Capture this BEFORE a slow external load, then hand it to
+     * {@link #putIfNotInvalidatedSince} so a {@code flush}/{@code invalidate*} that raced the load does not
+     * get its clear silently undone by a stale write-back. Mirrors the guard the manual-miss-load path
+     * ({@link #getWithManualLoad}) applies around its own put; exposed so a caller that does its OWN bulk
+     * external read (e.g. a decorator batching a multi-key RPC and putting each result under its own key)
+     * can reuse the same generation guard instead of an unguarded {@link #put}.
+     */
+    public long invalidationGeneration() {
+        return invalidateGeneration.get();
+    }
+
+    /**
+     * Generation-guarded put: caches {@code (key, value)} only if no invalidation has happened since
+     * {@code generation} was captured (before the caller's external load). If a {@code flush}/{@code
+     * invalidate*} raced the load — bumping the generation either before the put (skip) or between the put
+     * and the recheck (drop only the value we wrote, via {@link #removeLoadedValue}) — the stale value is
+     * NOT left cached, exactly as {@link #getWithManualLoad} does for its single-key load. Additive: the
+     * existing {@link #put} is unchanged; a disabled entry is a no-op.
+     */
+    public void putIfNotInvalidatedSince(long generation, K key, V value) {
+        if (!effectiveEnabled) {
+            return;
+        }
+        synchronized (loadLock(key)) {
+            // A racing flush already bumped the generation before we could put: skip so a stale pre-flush
+            // value is not re-cached (mirrors getWithManualLoad's pre-put guard).
+            if (generation != invalidateGeneration.get()) {
+                return;
+            }
+            data.put(key, value);
+            // A flush landing between the check and the put: drop only the value we just wrote, keeping any
+            // newer replacement intact (mirrors getWithManualLoad's post-put guard).
+            if (generation != invalidateGeneration.get()) {
+                removeLoadedValue(key, value);
+            }
+        }
+    }
+
     public void invalidateKey(K key) {
         invalidateGeneration.incrementAndGet();
         if (data.asMap().remove(key) != null) {

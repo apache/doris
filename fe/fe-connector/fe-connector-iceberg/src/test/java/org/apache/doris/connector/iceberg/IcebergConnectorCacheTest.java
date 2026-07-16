@@ -124,6 +124,7 @@ public class IcebergConnectorCacheTest {
         IcebergConnector connector =
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db1", "t1"));
+        Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db1"));
         Assertions.assertDoesNotThrow(connector::invalidateAll);
     }
 

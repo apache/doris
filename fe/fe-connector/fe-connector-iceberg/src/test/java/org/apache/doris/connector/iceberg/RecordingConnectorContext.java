@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
@@ -35,8 +36,8 @@ import java.util.concurrent.Callable;
  *
  * <p>{@link IcebergConnectorMetadata} takes a context (ctor {@code (IcebergCatalogOps, Map,
  * ConnectorContext)}) and wraps every remote read in {@link #executeAuthenticated}; the read tests use
- * this double to assert one wrap per op via {@link #authCount}, and that {@link #getStorageProperties} /
- * {@link #loadHiveConfResources} are threaded through. When {@link #failAuth} is set,
+ * this double to assert one wrap per op via {@link #authCount}, and that {@link #getStorageProperties}
+ * is threaded through. When {@link #failAuth} is set,
  * {@link #executeAuthenticated} throws WITHOUT invoking the task, which proves the seam call sits INSIDE
  * the authenticator.
  */
@@ -44,13 +45,6 @@ final class RecordingConnectorContext implements ConnectorContext {
 
     int authCount;
     boolean failAuth;
-
-    /** Map the fake returns from {@link #loadHiveConfResources} (the "resolved" hive-site.xml keys). */
-    Map<String, String> hiveConfResources = Collections.emptyMap();
-    /** Whether the connector invoked {@link #loadHiveConfResources}. */
-    boolean hiveConfResourcesCalled;
-    /** The {@code resources} string the connector passed to {@link #loadHiveConfResources}. */
-    String lastHiveConfResourcesArg;
 
     /** Storage properties the fake returns from {@link #getStorageProperties()} — the typed fe-filesystem
      * seam both the scan and (design S3) the write path derive their BE-canonical static creds from via
@@ -139,11 +133,16 @@ final class RecordingConnectorContext implements ConnectorContext {
                 ? Collections.emptyMap() : vendedBeProps;
     }
 
+    /** The type the wrapper forwarded to {@link #createSiblingConnector} (proves the decorator delegates it). */
+    String lastSiblingType;
+    /** The properties the wrapper forwarded to {@link #createSiblingConnector}. */
+    Map<String, String> lastSiblingProps;
+
     @Override
-    public Map<String, String> loadHiveConfResources(String resources) {
-        hiveConfResourcesCalled = true;
-        lastHiveConfResourcesArg = resources;
-        return hiveConfResources;
+    public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+        lastSiblingType = catalogType;
+        lastSiblingProps = properties;
+        return null;
     }
 
     @Override

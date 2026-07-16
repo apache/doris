@@ -18,10 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -123,14 +121,11 @@ public class RowLevelDmlRowIdUtils {
     }
 
     private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
-        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
-        Connector connector = catalog.getConnector();
-        if (connector == null) {
-            // A catalog dropped mid-DML-planning nulls its transient connector; degrade to "not a target"
-            // rather than NPE-aborting the query, mirroring PluginDrivenExternalTable.fetchSyntheticWriteColumns.
-            return false;
-        }
-        Set<WriteOperation> ops = connector.supportedWriteOperations();
+        // Resolved per-handle through the table's write-op probe (a heterogeneous gateway admits row-level DML
+        // for its iceberg tables but not its hive tables). It degrades to the empty set on a dropped connector /
+        // unresolvable handle (mirroring fetchSyntheticWriteColumns), so a mid-DML catalog drop is "not a target"
+        // rather than an NPE.
+        Set<WriteOperation> ops = table.connectorSupportedWriteOperations();
         return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE);
     }
 

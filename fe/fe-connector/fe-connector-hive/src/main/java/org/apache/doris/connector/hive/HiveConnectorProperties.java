@@ -17,7 +17,11 @@
 
 package org.apache.doris.connector.hive;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Property constants for Hive connector configuration.
@@ -49,8 +53,67 @@ public final class HiveConnectorProperties {
     public static final String FLINK_CONNECTOR = "connector";
 
     // -- type mapping options --
-    public static final String ENABLE_MAPPING_BINARY_AS_STRING = "enable_mapping_binary_as_string";
-    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable_mapping_timestamp_tz";
+    // Catalog-level property keys (dot form), matching CatalogProperty and the iceberg/paimon connectors.
+    // ExternalCatalog forwards these two keys to the connector; the earlier underscore spellings were never
+    // populated, so the toggles silently no-op'd (hive BINARY always STRING, timestamp never TIMESTAMPTZ).
+    public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
+    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
+
+    // -- CREATE TABLE / DATABASE property keys (legacy HiveMetadataOps) --
+    public static final String CREATE_FILE_FORMAT = "file_format";
+    public static final String CREATE_LOCATION = "location";
+    public static final String CREATE_OWNER = "owner";
+    public static final String CREATE_COMMENT = "comment";
+    public static final String CREATE_TRANSACTIONAL = "transactional";
+    /**
+     * Property keys that legacy {@code HiveMetadataOps} stamps into the metastore table parameters under a
+     * {@code doris.} prefix (so they round-trip). Mirrors legacy {@code HiveMetadataOps.DORIS_HIVE_KEYS}.
+     */
+    public static final Set<String> DORIS_HIVE_KEYS = Collections.unmodifiableSet(
+            new HashSet<>(Arrays.asList(CREATE_FILE_FORMAT, CREATE_LOCATION)));
+    public static final String DORIS_PROP_PREFIX = "doris.";
+
+    // -- environment keys threaded from fe-core DefaultConnectorContext (must stay byte-identical there) --
+    public static final String ENV_HIVE_DEFAULT_FILE_FORMAT = "hive_default_file_format";
+    public static final String ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE = "enable_create_hive_bucket_table";
+    public static final String ENV_DORIS_VERSION = "doris_version";
+    /** Fallback default file format, matching legacy {@code Config.hive_default_file_format} default. */
+    public static final String DEFAULT_FILE_FORMAT = "orc";
+
+    // -- session variable read for a text table's compression default (legacy hive_text_compression) --
+    public static final String SESSION_HIVE_TEXT_COMPRESSION = "hive_text_compression";
+    public static final String TEXT_COMPRESSION_UNCOMPRESSED = "uncompressed";
+    public static final String TEXT_COMPRESSION_PLAIN = "plain";
+
+    // Session variable gating the OpenX-JSON "read the whole JSON row into one CSV column" mode (legacy
+    // SessionVariable.read_hive_json_in_one_column). Byte-identical to the fe-core session-var name; it is
+    // surfaced through ConnectorSession.getSessionProperties() (VariableMgr dumps all visible vars).
+    public static final String SESSION_READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
+
+    /**
+     * Bucket algorithm string produced by {@code CreateTableInfoToConnectorRequestConverter} for a
+     * random (non-hash) distribution. Hive external tables only support hash bucketing.
+     */
+    public static final String BUCKET_ALGO_RANDOM = "doris_random";
+
+    // ===== Metastore incremental event sync (per-catalog opt-in) =====
+
+    /** Whether this catalog polls HMS notification events for incremental metadata refresh. */
+    public static final String ENABLE_HMS_EVENTS_INCREMENTAL_SYNC =
+            "hive.enable_hms_events_incremental_sync";
+
+    /** Max notification events fetched per RPC when incremental event sync is enabled. */
+    public static final String HMS_EVENTS_BATCH_SIZE_PER_RPC = "hive.hms_events_batch_size_per_rpc";
+
+    /** Default batch size, matching the engine's legacy {@code hms_events_batch_size_per_rpc} default. */
+    public static final int DEFAULT_HMS_EVENTS_BATCH_SIZE = 500;
+
+    /**
+     * When {@code false}, a partition whose storage location does not exist fails the query loud
+     * ({@code "Partition location does not exist"}); the default {@code true} tolerates it by skipping
+     * the partition with a warning. Mirrors legacy {@code HiveExternalMetaCache} semantics.
+     */
+    public static final String IGNORE_ABSENT_PARTITIONS = "hive.ignore_absent_partitions";
 
     /**
      * Parse an integer property with a default value.
@@ -65,5 +128,16 @@ public final class HiveConnectorProperties {
         } catch (NumberFormatException e) {
             return defaultVal;
         }
+    }
+
+    /**
+     * Parse a boolean property with a default value.
+     */
+    public static boolean getBoolean(Map<String, String> props, String key, boolean defaultVal) {
+        String value = props.get(key);
+        if (value == null || value.isEmpty()) {
+            return defaultVal;
+        }
+        return Boolean.parseBoolean(value.trim());
     }
 }

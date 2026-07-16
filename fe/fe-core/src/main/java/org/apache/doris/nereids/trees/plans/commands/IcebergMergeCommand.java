@@ -22,7 +22,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -173,7 +172,7 @@ public class IcebergMergeCommand {
         projection.add(new TinyIntLiteral(MergeOperation.DELETE_OPERATION_NUMBER));
         projection.add(rowIdExpr);
         for (Column column : columns) {
-            if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
+            if (!column.isVisible() && !column.isReservedPassthrough()) {
                 continue;
             }
             List<String> nameParts = Lists.newArrayList(targetNameInPlan);
@@ -198,7 +197,7 @@ public class IcebergMergeCommand {
         projection.add(new TinyIntLiteral(MergeOperation.UPDATE_OPERATION_NUMBER));
         projection.add(rowIdExpr);
         for (Column column : columns) {
-            if (IcebergUtils.isIcebergRowLineageColumn(column)) {
+            if (column.isReservedPassthrough()) {
                 List<String> nameParts = Lists.newArrayList(targetNameInPlan);
                 nameParts.add(column.getName());
                 projection.add(new UnboundSlot(nameParts));
@@ -257,7 +256,7 @@ public class IcebergMergeCommand {
 
         int visibleIndex = 0;
         for (Column column : columns) {
-            if (IcebergUtils.isIcebergRowLineageColumn(column)) {
+            if (column.isReservedPassthrough()) {
                 projection.add(new NullLiteral(DataType.fromCatalogType(column.getType())));
                 continue;
             }
@@ -333,14 +332,17 @@ public class IcebergMergeCommand {
                 rowIdExpr = rowIdSlot.get();
             }
         }
-        boolean hasRowLineageColumns = columns.stream().anyMatch(IcebergUtils::isIcebergRowLineageColumn);
         List<NamedExpression> outputProjections = new ArrayList<>();
         outputProjections.add(new UnboundStar(ImmutableList.of()));
         if (!Util.showHiddenColumns()) {
             outputProjections.add((NamedExpression) rowIdExpr);
-            if (hasRowLineageColumns) {
-                outputProjections.add(getTargetRowLineageSlot(IcebergUtils.ICEBERG_ROW_ID_COL));
-                outputProjections.add(getTargetRowLineageSlot(IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL));
+            // Pass through the connector-reserved row-lineage columns in schema order (the connector appends
+            // _row_id before _last_updated_sequence_number), read via the neutral reservedPassthrough marker
+            // instead of matching iceberg column names.
+            for (Column column : columns) {
+                if (column.isReservedPassthrough()) {
+                    outputProjections.add(getTargetRowLineageSlot(column.getName()));
+                }
             }
         }
         outputProjections.add(generateBranchLabel(rowIdExpr));
@@ -366,7 +368,7 @@ public class IcebergMergeCommand {
         colNames.add(MergeOperation.OPERATION_COLUMN);
         colNames.add(Column.ICEBERG_ROWID_COL);
         for (Column column : columns) {
-            if (column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column)) {
+            if (column.isVisible() || column.isReservedPassthrough()) {
                 colNames.add(column.getName());
             }
         }

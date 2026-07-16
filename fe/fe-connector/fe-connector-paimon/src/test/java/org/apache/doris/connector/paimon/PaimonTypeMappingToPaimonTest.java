@@ -154,6 +154,49 @@ public class PaimonTypeMappingToPaimonTest {
     }
 
     @Test
+    public void nestedNullabilityPreservedForArrayElement() {
+        // WHY (FIX-L13): a declared NOT NULL element (ARRAY<INT NOT NULL>) must map to a non-null paimon
+        // element type (legacy DorisToPaimonTypeVisitor array = elementResult.copy(array.getContainsNull())).
+        // MUTATION: dropping the .copy(isChildNullable(0)) on the ARRAY element leaves it nullable -> red.
+        DataType actual = PaimonTypeMapping.toPaimonType(
+                ConnectorType.arrayOf(ConnectorType.of("INT"), /*elementNullable*/ false));
+        Assertions.assertFalse(((ArrayType) actual).getElementType().isNullable(),
+                "a NOT NULL array element must map to a non-null paimon element type");
+    }
+
+    @Test
+    public void nestedNullabilityPreservedForMapValue() {
+        // WHY (FIX-L13): a declared NOT NULL map value (MAP<STRING, INT NOT NULL>) must map to a non-null
+        // paimon value type (legacy map value = valueResult.copy(map.getIsValueContainsNull())), while the
+        // key stays non-null. MUTATION: dropping the .copy(isChildNullable(1)) on the MAP value -> red.
+        DataType actual = PaimonTypeMapping.toPaimonType(ConnectorType.mapOf(
+                ConnectorType.of("STRING"), ConnectorType.of("INT"), /*valueNullable*/ false));
+        Assertions.assertFalse(((MapType) actual).getValueType().isNullable(),
+                "a NOT NULL map value must map to a non-null paimon value type");
+        Assertions.assertFalse(((MapType) actual).getKeyType().isNullable(),
+                "the map key stays non-null regardless (legacy .copy(false))");
+    }
+
+    @Test
+    public void nestedNullabilityPreservedForStructField() {
+        // WHY (FIX-L13): declared per-field nullability (STRUCT<x:INT NOT NULL, y:STRING>) must survive to
+        // the paimon DataField types (legacy struct = fieldResults.get(i).copy(field.getContainsNull())).
+        // Asserted via field.type().isNullable() — NOT DataField equality: the field comment stays dropped
+        // (DV-035 M10.1), so a DataField carrying a description would false-differ for an unrelated reason.
+        // MUTATION: dropping the .copy(isChildNullable(i)) on the struct DataField -> field 0 stays nullable.
+        ConnectorType struct = ConnectorType.structOf(
+                Arrays.asList("x", "y"),
+                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")),
+                Arrays.asList(false, true),
+                Collections.emptyList());
+        RowType row = (RowType) PaimonTypeMapping.toPaimonType(struct);
+        Assertions.assertFalse(row.getFields().get(0).type().isNullable(),
+                "a NOT NULL struct field must map to a non-null paimon field type");
+        Assertions.assertTrue(row.getFields().get(1).type().isNullable(),
+                "a nullable struct field stays nullable");
+    }
+
+    @Test
     public void unsupportedScalarTypesThrow() {
         // WHY: the legacy visitor had no branch for these and threw; the connector preserves that
         // gap by throwing DorisConnectorException rather than inventing a mapping. MUTATION: adding

@@ -212,6 +212,37 @@ public class MetaCacheEntryTest {
         }
     }
 
+    @Test
+    public void putIfNotInvalidatedSinceHonorsGenerationGuard() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            // Contextual + manual-miss entry, mirroring the hive partition-object cache that uses the guarded put.
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test", null, cacheSpec, refreshExecutor, false, true, 0L, true);
+
+            // No invalidation since the captured generation -> the guarded put caches normally.
+            long g1 = entry.invalidationGeneration();
+            entry.putIfNotInvalidatedSince(g1, "a", 1);
+            Assertions.assertEquals(Integer.valueOf(1), entry.getIfPresent("a"));
+
+            // An invalidation between the capture and the put (the flush-races-an-in-flight-load case) must make
+            // the put a no-op, so a stale pre-invalidation value is NOT re-cached to the TTL.
+            long g2 = entry.invalidationGeneration();
+            entry.invalidateAll(); // bumps the generation, as a racing flush / REFRESH would
+            entry.putIfNotInvalidatedSince(g2, "b", 2);
+            // MUTATION: an unguarded put (the pre-R3 raw put) leaves "b" cached here -> getIfPresent == 2 -> red.
+            Assertions.assertNull(entry.getIfPresent("b"), "a stale-generation put must not re-cache the value");
+
+            // A generation captured AFTER the invalidation puts normally again (the guard is not a one-shot latch).
+            long g3 = entry.invalidationGeneration();
+            entry.putIfNotInvalidatedSince(g3, "c", 3);
+            Assertions.assertEquals(Integer.valueOf(3), entry.getIfPresent("c"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static LoadingCache<Object, Object> extractLoadingCache(MetaCacheEntry<?, ?> entry) throws Exception {
         Field field = MetaCacheEntry.class.getDeclaredField("loadingData");

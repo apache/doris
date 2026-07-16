@@ -58,7 +58,8 @@ public class MaxComputeBuildTableDescriptorTest {
         properties.put("mc.secret_key", "test-sk");
 
         MaxComputeConnectorMetadata metadata = new MaxComputeConnectorMetadata(
-                null, null, "default_project", endpoint, quota, properties);
+                null, null, "default_project", endpoint, quota, properties,
+                null); // null: partition cache unused by this test
 
         // dbName / remoteName are already remote names at the real call site (OQ-7).
         long tableId = 42L;

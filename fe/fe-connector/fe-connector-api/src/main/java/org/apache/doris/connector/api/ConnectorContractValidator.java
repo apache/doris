@@ -52,5 +52,20 @@ public final class ConnectorContractValidator {
                     + "' declares requiresPartitionLocalSort without requiresParallelWrite"
                     + " AND requiresFullSchemaWriteOrder");
         }
+        // #4 partition-hash-write (hash without sort) likewise implies parallel write AND full-schema write
+        // order (the sink indexes partition columns by full-schema position and distributes in parallel).
+        if (connector.requiresPartitionHashWrite()
+                && !(connector.requiresParallelWrite() && connector.requiresFullSchemaWriteOrder())) {
+            throw new IllegalStateException("Connector '" + catalogType
+                    + "' declares requiresPartitionHashWrite without requiresParallelWrite"
+                    + " AND requiresFullSchemaWriteOrder");
+        }
+        // #5 the two hash arms are mutually exclusive: the engine checks local-sort first, so declaring both
+        // would silently ignore the hash-without-sort request. Fail loud instead.
+        if (connector.requiresPartitionLocalSort() && connector.requiresPartitionHashWrite()) {
+            throw new IllegalStateException("Connector '" + catalogType
+                    + "' declares both requiresPartitionLocalSort and requiresPartitionHashWrite;"
+                    + " a connector must pick at most one partition-distribution arm");
+        }
     }
 }

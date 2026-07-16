@@ -162,22 +162,16 @@ public class PaimonCatalogFactoryTest {
     }
 
     @Test
-    public void dlfSetsHiveMetastoreClientClassAndPoolKeys() {
-        Options opts = PaimonCatalogFactory.buildCatalogOptions(props(
-                "paimon.catalog.type", "dlf",
-                "warehouse", "/wh",
-                "dlf.access_key", "ak",
-                "dlf.secret_key", "sk",
-                "dlf.endpoint", "dlf.cn.aliyuncs.com"));
-
-        // WHY: dlf is adapted onto paimon's "hive" metastore via the Aliyun ProxyMetaStoreClient;
-        // the legacy DLF flavor always emits that client class plus the conf:dlf.catalog.id pool
-        // key. These two are what make a HiveCatalog talk to DLF. MUTATION: metastore!="hive",
-        // wrong client class, or missing pool key -> red.
-        Assertions.assertEquals("hive", opts.get("metastore"));
-        Assertions.assertEquals("com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient",
-                opts.get("metastore.client.class"));
-        Assertions.assertEquals("conf:dlf.catalog.id", opts.get("client-pool-cache.keys"));
+    public void removedDlfCatalogTypeNoLongerBuildsOptions() {
+        // WHY: paimon.catalog.type=dlf was removed with the vendored thrift ProxyMetaStoreClient it adapted
+        // onto paimon's "hive" metastore. buildCatalogOptions must now reject it like any unknown type rather
+        // than emit a metastore.client.class naming a class that no longer ships. MUTATION: re-adding the dlf
+        // arm -> red.
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonCatalogFactory.buildCatalogOptions(props(
+                        "paimon.catalog.type", "dlf",
+                        "warehouse", "/wh")));
+        Assertions.assertTrue(ex.getMessage().contains("dlf"), ex.getMessage());
     }
 
     @Test
@@ -371,20 +365,17 @@ public class PaimonCatalogFactoryTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void assembleHiveConfSeedsBaseThenOverridesWin() {
-        // WHY (F2): an external hive-site.xml (hive.conf.resources, loaded FE-side) is the BASE; the
-        // connection/user overrides from the shared parser must be applied ON TOP so they win, while
-        // base-only keys survive. MUTATION: applying overrides FIRST (base clobbers them) -> red.
-        Map<String, String> base = new HashMap<>();
-        base.put("hive.metastore.sasl.qop", "auth-conf"); // base-only key, must survive
-        base.put("hive.metastore.uris", "thrift://from-file:9083"); // overridden below
+    public void assembleHiveConfAppliesOverrides() {
+        // WHY (F2): the connection/user overrides from the shared parser must land on the HiveConf.
+        // The base-vs-overrides PRECEDENCE (external hive-site.xml is the base, overrides win) is covered
+        // by PaimonHmsConfResWiringTest, which drives it through a REAL hive.conf.resources file now that
+        // the connector resolves the file itself instead of being handed pre-flattened keys.
         Map<String, String> overrides = new HashMap<>();
-        overrides.put("hive.metastore.uris", "thrift://from-override:9083"); // wins over base
-        overrides.put("hadoop.username", "doris"); // override-only key
+        overrides.put("hive.metastore.uris", "thrift://from-override:9083");
+        overrides.put("hadoop.username", "doris");
 
-        HiveConf hc = PaimonCatalogFactory.assembleHiveConf(base, overrides);
+        HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, overrides);
 
-        Assertions.assertEquals("auth-conf", hc.get("hive.metastore.sasl.qop"));
         Assertions.assertEquals("thrift://from-override:9083", hc.get("hive.metastore.uris"));
         Assertions.assertEquals("doris", hc.get("hadoop.username"));
     }

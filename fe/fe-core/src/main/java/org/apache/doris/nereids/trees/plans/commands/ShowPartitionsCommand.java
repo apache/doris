@@ -46,7 +46,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -151,10 +150,6 @@ public class ShowPartitionsCommand extends ShowCommand {
             throw new AnalysisException("Only allow column in filter");
         }
         String leftKey = ((UnboundSlot) subExpr.child(0)).getName();
-        if (catalog instanceof HMSExternalCatalog && !leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME)) {
-            throw new AnalysisException(String.format("Only %s column supported in where clause for this catalog",
-                    FILTER_PARTITION_NAME));
-        }
 
         // FILTER_LAST_CONSISTENCY_CHECK_TIME != 'abc'
         if (subExpr instanceof ComparisonPredicate) {
@@ -199,8 +194,7 @@ public class ShowPartitionsCommand extends ShowCommand {
         }
 
         // disallow unsupported catalog
-        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof PluginDrivenExternalCatalog)) {
+        if (!(catalog.isInternalCatalog() || catalog instanceof PluginDrivenExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
                     catalog.getType()));
         }
@@ -219,9 +213,6 @@ public class ShowPartitionsCommand extends ShowCommand {
                 }
                 UnboundSlot slot = (UnboundSlot) orderKey.getExpr();
                 String colName = slot.getName();
-                if (catalog instanceof HMSExternalCatalog && !colName.equalsIgnoreCase(FILTER_PARTITION_NAME)) {
-                    throw new AnalysisException("External table only support Order By on PartitionName");
-                }
 
                 // analyze column
                 int index = -1;
@@ -358,52 +349,6 @@ public class ShowPartitionsCommand extends ShowCommand {
                 && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_PARTITION_STATS);
     }
 
-    private ShowResultSet handleShowHMSTablePartitions() throws AnalysisException {
-        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-        List<List<String>> rows = new ArrayList<>();
-        String dbName = tableName.getDb();
-        List<String> partitionNames;
-
-        // catalog.getClient().listPartitionNames() returned string is the encoded string.
-        // example: insert into tmp partition(pt="1=3/3") values( xxx );
-        //          show partitions from tmp: pt=1%3D3%2F3
-        // Need to consider whether to call `HiveUtil.toPartitionColNameAndValues` method
-        ExternalTable dorisTable = hmsCatalog.getDbOrAnalysisException(dbName)
-                .getTableOrAnalysisException(tableName.getTbl());
-
-        if (limit >= 0 && offset == 0 && (orderByPairs == null || !orderByPairs.get(0).isDesc())) {
-            partitionNames = hmsCatalog.getClient()
-                    .listPartitionNames(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(), limit);
-        } else {
-            partitionNames = hmsCatalog.getClient()
-                    .listPartitionNames(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
-        }
-
-        /* Filter add rows */
-        for (String partition : partitionNames) {
-            List<String> list = new ArrayList<>();
-
-            if (filterMap != null && !filterMap.isEmpty()) {
-                if (!PartitionsProcDir.filterExpression(FILTER_PARTITION_NAME, partition, filterMap)) {
-                    continue;
-                }
-            }
-            list.add(partition);
-            rows.add(list);
-        }
-
-        // sort by partition name
-        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
-            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
-        } else {
-            rows.sort(Comparator.comparing(x -> x.get(0)));
-        }
-
-        rows = applyLimit(limit, offset, rows);
-
-        return new ShowResultSet(getMetaData(), rows);
-    }
-
     protected ShowResultSet handleShowPartitions(ConnectContext ctx, StmtExecutor executor) throws UserException {
         // validate the where clause
         validate(ctx);
@@ -421,10 +366,9 @@ public class ShowPartitionsCommand extends ShowCommand {
             List<List<String>> rows = ((PartitionsProcDir) node).fetchResultByExpressionFilter(filterMap,
                     orderByPairs, limitElement).getRows();
             return new ShowResultSet(getMetaData(), rows);
-        } else if (catalog instanceof PluginDrivenExternalCatalog) {
-            return handleShowPluginDrivenTablePartitions();
         } else {
-            return handleShowHMSTablePartitions();
+            // After the disallow gate, a non-internal catalog is a PluginDrivenExternalCatalog.
+            return handleShowPluginDrivenTablePartitions();
         }
     }
 

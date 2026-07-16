@@ -82,6 +82,16 @@ final class PaimonLatestSnapshotCache {
         entry.invalidateKey(identifier);
     }
 
+    /**
+     * Drops every cached entry for one database so the next read of any of its tables goes live
+     * (REFRESH DATABASE / a Doris-issued DROP DATABASE). Entries are keyed by
+     * {@code Identifier.create(db, table)} (see {@code PaimonConnectorMetadata.beginQuerySnapshot}), so a
+     * db match is {@code getDatabaseName()} equality.
+     */
+    void invalidateDb(String dbName) {
+        entry.invalidateIf(id -> id.getDatabaseName().equals(dbName));
+    }
+
     /** Drops all cached entries. */
     void invalidateAll() {
         entry.invalidateAll();

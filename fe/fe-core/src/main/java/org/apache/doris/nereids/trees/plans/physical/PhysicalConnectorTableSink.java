@@ -218,6 +218,34 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
             }
         }
 
+        if (table.requirePartitionHashOnWrite()) {
+            Set<String> partitionNames = table.getPartitionColumns().stream()
+                    .map(Column::getName)
+                    .collect(Collectors.toSet());
+            if (!partitionNames.isEmpty()) {
+                // Hash-distribute by partition columns with NO local sort (byte-exact to legacy
+                // PhysicalHiveTableSink.getRequirePhysicalProperties): same partition value -> same writer
+                // instance keeps the output file count at ~one-per-partition, and the hive file writer buffers a
+                // per-partition writer so — unlike the MaxCompute arm above — no MustLocalSortOrderSpec is added.
+                // Index by full-schema position, which is aligned 1:1 with child output because a connector
+                // declaring requiresPartitionHashWrite also declares requiresFullSchemaWriteOrder.
+                List<Integer> columnIdx = new ArrayList<>();
+                List<Column> fullSchema = targetTable.getFullSchema();
+                for (int i = 0; i < fullSchema.size(); i++) {
+                    if (partitionNames.contains(fullSchema.get(i).getName())) {
+                        columnIdx.add(i);
+                    }
+                }
+                List<ExprId> exprIds = columnIdx.stream()
+                        .map(idx -> child().getOutput().get(idx).getExprId())
+                        .collect(Collectors.toList());
+                DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
+                        = new DistributionSpecHiveTableSinkHashPartitioned();
+                shuffleInfo.setOutputColExprIds(exprIds);
+                return new PhysicalProperties(shuffleInfo);
+            }
+        }
+
         if (table.supportsParallelWrite()) {
             return PhysicalProperties.SINK_RANDOM_PARTITIONED;
         }

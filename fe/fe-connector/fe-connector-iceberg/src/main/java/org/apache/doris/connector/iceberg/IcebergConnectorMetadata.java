@@ -120,10 +120,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_* and to the COUNT(*)
     // pushdown copies in IcebergScanPlanProvider (themselves deliberately NOT org.apache.iceberg
     // .SnapshotSummary.* per that file's note). Duplicated rather than shared so this fix does not touch
-    // the unrelated scan provider. WHY two keys only: legacy getIcebergRowCount nets out position deletes
-    // but (unlike the COUNT pushdown) does NOT gate on equality deletes — see computeRowCount.
+    // the unrelated scan provider. All THREE keys are read: legacy getIcebergRowCount (via
+    // getCountFromSummary, upstream 32a2651f66b / #64648) nets out position deletes AND gates the count to
+    // UNKNOWN on any equality delete — see computeRowCount.
     private static final String TOTAL_RECORDS = "total-records";
     private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
+    private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
 
     // Doris-level table property carrying a user comment. Local literal copy of the fe-core constant
     // IcebergExternalTable.TABLE_COMMENT_PROP ("comment") — the connector cannot import fe-core. Read by
@@ -377,6 +379,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             schema = table.schemas().get((int) snapshot.getSchemaId());
             if (schema == null) {
                 // Defensive: a pinned id absent from table.schemas() (legacy would NPE) -> latest.
+                // INVARIANT: this SLOT-schema fallback MUST stay identical to the DICT-schema fallback in
+                // IcebergScanPlanProvider.pinnedSchema (same getSchemaId() lookup + same silent -> table.schema()).
+                // If the two diverge, the field-id dict names and the BE scan-slot names resolve DIFFERENT
+                // schemas -> BE children.at() std::out_of_range-SIGABRT on a schema-evolved time-travel read
+                // (reverify #65185 L16). Do not harden ONE side to throw without the other.
                 schema = table.schema();
             }
         }
@@ -400,10 +407,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // (system) tables report format-version 2 (BaseMetadataTable.properties() is empty), so the gate
         // naturally excludes them — matching legacy, which injects lineage only for data tables.
         if (getFormatVersion(table) >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            // reservedPassthrough() marks these as engine-recognized passthrough columns so fe-core MERGE/UPDATE
+            // and sink binding pass them through generically (via Column.isReservedPassthrough()) instead of
+            // string-matching the iceberg names — the engine no longer knows _row_id / _last_updated_sequence_number.
             columns.add(new ConnectorColumn(ICEBERG_ROW_ID_COL, ConnectorType.of("BIGINT"),
-                    "", true, null, false).invisible().withUniqueId(ICEBERG_ROW_ID_FIELD_ID));
+                    "", true, null, false).invisible().withUniqueId(ICEBERG_ROW_ID_FIELD_ID).reservedPassthrough());
             columns.add(new ConnectorColumn(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, ConnectorType.of("BIGINT"),
-                    "", true, null, false).invisible().withUniqueId(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID));
+                    "", true, null, false).invisible().withUniqueId(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID)
+                    .reservedPassthrough());
         }
 
         Map<String, String> tableProps = new HashMap<>();
@@ -441,7 +452,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 }
             }
             if (!partitionColumns.isEmpty()) {
-                tableProps.put("partition_columns", String.join(",", partitionColumns));
+                tableProps.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY, String.join(",", partitionColumns));
             }
         }
 
@@ -588,8 +599,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * (without this override the connector inherits {@code ConnectorStatisticsOps}'s {@code Optional.empty()},
      * so every iceberg table reports rowCount -1 -> CBO collapses cardinality to 1 and disables join reorder).
      * Mirrors {@code PaimonConnectorMetadata.getTableStatistics} in STRUCTURE, but uses the legacy iceberg
-     * FORMULA ({@code IcebergUtils.getIcebergRowCount}: currentSnapshot summary {@code total-records -
-     * total-position-deletes}). Parity decisions:
+     * FORMULA ({@code IcebergUtils.getIcebergRowCount} -> {@code getCountFromSummary(summary, true)}:
+     * {@code total-records - total-position-deletes}, gated to UNKNOWN when equality deletes are present).
+     * Parity decisions:
      * <ul>
      *   <li>System tables -> empty: legacy {@code IcebergSysExternalTable.fetchRowCount} is unconditionally
      *       UNKNOWN; a sys handle would otherwise load the BASE table and misreport its data row count for a
@@ -622,11 +634,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Row count from the current snapshot summary: {@code total-records - total-position-deletes} (legacy
-     * {@code IcebergUtils.getIcebergRowCount}). NOT the COUNT(*)-pushdown formula in
-     * {@code IcebergScanPlanProvider.getCountFromSnapshot} — that one gates on equality deletes and honors the
-     * dangling-delete session var (scan cardinality), which would over-degrade table statistics. Empty table
-     * (no current snapshot) -> -1, which the caller maps to UNKNOWN.
+     * Row count from the current snapshot summary, a faithful port of legacy {@code IcebergUtils
+     * .getIcebergRowCount} (which calls {@code getCountFromSummary(summary, true)}, upstream 32a2651f66b /
+     * #64648): any equality delete ({@code total-equality-deletes} absent or {@code != "0"}) -> -1 (UNKNOWN),
+     * since equality deletes re-project at read time and the summary cannot net them out; otherwise
+     * {@code total-records - total-position-deletes}. Shares the equality-delete gate with the COUNT(*)
+     * pushdown {@code IcebergScanPlanProvider.getCountFromSummary}, differing only in dangling-delete handling
+     * (table statistics always net out position deletes; the pushdown honors the dangling-delete session var).
+     * Empty table (no current snapshot) -> -1, which the caller maps to UNKNOWN.
      */
     private static long computeRowCount(Table table) {
         Snapshot snapshot = table.currentSnapshot();
@@ -634,13 +649,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return -1;
         }
         Map<String, String> summary = snapshot.summary();
-        // Null-guard (upstream 32a2651f66b, #64648): compaction / replace / overwrite snapshots may omit a
-        // total-* counter, and the pre-fix Long.parseLong(null) NPE-d. -1 -> caller maps to UNKNOWN. NOTE:
-        // intentionally NOT the pushdown getCountFromSummary — this table-stats path deliberately omits the
-        // equality-delete gate (see the method javadoc), so only the NPE is fixed here, not the semantics.
+        // Equality-delete gate + null-guard, a faithful port of legacy IcebergUtils.getCountFromSummary(
+        // summary, true) (upstream 32a2651f66b, #64648): an absent total-* counter (compaction / replace /
+        // overwrite snapshots may omit one — the pre-fix Long.parseLong(null) NPE-d), or any equality delete
+        // (total-equality-deletes != "0"), makes the summary row count unsafe -> -1 (caller maps to UNKNOWN),
+        // because equality deletes re-project at read time and the summary cannot net them out. Same gate as
+        // the COUNT(*) pushdown IcebergScanPlanProvider.getCountFromSummary.
+        String equalityDeletes = summary.get(TOTAL_EQUALITY_DELETES);
         String totalRecords = summary.get(TOTAL_RECORDS);
         String positionDeletes = summary.get(TOTAL_POSITION_DELETES);
-        if (totalRecords == null || positionDeletes == null) {
+        if (equalityDeletes == null || totalRecords == null || positionDeletes == null) {
+            return -1;
+        }
+        if (!equalityDeletes.equals("0")) {
             return -1;
         }
         return Long.parseLong(totalRecords) - Long.parseLong(positionDeletes);
@@ -710,9 +731,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createDatabase(ConnectorSession session, String dbName, Map<String, String> properties) {
-        if (isDlfCatalog()) {
-            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'create database'");
-        }
         if (!properties.isEmpty() && !isHmsCatalog()) {
             throw new DorisConnectorException(
                     "Not supported: create database with properties for iceberg catalog type: " + catalogType());
@@ -740,9 +758,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void dropDatabase(ConnectorSession session, String dbName, boolean ifExists, boolean force) {
-        if (isDlfCatalog()) {
-            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'drop database'");
-        }
         Optional<String> namespaceLocation;
         try {
             namespaceLocation = context.executeAuthenticated(() -> {
@@ -797,9 +812,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
-        if (isDlfCatalog()) {
-            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'create table'");
-        }
+        rejectReservedRowLineageColumns(request);
         Schema schema = IcebergSchemaBuilder.buildSchema(request.getColumns());
         PartitionSpec partitionSpec = IcebergSchemaBuilder.buildPartitionSpec(request.getPartitionSpec(), schema);
         SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(request.getSortOrder(), schema);
@@ -821,6 +834,31 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Rejects a user-defined column whose name collides with an iceberg v3 reserved row-lineage column
+     * ({@code _row_id} / {@code _last_updated_sequence_number}) on a format-version &ge; 3 table. Moved off
+     * fe-core {@code CreateTableInfo.validateIcebergRowLineageColumns} — the connector owns the iceberg
+     * column-name convention. Uses the full effective-format-version precedence (catalog
+     * {@code table-override} &gt; table request &gt; catalog {@code table-default}). Behavior differs from the
+     * former fe-core analysis-time check: it runs during {@code createTable} (later, and NOT reached when an
+     * {@code IF NOT EXISTS} hits an existing table — accepted relaxation) and throws
+     * {@link DorisConnectorException} rather than an engine {@code AnalysisException}; the message is unchanged.
+     */
+    private void rejectReservedRowLineageColumns(ConnectorCreateTableRequest request) {
+        int formatVersion = IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties);
+        if (formatVersion < ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return;
+        }
+        for (ConnectorColumn column : request.getColumns()) {
+            String name = column.getName();
+            if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(name)
+                    || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(name)) {
+                throw new DorisConnectorException("Cannot create Iceberg v" + formatVersion
+                        + " table with reserved row lineage column: " + name);
+            }
+        }
+    }
+
+    /**
      * Drops an iceberg table, mirroring legacy {@code IcebergMetadataOps.performDropTable}: the table location
      * is captured BEFORE the drop (HMS only), the table is dropped with {@code purge=true} (iceberg deletes the
      * data + metadata files), then the empty directory shell is pruned. {@code PluginDrivenExternalCatalog}
@@ -832,9 +870,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void dropTable(ConnectorSession session, ConnectorTableHandle handle) {
-        if (isDlfCatalog()) {
-            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'drop table'");
-        }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Optional<String> tableLocation;
         try {
@@ -861,9 +896,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
-        if (isDlfCatalog()) {
-            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'rename table'");
-        }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             context.executeAuthenticated(() -> {
@@ -1208,17 +1240,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     /** Whether this is an HMS-backed iceberg catalog (case-insensitive, matching the read-path fork). */
     private boolean isHmsCatalog() {
         return IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(catalogType());
-    }
-
-    /**
-     * Whether this is a DLF-backed iceberg catalog (case-insensitive). DLF rejects every DDL write: legacy
-     * {@code IcebergDLFExternalCatalog} threw {@code NotSupportedException} for create/drop db + create/drop/
-     * truncate table. The connector mirrors that with a fail-loud guard so above all CREATE TABLE never reaches
-     * the live DLF metastore (the migrated {@code DLFCatalog} does not override createTable, so without this it
-     * would actually create the table — DLF write is unvalidated).
-     */
-    private boolean isDlfCatalog() {
-        return IcebergConnectorProperties.TYPE_DLF.equalsIgnoreCase(catalogType());
     }
 
     // ========== E7: System Tables (P6.5) ==========

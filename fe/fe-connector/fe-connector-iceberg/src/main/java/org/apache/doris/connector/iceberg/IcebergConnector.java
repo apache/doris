@@ -24,11 +24,10 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
-import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
-import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -38,6 +37,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
+import org.apache.doris.thrift.TStorageBackendType;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -91,7 +91,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Iceberg connector implementation. Manages the lifecycle of an Iceberg SDK
  * {@link Catalog} instance for all metadata operations.
  *
- * <p>Supports all Iceberg catalog backends: REST, HMS, Glue, DLF, JDBC,
+ * <p>Supports all Iceberg catalog backends: REST, HMS, Glue, JDBC,
  * Hadoop, and S3Tables. The backend is determined by the {@code iceberg.catalog.type}
  * property. The per-flavor catalog-property assembly lives in the pure
  * {@link IcebergCatalogFactory} (mirroring {@code PaimonCatalogFactory}); this class drives the
@@ -102,8 +102,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Phase 1 provides read-only metadata operations (list databases, list tables,
  * get schema). Write operations, scan planning, actions (compaction, snapshot
  * management), and transaction support remain in fe-core temporarily. {@code s3tables} uses its bespoke
- * 3-arg {@code S3TablesCatalog.initialize(name, opts, client)} path (P6-T06); {@code dlf} still falls through
- * to the generic {@code CatalogUtil} placeholder until its subtree port (P6-T07).</p>
+ * 3-arg {@code S3TablesCatalog.initialize(name, opts, client)} path (P6-T06).</p>
  */
 public class IcebergConnector implements Connector {
 
@@ -140,6 +139,9 @@ public class IcebergConnector implements Connector {
     // Polaris REST catalog exposes its object-store base location under this key when the
     // "warehouse" property is a catalog name rather than an s3:// location.
     private static final String REST_DEFAULT_BASE_LOCATION = "default-base-location";
+
+    /** The key BE looks up (case-sensitively) to learn which location to probe. */
+    private static final String BE_TEST_LOCATION = "test_location";
 
     private final Map<String, String> properties;
     private final ConnectorContext context;
@@ -210,11 +212,22 @@ public class IcebergConnector implements Connector {
     }
 
     /**
+     * True for a handle this connector produced (an {@link IcebergTableHandle}). Tested against this connector's
+     * OWN in-loader type, so a heterogeneous hms gateway that embeds this connector as a sibling can route a
+     * foreign iceberg handle here without casting it across the plugin classloader split. Returns false for any
+     * other connector's handle (e.g. a hudi sibling's), so the gateway keeps looking.
+     */
+    @Override
+    public boolean ownsHandle(ConnectorTableHandle handle) {
+        return handle instanceof IcebergTableHandle;
+    }
+
+    /**
      * Eagerly validates connectivity during CREATE CATALOG (when {@code test_connection=true}).
      * Runs two probes so bad configurations fail fast instead of at first query:
      * <ul>
-     *   <li><b>Metastore</b> (REST only): lists namespaces, forcing a real REST round-trip that
-     *       validates the URI, auth (OAuth2/SigV4) and warehouse config.</li>
+     *   <li><b>Metastore</b> (any {@code iceberg.catalog.type}): lists namespaces, forcing a real
+     *       round-trip that validates the URI, auth (OAuth2/SigV4, Kerberos) and warehouse config.</li>
      *   <li><b>Storage</b>: HEADs the warehouse location with the user-declared S3 credentials,
      *       mirroring fe-core's S3ConnectivityTester so wrong keys are rejected up front.</li>
      * </ul>
@@ -224,12 +237,15 @@ public class IcebergConnector implements Connector {
         String catalogType = properties.getOrDefault(
                 IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, "");
 
-        // -- Metastore probe (guarded by iceberg.catalog.type: only REST is probed here) --
-        if (IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)) {
+        // -- Metastore probe (REST, HMS, Glue, S3Tables) --
+        // Listing databases forces a real round-trip that validates the URI, auth and warehouse config.
+        // This used to be REST-only here, which silently dropped the HMS/Glue/S3Tables coverage the legacy
+        // fe-core Iceberg{HMS,Glue,S3Tables}ConnectivityTester family provided.
+        if (probesMetastore(catalogType)) {
             try {
                 getMetadata(session).listDatabaseNames(session);
             } catch (Exception e) {
-                LOG.warn("Iceberg REST connectivity test failed for catalog '{}'",
+                LOG.warn("Iceberg metastore connectivity test failed for catalog '{}'",
                         context.getCatalogName(), e);
                 return ConnectorTestResult.failure(metaFailureMessage(catalogType, e));
             }
@@ -294,7 +310,6 @@ public class IcebergConnector implements Connector {
             // exists() issues a HEAD: a 404 (missing object) returns false and is fine, but
             // endpoint/credential failures (e.g. 403) throw — which is what we want to catch.
             io.newInputFile(location).exists();
-            return null;
         } catch (Exception e) {
             LOG.warn("Iceberg storage connectivity test failed for catalog '{}'",
                     context.getCatalogName(), e);
@@ -308,6 +323,34 @@ public class IcebergConnector implements Connector {
                     // best-effort cleanup
                 }
             }
+        }
+
+        // FE can reach the warehouse — now make sure BE can too. FE and BE routinely sit on different
+        // networks, so a warehouse that only FE reaches would pass CREATE CATALOG and then fail every
+        // scan. The engine owns the round-trip (it needs the backend registry); we only hand it the
+        // BE-facing credentials and the location to try.
+        return probeStorageFromBackend(location);
+    }
+
+    /**
+     * Asks a backend to reach {@code location} with the catalog's BE-facing credentials. Returns a failure
+     * result if the backend rejects it, or {@code null} when it passes (or when there is no backend to ask,
+     * or the catalog has no static storage credentials to send — e.g. a REST catalog with vended ones).
+     */
+    ConnectorTestResult probeStorageFromBackend(String location) {
+        Map<String, String> backendProps = new HashMap<>(context.getBackendStorageProperties());
+        if (backendProps.isEmpty()) {
+            return null;
+        }
+        // BE reads the bucket out of this key and dereferences it unconditionally — never omit it.
+        backendProps.put(BE_TEST_LOCATION, location);
+        try {
+            context.testBackendStorageConnectivity(TStorageBackendType.S3.getValue(), backendProps);
+            return null;
+        } catch (Exception e) {
+            LOG.warn("Iceberg storage connectivity test failed on the compute node for catalog '{}'",
+                    context.getCatalogName(), e);
+            return ConnectorTestResult.failure(storageBackendFailureMessage(e));
         }
     }
 
@@ -339,13 +382,35 @@ public class IcebergConnector implements Connector {
      * the catalog-type tag (e.g. {@code "Iceberg REST"}) and the phrase
      * {@code "connectivity test failed"} so CREATE CATALOG surfaces a stable, actionable error.
      */
+    /**
+     * True for the catalog types that talk to a remote metastore, which is exactly the set the legacy
+     * fe-core coordinator built a {@code MetaConnectivityTester} for (Iceberg HMS / Glue / REST / S3Tables).
+     * Filesystem-backed catalogs ({@code hadoop}, and an unset type) had no tester there and get none here:
+     * their "metastore" is the warehouse itself, which the storage probe below covers.
+     */
+    static boolean probesMetastore(String catalogType) {
+        return IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)
+                || IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(catalogType)
+                || IcebergConnectorProperties.TYPE_GLUE.equalsIgnoreCase(catalogType)
+                || IcebergConnectorProperties.TYPE_S3_TABLES.equalsIgnoreCase(catalogType);
+    }
+
     static String metaFailureMessage(String catalogType, Throwable cause) {
-        String tag = "Iceberg " + catalogType.toUpperCase(Locale.ROOT);
+        String tag = isBlank(catalogType) ? "Iceberg" : "Iceberg " + catalogType.toUpperCase(Locale.ROOT);
         return tag + " connectivity test failed: " + rootCauseMessage(cause);
     }
 
     static String storageFailureMessage(Throwable cause) {
         return "Storage connectivity test failed: " + rootCauseMessage(cause);
+    }
+
+    /**
+     * The compute-node variant. The {@code (compute node)} tag is what tells an operator the warehouse is
+     * fine from FE and the problem is BE-side (a different network or credential set) — the legacy fe-core
+     * coordinator drew the same distinction.
+     */
+    static String storageBackendFailureMessage(Throwable cause) {
+        return "Storage connectivity test failed (compute node): " + rootCauseMessage(cause);
     }
 
     /** Normalizes and returns {@code value} if it is an s3/s3a/s3n URI, otherwise {@code null}. */
@@ -434,6 +499,22 @@ public class IcebergConnector implements Connector {
     @Override
     public void invalidateTable(String dbName, String tableName) {
         latestSnapshotCache.invalidate(TableIdentifier.of(dbName, tableName));
+    }
+
+    /**
+     * REFRESH DATABASE hook (also reached by a Doris-issued {@code DROP DATABASE} via the generic
+     * {@code PluginDrivenExternalCatalog} dropDb hook, and by the hive gateway's
+     * {@code forEachBuiltSibling} for an iceberg-on-HMS sibling): drop the cached latest snapshot for
+     * EVERY table in one database so the next query re-pins live. Db-scoped analogue of
+     * {@link #invalidateTable}; the name is the REMOTE db name (RefreshManager / the dropDb hook pass
+     * remote names). Without this override iceberg inherited the SPI no-op default, so REFRESH DATABASE
+     * and DROP DATABASE (incl. its FORCE table cascade, which bypasses per-table invalidateTable) left
+     * the snapshot pins stale up to the TTL. The path-keyed manifest cache is intentionally NOT cleared
+     * (legacy parity — only REFRESH CATALOG drops manifests).
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        latestSnapshotCache.invalidateDb(dbName);
     }
 
     /**
@@ -603,12 +684,6 @@ public class IcebergConnector implements Connector {
             return createS3TablesCatalog(catalogName, chosenS3);
         }
 
-        // dlf is bespoke too: legacy IcebergAliyunDLFMetaStoreProperties builds a hive-compatible DLFCatalog with
-        // a DataLakeConfig-keyed Configuration and an OSS-backed S3FileIO, NOT via CatalogUtil.buildIcebergCatalog.
-        if (IcebergConnectorProperties.TYPE_DLF.equals(flavor)) {
-            return createDlfCatalog(catalogName, chosenS3);
-        }
-
         Map<String, String> catalogProps =
                 IcebergCatalogFactory.buildCatalogProperties(properties, flavor, chosenS3);
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
@@ -619,12 +694,11 @@ public class IcebergConnector implements Connector {
                 // Reuse the shared metastore-spi parser (Q2=B bindForType): iceberg passes its own flavor token
                 // so the metastore-spi never learns iceberg.catalog.type. Only toHiveConfOverrides is used
                 // (iceberg HMS does NOT call paimon's validate(); it does not require a warehouse). The external
-                // hive.conf.resources hive-site.xml is resolved FE-side and seeded as the HiveConf base.
-                Map<String, String> hiveConfFiles = context.loadHiveConfResources(
-                        IcebergCatalogFactory.firstNonBlank(properties, "hive.conf.resources"));
+                // hive.conf.resources hive-site.xml is resolved by the connector itself (addConfResources).
                 HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
                         IcebergConnectorProperties.TYPE_HMS, properties, storageHadoopConfig);
-                conf = IcebergCatalogFactory.assembleHiveConf(hiveConfFiles,
+                conf = IcebergCatalogFactory.assembleHiveConf(
+                        IcebergCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
                         hms.toHiveConfOverrides(context.getEnvironment()
                                 .getOrDefault("hive_metastore_client_timeout_second", "10")));
                 break;
@@ -701,24 +775,19 @@ public class IcebergConnector implements Connector {
      * NOT to {@code CatalogUtil.buildIcebergCatalog}. The 2-arg {@code initialize(name, opts)} is intentionally
      * avoided: its {@code DefaultS3TablesAwsClientFactory} honors only a {@code client.credentials-provider} class
      * and would silently drop static {@code s3.access-key-id}/{@code s3.secret-access-key} (falling back to the
-     * SDK default chain). A bound S3-compatible storage is required to derive region + credentials; a missing one
-     * (or a blank region) fails loud here, before any AWS call.
+     * SDK default chain). A region is required (from the bound storage or the raw props); credentials come from
+     * the bound storage when present, else the SDK default chain — e.g. an EC2 instance-profile s3tables catalog
+     * with only region + warehouse ARN and no static creds. Only a missing region fails loud here, before any
+     * AWS call (legacy IcebergS3TablesMetaStoreProperties used the DefaultCredentialsProvider chain likewise).
      */
     private Catalog createS3TablesCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
-        if (!chosenS3.isPresent()) {
-            throw new DorisConnectorException(
-                    "Iceberg s3tables catalog requires S3-compatible storage properties (region + credentials)");
-        }
-        S3CompatibleFileSystemProperties s3 = chosenS3.get();
-        if (StringUtils.isBlank(s3.getRegion())) {
-            throw new DorisConnectorException(
-                    "Iceberg s3tables catalog requires a region (set s3.region or a region-bearing endpoint)");
-        }
+        String region = resolveS3TablesRegion(chosenS3, properties);
         Map<String, String> catalogProps =
                 IcebergCatalogFactory.buildS3TablesCatalogProperties(properties, chosenS3);
-        LOG.info("Creating Iceberg s3tables catalog '{}' region='{}'", catalogName, s3.getRegion());
+        LOG.info("Creating Iceberg s3tables catalog '{}' region='{}' boundStorage={}",
+                catalogName, region, chosenS3.isPresent());
         return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_S3_TABLES, () -> {
-            S3TablesClient client = buildS3TablesClient(s3);
+            S3TablesClient client = buildS3TablesClient(chosenS3, region);
             S3TablesCatalog catalog = new S3TablesCatalog();
             catalog.initialize(catalogName, catalogProps, client);
             return catalog;
@@ -726,42 +795,40 @@ public class IcebergConnector implements Connector {
     }
 
     /**
-     * Creates the bespoke {@code dlf} catalog, mirroring legacy {@code IcebergAliyunDLFMetaStoreProperties}: the
-     * DLF metastore connection {@link Configuration} is built from the shared metastore-spi
-     * ({@code MetaStoreProviders.bindForType("dlf", ...)} -> {@code DlfMetaStoreProperties.toDlfCatalogConf()},
-     * the {@code dlf.catalog.*} = {@code DataLakeConfig.CATALOG_*} keys) plus the two legacy hive keys (see
-     * {@link IcebergCatalogFactory#buildDlfConfiguration}); the OSS-backed {@link DLFCatalog} then reads its
-     * FileIO endpoint/region/credentials from the chosen fe-filesystem OSS storage (D-061). A bound
-     * S3-compatible (OSS) storage is required; a missing one fails loud, before any metastore call.
+     * Resolves the s3tables control-plane region: the bound fe-filesystem storage's region when present, else
+     * the raw catalog props (the widened S3 region-alias set, via {@link IcebergCatalogFactory#resolveS3Region}).
+     * A region is the SOLE hard requirement for s3tables; credentials fall back to the SDK default chain when no
+     * storage is bound. Fails loud only when NEITHER storage nor props supply a region. Static / package-visible
+     * so the gate is unit-testable offline without a live {@link S3TablesClient}.
      */
-    private Catalog createDlfCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
-        if (!chosenS3.isPresent()) {
-            throw new DorisConnectorException("Iceberg dlf catalog requires OSS storage properties");
+    static String resolveS3TablesRegion(
+            Optional<S3CompatibleFileSystemProperties> chosenS3, Map<String, String> props) {
+        String region = chosenS3.map(S3CompatibleFileSystemProperties::getRegion)
+                .filter(StringUtils::isNotBlank)
+                .orElseGet(() -> IcebergCatalogFactory.resolveS3Region(props));
+        if (StringUtils.isBlank(region)) {
+            throw new DorisConnectorException(
+                    "Iceberg s3tables catalog requires a region (set s3.region or a region-bearing endpoint)");
         }
-        S3CompatibleFileSystemProperties oss = chosenS3.get();
-        DlfMetaStoreProperties dlf = (DlfMetaStoreProperties) MetaStoreProviders.bindForType(
-                IcebergConnectorProperties.TYPE_DLF, properties, buildStorageHadoopConfig());
-        Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlf.toDlfCatalogConf());
-        Map<String, String> catalogProps = IcebergCatalogFactory.buildBaseCatalogProperties(properties);
-        LOG.info("Creating Iceberg dlf catalog '{}'", catalogName);
-        return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_DLF, () -> {
-            DLFCatalog dlfCatalog = new DLFCatalog(oss);
-            dlfCatalog.setConf(conf);
-            dlfCatalog.initialize(catalogName, catalogProps);
-            return dlfCatalog;
-        });
+        return region;
     }
+
 
     /**
      * Hand-builds the control-plane {@link S3TablesClient}, mirroring legacy
      * {@code IcebergS3TablesMetaStoreProperties.buildS3TablesClient}: region + credentials provider + the optional
      * {@code s3tables.endpoint} override + the s3tables-SDK http-client tuning ({@link HttpClientProperties}). The
-     * credentials provider is derived from the typed fe-filesystem storage by {@link #buildAwsCredentialsProvider}.
+     * credentials provider is derived from the typed fe-filesystem storage by {@link #buildAwsCredentialsProvider}
+     * when one is bound, else the SDK default chain ({@link DefaultCredentialsProvider}); the region is the value
+     * already resolved by {@link #resolveS3TablesRegion}.
      */
-    private S3TablesClient buildS3TablesClient(S3CompatibleFileSystemProperties s3) {
+    private S3TablesClient buildS3TablesClient(Optional<S3CompatibleFileSystemProperties> chosenS3, String region) {
+        AwsCredentialsProvider credentialsProvider = chosenS3
+                .map(s3 -> buildAwsCredentialsProvider(s3, properties))
+                .orElseGet(DefaultCredentialsProvider::create);
         S3TablesClientBuilder builder = S3TablesClient.builder()
-                .region(Region.of(s3.getRegion()))
-                .credentialsProvider(buildAwsCredentialsProvider(s3, properties));
+                .region(Region.of(region))
+                .credentialsProvider(credentialsProvider);
         String endpoint = properties.get(S3TablesProperties.S3TABLES_ENDPOINT);
         if (StringUtils.isNotBlank(endpoint)) {
             builder.endpointOverride(URI.create(endpoint));
@@ -822,7 +889,7 @@ public class IcebergConnector implements Connector {
     /**
      * Design S8: the iceberg connector owns the {@code warehouse -> fs.defaultFS} storage derivation that used
      * to live in fe-core's {@code IcebergFileSystemMetaStoreProperties.getDerivedStorageProperties}. Only the
-     * hadoop (filesystem) catalog flavor bridges the warehouse; the other flavors (rest/hms/glue/dlf/jdbc/
+     * hadoop (filesystem) catalog flavor bridges the warehouse; the other flavors (rest/hms/glue/jdbc/
      * s3tables) contribute no storage derivation (empty), matching the legacy override which only the hadoop
      * flavor carried. fe-core folds the result into its storage map as defaults, feeding both the fe-filesystem
      * bind and the BE storage map identically.
@@ -835,7 +902,7 @@ public class IcebergConnector implements Connector {
     /**
      * Gate + derivation for {@link #deriveStorageProperties} (static so it is unit-testable without constructing
      * a connector): only the hadoop (filesystem) catalog flavor bridges the warehouse; every other flavor
-     * (rest/hms/glue/dlf/jdbc/s3tables) contributes nothing.
+     * (rest/hms/glue/jdbc/s3tables) contributes nothing.
      */
     static Map<String, String> deriveStorageDefaults(Map<String, String> rawCatalogProps) {
         if (!IcebergConnectorProperties.TYPE_HADOOP.equalsIgnoreCase(

@@ -78,15 +78,34 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
         this.trinoCatalogHandle = trinoCatalogHandle;
     }
 
+    /**
+     * Releases a Trino metadata transaction. Each read-only metadata method below opens a transaction
+     * that the Trino {@code Connector} contract requires be ended with exactly one of commit/rollback;
+     * a read-only READ_UNCOMMITTED transaction has nothing to write, so commit simply frees it from the
+     * connector's transaction manager. A release failure is logged, never rethrown, so it cannot mask
+     * the real exception a {@code finally} block runs after.
+     */
+    private void releaseQuietly(io.trino.spi.connector.ConnectorTransactionHandle txn) {
+        try {
+            trinoConnector.commit(txn);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to release Trino metadata transaction", e);
+        }
+    }
+
     @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
         io.trino.spi.connector.ConnectorSession connSession =
                 trinoSession.toConnectorSession(trinoCatalogHandle);
         io.trino.spi.connector.ConnectorTransactionHandle txn =
                 trinoConnector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
-        io.trino.spi.connector.ConnectorMetadata metadata =
-                trinoConnector.getMetadata(connSession, txn);
-        return metadata.listSchemaNames(connSession);
+        try {
+            io.trino.spi.connector.ConnectorMetadata metadata =
+                    trinoConnector.getMetadata(connSession, txn);
+            return metadata.listSchemaNames(connSession);
+        } finally {
+            releaseQuietly(txn);
+        }
     }
 
     @Override
@@ -100,14 +119,21 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
                 trinoSession.toConnectorSession(trinoCatalogHandle);
         io.trino.spi.connector.ConnectorTransactionHandle txn =
                 trinoConnector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
-        io.trino.spi.connector.ConnectorMetadata metadata =
-                trinoConnector.getMetadata(connSession, txn);
+        try {
+            io.trino.spi.connector.ConnectorMetadata metadata =
+                    trinoConnector.getMetadata(connSession, txn);
 
-        Optional<String> schemaName = Optional.of(dbName);
-        List<SchemaTableName> tables = metadata.listTables(connSession, schemaName);
-        return tables.stream()
-                .map(SchemaTableName::getTableName)
-                .collect(Collectors.toList());
+            Optional<String> schemaName = Optional.of(dbName);
+            List<SchemaTableName> tables = metadata.listTables(connSession, schemaName);
+            // distinct() restores the legacy LinkedHashSet de-dup (order-preserving): some Trino
+            // connectors list the same table name more than once (tables+views, multi-source merges).
+            return tables.stream()
+                    .map(SchemaTableName::getTableName)
+                    .distinct()
+                    .collect(Collectors.toList());
+        } finally {
+            releaseQuietly(txn);
+        }
     }
 
     public boolean tableExists(ConnectorSession session, String dbName, String tableName) {
@@ -125,33 +151,37 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
                 trinoSession.toConnectorSession(trinoCatalogHandle);
         io.trino.spi.connector.ConnectorTransactionHandle txn =
                 trinoConnector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
-        io.trino.spi.connector.ConnectorMetadata metadata =
-                trinoConnector.getMetadata(connSession, txn);
+        try {
+            io.trino.spi.connector.ConnectorMetadata metadata =
+                    trinoConnector.getMetadata(connSession, txn);
 
-        SchemaTableName schemaTableName = new SchemaTableName(dbName, tableName);
-        io.trino.spi.connector.ConnectorTableHandle trinoHandle =
-                metadata.getTableHandle(connSession, schemaTableName,
-                        Optional.empty(), Optional.empty());
-        if (trinoHandle == null) {
-            return Optional.empty();
+            SchemaTableName schemaTableName = new SchemaTableName(dbName, tableName);
+            io.trino.spi.connector.ConnectorTableHandle trinoHandle =
+                    metadata.getTableHandle(connSession, schemaTableName,
+                            Optional.empty(), Optional.empty());
+            if (trinoHandle == null) {
+                return Optional.empty();
+            }
+
+            // Eagerly resolve column handles + metadata for the table
+            Map<String, ColumnHandle> handles = metadata.getColumnHandles(connSession, trinoHandle);
+            ImmutableMap.Builder<String, ColumnHandle> columnHandleMapBuilder = ImmutableMap.builder();
+            ImmutableMap.Builder<String, ColumnMetadata> columnMetadataMapBuilder = ImmutableMap.builder();
+            for (Map.Entry<String, ColumnHandle> entry : handles.entrySet()) {
+                String colName = entry.getKey().toLowerCase(Locale.ENGLISH);
+                columnHandleMapBuilder.put(colName, entry.getValue());
+                ColumnMetadata colMeta = metadata.getColumnMetadata(
+                        connSession, trinoHandle, entry.getValue());
+                columnMetadataMapBuilder.put(colMeta.getName(), colMeta);
+            }
+
+            return Optional.of(new TrinoTableHandle(
+                    dbName, tableName, trinoHandle,
+                    columnHandleMapBuilder.buildOrThrow(),
+                    columnMetadataMapBuilder.buildOrThrow()));
+        } finally {
+            releaseQuietly(txn);
         }
-
-        // Eagerly resolve column handles + metadata for the table
-        Map<String, ColumnHandle> handles = metadata.getColumnHandles(connSession, trinoHandle);
-        ImmutableMap.Builder<String, ColumnHandle> columnHandleMapBuilder = ImmutableMap.builder();
-        ImmutableMap.Builder<String, ColumnMetadata> columnMetadataMapBuilder = ImmutableMap.builder();
-        for (Map.Entry<String, ColumnHandle> entry : handles.entrySet()) {
-            String colName = entry.getKey().toLowerCase(Locale.ENGLISH);
-            columnHandleMapBuilder.put(colName, entry.getValue());
-            ColumnMetadata colMeta = metadata.getColumnMetadata(
-                    connSession, trinoHandle, entry.getValue());
-            columnMetadataMapBuilder.put(colMeta.getName(), colMeta);
-        }
-
-        return Optional.of(new TrinoTableHandle(
-                dbName, tableName, trinoHandle,
-                columnHandleMapBuilder.buildOrThrow(),
-                columnMetadataMapBuilder.buildOrThrow()));
     }
 
     @Override
@@ -163,43 +193,47 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
                 trinoSession.toConnectorSession(trinoCatalogHandle);
         io.trino.spi.connector.ConnectorTransactionHandle txn =
                 trinoConnector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
-        io.trino.spi.connector.ConnectorMetadata metadata =
-                trinoConnector.getMetadata(connSession, txn);
+        try {
+            io.trino.spi.connector.ConnectorMetadata metadata =
+                    trinoConnector.getMetadata(connSession, txn);
 
-        Map<String, ColumnHandle> columnHandles = trinoHandle.getColumnHandleMap();
-        if (columnHandles == null || columnHandles.isEmpty()) {
-            columnHandles = metadata.getColumnHandles(
-                    connSession, trinoHandle.getTrinoTableHandle());
-        }
-
-        List<ConnectorColumn> columns = new ArrayList<>();
-        for (ColumnHandle columnHandle : columnHandles.values()) {
-            ColumnMetadata colMeta = metadata.getColumnMetadata(
-                    connSession, trinoHandle.getTrinoTableHandle(), columnHandle);
-            if (colMeta.isHidden()) {
-                continue;
+            Map<String, ColumnHandle> columnHandles = trinoHandle.getColumnHandleMap();
+            if (columnHandles == null || columnHandles.isEmpty()) {
+                columnHandles = metadata.getColumnHandles(
+                        connSession, trinoHandle.getTrinoTableHandle());
             }
-            ConnectorType connType = TrinoTypeMapping.toConnectorType(colMeta.getType());
-            // Mark every column as a key column to match the Doris external-table convention
-            // (legacy TrinoConnectorExternalTable.initSchema and JdbcClient do the same), so
-            // `desc <table>` reports Key=true for each column.
-            columns.add(new ConnectorColumn(
-                    colMeta.getName(),
-                    connType,
-                    colMeta.getComment(),
-                    true,
-                    null,
-                    true));
+
+            List<ConnectorColumn> columns = new ArrayList<>();
+            for (ColumnHandle columnHandle : columnHandles.values()) {
+                ColumnMetadata colMeta = metadata.getColumnMetadata(
+                        connSession, trinoHandle.getTrinoTableHandle(), columnHandle);
+                if (colMeta.isHidden()) {
+                    continue;
+                }
+                ConnectorType connType = TrinoTypeMapping.toConnectorType(colMeta.getType());
+                // Mark every column as a key column to match the Doris external-table convention
+                // (legacy TrinoConnectorExternalTable.initSchema and JdbcClient do the same), so
+                // `desc <table>` reports Key=true for each column.
+                columns.add(new ConnectorColumn(
+                        colMeta.getName(),
+                        connType,
+                        colMeta.getComment(),
+                        true,
+                        null,
+                        true));
+            }
+
+            Map<String, String> tableProps = new HashMap<>();
+            tableProps.put("trino.connector.table", "true");
+
+            return new ConnectorTableSchema(
+                    trinoHandle.getTableName(),
+                    columns,
+                    "trino_connector",
+                    Collections.unmodifiableMap(tableProps));
+        } finally {
+            releaseQuietly(txn);
         }
-
-        Map<String, String> tableProps = new HashMap<>();
-        tableProps.put("trino.connector.table", "true");
-
-        return new ConnectorTableSchema(
-                trinoHandle.getTableName(),
-                columns,
-                "trino_connector",
-                Collections.unmodifiableMap(tableProps));
     }
 
     @Override
@@ -237,28 +271,32 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
                 trinoSession.toConnectorSession(trinoCatalogHandle);
         io.trino.spi.connector.ConnectorTransactionHandle txn =
                 trinoConnector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
-        io.trino.spi.connector.ConnectorMetadata metadata =
-                trinoConnector.getMetadata(connSession, txn);
+        try {
+            io.trino.spi.connector.ConnectorMetadata metadata =
+                    trinoConnector.getMetadata(connSession, txn);
 
-        Optional<ConstraintApplicationResult<io.trino.spi.connector.ConnectorTableHandle>> trinoResult =
-                metadata.applyFilter(connSession, dorisHandle.getTrinoTableHandle(),
-                        new Constraint(tupleDomain));
-        if (!trinoResult.isPresent()) {
-            return Optional.empty();
+            Optional<ConstraintApplicationResult<io.trino.spi.connector.ConnectorTableHandle>> trinoResult =
+                    metadata.applyFilter(connSession, dorisHandle.getTrinoTableHandle(),
+                            new Constraint(tupleDomain));
+            if (!trinoResult.isPresent()) {
+                return Optional.empty();
+            }
+
+            TrinoTableHandle newHandle = new TrinoTableHandle(
+                    dorisHandle.getDbName(),
+                    dorisHandle.getTableName(),
+                    trinoResult.get().getHandle(),
+                    dorisHandle.getColumnHandleMap(),
+                    dorisHandle.getColumnMetadataMap());
+
+            // Trino tracks the remaining filter as a TupleDomain, not as a Doris ConnectorExpression.
+            // Returning the original expression keeps BE-side re-evaluation, matching the legacy
+            // fe-core scan-node behavior. A future enhancement could try to map the remaining
+            // TupleDomain back to a ConnectorExpression and clear fully-pushed conjuncts.
+            return Optional.of(new FilterApplicationResult<>(newHandle, expression, false));
+        } finally {
+            releaseQuietly(txn);
         }
-
-        TrinoTableHandle newHandle = new TrinoTableHandle(
-                dorisHandle.getDbName(),
-                dorisHandle.getTableName(),
-                trinoResult.get().getHandle(),
-                dorisHandle.getColumnHandleMap(),
-                dorisHandle.getColumnMetadataMap());
-
-        // Trino tracks the remaining filter as a TupleDomain, not as a Doris ConnectorExpression.
-        // Returning the original expression keeps BE-side re-evaluation, matching the legacy
-        // fe-core scan-node behavior. A future enhancement could try to map the remaining
-        // TupleDomain back to a ConnectorExpression and clear fully-pushed conjuncts.
-        return Optional.of(new FilterApplicationResult<>(newHandle, expression, false));
     }
 
     @Override
@@ -298,37 +336,41 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
                 trinoSession.toConnectorSession(trinoCatalogHandle);
         io.trino.spi.connector.ConnectorTransactionHandle txn =
                 trinoConnector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
-        io.trino.spi.connector.ConnectorMetadata metadata =
-                trinoConnector.getMetadata(connSession, txn);
+        try {
+            io.trino.spi.connector.ConnectorMetadata metadata =
+                    trinoConnector.getMetadata(connSession, txn);
 
-        Optional<io.trino.spi.connector.ProjectionApplicationResult<
-                io.trino.spi.connector.ConnectorTableHandle>> trinoResult =
-                metadata.applyProjection(connSession, dorisHandle.getTrinoTableHandle(),
-                        trinoProjections, assignments);
-        if (!trinoResult.isPresent()) {
-            return Optional.empty();
-        }
-
-        TrinoTableHandle newHandle = new TrinoTableHandle(
-                dorisHandle.getDbName(),
-                dorisHandle.getTableName(),
-                trinoResult.get().getHandle(),
-                colHandleMap,
-                colMetaMap);
-
-        List<ConnectorExpression> outProjections = new ArrayList<>(projections.size());
-        List<ConnectorColumnAssignment> outAssignments = new ArrayList<>(projections.size());
-        for (ConnectorColumnHandle col : projections) {
-            String colName = ((TrinoColumnHandle) col).getColumnName();
-            ColumnMetadata cm = colMetaMap.get(colName);
-            if (cm == null) {
-                continue;
+            Optional<io.trino.spi.connector.ProjectionApplicationResult<
+                    io.trino.spi.connector.ConnectorTableHandle>> trinoResult =
+                    metadata.applyProjection(connSession, dorisHandle.getTrinoTableHandle(),
+                            trinoProjections, assignments);
+            if (!trinoResult.isPresent()) {
+                return Optional.empty();
             }
-            ConnectorType type = TrinoTypeMapping.toConnectorType(cm.getType());
-            ConnectorColumnRef ref = new ConnectorColumnRef(colName, type);
-            outProjections.add(ref);
-            outAssignments.add(new ConnectorColumnAssignment(col, ref));
+
+            TrinoTableHandle newHandle = new TrinoTableHandle(
+                    dorisHandle.getDbName(),
+                    dorisHandle.getTableName(),
+                    trinoResult.get().getHandle(),
+                    colHandleMap,
+                    colMetaMap);
+
+            List<ConnectorExpression> outProjections = new ArrayList<>(projections.size());
+            List<ConnectorColumnAssignment> outAssignments = new ArrayList<>(projections.size());
+            for (ConnectorColumnHandle col : projections) {
+                String colName = ((TrinoColumnHandle) col).getColumnName();
+                ColumnMetadata cm = colMetaMap.get(colName);
+                if (cm == null) {
+                    continue;
+                }
+                ConnectorType type = TrinoTypeMapping.toConnectorType(cm.getType());
+                ConnectorColumnRef ref = new ConnectorColumnRef(colName, type);
+                outProjections.add(ref);
+                outAssignments.add(new ConnectorColumnAssignment(col, ref));
+            }
+            return Optional.of(new ProjectionApplicationResult<>(newHandle, outProjections, outAssignments));
+        } finally {
+            releaseQuietly(txn);
         }
-        return Optional.of(new ProjectionApplicationResult<>(newHandle, outProjections, outAssignments));
     }
 }

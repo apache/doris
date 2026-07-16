@@ -29,6 +29,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorOr;
 
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.table.optimizer.predicate.Attribute;
+import com.aliyun.odps.table.optimizer.predicate.BinaryPredicate;
 import com.aliyun.odps.table.optimizer.predicate.CompoundPredicate;
 import com.aliyun.odps.table.optimizer.predicate.Predicate;
 import com.aliyun.odps.table.optimizer.predicate.RawPredicate;
@@ -88,6 +89,30 @@ public class MaxComputePredicateConverter {
         if (expr == null) {
             return Predicate.NO_PREDICATE;
         }
+        // Top-level conjunction: convert each conjunct independently and AND the survivors, so one
+        // unconvertible conjunct doesn't sink the whole filter. This is only safe at the root (a positive,
+        // monotone position): dropping a conjunct from the root AND yields a superset that BE re-filters.
+        // OR (dropping a disjunct is a subset -> loses rows), NOT, and nested AND are converted whole by
+        // convertOne(); partially dropping inside them could change the predicate's meaning.
+        if (expr instanceof ConnectorAnd) {
+            List<Predicate> survivors = new ArrayList<>();
+            for (ConnectorExpression conjunct : ((ConnectorAnd) expr).getConjuncts()) {
+                Predicate p = convertOne(conjunct);
+                if (p != Predicate.NO_PREDICATE) {
+                    survivors.add(p);
+                }
+            }
+            if (survivors.isEmpty()) {
+                return Predicate.NO_PREDICATE;
+            }
+            return survivors.size() == 1
+                    ? survivors.get(0)
+                    : new CompoundPredicate(CompoundPredicate.Operator.AND, survivors);
+        }
+        return convertOne(expr);
+    }
+
+    private Predicate convertOne(ConnectorExpression expr) {
         try {
             return doConvert(expr);
         } catch (Exception e) {
@@ -140,30 +165,36 @@ public class MaxComputePredicateConverter {
         String columnName = extractColumnName(cmp.getLeft());
         String value = formatLiteralValue(columnName, cmp.getRight());
 
-        String opDesc;
+        // Source the operator symbol from the ODPS SDK's own BinaryPredicate.Operator description
+        // rather than hand-writing it, mirroring legacy MaxComputeScanNode.convertExprToOdpsPredicate.
+        // The SDK is the authority for what ODPS accepts (EQUALS -> "="); a hand-written table let the
+        // EQ entry drift to Java's "==", which MaxCompute (like SQL) does not accept -> pushdown lost.
+        // EQ_FOR_NULL ("<=>") has no ODPS BinaryPredicate equivalent, so it (and any future operator)
+        // falls through to default -> throw -> NO_PREDICATE (BE re-filters), matching legacy's skip.
+        BinaryPredicate.Operator odpsOp;
         switch (cmp.getOperator()) {
             case EQ:
-                opDesc = "==";
+                odpsOp = BinaryPredicate.Operator.EQUALS;
                 break;
             case NE:
-                opDesc = "!=";
+                odpsOp = BinaryPredicate.Operator.NOT_EQUALS;
                 break;
             case LT:
-                opDesc = "<";
+                odpsOp = BinaryPredicate.Operator.LESS_THAN;
                 break;
             case LE:
-                opDesc = "<=";
+                odpsOp = BinaryPredicate.Operator.LESS_THAN_OR_EQUAL;
                 break;
             case GT:
-                opDesc = ">";
+                odpsOp = BinaryPredicate.Operator.GREATER_THAN;
                 break;
             case GE:
-                opDesc = ">=";
+                odpsOp = BinaryPredicate.Operator.GREATER_THAN_OR_EQUAL;
                 break;
             default:
                 throw new UnsupportedOperationException("Unsupported operator: " + cmp.getOperator());
         }
-        return new RawPredicate(columnName + " " + opDesc + " " + value);
+        return new RawPredicate(columnName + " " + odpsOp.getDescription() + " " + value);
     }
 
     private Predicate convertIn(ConnectorIn in) {

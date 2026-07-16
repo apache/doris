@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
@@ -33,6 +34,7 @@ import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
+import java.io.File;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -55,11 +57,9 @@ import java.util.regex.Pattern;
  * {@code Iceberg*MetaStoreProperties#initCatalog} — lands in a later task (P6-T05/T06/T07); this task
  * is a structural inversion only, with no behavior change.
  *
- * <p>Note: {@code s3tables} and {@code dlf} are listed here for completeness, but legacy does NOT build
- * them via {@code CatalogUtil.buildIcebergCatalog} (s3tables hand-builds an {@code S3TablesClient};
- * dlf uses {@code new DLFCatalog().setConf(..).initialize(..)}). Routing them through the impl-name
- * path is the existing skeleton behavior, preserved verbatim here; the bespoke instantiation fixes are
- * P6-T06 / P6-T07.
+ * <p>Note: {@code s3tables} is listed here for completeness, but legacy does NOT build it via
+ * {@code CatalogUtil.buildIcebergCatalog} (it hand-builds an {@code S3TablesClient}). Routing it through
+ * the impl-name path is the existing skeleton behavior, preserved verbatim here.
  */
 public final class IcebergCatalogFactory {
 
@@ -77,10 +77,15 @@ public final class IcebergCatalogFactory {
 
     // Region-field aliases scanned to propagate client.region when NO fe-filesystem S3 storage is bound
     // (e.g. REST vended credentials: no static AK/SK/role, so S3FileSystemProvider.supports is false and
-    // chosenS3 is empty). Mirrors the legacy AbstractIcebergProperties.toFileIOProperties chosen==null
-    // fallback (getRegionFromProperties). The raw s3.region copied by buildBaseCatalogProperties is inert
-    // because iceberg S3FileIO reads client.region, not s3.region.
-    private static final String[] S3_REGION_ALIASES = {"s3.region", "aws.region", "region", "client.region"};
+    // chosenS3 is empty). Verbatim connector-side copy (fe-connector must not import fe-core) of the fe-core
+    // S3Properties @ConnectorProperty(isRegionField=true) region aliases — the S3 subset of the alias set the
+    // legacy getRegionFromProperties scanned; declared order preserved so s3.region still wins on conflict.
+    // The OSS/COS/OBS/Minio subclass region aliases are deliberately excluded (irrelevant to an AWS-S3-backed
+    // vended REST catalog). The raw s3.region copied by buildBaseCatalogProperties is inert because iceberg
+    // S3FileIO reads client.region, not s3.region.
+    private static final String[] S3_REGION_ALIASES = {
+            "s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
+            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region"};
 
     private IcebergCatalogFactory() {
     }
@@ -189,8 +194,18 @@ public final class IcebergCatalogFactory {
         if (chosenS3.isPresent()) {
             appendS3FileIOProperties(opts, chosenS3.get());
         } else {
-            putIfNotBlank(opts, AwsClientProperties.CLIENT_REGION, firstNonBlank(props, S3_REGION_ALIASES));
+            putIfNotBlank(opts, AwsClientProperties.CLIENT_REGION, resolveS3Region(props));
         }
+    }
+
+    /**
+     * Resolves the S3 region from the raw catalog props over {@link #S3_REGION_ALIASES} (the fe-core
+     * {@code S3Properties} {@code isRegionField} set). Single source of truth for the region-alias fallback,
+     * shared by {@link #appendS3FileIO} (the vended-cred S3FileIO branch) and the s3tables region gate
+     * ({@code IcebergConnector.resolveS3TablesRegion}). Returns null when no alias is set.
+     */
+    public static String resolveS3Region(Map<String, String> props) {
+        return firstNonBlank(props, S3_REGION_ALIASES);
     }
 
     /**
@@ -289,12 +304,10 @@ public final class IcebergCatalogFactory {
                 return "org.apache.iceberg.jdbc.JdbcCatalog";
             case IcebergConnectorProperties.TYPE_S3_TABLES:
                 return "software.amazon.s3tables.iceberg.S3TablesCatalog";
-            case IcebergConnectorProperties.TYPE_DLF:
-                return "org.apache.doris.connector.iceberg.dlf.DLFCatalog";
             default:
                 throw new DorisConnectorException(
                         "Unknown " + IcebergConnectorProperties.ICEBERG_CATALOG_TYPE + ": " + catalogType
-                                + ". Supported types: rest, hms, glue, hadoop, jdbc, s3tables, dlf");
+                                + ". Supported types: rest, hms, glue, hadoop, jdbc, s3tables");
         }
     }
 
@@ -309,7 +322,7 @@ public final class IcebergCatalogFactory {
      *
      * <p>The metastore connection (HMS {@code HiveConf}) and storage {@code Configuration} are SEPARATE sinks
      * built by the connector ({@link #assembleHiveConf} / {@link #buildHadoopConfiguration}); they are not part
-     * of this options map. {@code s3tables}/{@code dlf} are bespoke (T06/T07) and fall through to the base +
+     * of this options map. {@code s3tables} is bespoke and falls through to the base +
      * impl only here (the existing skeleton behavior), so this method covers exactly the five SDK-built flavors.
      */
     public static Map<String, String> buildCatalogProperties(Map<String, String> props, String flavor,
@@ -341,7 +354,7 @@ public final class IcebergCatalogFactory {
                 appendS3FileIO(opts, props, chosenS3);
                 break;
             default:
-                // s3tables / dlf: bespoke instantiation is T06/T07. Preserve the skeleton's base+impl routing.
+                // s3tables: bespoke instantiation. Preserve the skeleton's base+impl routing.
                 break;
         }
         // The iceberg SDK forbids both "type" and "catalog-impl"; legacy buildIcebergCatalog removes "type".
@@ -369,7 +382,15 @@ public final class IcebergCatalogFactory {
     public static Map<String, String> buildS3TablesCatalogProperties(Map<String, String> props,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         Map<String, String> opts = buildBaseCatalogProperties(props);
-        chosenS3.ifPresent(s3 -> appendS3TablesFileIOProperties(opts, s3, props));
+        if (chosenS3.isPresent()) {
+            appendS3TablesFileIOProperties(opts, chosenS3.get(), props);
+        } else {
+            // No bound S3 storage (e.g. an EC2 instance-profile s3tables catalog: region + warehouse ARN, no
+            // static creds): still propagate client.region from the raw props so the data-plane S3FileIO honors
+            // an explicit s3.region rather than only IMDS / DefaultAwsRegionProviderChain (mirrors the vended-
+            // cred branch in appendS3FileIO). Credentials are left to the SDK default chain (none are bound).
+            putIfNotBlank(opts, AwsClientProperties.CLIENT_REGION, resolveS3Region(props));
+        }
         return opts;
     }
 
@@ -537,8 +558,6 @@ public final class IcebergCatalogFactory {
                     IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_2X);
             opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY, glueAccessKey);
             opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SECRET_KEY, glueSecretKey);
-            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_FACTORY_KEY,
-                    IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_FACTORY);
             putIfNotBlank(opts, IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN,
                     firstNonBlank(props, IcebergConnectorProperties.GLUE_SESSION_TOKEN));
         } else {
@@ -627,35 +646,61 @@ public final class IcebergCatalogFactory {
 
     /**
      * Assembles the {@link HiveConf} for the hms flavor, mirroring {@code PaimonCatalogFactory.assembleHiveConf}:
-     * seed the optional external hive-site.xml {@code base} first, then layer the metastore-spi
-     * {@code toHiveConfOverrides} on top (last-write-wins). The conf classloader is pinned to the plugin loader
-     * (HiveMetaStoreClient filter-hook resolution parity). PURE (a function of the two maps).
+     * seed the optional external hive-site.xml named by {@code hive.conf.resources} first, then layer the
+     * metastore-spi {@code toHiveConfOverrides} on top. Overrides still win: {@code set()} values live in the
+     * {@link org.apache.hadoop.conf.Configuration} overlay, which is applied after every {@code addResource}.
+     * The conf classloader is pinned to the plugin loader (HiveMetaStoreClient filter-hook resolution parity).
      */
-    public static HiveConf assembleHiveConf(Map<String, String> base, Map<String, String> overrides) {
+    public static HiveConf assembleHiveConf(String confResources, Map<String, String> overrides) {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
-        if (base != null) {
-            base.forEach(hiveConf::set);
-        }
+        addConfResources(hiveConf, confResources);
         overrides.forEach(hiveConf::set);
         return hiveConf;
     }
 
     /**
-     * Builds the Hadoop {@link Configuration} for the bespoke {@code dlf} flavor, mirroring legacy
-     * {@code IcebergAliyunDLFMetaStoreProperties.initCatalog}: the {@code dlf.catalog.*} keys from the
-     * metastore-spi {@code toDlfCatalogConf()} (= the {@code DataLakeConfig.CATALOG_*} constant values), plus
-     * the two fixed hive keys {@code hive.metastore.type=dlf} and {@code type=hms} that legacy sets on the DLF
-     * {@code Configuration}. The conf classloader is pinned to the plugin loader (metastore client + filter-hook
-     * resolution parity). PURE (a function of {@code dlfCatalogConf}).
+     * Resolves the FE's {@code hadoop_config_dir}. Mirrors {@code fe-filesystem-hdfs}'s
+     * {@code HdfsConfigFileLoader.resolveHadoopConfigDir}: a connector plugin cannot import fe-core's
+     * {@code Config}, so the engine bridges the operator-configured value in via the
+     * {@code doris.hadoop.config.dir} system property ({@code FileSystemFactory.bindAllStorageProperties}
+     * sets it). The fallback matches {@code Config.hadoop_config_dir}'s own default.
      */
-    public static Configuration buildDlfConfiguration(Map<String, String> dlfCatalogConf) {
-        Configuration conf = new Configuration();
-        conf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
-        dlfCatalogConf.forEach(conf::set);
-        conf.set("hive.metastore.type", "dlf");
-        conf.set("type", "hms");
-        return conf;
+    private static String resolveHadoopConfigDir() {
+        String fromEngine = System.getProperty("doris.hadoop.config.dir");
+        if (StringUtils.isNotBlank(fromEngine)) {
+            return fromEngine;
+        }
+        String home = System.getenv("DORIS_HOME");
+        if (StringUtils.isBlank(home)) {
+            home = System.getProperty("doris.home", "");
+        }
+        return home + "/plugins/hadoop_conf/";
+    }
+
+    /**
+     * Adds the comma-separated {@code hive.conf.resources} files (each resolved under
+     * {@link #resolveHadoopConfigDir()}) onto {@code hiveConf}. Blank is a no-op; a missing file fails loud,
+     * byte-identically to the legacy fe-common {@code CatalogConfigFileUtils} message.
+     *
+     * <p>The connector resolves and parses these itself rather than receiving pre-flattened keys from the
+     * engine: the previous engine-side hook handed over its own {@code new HiveConf()} in full, force-setting
+     * ~881 hive defaults computed from the ENGINE's hive version on top of this plugin's own HiveConf.
+     */
+    static void addConfResources(HiveConf hiveConf, String confResources) {
+        if (StringUtils.isBlank(confResources)) {
+            return;
+        }
+        String baseDir = resolveHadoopConfigDir();
+        for (String resource : confResources.split(",")) {
+            String resourcePath = baseDir + resource.trim();
+            File file = new File(resourcePath);
+            if (file.exists() && file.isFile()) {
+                hiveConf.addResource(new Path(file.toURI()));
+            } else {
+                throw new IllegalArgumentException("Config resource file does not exist: " + resourcePath);
+            }
+        }
     }
 
     // ---------------------------------------------------------------------

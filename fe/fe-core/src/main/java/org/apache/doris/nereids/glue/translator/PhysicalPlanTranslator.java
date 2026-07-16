@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.api.Connector;
@@ -59,17 +58,9 @@ import org.apache.doris.datasource.PluginDrivenScanNode;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
-import org.apache.doris.datasource.hudi.source.HudiScanNode;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.fs.DirectoryLister;
-import org.apache.doris.fs.FileSystemDirectoryLister;
-import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
@@ -135,8 +126,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
@@ -195,7 +184,6 @@ import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MaterializationNode;
@@ -276,8 +264,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
     private final StatsErrorEstimator statsErrorEstimator;
     private final PlanTranslatorContext context;
-
-    private DirectoryLister directoryLister;
 
     public PhysicalPlanTranslator() {
         this(null, null);
@@ -560,16 +546,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink,
-                                                   PlanTranslatorContext context) {
-        PlanFragment rootFragment = hiveTableSink.child().accept(this, context);
-        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        HiveTableSink sink = new HiveTableSink((HMSExternalTable) hiveTableSink.getTargetTable());
-        rootFragment.setSink(sink);
-        return rootFragment;
-    }
-
-    @Override
     public PlanFragment visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink,
                                                        PlanTranslatorContext context) {
         PlanFragment rootFragment = icebergDeleteSink.child().accept(this, context);
@@ -643,19 +619,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
 
-        Set<WriteOperation> writeOps = connector.supportedWriteOperations();
-        if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
-            throw new AnalysisException(
-                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
-                            + ") does not support row-level DML operations");
-        }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        // Resolve the table handle first so BOTH the write-admission gate and the write provider are chosen
+        // per-table (a heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type);
+        // byte-identical for every single-format connector (the per-handle overloads default to connector-level).
         ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
                 targetTable.getRemoteDbName(), targetTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
+        Set<WriteOperation> writeOps = connector.supportedWriteOperations(providerTableHandle);
+        if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
+            throw new AnalysisException(
+                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
+                            + ") does not support row-level DML operations");
+        }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
 
@@ -692,18 +671,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Every write-capable connector builds its own opaque TDataSink via its write-plan
         // provider (jdbc / maxcompute / iceberg). A connector whose declared write operations do
         // not include INSERT does not support writes.
-        if (!connector.supportedWriteOperations().contains(WriteOperation.INSERT)) {
-            throw new AnalysisException(
-                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
-                            + ") does not support INSERT operations");
-        }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        // Resolve the table handle first so BOTH the INSERT-admission gate and the write provider are chosen
+        // per-table (a heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type);
+        // byte-identical for every single-format connector (the per-handle overloads default to connector-level).
         ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
                 targetTable.getRemoteDbName(), targetTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
+        if (!connector.supportedWriteOperations(providerTableHandle).contains(WriteOperation.INSERT)) {
+            throw new AnalysisException(
+                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
+                            + ") does not support INSERT operations");
+        }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
 
         // Thread the statement's MVCC snapshot pin onto the WRITE handle, reusing the exact scan-side pin
         // logic so a DML's write anchors at the SAME snapshot its scan read (the pin is keyed by
@@ -812,37 +794,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Forward the pruned partitions so the connector reads only the surviving partitions
             // (mirrors the legacy MaxCompute / Hive branches below).
             pluginScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+            // Forward TABLESAMPLE (mirrors the legacy Hive branch below). Whether it is actually applied
+            // is decided in PluginDrivenScanNode by the connector's supportsTableSample() capability: a
+            // connector whose split ranges carry byte lengths (Hive) samples; the others no-op with a
+            // warning. Without this forward the sample is silently dropped and the query scans the full table.
+            if (fileScan.getTableSample().isPresent()) {
+                pluginScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
+                        fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
+            }
             scanNode = pluginScanNode;
-        } else if (table instanceof HMSExternalTable) {
-            if (directoryLister == null) {
-                this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
-                        Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
-            }
-            switch (((HMSExternalTable) table).getDlaType()) {
-                case ICEBERG:
-                    scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                            context.getScanContext());
-                    break;
-                case HIVE:
-                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister,
-                            context.getScanContext());
-                    HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
-                    hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
-                    if (fileScan.getTableSample().isPresent()) {
-                        hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
-                                fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
-                    }
-                    break;
-                case HUDI:
-                    // HUDI table should be handled by visitPhysicalHudiScan, not here.
-                    // If we reach here, it means LogicalHudiScan was incorrectly converted to
-                    // PhysicalFileScan.
-                    throw new RuntimeException("HUDI table should use PhysicalHudiScan instead of PhysicalFileScan. "
-                            + "This indicates a bug in the optimizer rules. "
-                            + "FileScan class: " + fileScan.getClass().getSimpleName());
-                default:
-                    throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
-            }
         } else if (table instanceof LakeSoulExternalTable) {
             scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
@@ -881,57 +841,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         emptySetNode.setDistributeExprLists(getDistributeExpr(emptyRelation));
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), emptyRelation);
         return planFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalHudiScan(PhysicalHudiScan hudiScan, PlanTranslatorContext context) {
-        List<Slot> slots = hudiScan.getOutput();
-        ExternalTable table = hudiScan.getTable();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
-        SessionVariable sv = ConnectContext.get().getSessionVariable();
-
-        // Plugin-driven (SPI) Hudi: route through PluginDrivenScanNode.
-        if (table instanceof PluginDrivenExternalTable) {
-            // Fail loud: the SPI Hudi path does not yet honor time travel or incremental
-            // reads. HudiScanPlanProvider always reads the latest snapshot, and the
-            // incremental relation has no SPI representation, so honoring them silently
-            // would return wrong results (latest snapshot / full scan instead). Full
-            // support is deferred to the Hudi connector live cutover (batch E); see
-            // plan-doc DV-006 / tasks/P3.
-            if (hudiScan.getIncrementalRelation().isPresent()) {
-                throw new AnalysisException("Hudi incremental read is not yet supported via the "
-                        + "catalog SPI; it is deferred to the Hudi connector migration.");
-            }
-            if (hudiScan.getTableSnapshot().isPresent()) {
-                throw new AnalysisException("Hudi time travel (FOR TIME/VERSION AS OF) is not yet "
-                        + "supported via the catalog SPI; it is deferred to the Hudi connector migration.");
-            }
-            PluginDrivenExternalCatalog pluginCatalog =
-                    (PluginDrivenExternalCatalog) table.getCatalog();
-            ScanNode scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
-                    false, sv, context.getScanContext(), pluginCatalog,
-                    (PluginDrivenExternalTable) table);
-            FileQueryScanNode fileScan = (FileQueryScanNode) scanNode;
-            hudiScan.getScanParams().ifPresent(fileScan::setScanParams);
-            return getPlanFragmentForPhysicalFileScan(hudiScan, context, scanNode);
-        }
-
-        if (directoryLister == null) {
-            this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
-                    Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
-        }
-        if (!(table instanceof HMSExternalTable) || ((HMSExternalTable) table).getDlaType() != DLAType.HUDI) {
-            throw new RuntimeException("Invalid table type for Hudi scan: " + table.getType());
-        }
-        HudiScanNode hudiScanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
-                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), sv,
-                directoryLister, context.getScanContext());
-        if (hudiScan.getTableSnapshot().isPresent()) {
-            hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
-        }
-        hudiScanNode.setSelectedPartitions(hudiScan.getSelectedPartitions());
-        hudiScanNode.setDistributeExprLists(getDistributeExpr(hudiScan));
-        return getPlanFragmentForPhysicalFileScan(hudiScan, context, hudiScanNode);
     }
 
     @NotNull

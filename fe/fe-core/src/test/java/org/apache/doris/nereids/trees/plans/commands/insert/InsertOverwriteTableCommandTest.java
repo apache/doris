@@ -19,9 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -63,12 +61,9 @@ public class InsertOverwriteTableCommandTest {
      */
     private static PluginDrivenExternalTable pluginTable(boolean supported) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Connector connector = Mockito.mock(Connector.class);
         Set<WriteOperation> ops = supported ? EnumSet.of(WriteOperation.OVERWRITE) : EnumSet.noneOf(WriteOperation.class);
-        Mockito.when(table.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
+        // The OVERWRITE gate now probes the per-handle write ops via the table helper; stub it directly.
+        Mockito.when(table.connectorSupportedWriteOperations()).thenReturn(ops);
         return table;
     }
 
@@ -78,11 +73,8 @@ public class InsertOverwriteTableCommandTest {
      */
     private static PluginDrivenExternalTable pluginTableForWriteBranch(boolean supported) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Connector connector = Mockito.mock(Connector.class);
-        Mockito.when(table.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.supportsWriteBranch()).thenReturn(supported);
+        // The @branch gate now probes the per-handle capability via the table helper; stub it directly.
+        Mockito.when(table.connectorSupportsWriteBranch()).thenReturn(supported);
         return table;
     }
 

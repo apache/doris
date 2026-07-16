@@ -49,6 +49,9 @@ import java.util.List;
  *       provider returning {@code true} from {@code requiresPartitionLocalSort()} → hash-by-partition +
  *       mandatory local sort, so the MaxCompute Storage API streaming partition writer does not hit
  *       "writer has been closed" on un-grouped rows;</li>
+ *   <li><b>partitioned write</b> + write provider returning {@code true} from
+ *       {@code requiresPartitionHashWrite()} (Hive-style) → hash-by-partition with <em>no</em> local sort
+ *       (byte-exact to legacy {@code PhysicalHiveTableSink});</li>
  *   <li><b>non-partition / all-static write</b> + write provider returning {@code true} from
  *       {@code requiresParallelWrite()} → {@code SINK_RANDOM_PARTITIONED} (parallel writers, NG-4
  *       parity);</li>
@@ -250,6 +253,55 @@ public class PhysicalConnectorTableSinkTest {
                         + "overriding the partition-shuffle distribution");
     }
 
+    /**
+     * Hash-write connector (Hive-style, {@code requiresPartitionHashWrite=true} but
+     * {@code requiresPartitionLocalSort=false}): a partitioned write hash-distributes by the partition
+     * columns with NO mandatory local sort — byte-exact to legacy {@code PhysicalHiveTableSink}, which
+     * hashed by the partition columns and never attached an order spec (the hive file writer buffers a
+     * per-partition writer, so grouping the rows by a sort is unnecessary). The MaxCompute arm is skipped
+     * because {@code requirePartitionLocalSortOnWrite()} is false, so this reaches the new no-sort arm.
+     */
+    @Test
+    public void partitionHashWriteHashesByPartitionWithoutLocalSort() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PhysicalConnectorTableSink<Plan> sink = sink(
+                table(true, false, true, ImmutableList.of(PART), ImmutableList.of(DATA, PART)),
+                Arrays.asList(DATA, PART),
+                ImmutableList.of(dataSlot, partSlot));
+
+        PhysicalProperties props = sink.getRequirePhysicalProperties();
+
+        Assertions.assertTrue(props.getDistributionSpec() instanceof DistributionSpecHiveTableSinkHashPartitioned,
+                "a hash-write connector must hash-distribute a partitioned write by its partition columns");
+        DistributionSpecHiveTableSinkHashPartitioned dist =
+                (DistributionSpecHiveTableSinkHashPartitioned) props.getDistributionSpec();
+        Assertions.assertEquals(ImmutableList.of(partSlot.getExprId()), dist.getOutputColExprIds(),
+                "hash key must be the partition-column slot taken at its full-schema position");
+        Assertions.assertFalse(props.getOrderSpec() instanceof MustLocalSortOrderSpec,
+                "a no-sort hash-write connector must NOT add a mandatory local sort (byte-exact to legacy "
+                        + "PhysicalHiveTableSink, which hash-distributed without a sort) — else a hive write "
+                        + "would pay an unnecessary sort the legacy path never had");
+    }
+
+    /**
+     * Non-partitioned write on a hash-write connector: the hash arm's {@code !partitionNames.isEmpty()}
+     * gate falls through to the parallel arm, matching legacy {@code PhysicalHiveTableSink}'s
+     * non-partitioned {@code SINK_RANDOM_PARTITIONED}. Guards that the hash arm never fires without
+     * partition columns (which would build an empty-key distribution).
+     */
+    @Test
+    public void nonPartitionedHashWriteConnectorUsesRandomWhenParallel() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        PhysicalConnectorTableSink<Plan> sink = sink(
+                table(true, false, true, ImmutableList.of(), ImmutableList.of(DATA)),
+                Arrays.asList(DATA),
+                ImmutableList.of(dataSlot));
+
+        Assertions.assertSame(PhysicalProperties.SINK_RANDOM_PARTITIONED, sink.getRequirePhysicalProperties(),
+                "a non-partitioned hash-write connector falls through to parallel writers, not the hash arm");
+    }
+
     // ==================== helpers ====================
 
     private static PluginDrivenExternalTable table(boolean parallelWrite, boolean requirePartitionSort,
@@ -259,6 +311,14 @@ public class PhysicalConnectorTableSinkTest {
         Mockito.when(table.requirePartitionLocalSortOnWrite()).thenReturn(requirePartitionSort);
         Mockito.when(table.getPartitionColumns()).thenReturn(partitionColumns);
         Mockito.when(table.getFullSchema()).thenReturn(fullSchema);
+        return table;
+    }
+
+    /** As {@link #table(boolean, boolean, List, List)} but also stubs the hash-write capability. */
+    private static PluginDrivenExternalTable table(boolean parallelWrite, boolean requirePartitionSort,
+            boolean requirePartitionHash, List<Column> partitionColumns, List<Column> fullSchema) {
+        PluginDrivenExternalTable table = table(parallelWrite, requirePartitionSort, partitionColumns, fullSchema);
+        Mockito.when(table.requirePartitionHashOnWrite()).thenReturn(requirePartitionHash);
         return table;
     }
 

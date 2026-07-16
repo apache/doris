@@ -35,7 +35,9 @@ import org.apache.iceberg.mapping.MappedField;
 import org.apache.iceberg.mapping.MappedFields;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
+import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,6 +45,7 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -50,6 +53,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Builds the native-reader schema dictionary ({@code current_schema_id} + {@code history_schema_info}) so BE
@@ -109,7 +113,7 @@ public final class IcebergSchemaUtils {
      * (count-only scan / no column handles) falls back to all top-level schema columns.
      */
     static String encodeSchemaEvolutionProp(Table table, List<String> requestedLowerNames) {
-        return encodeSchemaEvolutionProp(table, table.schema(), requestedLowerNames, false);
+        return encodeSchemaEvolutionProp(table, table.schema(), requestedLowerNames, false, false);
     }
 
     /**
@@ -127,8 +131,21 @@ public final class IcebergSchemaUtils {
      */
     static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
             boolean appendRowLineage) {
+        // Thin overload: default enableTimestampTz=false (the callers that do not thread the catalog's
+        // enable.mapping.timestamp_tz flag keep the pre-#65502 UTC-wall-time behaviour).
+        return encodeSchemaEvolutionProp(table, dictSchema, requestedLowerNames, appendRowLineage, false);
+    }
+
+    /**
+     * The real builder. {@code enableTimestampTz} (#65502) mirrors the catalog's
+     * {@code enable.mapping.timestamp_tz} flag: it is threaded into {@link #buildCurrentSchema} so a
+     * TIMESTAMPTZ column's iceberg initial default is serialized consistently with how BE will read the
+     * column (keep the trailing offset when tz-mapping is on, drop it — DATETIMEV2 UTC wall time — when off).
+     */
+    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
+            boolean appendRowLineage, boolean enableTimestampTz) {
         Map<Integer, List<String>> nameMapping = extractNameMapping(table);
-        TSchema current = buildCurrentSchema(dictSchema, requestedLowerNames, nameMapping);
+        TSchema current = buildCurrentSchema(dictSchema, requestedLowerNames, nameMapping, enableTimestampTz);
         if (appendRowLineage) {
             appendRowLineageFields(current.getRootField());
         }
@@ -204,12 +221,24 @@ public final class IcebergSchemaUtils {
      */
     static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
             Map<Integer, List<String>> nameMapping) {
+        // Thin overload: default enableTimestampTz=false (pre-#65502 timestamp-default behaviour).
+        return buildCurrentSchema(schema, requestedLowerNames, nameMapping, false);
+    }
+
+    /**
+     * The real builder; {@code enableTimestampTz} (#65502) is threaded into every {@link #buildField} call so a
+     * TIMESTAMPTZ column's iceberg initial default is serialized to match BE's read of the column (see
+     * {@link #serializeInitialDefault}).
+     */
+    static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
+            Map<Integer, List<String>> nameMapping, boolean enableTimestampTz) {
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(CURRENT_SCHEMA_ID);
         TStructField root = new TStructField();
         if (requestedLowerNames == null || requestedLowerNames.isEmpty()) {
             for (Types.NestedField field : schema.columns()) {
-                addField(root, buildField(field, field.name().toLowerCase(Locale.ROOT), nameMapping));
+                addField(root, buildField(field, field.name().toLowerCase(Locale.ROOT), nameMapping,
+                        enableTimestampTz));
             }
         } else {
             for (String name : requestedLowerNames) {
@@ -218,7 +247,7 @@ public final class IcebergSchemaUtils {
                     throw new RuntimeException("iceberg schema-evolution: requested column '" + name
                             + "' not found in the table schema");
                 }
-                addField(root, buildField(field, name, nameMapping));
+                addField(root, buildField(field, name, nameMapping, enableTimestampTz));
             }
         }
         tSchema.setRootField(root);
@@ -241,7 +270,7 @@ public final class IcebergSchemaUtils {
      * (a {@code STRING} placeholder for scalars — BE uses it only as a discriminator).
      */
     private static TField buildField(Types.NestedField field, String nameOverride,
-            Map<Integer, List<String>> nameMapping) {
+            Map<Integer, List<String>> nameMapping, boolean enableTimestampTz) {
         TField tField = new TField();
         tField.setId(field.fieldId());
         tField.setName(nameOverride != null ? nameOverride : field.name().toLowerCase(Locale.ROOT));
@@ -254,6 +283,21 @@ public final class IcebergSchemaUtils {
         if (nameMapping.containsKey(field.fieldId())) {
             // for iceberg set name mapping (old files without embedded field ids fall back to these names).
             tField.setNameMapping(new ArrayList<>(nameMapping.get(field.fieldId())));
+        }
+
+        // #65502: carry each field's iceberg initial default so BE can materialize an equality-delete key
+        // (or any column) that is absent from an old data file with its typed default instead of NULL.
+        // Binary-like values (UUID/BINARY/FIXED) go through a lossless Base64 carrier flagged for BE, because
+        // their Doris type (STRING/CHAR when varbinary-mapping is off) can't tell BE to decode bytes; other
+        // values use the Doris FE string form (timestamp normalized to DATETIMEV2 spacing).
+        if (field.initialDefault() != null) {
+            if (isBinaryLike(field.type())) {
+                tField.setInitialDefaultValue(serializeBinaryInitialDefault(field.type(), field.initialDefault()));
+                tField.setInitialDefaultValueIsBase64(true);
+            } else {
+                tField.setInitialDefaultValue(
+                        serializeInitialDefault(field.type(), field.initialDefault(), enableTimestampTz));
+            }
         }
 
         Type type = field.type();
@@ -272,7 +316,8 @@ public final class IcebergSchemaUtils {
                 columnType.setType(TPrimitiveType.ARRAY);
                 Types.ListType listType = (Types.ListType) type;
                 TArrayField arrayField = new TArrayField();
-                arrayField.setItemField(fieldPtr(buildField(listType.fields().get(0), null, nameMapping)));
+                arrayField.setItemField(
+                        fieldPtr(buildField(listType.fields().get(0), null, nameMapping, enableTimestampTz)));
                 nestedField.setArrayField(arrayField);
                 break;
             }
@@ -281,8 +326,8 @@ public final class IcebergSchemaUtils {
                 Types.MapType mapType = (Types.MapType) type;
                 List<Types.NestedField> kv = mapType.fields();
                 TMapField mapField = new TMapField();
-                mapField.setKeyField(fieldPtr(buildField(kv.get(0), null, nameMapping)));
-                mapField.setValueField(fieldPtr(buildField(kv.get(1), null, nameMapping)));
+                mapField.setKeyField(fieldPtr(buildField(kv.get(0), null, nameMapping, enableTimestampTz)));
+                mapField.setValueField(fieldPtr(buildField(kv.get(1), null, nameMapping, enableTimestampTz)));
                 nestedField.setMapField(mapField);
                 break;
             }
@@ -291,7 +336,7 @@ public final class IcebergSchemaUtils {
                 Types.StructType structType = (Types.StructType) type;
                 TStructField structField = new TStructField();
                 for (Types.NestedField child : structType.fields()) {
-                    addField(structField, buildField(child, null, nameMapping));
+                    addField(structField, buildField(child, null, nameMapping, enableTimestampTz));
                 }
                 nestedField.setStructField(structField);
                 break;
@@ -306,6 +351,37 @@ public final class IcebergSchemaUtils {
         tField.setType(columnType);
         tField.setNestedField(nestedField);
         return tField;
+    }
+
+    private static String serializeInitialDefault(Type type, Object value, boolean enableTimestampTz) {
+        String humanValue = Transforms.identity(type).toHumanString(type, value);
+        if (type.typeId() == TypeID.TIMESTAMP) {
+            // Iceberg prints ISO-8601 (2024-01-01T00:00:00); Doris DATETIMEV2 needs a space separator.
+            String dorisValue = humanValue.replace('T', ' ');
+            if (((Types.TimestampType) type).shouldAdjustToUTC() && !enableTimestampTz) {
+                // timestamptz human form carries a trailing offset; DATETIMEV2 has no offset carrier, so keep
+                // the displayed UTC wall time and drop the suffix (only when tz-mapping is off).
+                return dorisValue.replaceFirst("(Z|[+-]\\d{2}:\\d{2})$", "");
+            }
+            return dorisValue;
+        }
+        return humanValue;
+    }
+
+    private static boolean isBinaryLike(Type type) {
+        return type.typeId() == TypeID.UUID || type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED;
+    }
+
+    private static String serializeBinaryInitialDefault(Type type, Object value) {
+        if (type.typeId() != TypeID.UUID) {
+            // BINARY/FIXED: iceberg's identity human form is already Base64 of the raw bytes.
+            return Transforms.identity(type).toHumanString(type, value);
+        }
+        UUID uuid = (UUID) value;
+        ByteBuffer bytes = ByteBuffer.allocate(16);
+        bytes.putLong(uuid.getMostSignificantBits());
+        bytes.putLong(uuid.getLeastSignificantBits());
+        return Base64.getEncoder().encodeToString(bytes.array());
     }
 
     private static void addField(TStructField structField, TField child) {

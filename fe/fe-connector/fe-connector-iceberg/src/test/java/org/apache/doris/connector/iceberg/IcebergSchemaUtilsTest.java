@@ -38,12 +38,14 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Tests for {@link IcebergSchemaUtils} — the T06 field-id schema dictionary. The dictionary is the highest-risk
@@ -264,6 +266,58 @@ public class IcebergSchemaUtilsTest {
         // rather than silently drop it (a dropped column would make BE's StructNode DCHECK-abort the whole BE).
         Table table = createTable("t1", SCHEMA);
         Assertions.assertThrows(RuntimeException.class, () -> dict(table, "id", "does_not_exist"));
+    }
+
+    // --- #65502: each field's iceberg initial default is carried onto the dict TField ---
+
+    @Test
+    public void initialDefaultsAreCarriedOntoDictFields() {
+        // #65502: BE materializes a column (notably an equality-delete KEY) that is ABSENT from an OLD data
+        // file with the field's iceberg initial default instead of NULL. So buildField must carry each field's
+        // initial default: scalar values as the Doris string form (timestamp normalized to DATETIMEV2 spacing),
+        // binary-like values (UUID/BINARY/FIXED) as a lossless Base64 carrier flagged is_base64 (their Doris
+        // STRING/CHAR type can't tell BE to decode bytes). The expected values byte-match #65502's IcebergUtils
+        // test. MUTATION: not setting initial_default_value -> BE backfills NULL -> mis-applied deletes -> red.
+        Schema schema = new Schema(
+                Types.NestedField.optional("added_int").withId(1).ofType(Types.IntegerType.get())
+                        .withInitialDefault(7).build(),
+                Types.NestedField.optional("added_ts").withId(2).ofType(Types.TimestampType.withoutZone())
+                        .withInitialDefault(1_704_067_200_123_456L).build(),
+                Types.NestedField.optional("added_uuid").withId(3).ofType(Types.UUIDType.get())
+                        .withInitialDefault(UUID.fromString("00000000-0000-0000-0000-000000000000")).build(),
+                Types.NestedField.optional("added_binary").withId(4).ofType(Types.BinaryType.get())
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF})).build(),
+                Types.NestedField.optional("added_fixed").withId(5).ofType(Types.FixedType.ofLength(4))
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {3, 2, 1, 0})).build());
+
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Arrays.asList("added_int", "added_ts", "added_uuid", "added_binary", "added_fixed"),
+                Collections.emptyMap()));
+
+        // INT -> plain Doris string form, NOT flagged base64.
+        Assertions.assertEquals("7", fields.get("added_int").getInitialDefaultValue());
+        Assertions.assertFalse(fields.get("added_int").isSetInitialDefaultValueIsBase64());
+        // TIMESTAMP without zone -> iceberg ISO "T" replaced by a space for DATETIMEV2 (matches #65502).
+        Assertions.assertEquals("2024-01-01 00:00:00.123456", fields.get("added_ts").getInitialDefaultValue());
+        Assertions.assertFalse(fields.get("added_ts").isSetInitialDefaultValueIsBase64());
+        // UUID -> 16 raw bytes (MSB then LSB) Base64, flagged base64 so BE decodes rather than reads the text.
+        Assertions.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", fields.get("added_uuid").getInitialDefaultValue());
+        Assertions.assertTrue(fields.get("added_uuid").isInitialDefaultValueIsBase64());
+        // BINARY / FIXED -> iceberg's identity human form is already Base64 of the raw bytes, flagged base64.
+        Assertions.assertEquals("AAEC/w==", fields.get("added_binary").getInitialDefaultValue());
+        Assertions.assertTrue(fields.get("added_binary").isInitialDefaultValueIsBase64());
+        Assertions.assertEquals("AwIBAA==", fields.get("added_fixed").getInitialDefaultValue());
+        Assertions.assertTrue(fields.get("added_fixed").isInitialDefaultValueIsBase64());
+    }
+
+    @Test
+    public void fieldsWithoutInitialDefaultOmitTheCarrier() {
+        // A field with no initial default must NOT set initial_default_value (BE then backfills NULL, the legacy
+        // behaviour). MUTATION: unconditionally setting a default -> isSet true -> red.
+        Table table = createTable("t1", SCHEMA);
+        Map<String, TField> fields = topFields(dict(table, "id", "name"));
+        Assertions.assertFalse(fields.get("id").isSetInitialDefaultValue());
+        Assertions.assertFalse(fields.get("name").isSetInitialDefaultValue());
     }
 
     // --- scalar placeholder + nested struct/array/map carry field ids at every level ---
