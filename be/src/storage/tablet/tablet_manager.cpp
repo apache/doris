@@ -87,26 +87,31 @@ constexpr int kShutdownTabletScanChunk = 200;
 // These defaults preserve the historical shutdown sweep behavior when the dynamic config is invalid.
 constexpr int kDefaultShutdownTabletSweepRoundBudget = 200;
 constexpr int kDefaultShutdownTabletSweepIntervalMs = 1000;
+constexpr int kMaxShutdownTabletSweepRoundBudget = 10000;
+constexpr int kMaxShutdownTabletSweepIntervalMs = 10000;
 
 // Read the round budget locally so invalid dynamic values cannot stall the shutdown sweep.
 int get_effective_shutdown_tablet_sweep_round_budget() {
     const int configured_budget = config::shutdown_tablet_sweep_round_budget;
-    if (configured_budget > 0) {
+    if (configured_budget >= 1 && configured_budget <= kMaxShutdownTabletSweepRoundBudget) {
         return configured_budget;
     }
     LOG_EVERY_N(WARNING, 100) << "invalid shutdown_tablet_sweep_round_budget=" << configured_budget
+                              << ", valid range=[1, " << kMaxShutdownTabletSweepRoundBudget << "]"
                               << ", fallback to default=" << kDefaultShutdownTabletSweepRoundBudget;
     return kDefaultShutdownTabletSweepRoundBudget;
 }
 
-// Read the interval locally so negative dynamic values cannot provide an invalid wait duration.
+// Read the interval locally so invalid dynamic values cannot provide an unexpected wait duration.
 int get_effective_shutdown_tablet_sweep_interval_ms() {
     const int configured_interval_ms = config::shutdown_tablet_sweep_interval_ms;
-    if (configured_interval_ms >= 0) {
+    if (configured_interval_ms >= 0 &&
+        configured_interval_ms <= kMaxShutdownTabletSweepIntervalMs) {
         return configured_interval_ms;
     }
     LOG_EVERY_N(WARNING, 100) << "invalid shutdown_tablet_sweep_interval_ms="
-                              << configured_interval_ms
+                              << configured_interval_ms << ", valid range=[0, "
+                              << kMaxShutdownTabletSweepIntervalMs << "]"
                               << ", fallback to default=" << kDefaultShutdownTabletSweepIntervalMs;
     return kDefaultShutdownTabletSweepIntervalMs;
 }
@@ -1302,6 +1307,9 @@ TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
                 ++result.failed_count;
             }
         }
+        // Reaching the current queue tail means this pass is already finished, even when the
+        // success budget happens to be exhausted at the same time. Return here to avoid an extra
+        // sleep and a no-op round.
         if (fetch_result.reached_end) {
             result.elapsed_ms = round_watch.elapsed_time_milliseconds();
             return result;
