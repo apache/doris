@@ -112,6 +112,11 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     }
 
     @Override
+    public String shapeInfo() {
+        return "( not " + child().shapeInfo() + ")";
+    }
+
+    @Override
     public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Not(children, isGeneratedIsNotNull);

@@ -1152,61 +1152,97 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
-        if (fe == null) {
-            LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
-            throw new TException("request from invalid host was rejected.");
+        validateForwardRequester(params);
+        TMasterOpResult shortcut = handleForwardShortcut(params);
+        if (shortcut != null) {
+            return shortcut;
         }
+        logForwardRequest(params);
+        ConnectContext context = createForwardContext(params);
+        ConnectProcessor processor = createForwardProcessor(context);
+        Runnable clearCallback = registerProxyQuery(params, context);
+        try {
+            return executeForward(params, context, processor);
+        } finally {
+            ConnectContext.remove();
+            clearCallback.run();
+        }
+    }
+
+    private void validateForwardRequester(TMasterOpRequest params) throws TException {
+        Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
+        if (fe != null) {
+            return;
+        }
+        LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
+        throw new TException("request from invalid host was rejected.");
+    }
+
+    private TMasterOpResult handleForwardShortcut(TMasterOpRequest params) throws TException {
         if (params.isSyncJournalOnly()) {
-            final TMasterOpResult result = new TMasterOpResult();
-            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
-            // just make the protocol happy
-            result.setPacket("".getBytes());
-            return result;
+            return createForwardResultWithJournalSync();
         }
         if (params.getGroupCommitInfo() != null && params.getGroupCommitInfo().isGetGroupCommitLoadBeId()) {
-            final TGroupCommitInfo info = params.getGroupCommitInfo();
-            final TMasterOpResult result = new TMasterOpResult();
-            try {
-                result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
-            } catch (LoadException | DdlException e) {
-                throw new TException(e.getMessage());
-            }
-            // just make the protocol happy
-            result.setPacket("".getBytes());
-            return result;
+            return handleGroupCommitLoadBeId(params.getGroupCommitInfo());
         }
         if (params.getGroupCommitInfo() != null && params.getGroupCommitInfo().isUpdateLoadData()) {
-            final TGroupCommitInfo info = params.getGroupCommitInfo();
-            final TMasterOpResult result = new TMasterOpResult();
             Env.getCurrentEnv().getGroupCommitManager()
-                    .updateLoadData(info.tableId, info.receiveData);
-            // just make the protocol happy
-            result.setPacket("".getBytes());
-            return result;
+                    .updateLoadData(params.getGroupCommitInfo().tableId, params.getGroupCommitInfo().receiveData);
+            return createForwardResultWithoutJournalSync();
         }
-        if (params.isSetCancelQeury() && params.isCancelQeury()) {
-            if (!params.isSetQueryId()) {
-                throw new TException("a query id is needed to cancel a query");
-            }
-            TUniqueId queryId = params.getQueryId();
-            ConnectContext ctx = proxyQueryIdToConnCtx.get(queryId);
-            if (ctx != null) {
-                ctx.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
-            }
-            final TMasterOpResult result = new TMasterOpResult();
-            result.setStatusCode(0);
-            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
-            // just make the protocol happy
-            result.setPacket("".getBytes());
-            return result;
+        if (!params.isSetCancelQeury() || !params.isCancelQeury()) {
+            return null;
         }
+        return handleForwardCancel(params);
+    }
 
-        // add this log so that we can track this stmt
+    private TMasterOpResult createForwardResultWithJournalSync() {
+        TMasterOpResult result = new TMasterOpResult();
+        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        result.setPacket("".getBytes());
+        return result;
+    }
+
+    private TMasterOpResult createForwardResultWithoutJournalSync() {
+        TMasterOpResult result = new TMasterOpResult();
+        // Group commit shortcuts update master memory without producing a journal id. Say so explicitly
+        // instead of relying on the default value of the required maxJournalId field.
+        result.setMaxJournalId(0L);
+        result.setPacket("".getBytes());
+        return result;
+    }
+
+    private TMasterOpResult handleGroupCommitLoadBeId(TGroupCommitInfo info) throws TException {
+        TMasterOpResult result = createForwardResultWithoutJournalSync();
+        try {
+            result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
+        } catch (LoadException | DdlException e) {
+            throw new TException(e.getMessage());
+        }
+        return result;
+    }
+
+    private TMasterOpResult handleForwardCancel(TMasterOpRequest params) throws TException {
+        if (!params.isSetQueryId()) {
+            throw new TException("a query id is needed to cancel a query");
+        }
+        ConnectContext context = proxyQueryIdToConnCtx.get(params.getQueryId());
+        if (context != null) {
+            context.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
+        }
+        TMasterOpResult result = createForwardResultWithJournalSync();
+        result.setStatusCode(0);
+        return result;
+    }
+
+    private void logForwardRequest(TMasterOpRequest params) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
         }
+    }
+
+    private ConnectContext createForwardContext(TMasterOpRequest params) {
         ConnectContext context = new ConnectContext(null, true, params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
@@ -1214,28 +1250,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
         }
+        return context;
+    }
 
-        ConnectProcessor processor = null;
+    private ConnectProcessor createForwardProcessor(ConnectContext context) throws TException {
         if (context.getConnectType().equals(ConnectType.MYSQL)) {
-            processor = new MysqlConnectProcessor(context);
-        } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-            processor = new FlightSqlConnectProcessor(context);
-        } else {
-            throw new TException("unknown ConnectType: " + context.getConnectType());
+            return new MysqlConnectProcessor(context);
         }
-        Runnable clearCallback = () -> {};
-        if (params.isSetQueryId()) {
-            proxyQueryIdToConnCtx.put(params.getQueryId(), context);
-            clearCallback = () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
+        if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
+            return new FlightSqlConnectProcessor(context);
         }
+        throw new TException("unknown ConnectType: " + context.getConnectType());
+    }
+
+    private Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
+        if (!params.isSetQueryId()) {
+            return () -> {};
+        }
+        proxyQueryIdToConnCtx.put(params.getQueryId(), context);
+        return () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
+    }
+
+    private TMasterOpResult executeForward(TMasterOpRequest params, ConnectContext context,
+            ConnectProcessor processor) throws TException {
         TMasterOpResult result = processor.proxyExecute(params);
         if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
             context.getState().setError(result.getStatus());
-        } else {
-            context.getState().setOk();
+            return result;
         }
-        ConnectContext.remove();
-        clearCallback.run();
+        context.getState().setOk();
         return result;
     }
 
@@ -5582,6 +5625,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             jobInfo.setLag(job.getLag());
             jobInfo.setReasonOfStateChanged(job.getStateReason());
             jobInfo.setErrorLogUrls(Joiner.on(", ").join(job.getErrorLogUrls()));
+            jobInfo.setFirstErrorMsg(job.getFirstErrorMsg());
             jobInfo.setUserName(job.getUserIdentity().getQualifiedUser());
             jobInfo.setCurrentAbortTaskNum(job.getJobStatistic().currentAbortedTaskNum);
             jobInfo.setIsAbnormalPause(job.isAbnormalPause());

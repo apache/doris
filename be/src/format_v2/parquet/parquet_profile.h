@@ -35,6 +35,7 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* reader_skip_rows = nullptr;        // rows skipped by skip()
     RuntimeProfile::Counter* reader_select_rows = nullptr;      // rows selected by select()
     RuntimeProfile::Counter* arrow_read_records_time = nullptr; // Arrow RecordReader time (ns)
+    RuntimeProfile::Counter* arrow_skip_records_time = nullptr; // Arrow SkipRecords time (ns)
     RuntimeProfile::Counter* materialization_time = nullptr;    // value materialization time (ns)
 };
 
@@ -103,6 +104,7 @@ struct ParquetProfile {
     RuntimeProfile::Counter* reader_skip_rows = nullptr;
     RuntimeProfile::Counter* reader_select_rows = nullptr;
     RuntimeProfile::Counter* arrow_read_records_time = nullptr;
+    RuntimeProfile::Counter* arrow_skip_records_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
 
     RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;

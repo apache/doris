@@ -270,6 +270,40 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     return Status::OK();
 }
 
+uint64_t Scanner::_current_condition_cache_digest() const {
+    DORIS_CHECK(_state != nullptr);
+    DORIS_CHECK(_local_state != nullptr);
+    if (_local_state->get_condition_cache_digest() == 0) {
+        return 0;
+    }
+
+    // ScanLocalState computed its digest after collecting the RFs that were ready during open(). A
+    // scanner may later clone more RF conjuncts between file splits, so rebuild from its current
+    // snapshot instead of reusing that stale value. For example, split 0 may use P, while split 1
+    // starts after an IN RF with payload {7, 9} arrives and must use digest(P AND RF{7, 9}). A
+    // different payload {8, 10} consequently receives a different key. get_digest() returning zero
+    // is the correctness fallback for an RF whose complete semantics cannot be represented.
+    return _build_condition_cache_digest(_state->query_options().condition_cache_digest,
+                                         _conjuncts);
+}
+
+uint64_t Scanner::_build_condition_cache_digest(uint64_t seed, const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        seed = conjunct->get_digest(seed);
+        if (seed == 0) {
+            return 0;
+        }
+    }
+    return seed;
+}
+
+#ifdef BE_TEST
+uint64_t Scanner::TEST_build_condition_cache_digest(uint64_t seed,
+                                                    const VExprContextSPtrs& conjuncts) {
+    return _build_condition_cache_digest(seed, conjuncts);
+}
+#endif
+
 Status Scanner::close(RuntimeState* state) {
 #ifndef BE_TEST
     COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
