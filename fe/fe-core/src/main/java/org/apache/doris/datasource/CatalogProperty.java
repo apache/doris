@@ -268,6 +268,7 @@ public class CatalogProperty {
                         backendProps.entrySet().stream().filter(e -> e.getValue() != null)
                                 .forEach(e -> result.put(e.getKey(), e.getValue()));
                     }
+                    StorageProperties.setCombinedFsCacheKey(result, storageMap.values());
 
                     this.backendStorageProperties = result;
                 }
@@ -298,6 +299,7 @@ public class CatalogProperty {
                             });
                         }
                     }
+                    StorageProperties.setCombinedFsCacheKey(hadoopProperties, storageMap.values());
                 }
             }
         }

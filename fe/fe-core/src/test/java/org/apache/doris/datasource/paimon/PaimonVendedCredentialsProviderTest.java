@@ -276,6 +276,8 @@ public class PaimonVendedCredentialsProviderTest {
 
         Mockito.when(ossProperties.getBackendConfigProperties()).thenReturn(ossBackendProps);
         Mockito.when(hdfsProperties.getBackendConfigProperties()).thenReturn(hdfsBackendProps);
+        Mockito.when(ossProperties.getFsCacheFingerprint()).thenReturn("fp-oss");
+        Mockito.when(hdfsProperties.getFsCacheFingerprint()).thenReturn("fp-hdfs");
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.OSS, ossProperties);
@@ -283,12 +285,14 @@ public class PaimonVendedCredentialsProviderTest {
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Assertions.assertEquals(5, result.size());
+        Assertions.assertEquals(6, result.size());
         Assertions.assertEquals("testOssAccessKey", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("testOssSecretKey", result.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("testOssToken", result.get("AWS_TOKEN"));
         Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", result.get("AWS_ENDPOINT"));
         Assertions.assertEquals("hdfsValue", result.get("HDFS_PROPERTY"));
+        Assertions.assertEquals(StorageProperties.combinedFsCacheFingerprint(storagePropertiesMap.values()),
+                result.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
     }
 
     @Test
@@ -301,15 +305,17 @@ public class PaimonVendedCredentialsProviderTest {
         ossBackendProps.put("AWS_TOKEN", "testToken");
 
         Mockito.when(ossProperties.getBackendConfigProperties()).thenReturn(ossBackendProps);
+        Mockito.when(ossProperties.getFsCacheFingerprint()).thenReturn("fp-oss");
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.OSS, ossProperties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals(3, result.size());
         Assertions.assertEquals("testAccessKey", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("testToken", result.get("AWS_TOKEN"));
+        Assertions.assertEquals("fp-oss", result.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
         Assertions.assertFalse(result.containsKey("AWS_SECRET_KEY"));
     }
 
