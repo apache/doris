@@ -895,11 +895,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // cases the version-blind analysis-time binding cannot. Per user decision 2026-07-13: throw for now;
         // the per-reference version-aware schema-binding refactor is tracked as D-MVCC-VERSION-SCHEMA. A
         // latest / @incr / hive scan carries a null pinnedSchema -> no-op; so does a sys-table scan on a
-        // connector that rejects sys-table time travel (resolveSysTableSnapshotPin returns empty).
-        // KNOWN GAP: a sys-table scan on a connector that DOES honor it (iceberg) resolves the SOURCE
-        // table's pin, whose pinnedSchema is the source's columns, while this tuple carries the SYS table's
-        // columns -> the check below is a category error and would throw a bogus "multiple versions" error.
-        // Latent (iceberg sys-table time travel has no e2e coverage today), pre-existing, and NOT fixed here.
+        // connector that rejects sys-table time travel (resolveSysTableSnapshotPin returns empty). A sys-table
+        // scan on a connector that DOES honor it (iceberg) is excluded inside the guard — see there.
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
             List<Column> boundColumns = new ArrayList<>();
             for (SlotDescriptor slot : desc.getSlots()) {
@@ -909,7 +906,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
             assertBoundColumnsResolveInPinnedSchema(boundColumns,
                     ((PluginDrivenMvccSnapshot) snapshot.get()).getPinnedSchema(),
-                    getTargetTable().getName());
+                    getTargetTable());
         }
         currentHandle = applyMvccSnapshotPin(metadata, connectorSession, currentHandle, snapshot);
     }
@@ -924,16 +921,32 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * <p>Matching keys on whether the column carries a field id (a generic {@link Column} property, NOT a
      * source-name branch): {@code uniqueId >= 0} (iceberg carries the iceberg field-id) matches by field-id
      * (BE matches iceberg columns by id, so a rename that keeps the id is fine, a renumber / added column is
-     * caught); {@code uniqueId < 0} (paimon has no top-level field-id) matches by name. A {@code null}
-     * pinnedSchema (latest / {@code @incr} / sys-table / hive reference) is a no-op. Reader-synthesized
+     * caught); {@code uniqueId < 0} (paimon has no top-level field-id) matches by name. Reader-synthesized
      * row-id columns ({@link Column#GLOBAL_ROWID_COL}) are skipped — they are not table columns and are
      * absent from every pinned schema by construction.</p>
+     *
+     * <p>Two no-ops, both because the guard's precondition — {@code boundColumns} and {@code pinnedSchema}
+     * describe the SAME table — does not hold:
+     * <ul>
+     *   <li>A {@code null} pinnedSchema (latest / {@code @incr} / hive reference): nothing to compare.</li>
+     *   <li>A {@code table} that is a {@link PluginDrivenSysExternalTable}: a sys-table scan's pin is BY
+     *       CONSTRUCTION resolved off the SOURCE table ({@code resolveSysTableSnapshotPin}), so pinnedSchema
+     *       carries the source's columns while boundColumns carries the sys table's synthetic ones
+     *       (file_path / pos / row / spec_id / ...). Comparing them is a category error that can never
+     *       resolve — it threw a bogus "multiple versions" error on every iceberg sys-table time travel
+     *       (CI 997422). Same class of exclusion as {@code GLOBAL_ROWID_COL} above. Connectors that reject
+     *       sys-table time travel never get here (their pin resolves empty), so this changes nothing for
+     *       them.</li>
+     * </ul>
+     * The guard keeps full strength for real MVCC tables: {@link PluginDrivenSysExternalTable} and
+     * {@link PluginDrivenMvccExternalTable} are sibling subclasses, so no normal table matches.</p>
      */
     static void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
-            SchemaCacheValue pinnedSchema, String tableName) throws UserException {
-        if (pinnedSchema == null) {
+            SchemaCacheValue pinnedSchema, TableIf table) throws UserException {
+        if (pinnedSchema == null || table instanceof PluginDrivenSysExternalTable) {
             return;
         }
+        String tableName = table.getName();
         Set<Integer> pinnedFieldIds = new HashSet<>();
         Set<String> pinnedNames = new HashSet<>();
         for (Column c : pinnedSchema.getSchema()) {
