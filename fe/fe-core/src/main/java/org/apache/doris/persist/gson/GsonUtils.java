@@ -151,9 +151,6 @@ import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
@@ -360,7 +357,6 @@ public class GsonUtils {
     static {
         dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(CatalogIf.class, "clazz")
                 .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName())
-                .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
                 .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
                 .registerSubtype(RemoteDorisExternalCatalog.class, RemoteDorisExternalCatalog.class.getSimpleName())
                 .registerSubtype(PluginDrivenExternalCatalog.class,
@@ -408,7 +404,12 @@ public class GsonUtils {
                 // Migrate old HMS (hive) catalogs to PluginDriven on deserialization; the hms gateway serves
                 // plain-hive + hudi-on-HMS + iceberg-on-HMS through the hive connector.
                 .registerCompatibleSubtype(
-                        PluginDrivenExternalCatalog.class, "HMSExternalCatalog");
+                        PluginDrivenExternalCatalog.class, "HMSExternalCatalog")
+                // Migrate old LakeSoul catalogs to PluginDriven on deserialization. LakeSoul is deprecated and
+                // was never migrated to a connector, so the remapped catalog has no backing connector and
+                // errors on access (it must be dropped); this only keeps old images/edit-logs loadable.
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "LakeSoulExternalCatalog");
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
@@ -444,7 +445,6 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
             .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
-            .registerSubtype(LakeSoulExternalDatabase.class, LakeSoulExternalDatabase.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaDatabase.class, ExternalInfoSchemaDatabase.class.getSimpleName())
             .registerSubtype(ExternalMysqlDatabase.class, ExternalMysqlDatabase.class.getSimpleName())
             .registerSubtype(TestExternalDatabase.class, TestExternalDatabase.class.getSimpleName())
@@ -465,12 +465,14 @@ public class GsonUtils {
                     PluginDrivenExternalDatabase.class, "IcebergExternalDatabase")
             // Migrate old HMS (hive) databases to PluginDriven on deserialization
             .registerCompatibleSubtype(
-                    PluginDrivenExternalDatabase.class, "HMSExternalDatabase");
+                    PluginDrivenExternalDatabase.class, "HMSExternalDatabase")
+            // Migrate old LakeSoul databases to PluginDriven on deserialization (deprecated, no connector)
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "LakeSoulExternalDatabase");
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
             .registerSubtype(OlapTable.class, OlapTable.class.getSimpleName())
-            .registerSubtype(LakeSoulExternalTable.class, LakeSoulExternalTable.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
             .registerSubtype(ExternalMysqlTable.class, ExternalMysqlTable.class.getSimpleName())
             .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName())
@@ -486,6 +488,9 @@ public class GsonUtils {
                     PluginDrivenExternalTable.class, "TrinoConnectorExternalTable")
             .registerCompatibleSubtype(
                     PluginDrivenExternalTable.class, "MaxComputeExternalTable")
+            // LakeSoul tables migrate to the non-MVCC PluginDriven variant (deprecated, no connector backing)
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalTable.class, "LakeSoulExternalTable")
             // Paimon tables migrate to the MVCC variant (paimon supports MVCC/MTMV/time-travel)
             .registerCompatibleSubtype(
                     PluginDrivenMvccExternalTable.class, "PaimonExternalTable")
