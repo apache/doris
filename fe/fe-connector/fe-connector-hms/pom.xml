@@ -59,10 +59,21 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Doris shaded Hive MetaStore client (includes Thrift, DLF, Glue) -->
+        <!-- Slim Hive metastore-client shade — replaces the fat org.apache.doris:hive-catalog-shade
+             (122MB). Bundles hive-standalone-metastore (metastore api + client), HiveConf, hive-serde,
+             hive-storage-api, iceberg-hive-metastore's HiveCatalog and libthrift/libfb303 0.9.3, all with
+             org.apache.thrift relocated to shade.doris.hive.org.apache.thrift so the old-package HMS
+             client does not collide with the host doris-gen thrift 0.16. compile scope (no <scope>):
+             propagates transitively to the plugins that reuse this shared plain-HMS client —
+             fe-connector-hive, fe-connector-hudi, fe-connector-iceberg. The vendored version-aware patch
+             HiveMetaStoreClient stays in THIS module (its bytecode already references the relocated thrift
+             prefix; it overlays the unpatched client inside the shade because fe-connector-hms-*.jar sorts
+             before fe-connector-hms-hive-shade-*.jar in the plugin lib). See
+             plan-doc/fe-connector-hive-shade-localization/design.md. -->
         <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-hms-hive-shade</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <!-- Hadoop client for Configuration and auth -->

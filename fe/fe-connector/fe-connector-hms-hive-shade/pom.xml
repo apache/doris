@@ -1,0 +1,386 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe-connector</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fe-connector-hms-hive-shade</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Connector - HMS Hive Shade</name>
+    <description>
+        Plugin-private slim replacement for the fat org.apache.doris:hive-catalog-shade (122MB)
+        that fe-connector-hms and fe-connector-iceberg used to consume. It shades ONLY the Hive
+        metastore-CLIENT closure (hive-standalone-metastore + hive-common/HiveConf +
+        hive-storage-api + hive-serde + iceberg-hive-metastore's HiveCatalog) plus a pinned
+        libthrift/libfb303 0.9.3, and relocates org.apache.thrift ->
+        shade.doris.hive.org.apache.thrift.
+
+        Why relocate thrift: Doris internal thrift is 0.16.0 (fe/pom.xml manages libthrift there),
+        and the doris-gen stubs (TFileScanRangeParams / TIcebergFileDesc ...) are compiled against
+        it; the Hive 3.1.3 metastore-client stubs are compiled against thrift ~0.9.x (TFramedTransport
+        in .transport, TBase/scheme contracts drifted) and are binary-incompatible. One
+        org.apache.thrift namespace cannot host both versions, so the Hive client gets its own private
+        package. The relocation prefix (shade.doris.hive.org.apache.thrift) is REUSED from the fat
+        hive-catalog-shade on purpose: Doris's vendored patch client
+        (fe-connector-hms/.../org/apache/hadoop/hive/metastore/HiveMetaStoreClient.java) and
+        ThriftHmsClient already import that prefix, so no connector source changes are needed, and the
+        bundled libthrift 0.9.3 is byte-identical to the fat shade's, so the atomic global->slim swap
+        never splits the namespace.
+
+        Why iceberg-hive-metastore rides along here (one shared shade, not two): iceberg's HiveCatalog
+        builds Doris's patch HiveMetaStoreClient BY CLASS NAME, so it must link against the SAME
+        relocated thrift + the SAME metastore-api class identities as the plain-HMS client. Bundling it
+        here means hive/hudi carry ~1MB of iceberg-hive classes they never load (bytes only, no leak),
+        in exchange for a single thrift private namespace.
+
+        See plan-doc/fe-connector-hive-shade-localization/design.md (mirrors the pattern established by
+        fe-connector-paimon-hive-shade / plan-doc/fix-c-hms-thrift-design.md).
+    </description>
+
+    <dependencies>
+        <!-- hive-standalone-metastore 3.1.3 supplies the REAL metastore implementation:
+             org.apache.hadoop.hive.metastore.api.* (ThriftHiveMetastore + ~200 structs),
+             IMetaStoreClient / MetastoreConf / MetaStoreUtils / HadoopThriftAuthBridge / txn.TxnUtils,
+             and the base org.apache.hadoop.hive.metastore.HiveMetaStoreClient that Doris's vendored
+             patch subclass overlays. NOTE: this is standalone-metastore (real impl), NOT
+             hive-metastore:3.1.3 (a 13-class stub -> whole metastore api NoClassDefFound if used).
+             The FE is only ever a metastore CLIENT, so the entire server-side closure is excluded:
+             datanucleus/derby/bonecp/HikariCP/commons-dbcp (JDO + embedded DB), orc, the whole
+             hadoop trio, metrics/dropwizard, sqlline/ant-contrib/antlr/javolution, and the log4j
+             backends (host provides log4j). libthrift/libfb303 are excluded here and pinned inline at
+             0.9.3 below so they can be relocated — our reactor's dependencyManagement pins libthrift to
+             0.16.0, which must NOT be allowed to reach this old-package closure. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-standalone-metastore</artifactId>
+            <version>3.1.3</version>
+            <!-- optional: shaded INTO this jar; must NOT propagate as a transitive dep to the
+                 consuming plugins (whose plugin-zip would otherwise re-bundle the raw jars next to the
+                 shade jar -> child-first duplicate-class hazard). -->
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>org.apache.orc</groupId><artifactId>orc-core</artifactId></exclusion>
+                <exclusion><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></exclusion>
+                <exclusion><groupId>com.github.joshelser</groupId><artifactId>dropwizard-metrics-hadoop-metrics2-reporter</artifactId></exclusion>
+                <exclusion><groupId>com.google.guava</groupId><artifactId>guava</artifactId></exclusion>
+                <exclusion><groupId>com.google.protobuf</groupId><artifactId>protobuf-java</artifactId></exclusion>
+                <exclusion><groupId>com.jolbox</groupId><artifactId>bonecp</artifactId></exclusion>
+                <exclusion><groupId>com.zaxxer</groupId><artifactId>HikariCP</artifactId></exclusion>
+                <exclusion><groupId>commons-dbcp</groupId><artifactId>commons-dbcp</artifactId></exclusion>
+                <exclusion><groupId>io.dropwizard.metrics</groupId><artifactId>metrics-core</artifactId></exclusion>
+                <exclusion><groupId>io.dropwizard.metrics</groupId><artifactId>metrics-jvm</artifactId></exclusion>
+                <exclusion><groupId>io.dropwizard.metrics</groupId><artifactId>metrics-json</artifactId></exclusion>
+                <exclusion><groupId>javolution</groupId><artifactId>javolution</artifactId></exclusion>
+                <exclusion><groupId>org.antlr</groupId><artifactId>antlr-runtime</artifactId></exclusion>
+                <exclusion><groupId>org.apache.derby</groupId><artifactId>derby</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-common</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-distcp</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-hdfs</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-hdfs-client</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-mapreduce-client-core</artifactId></exclusion>
+                <exclusion><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-slf4j-impl</artifactId></exclusion>
+                <exclusion><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-1.2-api</artifactId></exclusion>
+                <exclusion><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-core</artifactId></exclusion>
+                <exclusion><groupId>org.apache.thrift</groupId><artifactId>libthrift</artifactId></exclusion>
+                <exclusion><groupId>org.apache.thrift</groupId><artifactId>libfb303</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-api-jdo</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-core</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-rdbms</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>javax.jdo</artifactId></exclusion>
+                <exclusion><groupId>sqlline</groupId><artifactId>sqlline</artifactId></exclusion>
+                <exclusion><groupId>ant-contrib</groupId><artifactId>ant-contrib</artifactId></exclusion>
+                <exclusion><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- hive-common 3.1.3 supplies org.apache.hadoop.hive.conf.HiveConf (HmsConfHelper.createHiveConf
+             and iceberg's IcebergCatalogFactory build one), and pulls hive-shims transitively (HiveConf
+             static init -> ShimLoader). Pinned at 3.1.3 to match standalone-metastore so HiveConf,
+             HiveMetaStoreClient and the metastore api all sit on one Hive 3.1.x line inside one artifact.
+             The web/CLI/metrics closure (jetty, servlet-api, jline, ant, jpam, dropwizard, tdunning:json)
+             is dead weight for a metastore client and excluded; hadoop + jackson + log4j backends go to
+             the host/plugin. commons-lang (2.x, groupId commons-lang) is intentionally NOT excluded here
+             or in the artifactSet — HiveConf.<clinit> references org.apache.commons.lang.StringUtils and
+             the host runs commons-lang3, so the 2.x copy must live in this shade. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-common</artifactId>
+            <version>3.1.3</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>org.apache.orc</groupId><artifactId>orc-core</artifactId></exclusion>
+                <exclusion><groupId>org.eclipse.jetty</groupId><artifactId>jetty-http</artifactId></exclusion>
+                <exclusion><groupId>org.eclipse.jetty</groupId><artifactId>jetty-rewrite</artifactId></exclusion>
+                <exclusion><groupId>org.eclipse.jetty</groupId><artifactId>jetty-server</artifactId></exclusion>
+                <exclusion><groupId>org.eclipse.jetty</groupId><artifactId>jetty-servlet</artifactId></exclusion>
+                <exclusion><groupId>org.eclipse.jetty</groupId><artifactId>jetty-webapp</artifactId></exclusion>
+                <exclusion><groupId>javax.servlet</groupId><artifactId>javax.servlet-api</artifactId></exclusion>
+                <exclusion><groupId>jline</groupId><artifactId>jline</artifactId></exclusion>
+                <exclusion><groupId>org.apache.ant</groupId><artifactId>ant</artifactId></exclusion>
+                <exclusion><groupId>net.sf.jpam</groupId><artifactId>jpam</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-common</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-mapreduce-client-core</artifactId></exclusion>
+                <exclusion><groupId>com.tdunning</groupId><artifactId>json</artifactId></exclusion>
+                <exclusion><groupId>io.dropwizard.metrics</groupId><artifactId>metrics-core</artifactId></exclusion>
+                <exclusion><groupId>io.dropwizard.metrics</groupId><artifactId>metrics-jvm</artifactId></exclusion>
+                <exclusion><groupId>io.dropwizard.metrics</groupId><artifactId>metrics-json</artifactId></exclusion>
+                <exclusion><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></exclusion>
+                <exclusion><groupId>com.github.joshelser</groupId><artifactId>dropwizard-metrics-hadoop-metrics2-reporter</artifactId></exclusion>
+                <exclusion><groupId>javolution</groupId><artifactId>javolution</artifactId></exclusion>
+                <exclusion><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-1.2-api</artifactId></exclusion>
+                <exclusion><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-web</artifactId></exclusion>
+                <exclusion><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-slf4j-impl</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- hive-storage-api 2.7.0 supplies org.apache.hadoop.hive.common.ValidWriteIdList and the ACID
+             write-id types used on the hms txn / write-ACID path; neither hive-common nor
+             standalone-metastore bundle these classes. Declared explicitly (standalone-metastore also
+             pulls it transitively, but declaring it here pins 2.7.0 by nearest-wins and keeps it present
+             even if the transitive edge changes). -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-storage-api</artifactId>
+            <version>2.7.0</version>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- hive-serde 3.1.3 supplies org.apache.hadoop.hive.serde2.typeinfo.* / objectinspector.* that
+             iceberg's HiveSchemaUtil uses when it builds/commits a table via HiveCatalog (only iceberg
+             needs this; hive/hudi carry the classes unused). Its heavy transitive closure — hive-service-rpc
+             (thrift-gen RPC), arrow-vector, avro, parquet-hadoop-bundle, hadoop, hppc/flatbuffers/opencsv —
+             is not touched by the metastore-client path and is excluded. libthrift is excluded and pinned
+             inline below with the rest so it is relocated, not left original-package. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-serde</artifactId>
+            <version>3.1.3</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-service-rpc</artifactId></exclusion>
+                <exclusion><groupId>org.apache.arrow</groupId><artifactId>arrow-vector</artifactId></exclusion>
+                <exclusion><groupId>org.apache.avro</groupId><artifactId>avro</artifactId></exclusion>
+                <exclusion><groupId>org.apache.parquet</groupId><artifactId>parquet-hadoop-bundle</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-common</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-mapreduce-client-core</artifactId></exclusion>
+                <exclusion><groupId>org.apache.thrift</groupId><artifactId>libthrift</artifactId></exclusion>
+                <exclusion><groupId>com.carrotsearch</groupId><artifactId>hppc</artifactId></exclusion>
+                <exclusion><groupId>com.vlkan</groupId><artifactId>flatbuffers</artifactId></exclusion>
+                <exclusion><groupId>net.sf.opencsv</groupId><artifactId>opencsv</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- iceberg-hive-metastore 1.10.1 supplies org.apache.iceberg.hive.HiveCatalog (the hms flavor);
+             only fe-connector-iceberg loads it. iceberg-core/api/common/bundled-guava + caffeine + slf4j
+             are excluded — the iceberg plugin already ships iceberg-core 1.10.1 (which brings api/common/
+             guava/caffeine) as its own child-first jar, so re-bundling them here would create duplicate
+             classes. Only the org.apache.iceberg.hive.* classes are kept, and the relocation below rewrites
+             their org.apache.thrift refs to the shared private prefix so they link against the same
+             relocated HiveMetaStoreClient + libthrift as the plain-HMS path. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-hive-metastore</artifactId>
+            <version>1.10.1</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>org.apache.iceberg</groupId><artifactId>iceberg-core</artifactId></exclusion>
+                <exclusion><groupId>org.apache.iceberg</groupId><artifactId>iceberg-api</artifactId></exclusion>
+                <exclusion><groupId>org.apache.iceberg</groupId><artifactId>iceberg-common</artifactId></exclusion>
+                <exclusion><groupId>org.apache.iceberg</groupId><artifactId>iceberg-bundled-guava</artifactId></exclusion>
+                <exclusion><groupId>com.github.ben-manes.caffeine</groupId><artifactId>caffeine</artifactId></exclusion>
+                <exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- libthrift 0.9.3 — the source of the old-package org.apache.thrift.* (TFramedTransport in
+             .transport, the 0.9.x TBase/scheme contract) that the Hive 3.1.3 metastore client + Doris's
+             vendored patch subclass compile against. Pinned INLINE at 0.9.3 (NOT the managed 0.16.0) and
+             relocated to shade.doris.hive.org.apache.thrift so it does not collide with the host 0.16.0
+             doris-gen TBase path. httpcore/httpclient/slf4j go to the host. -->
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libthrift</artifactId>
+            <version>0.9.3</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>org.apache.httpcomponents</groupId><artifactId>httpcore</artifactId></exclusion>
+                <exclusion><groupId>org.apache.httpcomponents</groupId><artifactId>httpclient</artifactId></exclusion>
+                <exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- libfb303 0.9.3 — ThriftHiveMetastore.{Iface,Client} extend com.facebook.fb303.FacebookService;
+             without it the generated client fails to link. Relocated with the rest (it references
+             org.apache.thrift.*). -->
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libfb303</artifactId>
+            <version>0.9.3</version>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- codehaus jackson 1.9.2 (the OLD org.codehaus.jackson.* line, a different package from the
+             host's com.fasterxml.jackson 2.x). hive-standalone-metastore's
+             org.apache.hadoop.hive.metastore.messaging.json.JSONMessageDeserializer uses
+             org.codehaus.jackson.map.ObjectMapper; Doris's HmsEventParser holds a static
+             JSONMessageDeserializer to decode HMS notification-event bodies, so this is a PRODUCTION
+             runtime need, not test-only. jackson-mapper-asl resolves transitively at TEST scope (so
+             maven-shade would not bundle it) — declared here at compile/optional to make it shadeable.
+             The fat hive-catalog-shade bundled these too. NOTE: fe/pom.xml dependencyManagement pins
+             jackson-mapper-asl to <scope>test</scope> (to keep legacy Jackson 1.x off the main FE
+             classpath), so an explicit <scope>compile</scope> is required here to override it, otherwise
+             maven-shade silently skips the test-scoped artifact. optional=true keeps it from propagating
+             to the consuming plugins as a standalone jar (it lives INSIDE this shade). -->
+        <dependency>
+            <groupId>org.codehaus.jackson</groupId>
+            <artifactId>jackson-mapper-asl</artifactId>
+            <version>1.9.2</version>
+            <scope>compile</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.codehaus.jackson</groupId>
+            <artifactId>jackson-core-asl</artifactId>
+            <version>1.9.2</version>
+            <scope>compile</scope>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Pure-shade module (no src/main): under a parallel reactor (build.sh's default -T 1C)
+                 the package-phase shade goal can start before this module's main jar is created and
+                 attached, failing with "Failed to create shaded artifact, project main artifact does
+                 not exist". Pin maven-jar-plugin's default-jar to the package phase and force it to
+                 always (re)create the jar, so the main artifact is guaranteed present before shade.
+                 Mirrors fe-connector-paimon-hive-shade. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <forceCreation>true</forceCreation>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <phase>package</phase>
+                        <configuration>
+                            <!-- WHITELIST, not blacklist. The fat hive-catalog-shade used a short
+                                 exclude list and tolerated a huge tail of transitive junk (hadoop-yarn,
+                                 curator, jersey, jetty, kerby, ehcache, nimbus-jose, mssql-jdbc, guice,
+                                 jaxb, leveldbjni, dnsjava, fst ...) dragged in mostly by
+                                 hive-shims-0.23 -> hadoop-yarn-server-* — that tail is what made it
+                                 122MB. For a SLIM client shade we bundle ONLY the Hive metastore-client
+                                 closure and let everything else resolve at runtime from the plugin's own
+                                 hadoop-common closure (each consuming plugin bundles hadoop-common, which
+                                 supplies curator/jetty/kerby/etc.) or from the host (guava/slf4j/log4j/
+                                 jackson parent-first). Anything genuinely needed but omitted here surfaces
+                                 in the UT / e2e gate (HiveConf construction, hms read/write), which is far
+                                 safer than an open-ended exclude list. The hive-shims-* CLASSES stay so
+                                 HiveConf's ShimLoader/Utils.getUGI resolve; their heavy hadoop transitives
+                                 do not. commons-lang (2.x) stays for HiveConf.<clinit>. -->
+                            <artifactSet>
+                                <includes>
+                                    <include>org.apache.hive:hive-standalone-metastore</include>
+                                    <include>org.apache.hive:hive-common</include>
+                                    <include>org.apache.hive:hive-serde</include>
+                                    <include>org.apache.hive:hive-storage-api</include>
+                                    <include>org.apache.hive:hive-classification</include>
+                                    <include>org.apache.hive:hive-shims</include>
+                                    <include>org.apache.hive.shims:hive-shims-common</include>
+                                    <include>org.apache.hive.shims:hive-shims-0.23</include>
+                                    <include>org.apache.hive.shims:hive-shims-scheduler</include>
+                                    <include>org.apache.iceberg:iceberg-hive-metastore</include>
+                                    <include>org.apache.thrift:libthrift</include>
+                                    <include>org.apache.thrift:libfb303</include>
+                                    <include>commons-lang:commons-lang</include>
+                                    <include>org.codehaus.jackson:jackson-mapper-asl</include>
+                                    <include>org.codehaus.jackson:jackson-core-asl</include>
+                                </includes>
+                            </artifactSet>
+                            <!-- MUST be true: the consuming modules (fe-connector-hms, and transitively
+                                 fe-connector-hive/-hudi/-iceberg) depend on this module and their plugin-zip
+                                 pulls its transitive deps into lib/. The reduced pom drops the artifacts that
+                                 were shaded IN (standalone-metastore, hive-common/serde/storage-api,
+                                 iceberg-hive-metastore, libthrift/libfb303) so they are NOT re-bundled as
+                                 standalone jars next to this shade jar — avoiding the child-first
+                                 duplicate-class hazard. -->
+                            <createDependencyReducedPom>true</createDependencyReducedPom>
+                            <dependencyReducedPomLocation>${project.basedir}/target/dependency-reduced-pom.xml</dependencyReducedPomLocation>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
+                                        <exclude>META-INF/versions/**</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <relocations>
+                                <!-- The single load-bearing action: give the Hive-3.1.3 metastore client its
+                                     own thrift namespace so it never collides with the host doris-gen 0.16.0
+                                     thrift. REUSED prefix -> zero connector source changes (the vendored patch
+                                     client + ThriftHmsClient already import this prefix). -->
+                                <relocation>
+                                    <pattern>org.apache.thrift</pattern>
+                                    <shadedPattern>shade.doris.hive.org.apache.thrift</shadedPattern>
+                                </relocation>
+                                <!-- defensive: hive drags an ancient fastutil via some transitives; relocate
+                                     it so it cannot shadow the modern it.unimi.dsi:fastutil(-core) on the FE
+                                     classpath (NoSuchMethodError). -->
+                                <relocation>
+                                    <pattern>it.unimi.dsi.fastutil</pattern>
+                                    <shadedPattern>shade.doris.hive.it.unimi.dsi.fastutil</shadedPattern>
+                                </relocation>
+                            </relocations>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

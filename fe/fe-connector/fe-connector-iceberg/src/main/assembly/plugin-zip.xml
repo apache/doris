@@ -46,8 +46,9 @@ under the License.
                 <exclude>org.apache.doris:fe-connector-spi</exclude>
                 <exclude>org.apache.doris:fe-extension-spi</exclude>
                 <exclude>org.apache.doris:fe-filesystem-api</exclude>
-                <!-- Host thrift wins: hive-catalog-shade carries its own relocated thrift, so keep
-                     original-package fe-thrift / libthrift out of the plugin (same as fe-connector-hive). -->
+                <!-- Host thrift wins: the fe-connector-hms-hive-shade slim shade carries its own
+                     relocated thrift (shade.doris.hive.org.apache.thrift), so keep original-package
+                     fe-thrift / libthrift out of the plugin (same as fe-connector-hive). -->
                 <exclude>org.apache.doris:fe-thrift</exclude>
                 <exclude>org.apache.thrift:libthrift</exclude>
                 <!-- QUIC natives are unused: netty-bom force-manages the classifier jars to
