@@ -17,8 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;

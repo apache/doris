@@ -57,7 +57,7 @@ import com.google.gson.annotations.SerializedName;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -223,6 +223,8 @@ public class MTMV extends OlapTable {
             rebuildFullSchema();
             this.schemaChangeVersion++;
             this.refreshSnapshot = new MTMVRefreshSnapshot();
+            // Invalidate the query-rewrite cache so subsequent rewrites see the new column.
+            invalidateRewriteCache();
         } catch (Exception e) {
             throw new RuntimeException("alter materialized view add column failed", e);
         } finally {
@@ -235,6 +237,10 @@ public class MTMV extends OlapTable {
         ParserRuleContext tree = NereidsParser.toAst(originQuerySql, DorisParser::singleStatement);
         finder.visit(tree);
         Pair<Integer, Integer> selectColumnClauseIndex = finder.getIndex();
+        if (selectColumnClauseIndex == null) {
+            throw new IllegalStateException(
+                    "Could not locate SELECT column clause in query SQL: " + originQuerySql);
+        }
         String escapedColumnName = columnName.replace("`", "``");
         String newSelectColumnClause = originQuerySql.substring(selectColumnClauseIndex.first,
                 selectColumnClauseIndex.second + 1)

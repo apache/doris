@@ -51,7 +51,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
@@ -1335,10 +1334,6 @@ public class Alter {
             if (alterMTMV.isNeedRebuildJob()) {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
             }
-            // keep FE-side plan/cache consistent after MTMV schema change
-            if (alterSuccess && alterMTMV.getOpType() == MTMVAlterOpType.ALTER_ADD_COLUMN) {
-                Env.getCurrentEnv().notifyTableMetaChange(mtmv);
-            }
             // 4. log it and replay it in the follower
             if (!isReplay && alterSuccess) {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
@@ -1346,6 +1341,10 @@ public class Alter {
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception
             LOG.warn(e);
+        } catch (RuntimeException e) {
+            // alterAddColumn wraps its underlying failure in a RuntimeException; surface it here
+            // so a schema-change failure does not crash the caller thread.
+            LOG.warn("processAlterMTMV failed", e);
         }
     }
 }
