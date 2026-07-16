@@ -19,7 +19,7 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_streaming_oceanbase_job_restart_fe",
-        "docker,oceanbase,external_docker,external_docker_oceanbase,nondatalake") {
+        "p2,docker,oceanbase,external_docker,external_docker_oceanbase,nondatalake") {
     def jobName = "test_streaming_oceanbase_job_restart_fe"
     def sourceDb = "test_oceanbase_streaming_db"
     def table1 = "oceanbase_streaming_restart_fe"

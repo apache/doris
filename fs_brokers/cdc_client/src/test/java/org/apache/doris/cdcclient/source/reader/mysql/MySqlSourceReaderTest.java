@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.doris.cdcclient.source.reader.oceanbase.OceanBaseSourceReader;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import com.github.shyiko.mysql.binlog.GtidSet;
@@ -37,6 +38,8 @@ import java.util.Map;
 public class MySqlSourceReaderTest {
 
     private static final String SERVER_UUID = "24bc7850-2c16-11e6-a073-0242ac110002";
+    private static final String EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT =
+            "doris.cdc.exclude.heartbeat.from.event.count";
 
     @Test
     void testNormalizeSslModeMapsAllLegalValues() {
@@ -115,6 +118,26 @@ public class MySqlSourceReaderTest {
         assertFalse(config.isIncludeSchemaChanges());
     }
 
+    @Test
+    void mysqlHeartbeatContributesToRestartEventCount() throws Exception {
+        MySqlSourceConfig config =
+                sourceConfig(new MySqlSourceReader(), "initial", Map.of());
+
+        assertFalse(
+                config.getDbzConfiguration()
+                        .getBoolean(EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT));
+    }
+
+    @Test
+    void oceanBaseHeartbeatDoesNotContributeToRestartEventCount() throws Exception {
+        MySqlSourceConfig config =
+                sourceConfig(new OceanBaseSourceReader(), "initial", Map.of());
+
+        assertTrue(
+                config.getDbzConfiguration()
+                        .getBoolean(EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT));
+    }
+
     // Drive the real generateMySqlConfig JSON-offset path and return the rebuilt startup offset.
     private BinlogOffset startupBinlogOffset(String offsetJson) throws Exception {
         return sourceConfig(offsetJson).getStartupOptions().binlogOffset;
@@ -125,6 +148,12 @@ public class MySqlSourceReaderTest {
     }
 
     private MySqlSourceConfig sourceConfig(String offset, Map<String, String> overrides)
+            throws Exception {
+        return sourceConfig(new MySqlSourceReader(), offset, overrides);
+    }
+
+    private MySqlSourceConfig sourceConfig(
+            MySqlSourceReader reader, String offset, Map<String, String> overrides)
             throws Exception {
         Map<String, String> cfg = new HashMap<>();
         cfg.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://localhost:3306/testdb");
@@ -138,6 +167,6 @@ public class MySqlSourceReaderTest {
                 MySqlSourceReader.class.getDeclaredMethod(
                         "generateMySqlConfig", Map.class, String.class, int.class);
         m.setAccessible(true);
-        return (MySqlSourceConfig) m.invoke(new MySqlSourceReader(), cfg, "job-1", 0);
+        return (MySqlSourceConfig) m.invoke(reader, cfg, "job-1", 0);
     }
 }

@@ -19,4 +19,12 @@ package org.apache.doris.cdcclient.source.reader.oceanbase;
 
 import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
 
-public class OceanBaseSourceReader extends MySqlSourceReader {}
+public class OceanBaseSourceReader extends MySqlSourceReader {
+
+    @Override
+    protected boolean excludeHeartbeatFromEventCount() {
+        // OceanBase Binlog Service heartbeat events are not guaranteed to replay at the same
+        // position, so they must not participate in transaction restart event counting.
+        return true;
+    }
+}

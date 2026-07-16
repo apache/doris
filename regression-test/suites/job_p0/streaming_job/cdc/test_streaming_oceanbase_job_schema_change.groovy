@@ -18,7 +18,7 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_streaming_oceanbase_job_schema_change",
-        "p0,external,oceanbase,external_docker,external_docker_oceanbase,nondatalake") {
+        "p2,external,oceanbase,external_docker,external_docker_oceanbase,nondatalake") {
     def jobName = "test_streaming_oceanbase_job_schema_change"
     def currentDb = (sql "SELECT DATABASE()")[0][0]
     def sourceDb = "test_oceanbase_streaming_db"
