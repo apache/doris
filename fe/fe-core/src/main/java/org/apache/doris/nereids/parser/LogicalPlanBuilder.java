@@ -3740,18 +3740,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
-        String txt = ctx.STRING_LITERAL().getText();
-        String s = txt.substring(1, txt.length() - 1);
-        if (txt.charAt(0) == '\'') {
-            // for single quote string, '' should be converted to '
-            s = s.replace("''", "'");
-        } else if (txt.charAt(0) == '"') {
-            // for double quote string, "" should be converted to "
-            s = s.replace("\"\"", "\"");
-        }
-        if (!SqlModeHelper.hasNoBackSlashEscapes()) {
-            s = LogicalPlanBuilderAssistant.escapeBackSlash(s);
-        }
+        String s = LogicalPlanBuilderAssistant.parseStringLiteral(ctx.STRING_LITERAL().getText());
         int strLength = Utils.containChinese(s) ? s.length() * StringLikeLiteral.CHINESE_CHAR_BYTE_LENGTH : s.length();
         if (strLength > ScalarType.MAX_VARCHAR_LENGTH) {
             return new StringLiteral(s);
@@ -6585,7 +6574,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public AlterTableOp visitModifyColumnCommentClause(ModifyColumnCommentClauseContext ctx) {
         ColumnPath columnPath = ColumnPath.of(visitQualifiedName(ctx.name));
-        String comment = stripQuotes(ctx.STRING_LITERAL().getText());
+        String comment = LogicalPlanBuilderAssistant.parseStringLiteral(ctx.STRING_LITERAL().getText());
         return new ModifyColumnCommentOp(columnPath, comment);
     }
 

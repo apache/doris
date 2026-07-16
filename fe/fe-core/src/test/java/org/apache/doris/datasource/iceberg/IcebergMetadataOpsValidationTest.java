@@ -830,6 +830,89 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testRejectsTopLevelRowLineageMutationsForV3Tables() {
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.properties()).thenReturn(Collections.singletonMap("format-version", "3"));
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.addColumn(dorisTable,
+                            new Column("_row_id", Type.BIGINT, true), null, 1L),
+                    "Cannot add Iceberg v3 reserved row lineage column: _row_id");
+            assertUserException(() -> ops.addColumns(dorisTable, Collections.singletonList(
+                            new Column("_last_updated_sequence_number", Type.BIGINT, true)), 1L),
+                    "Cannot add Iceberg v3 reserved row lineage column: _last_updated_sequence_number");
+            assertUserException(() -> ops.dropColumn(dorisTable, "_ROW_ID", 1L),
+                    "Cannot drop Iceberg v3 reserved row lineage column: _ROW_ID");
+            assertUserException(() -> ops.renameColumn(dorisTable, "_row_id", "renamed", 1L),
+                    "Cannot rename Iceberg v3 reserved row lineage column: _row_id");
+            assertUserException(() -> ops.renameColumn(
+                            dorisTable, "id", "_last_updated_sequence_number", 1L),
+                    "Cannot rename to Iceberg v3 reserved row lineage column: _last_updated_sequence_number");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("_row_id"),
+                            new Column("_row_id", Type.BIGINT, true), null, 1L),
+                    "Cannot modify Iceberg v3 reserved row lineage column: _row_id");
+            assertUserException(() -> ops.modifyColumnComment(dorisTable,
+                            ColumnPath.of("_last_updated_sequence_number"), "comment", 1L),
+                    "Cannot modify comment for Iceberg v3 reserved row lineage column: "
+                            + "_last_updated_sequence_number");
+            assertUserException(() -> ops.reorderColumns(dorisTable,
+                            Arrays.asList("_row_id", "id"), 1L),
+                    "Cannot reorder Iceberg v3 reserved row lineage column: _row_id");
+        }
+
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
+    }
+
+    @Test
+    public void testAllowsV3NestedAndV2TopLevelRowLineageNames() throws Throwable {
+        Schema v3Schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "s", Types.StructType.of(
+                        Types.NestedField.optional(3, "source", Types.LongType.get()),
+                        Types.NestedField.optional(4, "_row_id", Types.LongType.get()))));
+        ExternalTable v3DorisTable = Mockito.mock(ExternalTable.class);
+        Table v3IcebergTable = Mockito.mock(Table.class);
+        UpdateSchema v3UpdateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(v3DorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(v3IcebergTable.properties()).thenReturn(Collections.singletonMap("format-version", "3"));
+        Mockito.when(v3IcebergTable.schema()).thenReturn(v3Schema);
+        Mockito.when(v3IcebergTable.updateSchema()).thenReturn(v3UpdateSchema);
+
+        Schema v2Schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        ExternalTable v2DorisTable = Mockito.mock(ExternalTable.class);
+        Table v2IcebergTable = Mockito.mock(Table.class);
+        UpdateSchema v2UpdateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(v2DorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(v2IcebergTable.properties()).thenReturn(Collections.singletonMap("format-version", "2"));
+        Mockito.when(v2IcebergTable.schema()).thenReturn(v2Schema);
+        Mockito.when(v2IcebergTable.updateSchema()).thenReturn(v2UpdateSchema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(v3DorisTable)).thenReturn(v3IcebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(v2DorisTable)).thenReturn(v2IcebergTable);
+
+            ops.addColumn(v3DorisTable, ColumnPath.fromDotName("s._last_updated_sequence_number"),
+                    new Column("_last_updated_sequence_number", Type.BIGINT, true), null, 1L);
+            ops.renameColumn(v3DorisTable, ColumnPath.fromDotName("s.source"), "_last_updated_sequence_number", 1L);
+            ops.modifyColumn(v3DorisTable, ColumnPath.fromDotName("s._row_id"),
+                    new Column("_row_id", Type.BIGINT, true), null, 1L);
+            ops.modifyColumnComment(v3DorisTable, ColumnPath.fromDotName("s._row_id"), "comment", 1L);
+            ops.dropColumn(v3DorisTable, ColumnPath.fromDotName("s._row_id"), 1L);
+
+            ops.addColumn(v2DorisTable, new Column("_row_id", Type.BIGINT, true), null, 1L);
+            ops.renameColumn(v2DorisTable, "id", "_last_updated_sequence_number", 1L);
+        }
+
+        Mockito.verify(v3UpdateSchema, Mockito.times(5)).commit();
+        Mockito.verify(v2UpdateSchema, Mockito.times(2)).commit();
+    }
+
+    @Test
     public void testResolveNestedColumnPathRejectsMapKey() {
         assertUserException(() -> ops.resolveNestedColumnPath(nestedSchema(), ColumnPath.fromDotName("m.key.x"),
                         "modify"),

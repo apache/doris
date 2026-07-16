@@ -137,7 +137,11 @@ public class ModifyColumnOp extends AlterTableOp {
                 }
             }
         }
-        columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        if (columnPath.isNested()) {
+            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        } else {
+            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        }
         if (colPos != null) {
             colPos.analyze();
             if (olapTable != null) {

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -81,6 +82,28 @@ public class LogicalPlanBuilderAssistant {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Decode a STRING_LITERAL token according to the current SQL mode.
+     */
+    public static String parseStringLiteral(String text) {
+        String value = text.substring(1, text.length() - 1);
+        if (text.charAt(0) == '\'') {
+            value = value.replace("''", "'");
+        } else {
+            value = value.replace("\"\"", "\"");
+        }
+        return SqlModeHelper.hasNoBackSlashEscapes() ? value : escapeBackSlash(value);
+    }
+
+    /**
+     * Quote a value as a STRING_LITERAL that can be parsed under the current SQL mode.
+     */
+    public static String quoteStringLiteral(String value) {
+        String escaped = SqlModeHelper.hasNoBackSlashEscapes()
+                ? value : value.replace("\\", "\\\\");
+        return "\"" + escaped.replace("\"", "\"\"") + "\"";
     }
 
     /**

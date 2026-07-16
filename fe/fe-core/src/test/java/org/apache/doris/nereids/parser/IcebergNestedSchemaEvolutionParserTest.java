@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
@@ -25,9 +26,12 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
+import org.apache.doris.qe.SqlModeHelper;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
@@ -114,6 +118,62 @@ public class IcebergNestedSchemaEvolutionParserTest {
         RenameColumnOp reparsedRename = assertSingleClausePath(
                 "ALTER TABLE t " + rename.toSql(), RenameColumnOp.class, "info.Metric`Name");
         Assertions.assertEquals("New`Metric", reparsedRename.getNewColName());
+    }
+
+    @Test
+    public void testModifyColumnRoundTripPreservesNullabilityIntent() {
+        ModifyColumnOp omitted = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN info.metric BIGINT",
+                ModifyColumnOp.class, "info.metric");
+        Assertions.assertFalse(omitted.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+        Assertions.assertFalse(omitted.toSql().contains(" BIGINT NULL "));
+
+        ModifyColumnOp reparsedOmitted = assertSingleClausePath(
+                "ALTER TABLE t " + omitted.toSql(), ModifyColumnOp.class, "info.metric");
+        Assertions.assertFalse(reparsedOmitted.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+
+        ModifyColumnOp nullable = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN info.metric BIGINT NULL",
+                ModifyColumnOp.class, "info.metric");
+        ModifyColumnOp reparsedNullable = assertSingleClausePath(
+                "ALTER TABLE t " + nullable.toSql(), ModifyColumnOp.class, "info.metric");
+        Assertions.assertTrue(reparsedNullable.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+    }
+
+    @Test
+    public void testModifyColumnCommentRoundTripEscapesQuotesAndBackslashes() {
+        assertCommentRoundTrip(false);
+        assertCommentRoundTrip(true);
+    }
+
+    private void assertCommentRoundTrip(boolean noBackslashEscapes) {
+        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
+            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
+
+            String expectedComment = "owner's \"field\" C:\\tmp\\";
+            ModifyColumnCommentOp comment = new ModifyColumnCommentOp(
+                    ColumnPath.fromDotName("info.metric"), expectedComment);
+            String renderedSql = comment.toSql();
+            Assertions.assertTrue(renderedSql.contains("\"\"field\"\""));
+            Assertions.assertTrue(renderedSql.contains(noBackslashEscapes
+                    ? "C:\\tmp\\" : "C:\\\\tmp\\\\"));
+
+            ModifyColumnCommentOp reparsed = assertSingleClausePath(
+                    "ALTER TABLE t " + renderedSql, ModifyColumnCommentOp.class, "info.metric");
+            Assertions.assertEquals(expectedComment, reparsed.getComment());
+
+            ModifyColumnCommentOp doubledSingleQuote = assertSingleClausePath(
+                    "ALTER TABLE t MODIFY COLUMN info.metric COMMENT 'owner''s'",
+                    ModifyColumnCommentOp.class, "info.metric");
+            Assertions.assertEquals("owner's", doubledSingleQuote.getComment());
+            ModifyColumnCommentOp doubledDoubleQuote = assertSingleClausePath(
+                    "ALTER TABLE t MODIFY COLUMN info.metric COMMENT \"a\"\"b\"",
+                    ModifyColumnCommentOp.class, "info.metric");
+            Assertions.assertEquals("a\"b", doubledDoubleQuote.getComment());
+        }
     }
 
     private <T extends AlterTableOp> T assertSingleClausePath(String sql, Class<T> clauseClass,

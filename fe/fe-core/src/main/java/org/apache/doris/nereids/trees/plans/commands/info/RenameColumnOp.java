@@ -71,11 +71,15 @@ public class RenameColumnOp extends AlterTableOp {
             throw new AnalysisException("New column name is not set");
         }
 
-        if (colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+        if (!columnPath.isNested() && colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
             throw new AnalysisException("Do not support rename hidden column");
         }
 
-        FeNameFormat.checkColumnName(newColName);
+        if (columnPath.isNested()) {
+            FeNameFormat.checkColumnNameBypassSystemColumnPrefix(newColName);
+        } else {
+            FeNameFormat.checkColumnName(newColName);
+        }
     }
 
     @Override

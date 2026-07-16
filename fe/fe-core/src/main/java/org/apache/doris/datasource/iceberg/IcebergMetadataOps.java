@@ -880,6 +880,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throws UserException {
         validateAddColumnMetadata(column);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         Schema schema = icebergTable.schema();
         validateNoCaseInsensitiveSiblingCollision(
                 schema.asStruct(), "", column.getName(), null, "add");
@@ -941,6 +942,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         for (Column column : columns) {
             validateAddColumnMetadata(column);
+            validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         }
         validateNoCaseInsensitiveTopLevelCollisions(icebergTable.schema(), columns);
 
@@ -960,6 +962,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateRowLineageColumnMutation(icebergTable, columnName, "drop");
         ResolvedColumnPath columnPath = resolveColumnPath(icebergTable.schema(), ColumnPath.of(columnName), "drop");
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.deleteColumn(columnPath.getFullPath());
@@ -996,6 +999,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void renameColumn(ExternalTable dorisTable, String oldName, String newName, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateRowLineageColumnMutation(icebergTable, oldName, "rename");
+        validateRowLineageColumnMutation(icebergTable, newName, "rename to");
         Schema schema = icebergTable.schema();
         ResolvedColumnPath oldPath = resolveColumnPath(schema, ColumnPath.of(oldName), "rename");
         validateNoCaseInsensitiveSiblingCollision(
@@ -1044,6 +1049,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     private void modifyTopLevelColumn(ExternalTable dorisTable, Column column, ColumnPosition position,
             long updateTime, boolean legacyMode) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateRowLineageColumnMutation(icebergTable, column.getName(), "modify");
         NestedField currentCol = icebergTable.schema().caseInsensitiveFindField(column.getName());
         if (currentCol == null) {
             throw new UserException("Column " + column.getName() + " does not exist");
@@ -1131,6 +1137,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void modifyColumnComment(ExternalTable dorisTable, ColumnPath columnPath, String comment, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        if (!columnPath.isNested()) {
+            validateRowLineageColumnMutation(icebergTable, columnPath.getTopLevelName(), "modify comment for");
+        }
         ResolvedColumnPath resolvedPath = resolveColumnPath(
                 icebergTable.schema(), columnPath, "modify comment");
 
@@ -1550,6 +1559,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
+    private void validateRowLineageColumnMutation(Table icebergTable, String columnName, String operation)
+            throws UserException {
+        int formatVersion = IcebergUtils.getFormatVersion(icebergTable);
+        if (formatVersion >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
+                && IcebergUtils.isIcebergRowLineageColumn(columnName)) {
+            throw new UserException("Cannot " + operation + " Iceberg v" + formatVersion
+                    + " reserved row lineage column: " + columnName);
+        }
+    }
+
     @Override
     public void reorderColumns(ExternalTable dorisTable, List<String> newOrder, long updateTime) throws UserException {
         if (newOrder == null || newOrder.isEmpty()) {
@@ -1559,6 +1578,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         List<String> canonicalOrder = new ArrayList<>(newOrder.size());
         Set<String> canonicalNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (String columnName : newOrder) {
+            validateRowLineageColumnMutation(icebergTable, columnName, "reorder");
             String canonicalName = resolveColumnPath(
                     icebergTable.schema(), ColumnPath.of(columnName), "reorder").getFullPath();
             if (!canonicalNames.add(canonicalName)) {

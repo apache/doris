@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -33,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldO
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -324,6 +329,64 @@ public class AlterTableCommandTest {
                 .translateToCatalogStyleForSchemaChange().isNullableSpecified());
         Assertions.assertTrue(notNullable.getColumnDef()
                 .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+    }
+
+    @Test
+    void testNestedIcebergColumnNamesBypassTopLevelSystemPrefixes() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalogOrDdlException("iceberg")).thenReturn(catalog);
+        Mockito.when(catalog.getDbOrDdlException("db")).thenReturn(database);
+        Mockito.when(database.getTableOrDdlException("t")).thenReturn(table);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            for (String sql : Arrays.asList(
+                    "ALTER TABLE t ADD COLUMN s.__DORIS_metric INT NULL",
+                    "ALTER TABLE t ADD COLUMN s.__doris_shadow_metric INT NULL",
+                    "ALTER TABLE t MODIFY COLUMN s.__DORIS_metric BIGINT",
+                    "ALTER TABLE t MODIFY COLUMN s.__doris_shadow_metric BIGINT",
+                    "ALTER TABLE t RENAME COLUMN s.__DORIS_metric TO metric",
+                    "ALTER TABLE t RENAME COLUMN s.metric TO __doris_shadow_metric",
+                    "ALTER TABLE t ADD COLUMN s._row_id BIGINT NULL",
+                    "ALTER TABLE t MODIFY COLUMN s._row_id BIGINT",
+                    "ALTER TABLE t RENAME COLUMN s.metric TO _last_updated_sequence_number",
+                    "ALTER TABLE t DROP COLUMN s.__DORIS_metric")) {
+                validateIcebergAlter(sql, table);
+            }
+
+            for (String sql : Arrays.asList(
+                    "ALTER TABLE t ADD COLUMN __DORIS_metric INT NULL",
+                    "ALTER TABLE t ADD COLUMN __doris_shadow_metric INT NULL",
+                    "ALTER TABLE t MODIFY COLUMN __DORIS_metric BIGINT")) {
+                org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
+                        org.apache.doris.nereids.exceptions.AnalysisException.class,
+                        () -> validateIcebergAlter(sql, table));
+                Assertions.assertTrue(exception.getMessage().contains("Incorrect column name"));
+            }
+
+            AnalysisException renameException = Assertions.assertThrows(AnalysisException.class,
+                    () -> validateIcebergAlter(
+                            "ALTER TABLE t RENAME COLUMN metric TO __DORIS_metric", table));
+            Assertions.assertTrue(renameException.getMessage().contains("Incorrect column name"));
+            AnalysisException dropException = Assertions.assertThrows(AnalysisException.class,
+                    () -> validateIcebergAlter("ALTER TABLE t DROP COLUMN __DORIS_metric", table));
+            Assertions.assertTrue(dropException.getMessage().contains("Do not support drop hidden column"));
+        }
+    }
+
+    private void validateIcebergAlter(String sql, IcebergExternalTable table) throws Exception {
+        AlterTableCommand command = parseAlter(sql);
+        AlterTableCommand.checkColumnOperationsSupported(table, command.getOps());
+        for (AlterTableOp op : command.getOps()) {
+            op.setTableName(new TableNameInfo("iceberg", "db", "t"));
+            op.validate(null);
+        }
     }
 
     private AlterTableCommand parseAlter(String sql) {

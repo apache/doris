@@ -232,11 +232,12 @@ public class ColumnDefinition {
             sb.append(aggType.name()).append(" ");
         }
 
-        if (!isNullable) {
-            sb.append("NOT NULL ");
-        } else {
-            // should append NULL to make result can be executed right.
-            sb.append("NULL ");
+        if (nullableSpecified) {
+            if (!isNullable) {
+                sb.append("NOT NULL ");
+            } else {
+                sb.append("NULL ");
+            }
         }
 
         if (autoIncInitValue != -1) {
@@ -323,10 +324,25 @@ public class ColumnDefinition {
      */
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
+    }
+
+    /**
+     * Validate a nested field whose name is scoped by its parent path rather than the Doris top-level column namespace.
+     */
+    public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
+            boolean isEnableMergeOnWrite, KeysType keysType) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true);
+    }
+
+    private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn) {
         try {
             // if enableAddHiddenColumn is true, can add hidden column.
             // So does not check if the column name starts with __DORIS_
-            if (enableAddHiddenColumn) {
+            if (nestedColumn) {
+                FeNameFormat.checkColumnNameBypassSystemColumnPrefix(name);
+            } else if (enableAddHiddenColumn) {
                 FeNameFormat.checkColumnNameBypassHiddenColumn(name);
             } else {
                 FeNameFormat.checkColumnName(name);

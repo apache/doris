@@ -103,7 +103,7 @@ public class AddColumnOp extends AlterTableOp {
         if (colPos != null) {
             colPos.analyze();
         }
-        validateColumnDef(tableName, columnDef, colPos, rollupName);
+        validateColumnDef(tableName, columnDef, colPos, rollupName, columnPath.isNested());
         column = columnDef.translateToCatalogStyleForSchemaChange();
     }
 
@@ -151,6 +151,11 @@ public class AddColumnOp extends AlterTableOp {
     public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
                                          String rollupName)
             throws UserException {
+        validateColumnDef(tableName, columnDef, colPos, rollupName, false);
+    }
+
+    private static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
+            String rollupName, boolean nestedColumn) throws UserException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
@@ -201,7 +206,11 @@ public class AddColumnOp extends AlterTableOp {
             }
         }
 
-        columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        if (nestedColumn) {
+            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        } else {
+            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        }
         if (!columnDef.isNullable() && !columnDef.hasDefaultValue()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());
         }

@@ -81,7 +81,7 @@ public class DropColumnOp extends AlterTableOp {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     colName, FeNameFormat.getColumnNameRegex());
         }
-        if (colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+        if (!columnPath.isNested() && colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
             throw new AnalysisException("Do not support drop hidden column");
         }
 
