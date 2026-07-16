@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -41,6 +42,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace orc {
+class Type;
 struct ColumnVectorBatch;
 } // namespace orc
 
@@ -110,6 +112,16 @@ struct FieldInfo {
     // decimal info
     int scale = 0;
     int precision = 0;
+};
+
+struct OrcDecodedColumnView {
+    const orc::Type* file_type = nullptr;
+    const orc::Type* selected_type = nullptr;
+    const orc::ColumnVectorBatch* batch = nullptr;
+    size_t rows = 0;
+    const std::vector<size_t>* selected_rows = nullptr;
+    const cctz::time_zone* timezone = nullptr;
+    bool enable_mapping_timestamp_tz = false;
 };
 
 // Deserialize means read from different file format or memory format,
@@ -486,6 +498,14 @@ public:
                                           int64_t start, int64_t end,
                                           const cctz::time_zone& ctz) const = 0;
 
+    // Read already decoded column values into a Doris column. The input view is format-neutral:
+    // file readers translate their decoder output into DecodedColumnView, while SerDe owns
+    // the Doris-type-specific materialization into IColumn.
+    virtual Status read_column_from_decoded_values(IColumn& column,
+                                                   const DecodedColumnView& view) const;
+    virtual Status read_field_from_decoded_value(const IDataType& data_type, Field* field,
+                                                 const DecodedColumnView& view) const;
+
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,
@@ -493,6 +513,7 @@ public:
                                        int64_t end, Arena& arena,
                                        const FormatOptions& options) const = 0;
     // ORC deserializer
+    virtual Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const;
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 

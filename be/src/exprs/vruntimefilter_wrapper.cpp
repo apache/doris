@@ -70,6 +70,17 @@ VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr im
     DORIS_CHECK(_impl != nullptr);
 }
 
+Status VRuntimeFilterWrapper::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    DORIS_CHECK(_impl != nullptr);
+    VExprSPtr cloned_impl;
+    RETURN_IF_ERROR(_impl->deep_clone(&cloned_impl));
+    *cloned_expr = VRuntimeFilterWrapper::create_shared(clone_texpr_node(), std::move(cloned_impl),
+                                                        _ignore_thredhold, _null_aware, _filter_id,
+                                                        _sampling_frequency);
+    return Status::OK();
+}
+
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));

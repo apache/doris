@@ -736,11 +736,24 @@ true
 -- !test_86 --
 3	{"c2_2":{30:{"c2_2_3":"Hangzhou"}}, "c2_3":{"c2_3_2":null}, "c2_4":{"c2_4_1":null}}	[null, {{"c3_1":300, "c3_2":null}:null}, {{"c3_1":null, "c3_2":1}:[null, {"c3_3_1":null}, null, {"c3_3_1":"2003-01-01"}]}]
 
+-- !test_87 --
+1	01:02:03
+2	02:03:04
+3	03:04:05
+4	\N
+
 -- !test_88 --
 1	["a", "b"]
 2	["c", "d"]
 
 -- !test_89 --
+
+-- !test_90 --
+1	a	1	a
+2	b	2	a
+3	c	3	a
+4	d	4	b
+5	e	5	b
 
 -- !test_91 --
 11	22
@@ -795,10 +808,10 @@ true
 
 -- !test_98 --
 \N	\N	\N
-abcDeFGhijkLmnOp	682.56	1212        
-abcDeFGhijkLmnOp	682.56	1212        
-abcDeFGhijkLmnOp	682.56	1212        
-abcDeFGhijkLmnOp	682.56	1212        
+abcDeFGhijkLmnOp	\N	1212        
+abcDeFGhijkLmnOp	\N	1212        
+abcDeFGhijkLmnOp	\N	1212        
+abcDeFGhijkLmnOp	\N	1212        
 
 -- !test_100 --
 1317017856	1	18752152	809291	1089176	19951117	3-MEDIUM	0	40	4801000	16034243	9	4368910	72015	3	19951228	RAIL	Customer#018752152	 q4gN2btSpiKXdN,6	ALGERIA  1	ALGERIA	AFRICA	10-753-996-8708	MACHINERY	Supplier#001089176	ROidEL1L6yeFsJqnUjD	EGYPT    5	EGYPT	MIDDLE EAST	14-807-108-7869	blanched gainsboro	MFGR#4	MFGR#43	MFGR#433	brown	MEDIUM BRUSHED STEEL	42	MED BAG
@@ -853,13 +866,12 @@ abcDeFGhijkLmnOp	682.56	1212        
 
 -- !test_107 --
 \N	\N	\N
-0x6162634465464768696A6B4C6D6E4F70	682.56	1212        
-0x6162634465464768696A6B4C6D6E4F70	682.56	1212        
-0x6162634465464768696A6B4C6D6E4F70	682.56	1212        
-0x6162634465464768696A6B4C6D6E4F70	682.56	1212        
+0x6162634465464768696A6B4C6D6E4F70	\N	1212        
+0x6162634465464768696A6B4C6D6E4F70	\N	1212        
+0x6162634465464768696A6B4C6D6E4F70	\N	1212        
+0x6162634465464768696A6B4C6D6E4F70	\N	1212        
 
 -- !test_107_desc --
 decimal_flba	decimal(5,2)	Yes	false	\N	NONE
 interval	text	Yes	false	\N	NONE
 uuid	varbinary(16)	Yes	false	\N	NONE
-

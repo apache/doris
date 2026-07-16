@@ -21,12 +21,26 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <queue>
+#include <string>
+#include <vector>
 
+#include "common/cast_set.h"
+#include "common/exception.h"
+#include "core/column/column_nullable.h"
 #include "core/pod_array.h"
 #include "core/string_buffer.hpp"
 
 namespace doris {
+
+inline void check_quantile(double quantile) {
+    if (quantile < 0 || quantile > 1) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "quantile in func percentile should in [0, 1], but real data is:" +
+                                std::to_string(quantile));
+    }
+}
 
 template <typename Ty>
 class Counts {
@@ -221,6 +235,66 @@ private:
 
     PODArray<Ty> _nums;
     std::vector<PODArray<Ty>> _sorted_nums_vec;
+};
+
+class PercentileLevels {
+public:
+    void merge(const PercentileLevels& rhs) {
+        if (rhs.empty()) {
+            return;
+        }
+
+        if (empty()) {
+            quantiles = rhs.quantiles;
+            permutation = rhs.permutation;
+            return;
+        }
+
+        DCHECK_EQ(quantiles.size(), rhs.quantiles.size());
+        for (size_t i = 0; i < quantiles.size(); ++i) {
+            DCHECK_EQ(quantiles[i], rhs.quantiles[i]);
+        }
+    }
+
+    void write(BufferWritable& buf) const {
+        int size_num = cast_set<int>(quantiles.size());
+        buf.write_binary(size_num);
+        for (const auto& quantile : quantiles) {
+            buf.write_binary(quantile);
+        }
+    }
+
+    void read(BufferReadable& buf) {
+        int size_num = 0;
+        buf.read_binary(size_num);
+
+        quantiles.resize(size_num);
+        permutation.resize(size_num);
+        for (int i = 0; i < size_num; ++i) {
+            buf.read_binary(quantiles[i]);
+            permutation[i] = cast_set<size_t>(i);
+        }
+    }
+
+    void clear() {
+        quantiles.clear();
+        permutation.clear();
+    }
+
+    bool empty() const { return quantiles.empty(); }
+
+    const std::vector<size_t>& get_permutation() const {
+        sort_permutation();
+        return permutation;
+    }
+
+    void sort_permutation() const {
+        pdqsort(permutation.begin(), permutation.end(),
+                [this](size_t lhs, size_t rhs) { return quantiles[lhs] < quantiles[rhs]; });
+    }
+
+    std::vector<double> quantiles;
+    mutable std::vector<size_t> permutation;
 };
 
 } // namespace doris

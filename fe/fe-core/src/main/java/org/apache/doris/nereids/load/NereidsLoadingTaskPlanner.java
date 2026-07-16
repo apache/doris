@@ -126,19 +126,15 @@ public class NereidsLoadingTaskPlanner {
 
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
+            List<NereidsImportColumnDesc> importColumnDescs = fileGroups.get(0).getColumnExprList();
             for (Column col : table.getFullSchema()) {
-                boolean existInExpr = false;
-                for (NereidsImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
-                    if (importColumnDesc.getColumnName() != null
-                            && importColumnDesc.getColumnName().equals(col.getName())) {
-                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
-                            throw new UserException("Partial update should not include invisible column except"
-                                    + " delete sign column: " + col.getName());
-                        }
-                        partialUpdateInputColumns.add(col.getName());
-                        existInExpr = true;
-                        break;
+                boolean existInExpr = NereidsLoadUtils.hasImportColumn(importColumnDescs, col);
+                if (existInExpr) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                        throw new UserException("Partial update should not include invisible column except"
+                                + " delete sign column: " + col.getName());
                     }
+                    partialUpdateInputColumns.add(col.getName());
                 }
                 if (col.isKey() && !existInExpr) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());

@@ -106,6 +106,14 @@ public:
     // for job task only
     RuntimeState();
 
+#ifdef BE_TEST
+    // Compatibility constructor for format_v2 tests backported to branch-4.1.
+    RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals)
+            : RuntimeState(query_globals) {
+        set_query_options(query_options);
+    }
+#endif
+
     // Empty d'tor to avoid issues with unique_ptr.
     MOCK_DEFINE(virtual) ~RuntimeState();
 

@@ -88,6 +88,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -683,9 +684,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 LOG.debug("globList listPrefix: '{}' (from globPath: '{}')", listPrefix, globPath);
             }
 
-            // For Directory Buckets, ensure proper prefix handling using standardized approach
+            // For Directory Buckets, ensure proper prefix handling using standardized approach.
+            // Other S3-compatible stores can safely expand bounded glob fragments into narrower
+            // list prefixes, while still applying the complete glob matcher to returned keys.
             finalPrefix = listPrefix;
-
+            List<String> listPrefixes;
             if (!hasLimits && uri.useS3DirectoryBucket()) {
                 String adjustedPrefix = S3URI.getDirectoryPrefixForGlob(listPrefix);
                 if (LOG.isDebugEnabled() && !adjustedPrefix.equals(listPrefix)) {
@@ -693,92 +696,93 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             listPrefix, adjustedPrefix);
                 }
                 finalPrefix = adjustedPrefix;
+                listPrefixes = Collections.singletonList(adjustedPrefix);
+            } else {
+                listPrefixes = S3Util.getGlobListPrefixes(globPath);
             }
 
-            Builder builder = ListObjectsV2Request.builder()
-                    .bucket(bucket)
-                    .prefix(finalPrefix);
-
-            if (startFile != null) {
-                builder.startAfter(startFile);
-            }
-
-            ListObjectsV2Request request = builder.build();
-
-            boolean isTruncated = false;
             boolean reachLimit = false;
             String lastMatchedKey = "";
-            do {
-                roundCnt++;
-                ListObjectsV2Response response = listObjectsV2(request);
-                for (S3Object obj : response.contents()) {
-                    elementCnt++;
+            listPrefixesLoop:
+            for (String currentListPrefix : listPrefixes) {
+                Builder builder = ListObjectsV2Request.builder()
+                        .bucket(bucket)
+                        .prefix(currentListPrefix);
+                if (startFile != null) {
+                    builder.startAfter(startFile);
+                }
+                ListObjectsV2Request request = builder.build();
 
-                    // Limit already reached: scan remaining objects in this page to find
-                    // the next glob-matching key, so hasMoreDataToConsume() returns true
-                    // correctly without recording a non-matching raw S3 key as currentMaxFile.
-                    if (reachLimit) {
-                        java.nio.file.Path checkPath = Paths.get(obj.key());
-                        if (matcher.matches(checkPath)) {
-                            currentMaxFile = obj.key();
-                            break;
-                        }
-                        continue;
-                    }
+                boolean isTruncated;
+                do {
+                    roundCnt++;
+                    ListObjectsV2Response response = listObjectsV2(request);
+                    for (S3Object obj : response.contents()) {
+                        elementCnt++;
 
-                    java.nio.file.Path objPath = Paths.get(obj.key());
-
-                    boolean isPrefix = false;
-                    while (objPath != null && objPath.normalize().toString().startsWith(listPrefix)) {
-                        if (!matcher.matches(objPath)) {
-                            isPrefix = true;
-                            objPath = objPath.getParent();
+                        // After reaching the page limit, find the next matching key across the
+                        // remaining page(s) and expanded prefixes so pagination remains correct.
+                        if (reachLimit) {
+                            java.nio.file.Path checkPath = Paths.get(obj.key());
+                            if (matcher.matches(checkPath)) {
+                                currentMaxFile = obj.key();
+                                break listPrefixesLoop;
+                            }
                             continue;
                         }
-                        if (directorySet.contains(objPath.normalize().toString())) {
-                            break;
-                        }
-                        if (isPrefix) {
-                            directorySet.add(objPath.normalize().toString());
-                        }
 
-                        matchCnt++;
-                        matchFileSize += obj.size();
-                        RemoteFile remoteFile = new RemoteFile(
-                                fileNameOnly ? objPath.getFileName().toString() :
-                                        "s3://" + bucket + "/" + objPath.toString(),
-                                !isPrefix,
-                                isPrefix ? -1 : obj.size(),
-                                isPrefix ? -1 : obj.size(),
-                                isPrefix ? 0 : obj.lastModified().toEpochMilli()
-                        );
-                        result.add(remoteFile);
-                        lastMatchedKey = obj.key();
+                        java.nio.file.Path objPath = Paths.get(obj.key());
 
-                        if (hasLimits && reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
-                            reachLimit = true;
-                            break;
+                        boolean isPrefix = false;
+                        while (objPath != null && objPath.normalize().toString().startsWith(listPrefix)) {
+                            if (!matcher.matches(objPath)) {
+                                isPrefix = true;
+                                objPath = objPath.getParent();
+                                continue;
+                            }
+                            if (directorySet.contains(objPath.normalize().toString())) {
+                                break;
+                            }
+                            if (isPrefix) {
+                                directorySet.add(objPath.normalize().toString());
+                            }
+
+                            matchCnt++;
+                            matchFileSize += obj.size();
+                            RemoteFile remoteFile = new RemoteFile(
+                                    fileNameOnly ? objPath.getFileName().toString() :
+                                            "s3://" + bucket + "/" + objPath.toString(),
+                                    !isPrefix,
+                                    isPrefix ? -1 : obj.size(),
+                                    isPrefix ? -1 : obj.size(),
+                                    isPrefix ? 0 : obj.lastModified().toEpochMilli()
+                            );
+                            result.add(remoteFile);
+                            lastMatchedKey = obj.key();
+
+                            if (hasLimits && reachLimit(result.size(), matchFileSize,
+                                    fileSizeLimit, fileNumLimit)) {
+                                reachLimit = true;
+                                break;
+                            }
+
+                            objPath = objPath.getParent();
+                            isPrefix = true;
                         }
-
-                        objPath = objPath.getParent();
-                        isPrefix = true;
                     }
-                }
 
-                // If no next matching file was found after the limit in the current page,
-                // fall back to lastMatchedKey to avoid a non-matching raw S3 key
-                // (e.g. a sibling file like .lz4) being recorded as currentMaxFile.
-                if (currentMaxFile.isEmpty()) {
-                    currentMaxFile = lastMatchedKey;
-                }
+                    isTruncated = response.isTruncated();
+                    if (isTruncated) {
+                        request = request.toBuilder()
+                                .continuationToken(response.nextContinuationToken())
+                                .build();
+                    }
+                } while (isTruncated && (!reachLimit || currentMaxFile.isEmpty()));
+            }
 
-                isTruncated = response.isTruncated();
-                if (isTruncated) {
-                    request = request.toBuilder()
-                            .continuationToken(response.nextContinuationToken())
-                            .build();
-                }
-            } while (isTruncated && !reachLimit);
+            if (currentMaxFile.isEmpty()) {
+                currentMaxFile = lastMatchedKey;
+            }
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("remotePath:{}, result:{}", remotePath, result);

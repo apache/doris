@@ -56,6 +56,10 @@ public:
         return "TimeStampTz(" + std::to_string(_scale) + ")";
     }
 
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        scalar_type->set_scale(_scale);
+    }
+
     void to_pb_column_meta(PColumnMeta* col_meta) const override {
         DataTypeNumberBase<PrimitiveType::TYPE_TIMESTAMPTZ>::to_pb_column_meta(col_meta);
         col_meta->mutable_decimal_param()->set_scale(_scale);

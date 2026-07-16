@@ -413,5 +413,14 @@ ZoneMapFilterResult IFunctionBase::evaluate_zonemap_filter(
     return unsupported_zonemap_filter(ctx);
 }
 
-#include "common/compile_check_end.h"
+ZoneMapFilterResult IFunctionBase::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx, const VExprSPtrs& function_arguments) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
+
+ZoneMapFilterResult IFunctionBase::evaluate_bloom_filter(
+        const BloomFilterEvalContext& ctx, const VExprSPtrs& function_arguments) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
+
 } // namespace doris

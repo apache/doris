@@ -163,7 +163,8 @@ public class OBSPropertyTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         OBSProperties s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
-        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
+        // No longer disabled by default: the patched FileSystem keys its cache by doris.fs.cache.key.
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.obs.impl.disable.cache"));
         props.put("fs.obs.impl.disable.cache", "true");
         s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
         Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));

@@ -243,7 +243,7 @@ public class NereidsDataDescription {
         }
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
     }
 
@@ -296,7 +296,7 @@ public class NereidsDataDescription {
         }
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
     }
 
@@ -377,7 +377,7 @@ public class NereidsDataDescription {
         }
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
         this.isMysqlLoad = true;
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
     }
 
     /**
@@ -439,7 +439,7 @@ public class NereidsDataDescription {
                 String.valueOf(taskInfo.isReadJsonByLine()));
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
         this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
     }
 
     private String getFileFormat(NereidsLoadTaskInfo taskInfo) {
@@ -1000,9 +1000,16 @@ public class NereidsDataDescription {
         }
     }
 
-    // Change all the columns name to lower case, because Doris column is case-insensitive.
+    private void fileFieldNamesToLowerCase(List<String> columns) {
+        if (Util.isCasePreservingFormat(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+            return;
+        }
+        columnsNameToLowerCase(columns);
+    }
+
+    // Change column names to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty() || "json".equals(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+        if (columns == null || columns.isEmpty()) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {
