@@ -20,6 +20,10 @@
 #include <gtest/gtest.h>
 #include <sys/stat.h>
 
+#include <cstddef>
+#include <cstring>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -102,14 +106,50 @@ TEST_F(KuromojiDictionaryTest, LoadAndQuery) {
     EXPECT_EQ(dict->unknown_feature(ue), std::string_view("unk-default"));
 }
 
-TEST_F(KuromojiDictionaryTest, RejectsBadMagic) {
-    // Corrupt the system.bin magic and confirm load() fails cleanly.
+TEST_F(KuromojiDictionaryTest, RejectsMissingFiles) {
+    // Point at a directory with no dictionary files -> must fail, not crash.
     std::string bad = std::string(::testing::TempDir()) + "/kmj_dict_bad";
     ::mkdir(bad.c_str(), 0755);
-    // Reuse the good files but overwrite system.bin's first byte.
     std::unique_ptr<KuromojiDictionary> dict;
-    // Point at a directory missing the files -> must fail, not crash.
     EXPECT_FALSE(KuromojiDictionary::load(bad, &dict).ok());
+}
+
+TEST_F(KuromojiDictionaryTest, RejectsEmptyTrie) {
+    const std::string path = _dir + "/system.bin";
+    std::string bytes;
+    {
+        std::ifstream in(path, std::ios::binary);
+        bytes.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    const std::size_t off = sizeof(KmjFileHeader) + offsetof(KmjSystemHeader, trie_bytes);
+    ASSERT_LT(off + sizeof(uint64_t), bytes.size());
+    const uint64_t zero = 0;
+    std::memcpy(&bytes[off], &zero, sizeof(zero));
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    std::unique_ptr<KuromojiDictionary> dict;
+    EXPECT_FALSE(KuromojiDictionary::load(_dir, &dict).ok());
+}
+
+TEST_F(KuromojiDictionaryTest, RejectsOutOfRangeCatmap) {
+    CharDefInput cd;
+    cd.catmap.fill(CAT_DEFAULT);
+    cd.catmap[U'A'] = CAT_CLASS_COUNT; 
+    cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
+    cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
+    ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
+    std::unique_ptr<KuromojiDictionary> dict;
+    EXPECT_FALSE(KuromojiDictionary::load(_dir, &dict).ok());
+}
+
+TEST_F(KuromojiDictionaryTest, RejectsEmptyUnkDict) {
+    UnkDictInput unk;
+    unk.per_category.resize(CAT_CLASS_COUNT); // all categories present but empty
+    ASSERT_TRUE(KuromojiDictionaryBuilder::write_unkdict(_dir + "/unkdict.bin", unk).ok());
+    std::unique_ptr<KuromojiDictionary> dict;
+    EXPECT_FALSE(KuromojiDictionary::load(_dir, &dict).ok());
 }
 
 } // namespace doris::segment_v2::inverted_index::kuromoji
