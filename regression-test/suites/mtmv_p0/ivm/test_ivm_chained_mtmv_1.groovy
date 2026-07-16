@@ -59,15 +59,13 @@ suite("test_ivm_chained_mtmv_1") {
         AS SELECT * FROM t_ivm_chained_base;
     """
 
-    // 4. Full refresh MV1 — this creates MV1 as an IVM table with hidden row-id column
-    // TODO: Uncomment when row binlog supports hidden columns like IVM row-id.
-    //       Currently generateTableRowBinlogSchema() uses getBaseSchema(false) which
-    //       excludes hidden columns, causing BE crash (segment_writer CHECK fails:
-    //       num_key_columns=0, num_short_key_columns=1) during binlog segment write.
-    // sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_1 COMPLETE"""
-    // waitingMTMVTaskFinishedByMvName("mv_ivm_chained_1")
+    // 4. Full refresh MV1 and advance stream offset so chained incremental refreshes
+    //    consume only the changes produced after the initial snapshot.
+    sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_1 COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("mv_ivm_chained_1")
+    advance_ivm_stream_offset("mv_ivm_chained_1")
 
-    // order_qt_mv1_after_first_refresh """SELECT k1, v1, v2 FROM mv_ivm_chained_1"""
+    order_qt_mv1_after_first_refresh """SELECT k1, v1, v2 FROM mv_ivm_chained_1"""
 
     // 5. Create MV2 on MV1 (chained — MV2's base table is MV1 which has binlog enabled)
     sql """
@@ -80,11 +78,10 @@ suite("test_ivm_chained_mtmv_1") {
         AS SELECT k1, v1 FROM mv_ivm_chained_1;
     """
 
-    // 6. Full refresh MV2 (chained full refresh)
-    //    NOTE: MV2 incremental refresh is NOT supported yet because binlog does not
-    //    include row-id columns. Full refresh uses OlapScan snapshot so it works.
+    // 6. Full refresh MV2 and advance stream offset to establish the chained baseline.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_2 COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_chained_2")
+    advance_ivm_stream_offset("mv_ivm_chained_2")
 
     order_qt_mv2_after_first_refresh """SELECT k1, v1 FROM mv_ivm_chained_2"""
 
@@ -95,20 +92,23 @@ suite("test_ivm_chained_mtmv_1") {
             (5, 50, 'eee');
     """
 
-    // 8. Full refresh MV1, then full refresh MV2 — verify chained still works
-    // TODO: Uncomment REFRESH MV1 when row binlog supports hidden columns (IVM row-id).
-    // sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_1 COMPLETE"""
-    // waitingMTMVTaskFinishedByMvName("mv_ivm_chained_1")
+    // 8. Incremental refresh MV1, then incremental refresh MV2 — verify row-id columns
+    //    now flow through row binlog and chained IVM can reuse upstream row ids.
+    sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_1 INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("mv_ivm_chained_1")
 
-    sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_2 COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_2 INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_chained_2")
 
     sql """SET show_hidden_columns = true;"""
-    order_qt_mv2_after_second_refresh """SELECT * FROM mv_ivm_chained_2"""
+    def mv2RowIdCount = sql """SELECT COUNT(__DORIS_IVM_ROW_ID_COL__) FROM mv_ivm_chained_2"""
     sql """SET show_hidden_columns = false;"""
+    assertEquals(5, mv2RowIdCount[0][0] as int)
+
+    order_qt_mv1_after_second_refresh """SELECT k1, v1, v2 FROM mv_ivm_chained_1"""
+    order_qt_mv2_after_second_refresh """SELECT k1, v1 FROM mv_ivm_chained_2"""
 
     // 9. Verify MV2 row count is correct
     def mv2Result = sql """SELECT COUNT(*) AS cnt FROM mv_ivm_chained_2"""
-    // TODO: Change back to 5 when REFRESH MV1 is uncommented above.
-    assertEquals(0, mv2Result[0][0] as int)
+    assertEquals(5, mv2Result[0][0] as int)
 }
