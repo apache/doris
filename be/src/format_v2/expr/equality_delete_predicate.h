@@ -1,0 +1,70 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "core/block/block.h"
+#include "exprs/function_context.h"
+#include "exprs/vexpr.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class VExprContext;
+} // namespace doris
+
+namespace doris::format {
+
+class EqualityDeletePredicate final : public VExpr {
+    ENABLE_FACTORY_CREATOR(EqualityDeletePredicate);
+
+public:
+    EqualityDeletePredicate(Block delete_block, std::vector<int> field_ids);
+    ~EqualityDeletePredicate() override = default;
+
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    std::string debug_string() const override;
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    static std::vector<uint64_t> _build_hashes(const Block& block);
+    ColumnPtr _evaluate_key_block(const Block& data_key_block) const;
+    bool _equal(const Block& data_block, size_t data_row, size_t delete_row) const;
+
+    std::string _expr_name;
+    Block _delete_block;
+    std::vector<int> _field_ids;
+    std::vector<uint64_t> _delete_hashes;
+    std::multimap<uint64_t, size_t> _delete_hash_map;
+};
+
+} // namespace doris::format

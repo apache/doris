@@ -58,6 +58,7 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -135,11 +136,20 @@ public class HiveScanNode extends FileQueryScanNode {
         super.doInitialize();
 
         if (hmsTable.isHiveTransactionalTable()) {
+            markTransactionalHiveScanParams(params);
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
             skipCheckingAcidVersionFile = sessionVariable.skipCheckingAcidVersionFile;
         }
+    }
+
+    static void markTransactionalHiveScanParams(TFileScanRangeParams scanParams) {
+        // BE selects the scanner before remote batch splits are fetched, so expose the table format
+        // in scan-level params as well as in each range.
+        TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
+        tableFormatParams.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE.value());
+        scanParams.setTableFormatParams(tableFormatParams);
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
@@ -603,7 +613,7 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setNullFormat("");
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
-            if (textParams.isSetEnclose()) {
+            if (shouldTrimDoubleQuotes(textParams)) {
                 fileAttributes.setTrimDoubleQuotes(true);
             }
             fileAttributes.setEnableTextValidateUtf8(
@@ -658,6 +668,10 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         return fileAttributes;
+    }
+
+    static boolean shouldTrimDoubleQuotes(TFileTextScanRangeParams textParams) {
+        return textParams.isSetEnclose() && textParams.getEnclose() == (byte) '"';
     }
 
     @Override

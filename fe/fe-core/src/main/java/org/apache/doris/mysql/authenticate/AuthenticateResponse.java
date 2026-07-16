@@ -19,9 +19,11 @@ package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.Principal;
+import org.apache.doris.datasource.DelegatedCredential;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.OptionalLong;
 import java.util.Set;
 
 public class AuthenticateResponse {
@@ -33,6 +35,8 @@ public class AuthenticateResponse {
     private Principal principal;
     private Set<String> authenticatedRoles = Collections.emptySet();
     private AuthenticationFailureSummary failureSummary;
+    private DelegatedCredential delegatedCredential;
+    private Long credentialExpiresAtMillis;
 
     public AuthenticateResponse(boolean success) {
         this(success, null, false, null, Collections.emptySet(), null);
@@ -113,6 +117,22 @@ public class AuthenticateResponse {
         this.failureSummary = failureSummary;
     }
 
+    public DelegatedCredential getDelegatedCredential() {
+        return delegatedCredential;
+    }
+
+    public void setDelegatedCredential(DelegatedCredential delegatedCredential) {
+        this.delegatedCredential = delegatedCredential;
+    }
+
+    public OptionalLong getCredentialExpiresAtMillis() {
+        return credentialExpiresAtMillis == null ? OptionalLong.empty() : OptionalLong.of(credentialExpiresAtMillis);
+    }
+
+    public void setCredentialExpiresAtMillis(long credentialExpiresAtMillis) {
+        this.credentialExpiresAtMillis = credentialExpiresAtMillis;
+    }
+
     private static Set<String> immutableAuthenticatedRoles(Set<String> authenticatedRoles) {
         if (authenticatedRoles.isEmpty()) {
             return Collections.emptySet();
@@ -128,6 +148,8 @@ public class AuthenticateResponse {
                 + ", isTemp=" + isTemp
                 + ", principal=" + principal
                 + ", authenticatedRoles=" + authenticatedRoles
+                + ", delegatedCredential=" + delegatedCredential
+                + ", credentialExpiresAtMillis=" + credentialExpiresAtMillis
                 + ", failureSummary=" + failureSummary
                 + '}';
     }

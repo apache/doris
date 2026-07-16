@@ -215,7 +215,7 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     int16_t c1 = value;
     columns[0]->insert_data((const char*)&c1, sizeof(c1));
     block.set_columns(std::move(columns));
-    Status res = delta_writer->write(&block, {0});
+    Status res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     EXPECT_TRUE(res.ok());
 
     res = delta_writer->close();

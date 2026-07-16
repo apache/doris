@@ -55,9 +55,15 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
         this(limit, offset, phase, Optional.empty(), Optional.empty(), child);
     }
 
+    /** Build a LogicalLimit with the given limit, offset and phase. */
     public LogicalLimit(long limit, long offset, LimitPhase phase, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_LIMIT, groupExpression, logicalProperties, child);
+        // limit/offset are always non-negative ("no limit" is represented by Long.MAX_VALUE). A
+        // negative value here means limit + offset overflowed somewhere upstream and would produce an
+        // illegal plan that hangs in BE; fail fast instead.
+        Preconditions.checkArgument(limit >= 0 && offset >= 0,
+                "LogicalLimit limit and offset must be non-negative, but got limit=%s, offset=%s", limit, offset);
         this.limit = limit;
         this.offset = offset;
         this.phase = phase;

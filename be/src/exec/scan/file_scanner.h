@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
@@ -67,6 +68,19 @@ public:
     // sub profile name (for parquet/orc)
     static const std::string FileReadBytesProfile;
     static const std::string FileReadTimeProfile;
+
+#ifdef BE_TEST
+    void TEST_init_runtime_filter_partition_prune_ctxs(
+            const VExprContextSPtrs& conjuncts,
+            const std::unordered_map<SlotId, int>& partition_slot_index_map) {
+        _conjuncts = conjuncts;
+        _partition_slot_index_map = partition_slot_index_map;
+        _init_runtime_filter_partition_prune_ctxs();
+    }
+    const VExprContextSPtrs& TEST_runtime_filter_partition_prune_ctxs() const {
+        return _runtime_filter_partition_prune_ctxs;
+    }
+#endif
 
     FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
@@ -135,8 +149,6 @@ protected:
     bool _cur_reader_eof = false;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
-    // col names from _file_slot_descs
-    std::vector<std::string> _file_col_names;
     // Unified column descriptors for init_reader (includes file, partition, missing, synthesized cols)
     std::vector<ColumnDescriptor> _column_descs;
 
@@ -149,6 +161,7 @@ protected:
     // dest slot name to index in _dest_vexpr_ctx;
     std::unordered_map<std::string, int> _dest_slot_name_to_idx;
     // col name to default value expr
+    // TODO: only used by json reader. Could we delete this?
     std::unordered_map<std::string, VExprContextSPtr> _col_default_value_ctx;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
@@ -195,7 +208,6 @@ protected:
     std::shared_ptr<io::IOContext> _io_ctx;
 
     // Whether to fill partition columns from path, default is true.
-    bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
     std::unordered_map<std::string, bool> _partition_value_is_null;
@@ -297,8 +309,7 @@ private:
     };
 
     Status _init_io_ctx() {
-        _io_ctx = std::make_shared<io::IOContext>();
-        _io_ctx->query_id = &_state->query_id();
+        _io_ctx = create_file_scan_io_context(_state);
         return Status::OK();
     };
 

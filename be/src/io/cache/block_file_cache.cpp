@@ -52,6 +52,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
 #include "util/stack_util.h"
@@ -177,6 +178,16 @@ size_t NeedUpdateLRUBlocks::shard_index(FileBlock* ptr) const {
     DCHECK(ptr != nullptr);
     return std::hash<FileBlock*> {}(ptr)&kShardMask;
 }
+
+namespace {
+
+int64_t steady_clock_seconds() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+}
+
+} // namespace
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
@@ -720,6 +731,97 @@ void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
     }
 }
 
+Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash,
+                                                              size_t offset, size_t size,
+                                                              const CacheContext& context,
+                                                              FileBlocks* blocks,
+                                                              bool* fully_covered) {
+    DCHECK(blocks != nullptr);
+    DCHECK(fully_covered != nullptr);
+    blocks->clear();
+    *fully_covered = false;
+    if (size == 0) {
+        *fully_covered = true;
+        return Status::OK();
+    }
+
+    FileBlock::Range range(offset, offset + size - 1);
+    std::lock_guard cache_lock(_mutex);
+    auto it = _files.find(hash);
+    if (it == _files.end()) {
+        if (_async_open_done) {
+            return Status::OK();
+        }
+        FileCacheKey key;
+        key.hash = hash;
+        key.meta.type = context.cache_type;
+        key.meta.expiration_time = context.expiration_time;
+        key.meta.tablet_id = context.tablet_id;
+        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+
+        it = _files.find(hash);
+        if (it == _files.end()) {
+            return Status::OK();
+        }
+    }
+
+    auto& file_blocks = it->second;
+    if (file_blocks.empty()) {
+        LOG(WARNING) << "file_blocks is empty for hash=" << hash.to_string()
+                     << " cache type=" << context.cache_type
+                     << " cache expiration time=" << context.expiration_time
+                     << " cache range=" << range.left << " " << range.right
+                     << " query id=" << context.query_id;
+        DCHECK(false);
+        _files.erase(hash);
+        return Status::OK();
+    }
+
+    std::vector<FileBlockCell*> covered_cells;
+    auto block_it = file_blocks.lower_bound(range.left);
+    if (block_it == file_blocks.end() || block_it->second.file_block->range().left > range.left) {
+        if (block_it == file_blocks.begin()) {
+            return Status::OK();
+        }
+        --block_it;
+    }
+
+    size_t current_pos = range.left;
+    while (current_pos <= range.right) {
+        if (block_it == file_blocks.end()) {
+            return Status::OK();
+        }
+
+        auto& cell = block_it->second;
+        const auto& block_range = cell.file_block->range();
+        if (block_range.right < current_pos) {
+            ++block_it;
+            continue;
+        }
+        if (block_range.left > current_pos ||
+            cell.file_block->state() != FileBlock::State::DOWNLOADED) {
+            return Status::OK();
+        }
+
+        covered_cells.push_back(&cell);
+        if (range.right <= block_range.right) {
+            *fully_covered = true;
+            break;
+        }
+        current_pos = block_range.right + 1;
+        ++block_it;
+    }
+
+    if (!*fully_covered) {
+        return Status::OK();
+    }
+    for (const auto* cell : covered_cells) {
+        use_cell(*cell, blocks, need_to_move(cell->file_block->cache_type(), context.cache_type),
+                 cache_lock);
+    }
+    return Status::OK();
+}
+
 std::string BlockFileCache::clear_file_cache_async() {
     return clear_file_cache_impl(false);
 }
@@ -799,10 +901,21 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
     while (current_pos < end_pos_non_included) {
         current_size = std::min(remaining_size, _max_file_block_size);
         remaining_size -= current_size;
-        state = try_reserve(hash, context, current_pos, current_size, cache_lock)
-                        ? state
-                        : FileBlock::State::SKIP_CACHE;
-        if (state == FileBlock::State::SKIP_CACHE) [[unlikely]] {
+        auto block_state = state;
+        if (block_state != FileBlock::State::SKIP_CACHE &&
+            context.admit_cache_write_by_remote_scan_limiter) {
+            auto* limiter = context.remote_scan_cache_write_limiter;
+            DCHECK(limiter != nullptr);
+            if (!limiter->try_admit_cache_write(static_cast<int64_t>(current_size))) {
+                block_state = FileBlock::State::SKIP_CACHE;
+            }
+        }
+        if (block_state != FileBlock::State::SKIP_CACHE) {
+            block_state = try_reserve(hash, context, current_pos, current_size, cache_lock)
+                                  ? block_state
+                                  : FileBlock::State::SKIP_CACHE;
+        }
+        if (block_state == FileBlock::State::SKIP_CACHE) [[unlikely]] {
             FileCacheKey key;
             key.hash = hash;
             key.offset = current_pos;
@@ -813,7 +926,8 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
                                                           FileBlock::State::SKIP_CACHE);
             file_blocks.push_back(std::move(file_block));
         } else {
-            auto* cell = add_cell(hash, context, current_pos, current_size, state, cache_lock);
+            auto* cell =
+                    add_cell(hash, context, current_pos, current_size, block_state, cache_lock);
             if (cell) {
                 file_blocks.push_back(cell->file_block);
                 if (!context.is_cold_data) {
@@ -1474,9 +1588,7 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
                                          const CacheContext& context, size_t offset, size_t size,
                                          std::lock_guard<std::mutex>& cache_lock,
                                          bool evict_in_advance) {
-    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
-                               std::chrono::steady_clock::now().time_since_epoch())
-                               .count();
+    int64_t cur_time = steady_clock_seconds();
     if (!try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock,
                                       evict_in_advance)) {
         auto& queue = get_queue(context.cache_type);

@@ -89,6 +89,10 @@ public:
         ParquetReader::set_delete_rows(_iceberg_delete_rows);
     }
 
+    void set_deletion_vector() final {
+        ParquetReader::set_deletion_vector(_iceberg_deletion_vector);
+    }
+
 protected:
     // Parquet-specific schema matching via on_before_init_reader hook
     Status on_before_init_reader(ReaderInitContext* ctx) override;
@@ -101,8 +105,9 @@ protected:
                                             this->get_state(), this->_meta_cache);
     }
 
-    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
-                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(
+            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor,
+            const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node = nullptr);
 
 private:
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
@@ -133,6 +138,8 @@ public:
         this->set_position_delete_rowids(_iceberg_delete_rows);
     }
 
+    void set_deletion_vector() final { OrcReader::set_deletion_vector(_iceberg_deletion_vector); }
+
 protected:
     // ORC-specific schema matching via on_before_init_reader hook
     Status on_before_init_reader(ReaderInitContext* ctx) override;
@@ -145,8 +152,9 @@ protected:
                                         this->get_io_ctx(), this->_meta_cache);
     }
 
-    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
-                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(
+            const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor,
+            const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node = nullptr);
 
     static const std::string ICEBERG_ORC_ATTRIBUTE;
 

@@ -305,6 +305,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("PeerRaceS3ThreadPool")
+                              .set_min_threads(config::min_peer_race_s3_thread_num)
+                              .set_max_threads(config::max_peer_race_s3_thread_num)
+                              .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
@@ -868,7 +872,8 @@ void ExecEnv::destroy() {
     SAFE_STOP(_stream_load_recorder_manager);
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
-    // stop pipline step 2, cgroup execution
+    // Stop workload group execution threads before FragmentMgr. Running pipeline tasks can still
+    // report status through FragmentMgr's async thread pool.
     SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);
@@ -881,6 +886,11 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
+    // Workload group schedulers own the query pipeline, scan, and memtable flush queues.
+    // Release them after fragment/load resources have stopped submitting cleanup work.
+    if (_workload_group_manager) {
+        _workload_group_manager->destroy_schedulers();
+    }
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // _id_manager must be destoried before tablet schema cache
@@ -905,6 +915,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
+    SAFE_SHUTDOWN(_peer_race_s3_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
@@ -960,6 +971,7 @@ void ExecEnv::destroy() {
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
     _s3_file_system_thread_pool.reset(nullptr);
+    _peer_race_s3_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _segment_prefetch_thread_pool.reset(nullptr);

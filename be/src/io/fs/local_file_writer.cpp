@@ -17,6 +17,8 @@
 
 #include "io/fs/local_file_writer.h"
 
+#include <butil/iobuf.h>
+
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
@@ -183,6 +185,47 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         n_left -= res;
     }
     DCHECK_EQ(0, n_left);
+    _bytes_appended += bytes_req;
+    return Status::OK();
+}
+
+Status LocalFileWriter::append_iobuf(const butil::IOBuf& data) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::append_iobuf",
+                                      Status::IOError("inject io error"));
+    if (_state != State::OPENED) [[unlikely]] {
+        return Status::InternalError("append to closed file: {}", _path.native());
+    }
+    if (data.empty()) {
+        return Status::OK();
+    }
+    _dirty = true;
+
+    butil::IOBuf payload(data);
+    const size_t bytes_req = payload.length();
+    while (!payload.empty()) {
+        const size_t size_hint = payload.length();
+        ssize_t res =
+                SYNC_POINT_HOOK_RETURN_VALUE(payload.cut_into_file_descriptor(_fd, size_hint),
+                                             "LocalFileWriter::cut_into_file_descriptor", _fd);
+        DBUG_EXECUTE_IF("LocalFileWriter::append_iobuf.io_error", {
+            auto sub_path = dp->param<std::string>("sub_path", "");
+            if ((sub_path.empty() && _path.filename().compare(kTestFilePath)) ||
+                (!sub_path.empty() && _path.native().find(sub_path) != std::string::npos)) {
+                res = -1;
+                errno = EIO;
+                LOG(WARNING) << Status::IOError("debug write io error: {}", _path.native());
+            }
+        });
+        if (UNLIKELY(res < 0)) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return localfs_error(errno, fmt::format("failed to write {}", _path.native()));
+        }
+        if (UNLIKELY(res == 0)) {
+            return Status::IOError("failed to write {}, zero bytes written", _path.native());
+        }
+    }
     _bytes_appended += bytes_req;
     return Status::OK();
 }

@@ -222,6 +222,11 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     }
 
     @Override
+    public String shapeInfo() {
+        return "cast(" + child().shapeInfo() + " as " + targetType.toSql() + ")";
+    }
+
+    @Override
     public String toString() {
         return "cast(" + child() + " as " + targetType + ")";
     }

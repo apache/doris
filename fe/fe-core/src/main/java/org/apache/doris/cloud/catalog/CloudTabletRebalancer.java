@@ -1498,6 +1498,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
             req.setHost(srcBackend.getHost());
             req.setBrpcPort(srcBackend.getBrpcPort());
             req.setTabletIds(new ArrayList<>(tabletIds));
+            // Tell the receiving BE its own compute group id, so it can set _self_compute_group_id.
+            // In normal intra-CG rebalance, src and dest belong to the same compute group.
+            String srcComputeGroupId = srcBackend.getCloudClusterId();
+            if (srcComputeGroupId != null && !srcComputeGroupId.isEmpty()) {
+                req.setCloudComputeGroupId(srcComputeGroupId);
+            }
             TWarmUpCacheAsyncResponse result = client.warmUpCacheAsync(req);
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 LOG.warn("pre cache failed status {} {}", result.getStatus().getStatusCode(),

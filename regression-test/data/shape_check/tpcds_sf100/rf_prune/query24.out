@@ -20,7 +20,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------filter((store.s_market_id = 8))
 --------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country))))
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (customer.c_birth_country = upper(customer_address.ca_country))))
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer]
 ----------------------------PhysicalProject

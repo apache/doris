@@ -92,7 +92,8 @@ suite("regression_test_variant_types", "var_view") {
 
     qt_sql_array_largeint "desc ${table_name}"
     
-    sql """ insert into ${table_name} (id, var) values (2, '{"a": [{"b" : true}]}'); """
+    // Avoid relying on bool-to-number rendering when this path evolves to array<json>.
+    sql """ insert into ${table_name} (id, var) values (2, '{"a": [{"b" : 2}]}'); """
 
     qt_sql "select * from ${table_name} order by id"
 

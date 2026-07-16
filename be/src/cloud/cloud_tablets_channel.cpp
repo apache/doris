@@ -64,8 +64,27 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         return Status::OK();
     }
 
-    std::unordered_map<int64_t, DorisVector<uint32_t>> tablet_to_rowidxs;
-    _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
+    if (request.is_adaptive_random_bucket()) {
+        std::unordered_map<int64_t, DorisVector<uint32_t>> partition_to_rowidxs;
+        RETURN_IF_ERROR(_build_partition_to_rowidxs_for_adaptive_random_bucket(
+                request, &partition_to_rowidxs));
+        if (!partition_to_rowidxs.empty() && !config::skip_writing_empty_rowset_metadata) {
+            std::unordered_set<int64_t> partition_ids;
+            partition_ids.reserve(partition_to_rowidxs.size());
+            for (const auto& [partition_id, _] : partition_to_rowidxs) {
+                partition_ids.insert(partition_id);
+            }
+            {
+                std::lock_guard<std::mutex> l(_tablet_writers_lock);
+                RETURN_IF_ERROR(_init_writers_by_partition_ids(partition_ids));
+            }
+        }
+        return _write_block_data_for_adaptive_random_bucket(request, cur_seq, partition_to_rowidxs,
+                                                            response);
+    }
+
+    std::unordered_map<int64_t, TabletAddRowsPayload> tablet_to_rows;
+    _build_tablet_to_rows(request, &tablet_to_rows);
 
     std::unordered_set<int64_t> partition_ids;
     std::vector<CloudDeltaWriter*> writers;
@@ -73,7 +92,7 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         // add_batch may concurrency with inc_open but not under _lock.
         // so need to protect it with _tablet_writers_lock.
         std::lock_guard<std::mutex> l(_tablet_writers_lock);
-        for (auto& [tablet_id, _] : tablet_to_rowidxs) {
+        for (auto& [tablet_id, _] : tablet_to_rows) {
             auto tablet_writer_it = _tablet_writers.find(tablet_id);
             if (tablet_writer_it == _tablet_writers.end()) {
                 return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
@@ -88,7 +107,15 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         }
     }
 
-    return _write_block_data(request, cur_seq, tablet_to_rowidxs, response);
+    return _write_block_data(request, cur_seq, tablet_to_rows, response);
+}
+
+Status CloudTabletsChannel::_prepare_adaptive_random_bucket_writer(BaseDeltaWriter* writer) {
+    auto* cloud_writer = static_cast<CloudDeltaWriter*>(writer);
+    if (!cloud_writer->is_init()) {
+        return CloudDeltaWriter::batch_init({cloud_writer});
+    }
+    return Status::OK();
 }
 
 Status CloudTabletsChannel::_init_writers_by_partition_ids(

@@ -13,9 +13,9 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[partsupp] apply RFs: RF0
 --------------------PhysicalProject
-----------------------filter((s_comment like '%Customer%Complaints%'))
+----------------------filter((supplier.s_comment like '%Customer%Complaints%'))
 ------------------------PhysicalOlapScan[supplier]
 ------------------PhysicalProject
---------------------filter(( not (p_brand = 'Brand#45')) and ( not (p_type like 'MEDIUM POLISHED%')) and p_size IN (14, 19, 23, 3, 36, 45, 49, 9))
+--------------------filter(( not (part.p_brand = 'Brand#45')) and ( not (part.p_type like 'MEDIUM POLISHED%')) and part.p_size IN (14, 19, 23, 3, 36, 45, 49, 9))
 ----------------------PhysicalOlapScan[part]
 

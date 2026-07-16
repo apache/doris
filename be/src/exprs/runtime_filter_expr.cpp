@@ -68,6 +68,20 @@ RuntimeFilterExpr::RuntimeFilterExpr(const TExprNode& node, VExprSPtr impl, doub
     DORIS_CHECK(_impl != nullptr);
 }
 
+Status RuntimeFilterExpr::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    DORIS_CHECK(_impl != nullptr);
+    VExprSPtr cloned_impl;
+    RETURN_IF_ERROR(_impl->deep_clone(&cloned_impl));
+    auto cloned_runtime_filter = RuntimeFilterExpr::create_shared(
+            clone_texpr_node(), std::move(cloned_impl), _ignore_thredhold, _null_aware, _filter_id,
+            _sampling_frequency);
+    cloned_runtime_filter->attach_profile_counter(_rf_input_rows, _rf_filter_rows,
+                                                  _always_true_filter_rows);
+    *cloned_expr = std::move(cloned_runtime_filter);
+    return Status::OK();
+}
+
 Status RuntimeFilterExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
                                   VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
@@ -92,7 +106,7 @@ void RuntimeFilterExpr::close(VExprContext* context, FunctionContext::FunctionSt
 Status RuntimeFilterExpr::execute_column_impl(VExprContext* context, const Block* block,
                                               const Selector* selector, size_t count,
                                               ColumnPtr& result_column) const {
-    return Status::InternalError("Not implement RuntimeFilterExpr::execute_column_impl");
+    return _impl->execute_column(context, block, selector, count, result_column);
 }
 
 const std::string& RuntimeFilterExpr::expr_name() const {
