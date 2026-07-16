@@ -32,8 +32,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Optional;
 
-public class StreamTableInfo {
-    private static final Logger LOG = LogManager.getLogger(StreamTableInfo.class);
+public class TableStreamBaseTableInfo {
+    private static final Logger LOG = LogManager.getLogger(TableStreamBaseTableInfo.class);
     // for internal table we use id as identifier otherwise use name instead
     @SerializedName("ci")
     private final long ctlId;
@@ -48,7 +48,7 @@ public class StreamTableInfo {
     @SerializedName("cn")
     private final String ctlName;
 
-    public StreamTableInfo(TableIf table) {
+    public TableStreamBaseTableInfo(TableIf table) {
         java.util.Objects.requireNonNull(table, "table is null");
         DatabaseIf database = table.getDatabase();
         java.util.Objects.requireNonNull(database, "database is null");
@@ -123,7 +123,7 @@ public class StreamTableInfo {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        StreamTableInfo that = (StreamTableInfo) o;
+        TableStreamBaseTableInfo that = (TableStreamBaseTableInfo) o;
         if (isInternalTable()) {
             return Objects.equal(tableId, that.tableId) && Objects.equal(
                     dbId, that.dbId) && Objects.equal(ctlId, that.ctlId);
@@ -140,7 +140,7 @@ public class StreamTableInfo {
 
     @Override
     public String toString() {
-        return "BaseTableInfo{"
+        return "TableStreamBaseTableInfo{"
                 + "tableName='" + tableName + '\''
                 + ", dbName='" + dbName + '\''
                 + ", ctlName='" + ctlName + '\''
