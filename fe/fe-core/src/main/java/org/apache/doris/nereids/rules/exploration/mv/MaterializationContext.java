@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -170,19 +172,26 @@ public abstract class MaterializationContext {
         }
         this.scanPlan = doGenerateScanPlan(cascadesContext);
         // Materialization output expression shuttle, this will be used to expression rewrite
-        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
+        List<Slot> scanPlanOutput = this.scanPlan.getOutput().stream()
+                .filter(MaterializationContext::isVisibleSlot)
+                .collect(ImmutableList.toImmutableList());
+        Preconditions.checkState(this.planOutputShuttledExpressions.size() == scanPlanOutput.size(),
+                "materialization output size %s does not match visible scan output size %s",
+                this.planOutputShuttledExpressions.size(), scanPlanOutput.size());
         // generate expression depend on the order of output
         this.shuttledExprToScanExprMapping = ExpressionMapping.generate(this.planOutputShuttledExpressions,
                 scanPlanOutput);
         // This is used by normalize statistics column expression
         Map<Expression, Expression> regeneratedMapping = new HashMap<>();
         List<Slot> originalPlanOutput = originalPlan.getOutput();
-        if (originalPlanOutput.size() == scanPlanOutput.size()) {
-            for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
-                regeneratedMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
-            }
+        for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
+            regeneratedMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
         }
         this.exprToScanExprMapping = regeneratedMapping;
+    }
+
+    private static boolean isVisibleSlot(Slot slot) {
+        return !(slot instanceof SlotReference) || ((SlotReference) slot).isVisible();
     }
 
     /**
