@@ -17,8 +17,11 @@
 
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
+#include <cstring>
+
 #include "core/column/column_varbinary.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "core/data_type_serde/arrow_validation.h"
 
 namespace doris {
 namespace {
@@ -180,6 +183,76 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
     } else {
         return Status::InvalidArgument("Unsupported arrow type for varbinary column: {}",
                                        array_builder->type()->name());
+    }
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
+                                                      const arrow::Array* arrow_array,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
+    auto& varbinary_column = assert_cast<ColumnVarbinary&>(column);
+    if (arrow_array->type_id() == arrow::Type::STRING ||
+        arrow_array->type_id() == arrow::Type::BINARY) {
+        const auto* concrete_array = assert_cast<const arrow::BinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_binary_offsets_buffer(*concrete_array);
+        }
+        const auto& buffer = concrete_array->value_data();
+        const uint8_t* offsets_data = concrete_array->value_offsets()->data();
+        constexpr size_t offset_size = sizeof(int32_t);
+
+        for (int64_t offset_i = start; offset_i < end; ++offset_i) {
+            if (concrete_array->IsNull(offset_i)) {
+                varbinary_column.insert_default();
+                continue;
+            }
+            int32_t start_offset = 0;
+            int32_t end_offset = 0;
+            memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
+            memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+            const auto length = end_offset - start_offset;
+            varbinary_column.insert_data(
+                    reinterpret_cast<const char*>(buffer->data() + start_offset), length);
+        }
+    } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
+        const auto* concrete_array = assert_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_fixed_width_buffer(*concrete_array,
+                                           static_cast<size_t>(concrete_array->byte_width()));
+        }
+        const auto width = concrete_array->byte_width();
+        for (int64_t offset_i = start; offset_i < end; ++offset_i) {
+            if (concrete_array->IsNull(offset_i)) {
+                varbinary_column.insert_default();
+            } else {
+                varbinary_column.insert_data(
+                        reinterpret_cast<const char*>(concrete_array->GetValue(offset_i)), width);
+            }
+        }
+    } else if (arrow_array->type_id() == arrow::Type::LARGE_STRING ||
+               arrow_array->type_id() == arrow::Type::LARGE_BINARY) {
+        const auto* concrete_array = assert_cast<const arrow::LargeBinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_binary_offsets_buffer(*concrete_array);
+        }
+        const auto& buffer = concrete_array->value_data();
+        for (int64_t offset_i = start; offset_i < end; ++offset_i) {
+            if (concrete_array->IsNull(offset_i)) {
+                varbinary_column.insert_default();
+                continue;
+            }
+            const auto value_offset = concrete_array->value_offset(offset_i);
+            const auto value_length = concrete_array->value_length(offset_i);
+            varbinary_column.insert_data(
+                    reinterpret_cast<const char*>(buffer->data() + value_offset), value_length);
+        }
+    } else {
+        return Status::InvalidArgument("Unsupported Arrow type for VARBINARY column: {}",
+                                       arrow_array->type()->name());
     }
     return Status::OK();
 }

@@ -322,29 +322,59 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
                                                   const cctz::time_zone& ctz) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
-    const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
-    auto arrow_offsets_array = concrete_array->offsets();
-    auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
-    if (config::enable_arrow_input_validation) {
-        check_arrow_list_offsets(*concrete_array, start, end);
-    }
-    auto prev_size = offsets_data.back();
-    const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());
-    const size_t offset_element_size = sizeof(int32_t);
-    const uint8_t* start_offset_ptr = base_offsets_ptr + start * offset_element_size;
-    const uint8_t* end_offset_ptr = base_offsets_ptr + end * offset_element_size;
-    auto arrow_nested_start_offset = unaligned_load<int32_t>(start_offset_ptr);
-    auto arrow_nested_end_offset = unaligned_load<int32_t>(end_offset_ptr);
 
-    for (auto i = start + 1; i < end + 1; ++i) {
-        const uint8_t* current_offset_ptr = base_offsets_ptr + i * offset_element_size;
-        auto current_offset = unaligned_load<int32_t>(current_offset_ptr);
-        // convert to doris offset, start from offsets.back()
-        offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
+    const auto read_list = [&](const auto* concrete_array) -> Status {
+        const int64_t arrow_nested_start_offset = concrete_array->value_offset(start);
+        const int64_t arrow_nested_end_offset = concrete_array->value_offset(end);
+        const auto prev_size = offsets_data.back();
+        for (int64_t i = start + 1; i <= end; ++i) {
+            // Convert Arrow offsets to Doris offsets, starting at offsets.back().
+            offsets_data.emplace_back(prev_size + concrete_array->value_offset(i) -
+                                      arrow_nested_start_offset);
+        }
+        return nested_serde->read_column_from_arrow(
+                column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
+                arrow_nested_end_offset, ctz);
+    };
+
+    switch (arrow_array->type_id()) {
+    case arrow::Type::LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow ListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_list_offsets(*concrete_array, start, end);
+        }
+        return read_list(concrete_array);
     }
-    return nested_serde->read_column_from_arrow(
-            column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
-            arrow_nested_end_offset, ctz);
+    case arrow::Type::LARGE_LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::LargeListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow LargeListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+        }
+        return read_list(concrete_array);
+    }
+    case arrow::Type::FIXED_SIZE_LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::FixedSizeListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow FixedSizeListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+        }
+        return read_list(concrete_array);
+    }
+    default:
+        return Status::InvalidArgument("Unsupported Arrow array type for Doris ARRAY: {}",
+                                       arrow_array->type()->name());
+    }
 }
 
 Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
