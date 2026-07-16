@@ -143,16 +143,14 @@ suite("test_compaction_uniq_keys_with_delete_ck") {
                 rowset.split(" ")[0]
             }
             logger.info("rowset version ranges after cumulative compaction: " + versionRanges)
-            return versionRanges.size() == 2 &&
-                    versionRanges.contains("[0-1]") &&
-                    versionRanges.contains("[2-12]")
+            return versionRanges == ["[0-1]", "[2-9]", "[10-10]", "[11-12]"]
         }
 
         // BE only picks rowsets whose version is already visible as cumulative
         // compaction candidates, and the visible version is pushed from FE
         // asynchronously. Right after a burst of loads it may lag, so a single
         // cumulative round can merge only the visible prefix of rowsets.
-        // Retry until the final version range [2-12] is compacted.
+        // Retry until branch-4.0 reaches the final active rowset shape.
         Awaitility.await().atMost(300, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until(() -> {
             // trigger compactions for all tablets in ${tableName}
             trigger_and_wait_compaction(tableName, "cumulative")
