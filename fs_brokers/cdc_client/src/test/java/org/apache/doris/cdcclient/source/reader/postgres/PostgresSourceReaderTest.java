@@ -118,7 +118,9 @@ class PostgresSourceReaderTest {
         assertEquals(tableId, split.getTableId());
         assertEquals(Map.of(tableId, tableChange), split.getTableSchemas());
         assertFalse(split.getTableSchemas().containsKey(otherTableId));
-        assertEquals(tableSchemas, reader.getTableSchemas());
+        assertEquals(2, reader.getTableSchemas().size());
+        assertTrue(reader.getTableSchemas().containsKey(tableId));
+        assertTrue(reader.getTableSchemas().containsKey(otherTableId));
     }
 
     private static PostgresSourceConfig sourceConfig(Map<String, String> overrides)

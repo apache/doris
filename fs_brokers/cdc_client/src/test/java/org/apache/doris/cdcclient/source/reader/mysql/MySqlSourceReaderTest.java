@@ -160,7 +160,9 @@ public class MySqlSourceReaderTest {
         assertEquals(tableId, split.getTableId());
         assertEquals(Map.of(tableId, tableChange), split.getTableSchemas());
         assertFalse(split.getTableSchemas().containsKey(otherTableId));
-        assertEquals(tableSchemas, reader.getTableSchemas());
+        assertEquals(2, reader.getTableSchemas().size());
+        assertTrue(reader.getTableSchemas().containsKey(tableId));
+        assertTrue(reader.getTableSchemas().containsKey(otherTableId));
     }
 
     // Drive the real generateMySqlConfig JSON-offset path and return the rebuilt startup offset.

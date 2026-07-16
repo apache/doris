@@ -90,8 +90,7 @@ suite("test_streaming_postgres_job_snapshot_with_concurrent_dml_multi_table",
                 )
             """
 
-        // Wait until the first snapshot split commits (slot created, snapshot in progress) so the
-        // DML below lands inside the snapshot window and overlaps the publication flipping.
+        // Wait until snapshot processing starts, then keep writing while subsequent splits run.
         def succeedTaskCount = {
             def rows = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
             rows.size() == 1 ? (rows.get(0).get(0).toString() as long) : 0L
