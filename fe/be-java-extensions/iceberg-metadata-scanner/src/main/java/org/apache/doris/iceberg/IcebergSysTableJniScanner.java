@@ -56,7 +56,10 @@ public class IcebergSysTableJniScanner extends JniScanner {
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
         this.scanTask = SerializationUtil.deserializeFromBase64(serializedSplitParams);
-        String[] requiredFields = splitParam(params.get("required_fields"), ",");
+        String requiredFieldsParam = params.get("required_fields");
+        Preconditions.checkArgument(requiredFieldsParam != null && !requiredFieldsParam.isEmpty(),
+                "required_fields should not be empty");
+        String[] requiredFields = requiredFieldsParam.split(",");
         this.requiredFieldCount = requiredFields.length;
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         Map<String, String> hadoopOptionParams = params.entrySet().stream()
@@ -64,7 +67,10 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
-        String[] requiredTypeStrings = splitParam(params.get("required_types"), "#");
+        String requiredTypesParam = params.get("required_types");
+        Preconditions.checkArgument(requiredTypesParam != null && !requiredTypesParam.isEmpty(),
+                "required_types should not be empty");
+        String[] requiredTypeStrings = requiredTypesParam.split("#");
         ColumnType[] requiredTypes = parseRequiredTypes(requiredTypeStrings, requiredFields);
         initTableInfo(requiredTypes, requiredFields, batchSize);
     }
@@ -141,12 +147,5 @@ public class IcebergSysTableJniScanner extends JniScanner {
             requiredTypes[i] = parsedType;
         }
         return requiredTypes;
-    }
-
-    private static String[] splitParam(String value, String delimiter) {
-        if (value == null || value.isEmpty()) {
-            return new String[0];
-        }
-        return value.split(delimiter);
     }
 }

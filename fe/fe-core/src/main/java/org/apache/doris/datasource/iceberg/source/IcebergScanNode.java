@@ -680,12 +680,11 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         // Doris reads normal Iceberg table files in BE and applies column pruning through scan range params.
         // System tables are different: Iceberg SDK DataTask materializes rows using the projected scan
-        // schema. Keep Doris required columns as the projection prefix so the JNI reader can read rows by
-        // required ordinal, and append filter-only columns after them for Iceberg residual evaluation.
+        // schema. Keep Doris file slots in the same order as the JNI reader's required fields.
         if (isSystemTable) {
             Schema projectedSchema = getSystemTableProjectedSchema(expressions, scan.isCaseSensitive());
-            // COUNT(*) has no required fields, so an empty projection is valid and must still be applied.
-            // Skipping it would make Iceberg use the full metadata schema and materialize readable_metrics.
+            Preconditions.checkState(!projectedSchema.columns().isEmpty(),
+                    "Iceberg system table scan must materialize at least one file slot");
             scan = scan.project(projectedSchema);
         }
 
@@ -694,20 +693,22 @@ public class IcebergScanNode extends FileQueryScanNode {
         return icebergTableScan;
     }
 
-    private Schema getSystemTableProjectedSchema(List<Expression> expressions, boolean caseSensitive)
+    @VisibleForTesting
+    Schema getSystemTableProjectedSchema(List<Expression> expressions, boolean caseSensitive)
             throws UserException {
         List<NestedField> projectedFields = new ArrayList<>();
         Set<Integer> projectedFieldIds = new HashSet<>();
+        List<String> partitionKeys = getPathPartitionKeys();
         for (SlotDescriptor slot : desc.getSlots()) {
             Column column = slot.getColumn();
             String columnName = column.getName();
-            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)
-                    || columnName.startsWith(Column.GLOBAL_ROWID_COL)
-                    || IcebergUtils.isIcebergRowLineageColumn(column)) {
+            if (!isFileSlot(classifyColumn(slot, partitionKeys))) {
                 continue;
             }
 
-            NestedField field = icebergTable.schema().findField(columnName);
+            NestedField field = caseSensitive
+                    ? icebergTable.schema().findField(columnName)
+                    : icebergTable.schema().caseInsensitiveFindField(columnName);
             if (field == null) {
                 throw new UserException("Column " + columnName + " not found in Iceberg system table schema");
             }
@@ -724,8 +725,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 throw new UserException(
                         "Column with field id " + fieldId + " not found in Iceberg system table schema");
             }
-            if (projectedFieldIds.add(field.fieldId())) {
-                projectedFields.add(field);
+            if (!projectedFieldIds.contains(field.fieldId())) {
+                throw new UserException("Iceberg system table filter column " + field.name()
+                        + " is not materialized by the planner");
             }
         }
         return new Schema(projectedFields);
@@ -1260,7 +1262,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean isPositionDeletesSystemTable() {
         TableIf targetTable = source.getTargetTable();
         return targetTable instanceof IcebergSysExternalTable
-                && "position_deletes".equalsIgnoreCase(((IcebergSysExternalTable) targetTable).getSysTableType());
+                && ((IcebergSysExternalTable) targetTable).isPositionDeletesTable();
     }
 
     private List<Split> doGetPositionDeletesSystemTableSplits() throws UserException {

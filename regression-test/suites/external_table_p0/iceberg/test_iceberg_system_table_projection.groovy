@@ -63,11 +63,6 @@ suite("test_iceberg_system_table_projection", "p0,external,iceberg") {
             (1, MAP(true, false), 20260702);
         """
 
-        // COUNT(*) has no required slots. Its empty SDK projection must not fall back to the full
-        // files schema and materialize readable_metrics for the boolean-map column.
-        sql """SELECT COUNT(*) FROM ${tableName}\$data_files"""
-        sql """SELECT COUNT(*) FROM ${tableName}\$files"""
-
         List<List<Object>> dataFiles = sql """
             SELECT file_size_in_bytes
             FROM ${tableName}\$data_files
@@ -92,6 +87,27 @@ suite("test_iceberg_system_table_projection", "p0,external,iceberg") {
         assertEquals(1, files.size())
         assertTrue(files[0][0].toString().contains(tableName))
         assertEquals(1L, ((Number) files[0][1]).longValue())
+
+        List<List<Object>> snapshots = sql """
+            SELECT snapshot_id, parent_id, operation
+            FROM ${tableName}\$snapshots
+            ORDER BY committed_at;
+        """
+        assertEquals(1, snapshots.size())
+        long snapshotId = ((Number) snapshots[0][0]).longValue()
+        assertTrue(snapshotId > 0)
+        assertEquals(null, snapshots[0][1])
+        assertEquals("append", snapshots[0][2])
+
+        List<List<Object>> history = sql """
+            SELECT snapshot_id, parent_id, is_current_ancestor
+            FROM ${tableName}\$history
+            ORDER BY made_current_at;
+        """
+        assertEquals(1, history.size())
+        assertEquals(snapshotId, ((Number) history[0][0]).longValue())
+        assertEquals(null, history[0][1])
+        assertEquals(true, history[0][2])
     }
 
     def verifyReadableMetricsProjection = { String tableName, String writeFormat ->
@@ -139,5 +155,23 @@ suite("test_iceberg_system_table_projection", "p0,external,iceberg") {
 
     verifySystemTableProjection("test_iceberg_system_table_projection_orc", "orc")
     verifySystemTableProjection("test_iceberg_system_table_projection_parquet", "parquet")
+
+    test {
+        sql """SELECT COUNT(*) FROM test_iceberg_system_table_projection_orc\$data_files"""
+        result([[1L]])
+    }
+    test {
+        sql """SELECT COUNT(*) FROM test_iceberg_system_table_projection_orc\$files"""
+        result([[1L]])
+    }
+    test {
+        sql """SELECT COUNT(*) FROM test_iceberg_system_table_projection_parquet\$data_files"""
+        result([[1L]])
+    }
+    test {
+        sql """SELECT COUNT(*) FROM test_iceberg_system_table_projection_parquet\$files"""
+        result([[1L]])
+    }
+
     verifyReadableMetricsProjection("test_iceberg_system_table_projection_readable_metrics", "orc")
 }
