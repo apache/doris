@@ -1018,6 +1018,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
         // Keep genuinely ancient (<100) DATE/DATETIME years; MySQL already completes 2-digit years.
         dbzProps.setProperty("enable.time.adjuster", "false");
+        dbzProps.setProperty("converters", "dorisYear");
+        dbzProps.setProperty("dorisYear.type", MySqlYearConverter.class.getName());
 
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));

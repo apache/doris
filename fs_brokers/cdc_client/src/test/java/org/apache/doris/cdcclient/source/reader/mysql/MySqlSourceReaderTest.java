@@ -165,6 +165,16 @@ public class MySqlSourceReaderTest {
         assertTrue(reader.getTableSchemas().containsKey(otherTableId));
     }
 
+    @Test
+    void mysqlConfigRegistersYearConverter() throws Exception {
+        MySqlSourceConfig config = sourceConfig("initial");
+
+        assertEquals("dorisYear", config.getDbzProperties().getProperty("converters"));
+        assertEquals(
+                "org.apache.doris.cdcclient.source.reader.mysql.MySqlYearConverter",
+                config.getDbzProperties().getProperty("dorisYear.type"));
+    }
+
     // Drive the real generateMySqlConfig JSON-offset path and return the rebuilt startup offset.
     private BinlogOffset startupBinlogOffset(String offsetJson) throws Exception {
         return sourceConfig(offsetJson).getStartupOptions().binlogOffset;

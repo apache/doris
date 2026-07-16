@@ -36,6 +36,8 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+        String normalizedJdbcUrl = "jdbc:mysql://${externalEnvIp}:${mysql_port}"
+                + "?yearIsDateType=false&tinyInt1isBit=false&useUnicode=true&characterEncoding=utf-8"
 
         // unexcepted source properties
         test {
@@ -314,7 +316,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         test {
             sql """ALTER JOB ${jobName}
                 FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "jdbc_url" = "${normalizedJdbcUrl}",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.mysql.cj.jdbc.Driver",
                     "user" = "root",
@@ -334,18 +336,9 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         test {
             sql """ALTER JOB ${jobName}
                 FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "changeTable", 
-                    "offset" = "initial"
+                    "include_tables" = "changeTable"
                 )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
+                TO DATABASE ${currentDb}
             """
             exception "The include_tables property cannot be modified in ALTER JOB"
         }
@@ -354,19 +347,9 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         test {
             sql """ALTER JOB ${jobName}
                 FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}",
-                    "exclude_tables" = "xxxx",
-                    "offset" = "initial"
+                    "exclude_tables" = "xxxx"
                 )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
+                TO DATABASE ${currentDb}
             """
             exception "The exclude_tables property cannot be modified in ALTER JOB"
         }
@@ -433,15 +416,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         test {
             sql """ALTER JOB ${jobName}
                 FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
-                    "offset" = "initial",
-                    "xxx"="xxx"
+                    "xxx" = "xxx"
                 )
                 TO DATABASE ${currentDb}
             """
