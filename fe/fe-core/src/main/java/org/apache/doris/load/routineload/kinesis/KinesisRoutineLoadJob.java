@@ -675,25 +675,11 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
+    protected void unprotectModifyProperties(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KinesisDataSourceProperties dataSourceProperties =
                 (KinesisDataSourceProperties) command.getDataSourceProperties();
-
-        writeLock();
-        try {
-            if (getState() != JobState.PAUSED) {
-                throw new DdlException("Only supports modification of PAUSED jobs");
-            }
-
-            modifyPropertiesInternal(jobProperties, dataSourceProperties);
-
-            AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties);
-            Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
-        } finally {
-            writeUnlock();
-        }
+        modifyPropertiesInternal(jobProperties, dataSourceProperties);
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
