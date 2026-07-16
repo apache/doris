@@ -3151,6 +3151,35 @@ TEST_F(ColumnMapperCastTest,
     EXPECT_TRUE(request.conjuncts.empty());
 }
 
+// Scenario: a narrowing file-to-table cast can produce NULL or an error for values that do not fit
+// the table leaf. Evaluating that cast below TableReader can filter those rows before
+// _align_column_nullability() validates the required table child. Keep the predicate at table level
+// so schema materialization observes every source row first.
+TEST_F(ColumnMapperCastTest, NestedElementAtConjunctStaysTableLevelForNonLosslessFileToTableCast) {
+    const auto file_bigint_type = i64();
+    const auto table_int_type = i32();
+
+    auto table_a = field_id_col("a", 11, table_int_type);
+    auto table_struct = struct_col("s", 10, {table_a});
+    auto file_a = field_id_col("a", 11, file_bigint_type, 0);
+    auto file_struct = struct_col("s", 10, {file_a}, 5);
+
+    auto table_leaf = executable_struct_element(
+            table_slot(0, 0, table_struct.type, table_struct.name), table_int_type, "a");
+    auto filter_expr = executable_binary_predicate(
+            TExprOpcode::EQ, table_leaf, literal(table_int_type, Field::create_field<TYPE_INT>(1)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request, &state).ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
 // Scenario: the table literal is outside the old file leaf's INT range. Rewriting
 // BIGINT 2147483648 to INT would change the predicate, so keep the literal as BIGINT and cast the
 // file leaf instead: `CAST(file_s.b::INT AS BIGINT) = 2147483648::BIGINT`.

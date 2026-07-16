@@ -897,7 +897,8 @@ static VExprSPtr cast_file_expr_to_table_type(const VExprSPtr& file_expr,
 static bool rewrite_binary_struct_literal_predicate(
         const VExprSPtr& expr, const std::vector<ColumnMapping>& filter_mappings,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
-        RewriteContext* rewrite_context) {
+        RewriteContext* rewrite_context, bool* can_localize) {
+    DORIS_CHECK(can_localize != nullptr);
     if (!is_binary_comparison_predicate(expr)) {
         return false;
     }
@@ -936,6 +937,13 @@ static bool rewrite_binary_struct_literal_predicate(
     if (file_literal != nullptr) {
         children[literal_child_idx] = std::move(file_literal);
     } else {
+        if (!is_lossless_file_to_table_numeric_cast(file_leaf_type, table_leaf_type)) {
+            // A narrowing or otherwise lossy cast can fail or produce NULL while TableReader
+            // materializes the table schema. Evaluating it here could filter the offending row
+            // before that validation, so keep the complete predicate above TableReader.
+            *can_localize = false;
+            return true;
+        }
         children[struct_child_idx] = cast_file_expr_to_table_type(children[struct_child_idx],
                                                                   table_leaf_type, rewrite_context);
         children[literal_child_idx] = original_table_literal(table_literal, rewrite_context);
@@ -951,7 +959,8 @@ static bool rewrite_binary_struct_literal_predicate(
 static bool rewrite_in_struct_literal_predicate(
         const VExprSPtr& expr, const std::vector<ColumnMapping>& filter_mappings,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
-        RewriteContext* rewrite_context) {
+        RewriteContext* rewrite_context, bool* can_localize) {
+    DORIS_CHECK(can_localize != nullptr);
     if (expr->node_type() != TExprNodeType::IN_PRED || expr->get_num_children() < 2 ||
         !is_struct_element_expr(expr->children()[0])) {
         return false;
@@ -987,6 +996,10 @@ static bool rewrite_in_struct_literal_predicate(
         auto file_literal =
                 rewrite_literal_to_file_type(table_literal, leaf_rewrite_info, rewrite_context);
         if (file_literal == nullptr) {
+            if (!is_lossless_file_to_table_numeric_cast(file_leaf_type, table_leaf_type)) {
+                *can_localize = false;
+                return true;
+            }
             children[0] =
                     cast_file_expr_to_table_type(children[0], table_leaf_type, rewrite_context);
             for (size_t literal_idx = 0; literal_idx < table_literals.size(); ++literal_idx) {
@@ -1027,6 +1040,10 @@ static VExprSPtr rewrite_struct_or_slot_expr_to_file_expr(
         DORIS_CHECK(table_leaf_type != nullptr);
         DORIS_CHECK(expr->data_type() != nullptr);
         if (!expr->data_type()->equals(*table_leaf_type)) {
+            if (!is_lossless_file_to_table_numeric_cast(expr->data_type(), table_leaf_type)) {
+                *can_localize = false;
+                return expr;
+            }
             // Path localization changes the leaf to the physical file type. For example, after an
             // Iceberg evolution from STRUCT<a: INT> to STRUCT<a: BIGINT>, the localized old-file
             // predicate is initially `element_at(file_col, 'a')::INT = 10::BIGINT`. Cast only the
@@ -1091,11 +1108,11 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
         return expr;
     }
     if (rewrite_binary_struct_literal_predicate(expr, filter_mappings, global_to_file_slot,
-                                                rewrite_context)) {
+                                                rewrite_context, can_localize)) {
         return expr;
     }
     if (rewrite_in_struct_literal_predicate(expr, filter_mappings, global_to_file_slot,
-                                            rewrite_context)) {
+                                            rewrite_context, can_localize)) {
         return expr;
     }
     if (is_struct_element_expr(expr) || expr->is_slot_ref()) {
