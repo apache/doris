@@ -33,6 +33,7 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
@@ -89,6 +90,87 @@ class S3ObjStorageMockTest {
     @Test
     void getClient_returnsInjectedMockClient() throws IOException {
         Assertions.assertEquals(mockS3, storage.getClient());
+    }
+
+    @Test
+    void directoryBucketUsesCrc32cForPutAndMultipart() throws IOException {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://s3.us-east-1.amazonaws.com");
+        props.put("AWS_REGION", "us-east-1");
+        props.put("AWS_ACCESS_KEY", "testAK");
+        props.put("AWS_SECRET_KEY", "testSK");
+        props.put("AWS_BUCKET", "analytics--use1-az4--x-s3");
+        storage = new TestableS3ObjStorage(props, mockS3);
+
+        Mockito.when(mockS3.putObject(ArgumentMatchers.any(PutObjectRequest.class),
+                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class)))
+                .thenReturn(PutObjectResponse.builder().build());
+        Mockito.when(mockS3.createMultipartUpload(
+                ArgumentMatchers.any(CreateMultipartUploadRequest.class)))
+                .thenReturn(CreateMultipartUploadResponse.builder().uploadId("upload-1").build());
+        Mockito.when(mockS3.uploadPart(ArgumentMatchers.any(UploadPartRequest.class),
+                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class)))
+                .thenReturn(UploadPartResponse.builder().eTag("etag-1")
+                        .checksumCRC32C("crc32c-1").build());
+        Mockito.when(mockS3.completeMultipartUpload(
+                ArgumentMatchers.any(CompleteMultipartUploadRequest.class)))
+                .thenReturn(software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse
+                        .builder().build());
+        Mockito.when(mockS3.deleteObjects(ArgumentMatchers.any(
+                software.amazon.awssdk.services.s3.model.DeleteObjectsRequest.class)))
+                .thenReturn(software.amazon.awssdk.services.s3.model.DeleteObjectsResponse
+                        .builder().build());
+
+        String path = "s3://analytics--use1-az4--x-s3/data/file";
+        storage.putObject(path, RequestBody.of(new ByteArrayInputStream(new byte[] {1}), 1));
+        String uploadId = storage.initiateMultipartUpload(path);
+        UploadPartResult part = storage.uploadPart(path, uploadId, 1,
+                RequestBody.of(new ByteArrayInputStream(new byte[] {1}), 1));
+        storage.completeMultipartUpload(path, uploadId, List.of(part));
+        storage.deleteObjectsByKeys("analytics--use1-az4--x-s3", List.of("data/file"));
+
+        ArgumentCaptor<PutObjectRequest> putCaptor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        Mockito.verify(mockS3).putObject(putCaptor.capture(),
+                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class));
+        Assertions.assertEquals(ChecksumAlgorithm.CRC32C, putCaptor.getValue().checksumAlgorithm());
+        ArgumentCaptor<CreateMultipartUploadRequest> createCaptor =
+                ArgumentCaptor.forClass(CreateMultipartUploadRequest.class);
+        Mockito.verify(mockS3).createMultipartUpload(createCaptor.capture());
+        Assertions.assertEquals(ChecksumAlgorithm.CRC32C,
+                createCaptor.getValue().checksumAlgorithm());
+        Assertions.assertEquals("crc32c-1", part.checksumCrc32c());
+        ArgumentCaptor<CompleteMultipartUploadRequest> completeCaptor =
+                ArgumentCaptor.forClass(CompleteMultipartUploadRequest.class);
+        Mockito.verify(mockS3).completeMultipartUpload(completeCaptor.capture());
+        Assertions.assertEquals("crc32c-1", completeCaptor.getValue().multipartUpload()
+                .parts().get(0).checksumCRC32C());
+        ArgumentCaptor<software.amazon.awssdk.services.s3.model.DeleteObjectsRequest> deleteCaptor =
+                ArgumentCaptor.forClass(
+                        software.amazon.awssdk.services.s3.model.DeleteObjectsRequest.class);
+        Mockito.verify(mockS3).deleteObjects(deleteCaptor.capture());
+        Assertions.assertEquals(ChecksumAlgorithm.CRC32C,
+                deleteCaptor.getValue().checksumAlgorithm());
+    }
+
+    @Test
+    void directoryListOmitsStartAfterAndUsesParentPrefix() throws IOException {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://s3.us-east-1.amazonaws.com");
+        props.put("AWS_REGION", "us-east-1");
+        props.put("AWS_ACCESS_KEY", "testAK");
+        props.put("AWS_SECRET_KEY", "testSK");
+        storage = new TestableS3ObjStorage(props, mockS3);
+        Mockito.when(mockS3.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
+
+        storage.listObjectsWithOptions("s3://analytics--use1-az4--x-s3/data/file*",
+                org.apache.doris.filesystem.spi.ObjectListOptions.builder()
+                        .startAfter("data/file0").build());
+
+        ArgumentCaptor<ListObjectsV2Request> captor = ArgumentCaptor.forClass(ListObjectsV2Request.class);
+        Mockito.verify(mockS3).listObjectsV2(captor.capture());
+        Assertions.assertEquals("data/", captor.getValue().prefix());
+        Assertions.assertNull(captor.getValue().startAfter());
     }
 
     // ------------------------------------------------------------------
@@ -497,6 +579,11 @@ class S3ObjStorageMockTest {
 
         @Override
         protected S3Client buildClient() {
+            return mockClient;
+        }
+
+        @Override
+        protected S3Client buildDirectoryClient() {
             return mockClient;
         }
     }

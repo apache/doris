@@ -38,6 +38,7 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
 
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+        rejectDirectoryBucketStorage(storagePropertiesList);
         buildCatalogOptions();
         Configuration conf = new Configuration();
         storagePropertiesList.forEach(storageProperties -> {

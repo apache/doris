@@ -38,6 +38,7 @@
 #include "common/network_util.h"
 #include "common/stats.h"
 #include "common/string_util.h"
+#include "cpp/s3_bucket_capabilities.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
@@ -768,6 +769,21 @@ static bool use_credential_provider(const ObjectStoreInfoPB& obj) {
     return obj.has_cred_provider_type() || has_non_empty_role_arn(obj);
 }
 
+static bool is_unsupported_directory_bucket_vault(const ObjectStoreInfoPB& obj) {
+    return obj.has_provider() && obj.provider() == ObjectStoreInfoPB::S3 &&
+           resolve_s3_bucket_capabilities(obj.bucket(), obj.endpoint()).is_directory_bucket();
+}
+
+static int reject_directory_bucket_vault(const ObjectStoreInfoPB& obj, MetaServiceCode& code,
+                                         std::string& msg) {
+    if (!is_unsupported_directory_bucket_vault(obj)) {
+        return 0;
+    }
+    code = MetaServiceCode::INVALID_ARGUMENT;
+    msg = "S3 Express One Zone is not supported by Cloud Storage Vault in this release";
+    return -1;
+}
+
 static void create_object_info_with_encrypt(const InstanceInfoPB& instance, ObjectStoreInfoPB* obj,
                                             bool sse_enabled, MetaServiceCode& code,
                                             std::string& msg) {
@@ -780,6 +796,10 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string endpoint = obj->has_endpoint() ? obj->endpoint() : "";
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
+
+    if (reject_directory_bucket_vault(*obj, code, msg) != 0) {
+        return;
+    }
 
     if (obj->has_role_arn()) {
         if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
@@ -1105,6 +1125,9 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         msg = ss.str();
         return -1;
     }
+    if (reject_directory_bucket_vault(new_vault.obj_info(), code, msg) != 0) {
+        return -1;
+    }
 
     auto origin_vault_info = new_vault.DebugString();
 
@@ -1247,6 +1270,10 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     }
 
     const auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
+
+    if (reject_directory_bucket_vault(obj, code, msg) != 0) {
+        return -1;
+    }
 
     //  obj size > 1k, refuse
     if (obj.ByteSizeLong() > 1024) {

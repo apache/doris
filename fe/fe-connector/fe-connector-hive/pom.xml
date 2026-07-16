@@ -54,6 +54,12 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->
         <dependency>
             <groupId>${project.groupId}</groupId>

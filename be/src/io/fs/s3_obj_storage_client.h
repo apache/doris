@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "cpp/s3_bucket_capabilities.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_file_system.h"
 
@@ -33,7 +34,7 @@ class ObjClientHolder;
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
     explicit S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                                bool is_s3_express = false);
+                                S3BucketCapabilities capabilities = {});
     ~S3ObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;
@@ -44,6 +45,7 @@ public:
     ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
             const std::vector<ObjectCompleteMultiPart>& completed_parts) override;
+    ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions& opts) override;
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
                                      size_t offset, size_t bytes_read,
@@ -59,10 +61,7 @@ public:
 
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;
-    // True for S3 Express One Zone endpoints (or when config::s3_disable_content_md5
-    // is on). When set, uploads send a CRC32C checksum instead of Content-MD5,
-    // since S3 Express returns 501 NotImplemented for the latter.
-    bool _disable_content_md5 = false;
+    S3BucketCapabilities _capabilities;
 };
 
 } // namespace doris::io

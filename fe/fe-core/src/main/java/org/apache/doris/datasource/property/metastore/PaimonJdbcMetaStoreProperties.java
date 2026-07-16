@@ -110,6 +110,7 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
 
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+        rejectDirectoryBucketStorage(storagePropertiesList);
         buildCatalogOptions();
         Configuration conf = new Configuration();
         for (StorageProperties storageProperties : storagePropertiesList) {

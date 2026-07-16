@@ -50,6 +50,7 @@ struct ObjectStoragePathOptions {
 struct ObjectCompleteMultiPart {
     int part_num = 0;
     std::string etag = std::string();
+    std::optional<std::string> checksum_crc32c = std::nullopt;
 };
 
 struct ObjectStorageStatus {
@@ -76,6 +77,7 @@ struct ObjectStorageUploadResponse {
     ObjectStorageResponse resp {};
     std::optional<std::string> upload_id = std::nullopt;
     std::optional<std::string> etag = std::nullopt;
+    std::optional<std::string> checksum_crc32c = std::nullopt;
 };
 
 struct ObjectStorageHeadResponse : ObjectStorageResponse {
@@ -106,6 +108,11 @@ public:
     virtual ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
             const std::vector<ObjectCompleteMultiPart>& completed_parts) = 0;
+    // Abort an unfinished multipart upload. Backends without an explicit abort primitive may
+    // retain their existing no-op cleanup semantics.
+    virtual ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions&) {
+        return ObjectStorageResponse::OK();
+    }
     // According to the passed bucket and key, it will access whether the corresponding file exists in the object storage.
     // If it exists, it will return the corresponding file size
     virtual ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) = 0;

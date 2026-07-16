@@ -271,4 +271,18 @@ class S3FileSystemPropertiesTest {
         Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
         Assertions.assertTrue(exception.getMessage().contains("Unsupported s3.credentials_provider_type"));
     }
+
+    @Test
+    void directoryBucketRejectsHadoopS3AConversion() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        raw.put("s3.region", "us-east-1");
+        raw.put("s3.bucket", "analytics--use1-az4--x-s3");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, properties::toHadoopConfigurationMap);
+        Assertions.assertTrue(exception.getMessage().contains("Hadoop S3A"));
+    }
 }

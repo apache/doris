@@ -18,7 +18,9 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.S3BucketCapabilities;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.collect.ImmutableList;
@@ -59,6 +61,19 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     }
 
     public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
+
+    protected void rejectDirectoryBucketStorage(List<StorageProperties> storagePropertiesList) {
+        String endpoint = storagePropertiesList.stream()
+                .filter(S3Properties.class::isInstance)
+                .map(S3Properties.class::cast)
+                .map(S3Properties::getEndpoint)
+                .findFirst()
+                .orElse("");
+        if (S3BucketCapabilities.isDirectoryBucketUri(warehouse, endpoint)) {
+            throw new IllegalArgumentException(
+                    "S3 Express One Zone is not supported by Paimon storage in this release");
+        }
+    }
 
     protected void appendCatalogOptions() {
         if (StringUtils.isNotBlank(warehouse)) {

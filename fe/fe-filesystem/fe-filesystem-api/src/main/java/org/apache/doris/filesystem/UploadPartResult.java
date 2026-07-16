@@ -27,10 +27,16 @@ public final class UploadPartResult {
 
     private final int partNumber;
     private final String etag;
+    private final String checksumCrc32c;
 
     public UploadPartResult(int partNumber, String etag) {
+        this(partNumber, etag, null);
+    }
+
+    public UploadPartResult(int partNumber, String etag, String checksumCrc32c) {
         this.partNumber = partNumber;
         this.etag = etag;
+        this.checksumCrc32c = checksumCrc32c;
     }
 
     public int partNumber() {
@@ -39,5 +45,9 @@ public final class UploadPartResult {
 
     public String etag() {
         return etag;
+    }
+
+    public String checksumCrc32c() {
+        return checksumCrc32c;
     }
 }

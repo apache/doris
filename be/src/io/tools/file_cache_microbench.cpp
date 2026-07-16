@@ -1495,6 +1495,7 @@ private:
         s3_conf.sk = doris::config::test_s3_sk;
         s3_conf.region = doris::config::test_s3_region;
         s3_conf.endpoint = doris::config::test_s3_endpoint;
+        s3_conf.bucket = doris::config::test_s3_bucket;
         return s3_conf;
     }
 

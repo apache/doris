@@ -195,19 +195,28 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         String continuationToken = null;
         do {
             RemoteObjects batch = objStorage.listObjects(prefix, continuationToken);
+            boolean deletedObjects = false;
             if (!batch.getObjectList().isEmpty()) {
                 List<String> keys = new ArrayList<>(batch.getObjectList().size());
                 for (RemoteObject obj : batch.getObjectList()) {
                     keys.add(obj.getKey());
                 }
                 objStorage.deleteObjectsByKeys(bucket, keys);
+                deletedObjects = true;
             }
-            continuationToken = batch.isTruncated() ? batch.getContinuationToken() : null;
+            continuationToken = batch.isTruncated()
+                    ? (restartListingAfterDelete(bucket) && deletedObjects
+                            ? "" : batch.getContinuationToken())
+                    : null;
         } while (continuationToken != null);
     }
 
+    protected boolean restartListingAfterDelete(String bucket) {
+        return false;
+    }
+
     /** Parses {@code uri} respecting the underlying client's path-style configuration. */
-    private ObjectStorageUri parseUri(String uri) {
+    protected ObjectStorageUri parseUri(String uri) {
         return ObjectStorageUri.parse(uri, usePathStyle);
     }
 
@@ -217,7 +226,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
      * Computed by stripping the parsed key off the original URI string, so it is correct
      * for both virtual-hosted and path-style URIs without re-deriving the host.
      */
-    private static String uriBase(String uri, ObjectStorageUri parsed) {
+    protected static String uriBase(String uri, ObjectStorageUri parsed) {
         String key = parsed.key();
         String base = key.isEmpty() ? uri : uri.substring(0, uri.length() - key.length());
         return base.endsWith("/") ? base : base + "/";
@@ -1103,7 +1112,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return compact;
     }
 
-    private static int compareUtf8Binary(String left, String right) {
+    protected static int compareUtf8Binary(String left, String right) {
         byte[] leftBytes = left.getBytes(StandardCharsets.UTF_8);
         byte[] rightBytes = right.getBytes(StandardCharsets.UTF_8);
         int commonLength = Math.min(leftBytes.length, rightBytes.length);
@@ -1142,7 +1151,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
      *   <li>{@code data_{-1..1}.csv} → unchanged (no expansion)</li>
      * </ul>
      */
-    private static String expandNumericRanges(String pattern) {
+    protected static String expandNumericRanges(String pattern) {
         java.util.regex.Pattern rangeSegment = java.util.regex.Pattern.compile(
                 "(-?\\d+)\\.\\.(-?\\d+)");
         java.util.regex.Pattern simpleRange = java.util.regex.Pattern.compile(

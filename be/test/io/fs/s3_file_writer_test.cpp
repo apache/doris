@@ -1140,6 +1140,9 @@ public:
             const std::vector<ObjectCompleteMultiPart>& completed_parts) override {
         std::lock_guard lock(_mutex);
         complete_multipart_count++;
+        if (fail_complete_multipart) {
+            return {.status = {.code = 1, .msg = "injected complete multipart failure"}};
+        }
         complete_multipart_params.push_back({opts, completed_parts});
         last_opts = opts;
         last_completed_parts = completed_parts;
@@ -1150,6 +1153,14 @@ public:
         }
         complete[opts.path.native()] = final_obj;
         objects[opts.path.native()] = final_obj;
+        return default_response;
+    }
+
+    ObjectStorageResponse abort_multipart_upload(
+            const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
+        abort_multipart_count++;
+        last_opts = opts;
         return default_response;
     }
 
@@ -1227,6 +1238,8 @@ public:
     int put_object_count = 0;
     int upload_part_count = 0;
     int complete_multipart_count = 0;
+    int abort_multipart_count = 0;
+    bool fail_complete_multipart = false;
 
     // Structures to store input parameters for each call
     struct UploadPartParams {
@@ -1265,6 +1278,8 @@ public:
         put_object_count = 0;
         upload_part_count = 0;
         complete_multipart_count = 0;
+        abort_multipart_count = 0;
+        fail_complete_multipart = false;
 
         create_multipart_params.clear();
         put_object_params.clear();
@@ -1304,6 +1319,20 @@ create_s3_client(const std::string& path) {
     holder->_client = mock_client;
     s3_file_writer->_obj_client = holder;
     return {mock_client, s3_file_writer};
+}
+
+TEST_F(S3FileWriterTest, abortMultipartUploadWhenCompleteFails) {
+    auto [client, writer] = create_s3_client("abort_on_complete_failure");
+    std::string content(config::s3_write_buffer_size + 1, 'x');
+    ASSERT_TRUE(writer->append(Slice(content)).ok());
+    client->fail_complete_multipart = true;
+
+    auto status = writer->close();
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(1, client->complete_multipart_count);
+    EXPECT_EQ(1, client->abort_multipart_count);
+    EXPECT_TRUE(writer->upload_id().empty());
 }
 
 /**

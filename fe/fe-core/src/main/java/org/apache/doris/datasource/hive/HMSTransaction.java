@@ -1869,8 +1869,18 @@ public class HMSTransaction implements Transaction {
                         + "/" + s3MPUPendingUpload.getKey();
                 try {
                     objFs.completeMultipartUpload(remotePath, s3MPUPendingUpload.getUploadId(),
-                            s3MPUPendingUpload.getEtags());
+                            s3MPUPendingUpload.getEtags(),
+                            s3MPUPendingUpload.isSetChecksumAlgorithm()
+                                    ? s3MPUPendingUpload.getChecksumAlgorithm().name() : null,
+                            s3MPUPendingUpload.isSetPartChecksums()
+                                    ? s3MPUPendingUpload.getPartChecksums() : java.util.Map.of());
                 } catch (java.io.IOException e) {
+                    try {
+                        objFs.getObjStorage().abortMultipartUpload(
+                                remotePath, s3MPUPendingUpload.getUploadId());
+                    } catch (java.io.IOException abortFailure) {
+                        e.addSuppressed(abortFailure);
+                    }
                     throw new RuntimeException("Failed to complete MPU for " + remotePath, e);
                 }
                 uncompletedMpuPendingUploads.remove(new UncompletedMpuPendingUpload(s3MPUPendingUpload, path));

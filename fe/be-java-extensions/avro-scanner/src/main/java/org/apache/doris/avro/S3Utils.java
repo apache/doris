@@ -20,8 +20,14 @@ package org.apache.doris.avro;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 public class S3Utils {
+    private static final Pattern DIRECTORY_BUCKET_PATTERN = Pattern.compile(
+            "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--[a-z0-9]+-az[0-9]+--x-s3$");
     private static final String SCHEMA_S3 = "s3";
     private static final String SCHEMA_HTTP = "http";
     private static final String SCHEMA_HTTPS = "https";
@@ -97,6 +103,30 @@ public class S3Utils {
 
     public static String getKey() {
         return key;
+    }
+
+    public static boolean isAwsDirectoryBucket(String bucketName, String endpoint) {
+        if (bucketName == null || !DIRECTORY_BUCKET_PATTERN.matcher(bucketName).matches()) {
+            return false;
+        }
+        if (StringUtils.isBlank(endpoint)) {
+            return true;
+        }
+        String value = endpoint.contains(SCHEME_DELIM) ? endpoint : "https://" + endpoint;
+        try {
+            String host = new URI(value).getHost();
+            if (host == null) {
+                return false;
+            }
+            host = host.toLowerCase(Locale.ROOT);
+            boolean awsDns = host.endsWith(".amazonaws.com")
+                    || host.endsWith(".amazonaws.com.cn") || host.endsWith(".api.aws");
+            return awsDns && (host.startsWith("s3.") || host.startsWith("s3-")
+                    || host.startsWith("s3express-") || host.contains(".s3.")
+                    || host.contains(".s3-") || host.contains(".s3express-"));
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
 }

@@ -109,8 +109,18 @@ public abstract class ObjFileSystem implements FileSystem {
      */
     public void completeMultipartUpload(String remotePath, String uploadId,
             Map<Integer, String> etags) throws IOException {
+        completeMultipartUpload(remotePath, uploadId, etags, null, Map.of());
+    }
+
+    public void completeMultipartUpload(String remotePath, String uploadId,
+            Map<Integer, String> etags, String checksumAlgorithm,
+            Map<Integer, String> partChecksums) throws IOException {
+        if (checksumAlgorithm != null && !"CRC32C".equals(checksumAlgorithm)) {
+            throw new IOException("Unsupported multipart checksum algorithm: " + checksumAlgorithm);
+        }
         List<UploadPartResult> parts = etags.entrySet().stream()
-                .map(e -> new UploadPartResult(e.getKey(), e.getValue()))
+                .map(e -> new UploadPartResult(e.getKey(), e.getValue(),
+                        partChecksums.get(e.getKey())))
                 .sorted(Comparator.comparingInt(UploadPartResult::partNumber))
                 .collect(Collectors.toList());
         objStorage.completeMultipartUpload(remotePath, uploadId, parts);

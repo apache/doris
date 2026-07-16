@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.credentials.CloudCredential;
+import org.apache.doris.filesystem.S3BucketCapabilities;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -47,6 +48,7 @@ import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
@@ -91,37 +93,8 @@ public class S3Util {
     @Deprecated
     public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential,
             boolean isUsePathStyle) {
-        EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
-                .builder()
-                .baseDelay(Duration.ofSeconds(1))
-                .maxBackoffTime(Duration.ofMinutes(1))
-                .build();
-        // retry 3 time with Equal backoff
-        RetryPolicy retryPolicy = RetryPolicy
-                .builder()
-                .numRetries(3)
-                .backoffStrategy(backoffStrategy)
-                .build();
-        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
-                .builder()
-                // set retry policy
-                .retryPolicy(retryPolicy)
-                // using AwsS3V4Signer
-                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
-                .build();
-        return S3Client.builder()
-                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
-                        .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
-                .credentialsProvider(getAwsCredencialsProvider(credential))
-                .region(Region.of(region))
-                .overrideConfiguration(clientConf)
-                // disable chunkedEncoding because of bos not supported
-                .serviceConfiguration(S3Configuration.builder()
-                        .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(isUsePathStyle)
-                        .build())
-                .build();
+        return buildS3Client(endpoint, region, isUsePathStyle,
+                getAwsCredencialsProvider(credential), null);
     }
 
     /**
@@ -217,6 +190,15 @@ public class S3Util {
 
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,
                                          AwsCredentialsProvider credential) {
+        return buildS3Client(endpoint, region, isUsePathStyle, credential, null);
+    }
+
+    public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,
+            AwsCredentialsProvider credential, String bucket) {
+        S3BucketCapabilities capabilities = S3BucketCapabilities.resolve(
+                bucket, endpoint == null ? null : endpoint.toString());
+        capabilities.validateDirectoryConfiguration(
+                endpoint == null ? null : endpoint.toString(), region, isUsePathStyle);
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                 .builder()
                 .baseDelay(Duration.ofSeconds(1))
@@ -228,62 +210,36 @@ public class S3Util {
                 .numRetries(3)
                 .backoffStrategy(backoffStrategy)
                 .build();
-        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
-                .builder()
-                // set retry policy
-                .retryPolicy(retryPolicy)
-                // using AwsS3V4Signer
-                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
-                .build();
-        return S3Client.builder()
+        ClientOverrideConfiguration.Builder clientConf = ClientOverrideConfiguration
+                .builder().retryPolicy(retryPolicy);
+        if (!capabilities.isDirectoryBucket()) {
+            clientConf.putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create());
+        }
+        S3ClientBuilder builder = S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
                 .credentialsProvider(credential)
                 .region(Region.of(region))
-                .overrideConfiguration(clientConf)
+                .disableS3ExpressSessionAuth(!capabilities.isDirectoryBucket()
+                        && !capabilities.officialAwsService())
+                .overrideConfiguration(clientConf.build())
                 // disable chunkedEncoding because of bos not supported
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(isUsePathStyle)
-                        .build())
-                .build();
+                        .pathStyleAccessEnabled(capabilities.isDirectoryBucket()
+                                ? false : isUsePathStyle)
+                        .build());
+        if (!capabilities.isDirectoryBucket() && endpoint != null) {
+            builder.endpointOverride(endpoint);
+        }
+        return builder.build();
     }
 
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle, String accessKey,
             String secretKey, String sessionToken, String roleArn, String externalId) {
-        EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
-                .builder()
-                .baseDelay(Duration.ofSeconds(1))
-                .maxBackoffTime(Duration.ofMinutes(1))
-                .build();
-        // retry 3 time with Equal backoff
-        RetryPolicy retryPolicy = RetryPolicy
-                .builder()
-                .numRetries(3)
-                .backoffStrategy(backoffStrategy)
-                .build();
-        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
-                .builder()
-                // set retry policy
-                .retryPolicy(retryPolicy)
-                // using AwsS3V4Signer
-                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
-                .build();
-        return S3Client.builder()
-                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
-                        .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
-                .credentialsProvider(getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
-                        sessionToken, roleArn, externalId))
-                .region(Region.of(region))
-                .overrideConfiguration(clientConf)
-                // disable chunkedEncoding because of bos not supported
-                .serviceConfiguration(S3Configuration.builder()
-                        .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(isUsePathStyle)
-                        .build())
-                .build();
+        return buildS3Client(endpoint, region, isUsePathStyle,
+                getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
+                        sessionToken, roleArn, externalId), null);
     }
 
     public static String getLongestPrefix(String globPattern) {

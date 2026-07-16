@@ -35,6 +35,7 @@
 #include "common/status.h"
 #include "core/string_ref.h"
 #include "cpp/aws_common.h"
+#include "cpp/s3_bucket_capabilities.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
 
@@ -60,6 +61,13 @@ extern bvar::LatencyRecorder s3_list_latency;
 extern bvar::LatencyRecorder s3_list_object_versions_latency;
 extern bvar::LatencyRecorder s3_get_bucket_version_latency;
 extern bvar::LatencyRecorder s3_copy_object_latency;
+extern bvar::Adder<uint64_t> s3_checksum_failure_total;
+extern bvar::Adder<uint64_t> s3_multipart_abort_total;
+extern bvar::Adder<uint64_t> s3_multipart_abort_failure_total;
+extern bvar::Adder<uint64_t> s3_multipart_unfinished_on_destroy_total;
+extern bvar::Adder<uint64_t> s3_directory_list_scanned_keys;
+extern bvar::Adder<uint64_t> s3_directory_list_returned_keys;
+extern bvar::Adder<uint64_t> s3_directory_list_pages;
 }; // namespace s3_bvar
 
 std::string hide_access_key(const std::string& ak);
@@ -92,21 +100,29 @@ struct S3ClientConf {
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
-        // Use crc32_hash(ak + sk) hash to prevent swapped AK/SK order from producing same result.
-        hash_code ^= crc32_hash(ak + sk);
-        hash_code ^= crc32_hash(token);
-        hash_code ^= crc32_hash(endpoint);
-        hash_code ^= crc32_hash(region);
-        hash_code ^= crc32_hash(bucket);
-        hash_code ^= max_connections;
-        hash_code ^= request_timeout_ms;
-        hash_code ^= connect_timeout_ms;
-        hash_code ^= use_virtual_addressing;
-        hash_code ^= static_cast<int>(provider);
-
-        hash_code ^= static_cast<int>(cred_provider_type);
-        hash_code ^= crc32_hash(role_arn);
-        hash_code ^= crc32_hash(external_id);
+        auto combine = [&hash_code](uint64_t value) {
+            hash_code ^= value + 0x9e3779b97f4a7c15ULL + (hash_code << 6) + (hash_code >> 2);
+        };
+        combine(crc32_hash(ak));
+        combine(crc32_hash(sk));
+        combine(crc32_hash(token));
+        combine(crc32_hash(endpoint));
+        combine(crc32_hash(region));
+        combine(crc32_hash(bucket));
+        combine(max_connections);
+        combine(request_timeout_ms);
+        combine(connect_timeout_ms);
+        combine(use_virtual_addressing);
+        combine(need_override_endpoint);
+        combine(static_cast<int>(provider));
+        combine(static_cast<int>(cred_provider_type));
+        combine(crc32_hash(role_arn));
+        combine(crc32_hash(external_id));
+        const auto capabilities = resolve_s3_bucket_capabilities(bucket, endpoint);
+        combine(static_cast<int>(capabilities.bucket_type));
+        combine(static_cast<int>(capabilities.endpoint_mode));
+        combine(static_cast<int>(capabilities.checksum_policy));
+        combine(crc32_hash(config::s3_client_http_scheme));
         return hash_code;
     }
 
@@ -114,10 +130,12 @@ struct S3ClientConf {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-                "cred_provider_type={},role_arn={}, external_id={}",
-                hide_access_key(ak), token, endpoint, region, bucket, max_connections,
-                request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id);
+                "need_override_endpoint={}, cred_provider_type={}, role_arn={}, external_id={})",
+                hide_access_key(ak), token.empty() ? "" : "***", endpoint, region, bucket,
+                max_connections,
+                request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
+                need_override_endpoint, cred_provider_type, role_arn,
+                external_id.empty() ? "" : "***");
     }
 };
 

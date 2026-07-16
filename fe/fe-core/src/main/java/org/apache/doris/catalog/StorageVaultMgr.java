@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.S3BucketCapabilities;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -149,6 +150,12 @@ public class StorageVaultMgr {
     private Cloud.StorageVaultPB.Builder buildAlterS3VaultRequest(Map<String, String> properties, String name)
             throws Exception {
         Cloud.ObjectStoreInfoPB.Builder objBuilder = S3Properties.getObjStoreInfoPB(properties);
+        if (objBuilder.hasProvider() && objBuilder.getProvider() == Cloud.ObjectStoreInfoPB.Provider.S3
+                && S3BucketCapabilities.resolve(objBuilder.getBucket(), objBuilder.getEndpoint())
+                        .isDirectoryBucket()) {
+            throw new DdlException(
+                    "S3 Express One Zone is not supported by Cloud Storage Vault in this release");
+        }
         Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
         alterObjVaultBuilder.setName(name);
         alterObjVaultBuilder.setObjInfo(objBuilder.build());
