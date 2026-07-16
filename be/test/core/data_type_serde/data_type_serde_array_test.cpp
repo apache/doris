@@ -15,12 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstring>
+#include <memory>
 
+#include "core/assert_cast.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type_serde/data_type_array_serde.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
@@ -173,6 +182,77 @@ TEST_F(DataTypeArraySerDeFieldTest, empty_array_is_null_element_type) {
     DataTypeSerDe::deserialize_binary_to_field(chars.data(), field, info);
     EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_NULL);
     EXPECT_FALSE(info.need_convert);
+}
+
+TEST_F(DataTypeArraySerDeFieldTest, ReadArrowFixedSizeAndLargeList) {
+    auto nested_serde = std::make_shared<DataTypeNullableSerDe>(
+            std::make_shared<DataTypeNumberSerDe<TYPE_FLOAT>>());
+    DataTypeArraySerDe serde(nested_serde);
+    cctz::time_zone tz;
+
+    const auto expect_array = [](const ColumnArray& column,
+                                 const std::vector<ColumnArray::Offset64>& expected_offsets,
+                                 const std::vector<float>& expected_values) {
+        const auto& offsets = column.get_offsets();
+        ASSERT_EQ(expected_offsets.size(), offsets.size());
+        for (size_t i = 0; i < expected_offsets.size(); ++i) {
+            EXPECT_EQ(expected_offsets[i], offsets[i]);
+        }
+        const auto& nullable_values = assert_cast<const ColumnNullable&>(column.get_data());
+        const auto& values =
+                assert_cast<const ColumnFloat32&>(nullable_values.get_nested_column()).get_data();
+        ASSERT_EQ(expected_values.size(), values.size());
+        for (size_t i = 0; i < expected_values.size(); ++i) {
+            EXPECT_EQ(0, nullable_values.get_null_map_data()[i]);
+            EXPECT_FLOAT_EQ(expected_values[i], values[i]);
+        }
+    };
+
+    // Lance vectors are Arrow FixedSizeList: every embedding has exactly three floats.
+    {
+        auto value_builder = std::make_shared<arrow::FloatBuilder>();
+        arrow::FixedSizeListBuilder builder(arrow::default_memory_pool(), value_builder, 3);
+        for (const std::array<float, 3>& embedding :
+             {std::array<float, 3> {0.0F, 0.0F, 0.0F}, std::array<float, 3> {1.0F, 0.0F, 0.0F},
+              std::array<float, 3> {-1.5F, 0.25F, 3.75F}}) {
+            ASSERT_TRUE(builder.Append().ok());
+            for (float value : embedding) {
+                ASSERT_TRUE(value_builder->Append(value).ok());
+            }
+        }
+        std::shared_ptr<arrow::FixedSizeListArray> arrow_array;
+        ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+        auto column = ColumnArray::create(
+                ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()),
+                ColumnOffset64::create());
+        ASSERT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), tz)
+                            .ok());
+        expect_array(*column, {3, 6, 9}, {0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F, -1.5F, 0.25F, 3.75F});
+    }
+
+    // LargeList uses 64-bit Arrow offsets but has the same Doris ARRAY representation.
+    {
+        auto value_builder = std::make_shared<arrow::FloatBuilder>();
+        arrow::LargeListBuilder builder(arrow::default_memory_pool(), value_builder);
+        ASSERT_TRUE(builder.Append().ok());
+        ASSERT_TRUE(value_builder->Append(1.0F).ok());
+        ASSERT_TRUE(value_builder->Append(2.0F).ok());
+        ASSERT_TRUE(builder.Append().ok());
+        ASSERT_TRUE(value_builder->Append(3.0F).ok());
+        ASSERT_TRUE(builder.Append().ok());
+        std::shared_ptr<arrow::LargeListArray> arrow_array;
+        ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+        auto column = ColumnArray::create(
+                ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()),
+                ColumnOffset64::create());
+        ASSERT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), tz)
+                            .ok());
+        expect_array(*column, {2, 3, 3}, {1.0F, 2.0F, 3.0F});
+    }
 }
 
 } // namespace doris
