@@ -96,6 +96,7 @@ int64_t CpuInfo::hardware_flags_ = 0;
 int64_t CpuInfo::original_hardware_flags_;
 int64_t CpuInfo::cycles_per_ms_;
 int CpuInfo::num_cores_ = 1;
+std::atomic<int> CpuInfo::current_num_cores_ {1};
 int CpuInfo::max_num_cores_ = 1;
 std::string CpuInfo::model_name_ = "unknown";
 int CpuInfo::max_num_numa_nodes_;
@@ -192,6 +193,7 @@ void CpuInfo::init() {
 #else
     max_num_cores_ = get_nprocs_conf();
 #endif
+    current_num_cores_.store(_get_current_available_num_cores(), std::memory_order_relaxed);
 
     // Print a warning if something is wrong with sched_getcpu().
 #ifdef HAVE_SCHED_GETCPU
@@ -256,6 +258,44 @@ void CpuInfo::_init_numa() {
         }
     }
     _init_numa_node_to_cores();
+}
+
+int CpuInfo::_get_current_available_num_cores() {
+#ifdef __APPLE__
+    int num_cores = 0;
+    size_t len = sizeof(num_cores);
+    sysctlbyname("hw.logicalcpu", &num_cores, &len, nullptr, 0);
+#else
+    int num_cores = 0;
+    std::string line;
+    std::ifstream cpuinfo("/proc/cpuinfo");
+    while (cpuinfo) {
+        getline(cpuinfo, line);
+        size_t colon = line.find(':');
+        if (colon != std::string::npos) {
+            std::string name = line.substr(0, colon - 1);
+            trim(name);
+            if (name == "processor") {
+                ++num_cores;
+            }
+        }
+    }
+#endif
+    num_cores = CGroupUtil::get_cgroup_limited_cpu_number(num_cores);
+    if (config::num_cores > 0) {
+        num_cores = config::num_cores;
+    }
+    return std::max(1, num_cores);
+}
+
+int CpuInfo::get_current_num_cores() {
+    DCHECK(initialized_);
+    return current_num_cores_.load(std::memory_order_relaxed);
+}
+
+void CpuInfo::refresh_current_num_cores() {
+    DCHECK(initialized_);
+    current_num_cores_.store(_get_current_available_num_cores(), std::memory_order_relaxed);
 }
 
 void CpuInfo::_init_fake_numa_for_test(int max_num_numa_nodes,
