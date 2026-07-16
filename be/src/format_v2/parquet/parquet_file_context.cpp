@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parquet/exception.h>
+#include <parquet/page_index.h>
 
 #include <algorithm>
 #include <cstring>
@@ -29,16 +30,21 @@
 #include <string_view>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/check.h"
 #include "common/config.h"
+#include "format/parquet/parquet_thrift_util.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/tracing_file_reader.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "storage/cache/page_cache.h"
 #include "util/slice.h"
+#include "util/thrift_util.h"
 
 namespace doris::format::parquet {
 
@@ -373,10 +379,10 @@ public:
                                               static_cast<size_t>(range.end_offset()));
         }
 
-        // This mirrors the v1 parquet reader: when projected column chunks in a row group are
-        // small random IOs, make the actual ReadAt path range-aware. Arrow still drives decoding,
-        // but every page read below this point sees MergeRangeFileReader instead of the raw remote
-        // reader, so adjacent small requests can be coalesced and served from merge buffers.
+        // This mirrors the v1 parquet reader for the migration metadata/index ReadAt path. Native
+        // data-page decoding owns a separate BufferedFileStreamReader and v1-compatible page cache;
+        // adjacent metadata/index requests here can still be coalesced and served from merge
+        // buffers.
         // Example: a row group projects leaf chunks [1MB, 1.5MB) and [1.6MB, 2MB). Arrow later
         // issues page reads inside those chunks; MergeRangeFileReader can fetch a wider slice once
         // and satisfy the following ReadAt calls from its boxes, reducing remote request count.
@@ -569,17 +575,60 @@ Status arrow_status_to_doris_status(const arrow::Status& status) {
 }
 
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx,
-                                bool enable_page_cache,
-                                const io::FileDescription& file_description) {
+                                bool enable_page_cache, const io::FileDescription& file_description,
+                                bool enable_mapping_timestamp_tz) {
     DORIS_CHECK(input_file_reader != nullptr);
+    native_file = input_file_reader;
+    native_io_ctx = io_ctx;
+
+    // Use the exact footer cache key and payload type used by v1. This deliberately happens before
+    // Arrow metadata is opened: native readers can reuse a footer produced by a v1 scan (and vice
+    // versa), and a cache miss performs one bounded tail read through the same Doris FileReader.
+    auto* meta_cache = ExecEnv::GetInstance()->file_meta_cache();
+    const auto meta_cache_key = FileMetaCache::get_key(native_file, file_description);
+    size_t native_footer_size = 0;
+    if (meta_cache != nullptr && meta_cache->enabled() &&
+        meta_cache->lookup(meta_cache_key, &native_meta_cache_handle)) {
+        native_metadata = native_meta_cache_handle.data<FileMetaData>();
+        ++native_footer_cache_hits;
+    } else {
+        RETURN_IF_ERROR(parse_thrift_footer(
+                native_file, &native_metadata_owner, &native_footer_size, io_ctx,
+                /*enable_mapping_varbinary=*/true, enable_mapping_timestamp_tz));
+        ++native_footer_read_calls;
+        if (meta_cache != nullptr && meta_cache->enabled()) {
+            meta_cache->insert(meta_cache_key, native_metadata_owner.release(),
+                               &native_meta_cache_handle);
+            native_metadata = native_meta_cache_handle.data<FileMetaData>();
+        } else {
+            native_metadata = native_metadata_owner.get();
+        }
+    }
+    DORIS_CHECK(native_metadata != nullptr);
+    const_cast<FieldDescriptor&>(native_metadata->schema()).assign_ids();
+
     auto page_cache_file_key = build_page_cache_file_key(*input_file_reader, file_description);
-    arrow_file = std::make_shared<DorisRandomAccessFile>(std::move(input_file_reader), io_ctx,
-                                                         enable_page_cache,
-                                                         std::move(page_cache_file_key));
+    native_page_cache_enabled = enable_page_cache && !page_cache_file_key.empty();
+    arrow_file = std::make_shared<DorisRandomAccessFile>(
+            input_file_reader, io_ctx, enable_page_cache, std::move(page_cache_file_key));
     try {
-        // TODO: Cache parquet metadata in file system layer to avoid repeated metadata read for same file.
+        // Arrow metadata is still used by the v2 pruning planner during the migration, but it must
+        // not trigger a second footer read. Re-serialize the immutable cached Thrift object and
+        // hand the parsed Arrow metadata into Open(). The serialized buffer is needed only during
+        // FileMetaData::Make(), while the v1-compatible cache remains the single footer owner.
+        ThriftSerializer serializer(/*compact=*/true,
+                                    static_cast<int>(std::max<size_t>(native_footer_size, 4096)));
+        std::vector<uint8_t> serialized_metadata;
+        RETURN_IF_ERROR(serializer.serialize(
+                const_cast<tparquet::FileMetaData*>(&native_metadata->to_thrift()),
+                &serialized_metadata));
+        uint32_t serialized_size = cast_set<uint32_t>(serialized_metadata.size());
+        auto arrow_metadata =
+                ::parquet::FileMetaData::Make(serialized_metadata.data(), &serialized_size,
+                                              ::parquet::default_reader_properties());
+        DORIS_CHECK(static_cast<size_t>(serialized_size) == serialized_metadata.size());
         this->file_reader = ::parquet::ParquetFileReader::Open(
-                arrow_file, ::parquet::default_reader_properties());
+                arrow_file, ::parquet::default_reader_properties(), std::move(arrow_metadata));
         metadata = this->file_reader->metadata();
         schema = metadata != nullptr ? metadata->schema() : nullptr;
     } catch (const ::parquet::ParquetException& e) {
@@ -598,6 +647,49 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
 
     if (metadata == nullptr || schema == nullptr) {
         return Status::Corruption("Failed to read parquet metadata");
+    }
+    return Status::OK();
+}
+
+Status ParquetFileContext::load_native_offset_indexes(
+        int row_group_id, const std::unordered_set<int>& leaf_column_ids,
+        std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const {
+    DORIS_CHECK(offset_indexes != nullptr);
+    offset_indexes->clear();
+    if (leaf_column_ids.empty() || file_reader == nullptr) {
+        return Status::OK();
+    }
+    try {
+        auto page_index_reader = file_reader->GetPageIndexReader();
+        if (page_index_reader == nullptr) {
+            return Status::OK();
+        }
+        auto row_group_reader = page_index_reader->RowGroup(row_group_id);
+        if (row_group_reader == nullptr) {
+            return Status::OK();
+        }
+        for (const int leaf_column_id : leaf_column_ids) {
+            auto arrow_index = row_group_reader->GetOffsetIndex(leaf_column_id);
+            if (arrow_index == nullptr) {
+                continue;
+            }
+            tparquet::OffsetIndex native_index;
+            native_index.page_locations.reserve(arrow_index->page_locations().size());
+            for (const auto& arrow_location : arrow_index->page_locations()) {
+                tparquet::PageLocation native_location;
+                native_location.__set_offset(arrow_location.offset);
+                native_location.__set_compressed_page_size(arrow_location.compressed_page_size);
+                native_location.__set_first_row_index(arrow_location.first_row_index);
+                native_index.page_locations.push_back(std::move(native_location));
+            }
+            offset_indexes->emplace(leaf_column_id, std::move(native_index));
+        }
+    } catch (const ::parquet::ParquetException&) {
+        // OffsetIndex is optional. Selected logical ranges still enforce correctness, while the
+        // native reader conservatively falls back to sequential page traversal.
+        offset_indexes->clear();
+    } catch (const std::exception&) {
+        offset_indexes->clear();
     }
     return Status::OK();
 }
@@ -622,9 +714,37 @@ bool ParquetFileContext::set_random_access_ranges(const std::vector<ParquetPageC
             ->set_random_access_ranges(ranges, avg_io_size, profile, merge_read_slice_size);
 }
 
+bool ParquetFileContext::set_native_random_access_ranges(
+        const std::vector<ParquetPageCacheRange>& ranges, size_t avg_io_size,
+        RuntimeProfile* profile, int64_t merge_read_slice_size) {
+    DORIS_CHECK(native_file != nullptr);
+    if (!detail::should_use_merge_range_reader(
+                ranges, avg_io_size,
+                typeid_cast<io::InMemoryFileReader*>(native_file.get()) != nullptr)) {
+        native_row_group_file = native_file;
+        return false;
+    }
+
+    const auto valid_ranges = detail::valid_prefetch_ranges(ranges);
+    std::vector<io::PrefetchRange> native_ranges;
+    native_ranges.reserve(valid_ranges.size());
+    for (const auto& range : valid_ranges) {
+        native_ranges.emplace_back(cast_set<size_t>(range.offset),
+                                   cast_set<size_t>(range.end_offset()));
+    }
+    std::ranges::sort(native_ranges, {}, &io::PrefetchRange::start_offset);
+    native_row_group_file = std::make_shared<io::MergeRangeFileReader>(
+            profile, native_file, native_ranges, merge_read_slice_size);
+    return true;
+}
+
 void ParquetFileContext::reset_random_access_ranges() {
     DORIS_CHECK(arrow_file != nullptr);
     static_cast<DorisRandomAccessFile*>(arrow_file.get())->reset_random_access_ranges();
+    if (native_row_group_file != nullptr && native_row_group_file != native_file) {
+        native_row_group_file->collect_profile_before_close();
+    }
+    native_row_group_file.reset();
 }
 
 ParquetPageCacheStats ParquetFileContext::page_cache_stats() const {
@@ -635,6 +755,10 @@ ParquetPageCacheStats ParquetFileContext::page_cache_stats() const {
 }
 
 Status ParquetFileContext::close() {
+    if (native_row_group_file != nullptr && native_row_group_file != native_file) {
+        native_row_group_file->collect_profile_before_close();
+    }
+    native_row_group_file.reset();
     if (file_reader != nullptr) {
         try {
             file_reader->Close();
@@ -646,6 +770,12 @@ Status ParquetFileContext::close() {
     }
     file_reader.reset();
     arrow_file.reset();
+    native_metadata = nullptr;
+    native_metadata_owner.reset();
+    native_meta_cache_handle = {};
+    native_file.reset();
+    native_io_ctx = nullptr;
+    native_page_cache_enabled = false;
     return Status::OK();
 }
 

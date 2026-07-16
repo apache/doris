@@ -69,27 +69,28 @@ planning is distinct from a persistent per-column reader, and page/encoding deco
 cursor-based contracts rather than an Arrow array as an intermediate result.
 
 The migration is deliberately incremental because the existing v1 native kernel already contains
-mature Parquet page and encoding support:
+mature Parquet page and encoding support. The first production step reuses that kernel behind a
+v2-owned adapter; decoder logic is copied into the v2 tree only when v2 must diverge from it:
 
 | Stage | State and boundary |
 | --- | --- |
-| Native encoding kernel | Reimplement the proven Doris v1 decoder algorithms under `be/src/format_v2/parquet/` behind a schema-independent physical Column Chunk contract. Selection-aware scalar decoding and reusable string scratch are the first vertical slice. |
-| Native column reader | Make the leaf reader and its SerDe, null map, selection ranges, binary values, level buffers, and conversion scratch persistent for a Row Group. Add direct Doris materialization paths. |
+| Native encoding kernel | The current adapter calls the unchanged Doris native kernel used by v1, preserving its complete type/encoding matrix and page-cache behavior. Any decoder change is reimplemented under `be/src/format_v2/parquet/`; v1 remains unchanged. |
+| Native column reader | `NativeColumnReader` is persistent for one top-level column and Row Group. It owns selection/filter/dictionary scratch and drives the native decoder directly into the final Doris column. |
 | Complex reconstruction | Build one shared Dremel level plan per requested parent-row range and use it for STRUCT/ARRAY/MAP siblings, offsets, and null maps. |
 | Metadata and planning | Replace Arrow footer/schema/Row Group metadata dependencies with native Thrift-derived objects while preserving the existing planner, index, cache, and split contracts. |
 | Compatibility removal | Remove Arrow data-read adapters after type/encoding/page/writer compatibility and performance gates pass. Production v2 never falls back from a selected native reader to Arrow; an unsupported combination returns an explicit error. |
 
-At the current migration boundary, Arrow is still present in the v2 footer/schema, planning, and
-data path. Such a patch is transitional and must not be described as a completed native decoder.
-The production target contains no Arrow object in the v2 runtime call chain. Arrow may be used only
-as a test oracle while differential tests are being developed, never as a runtime compatibility
-fallback.
+At the current migration boundary, ordinary value scans no longer use Arrow `RecordReader`, arrays,
+or builders. Arrow remains in footer/schema planning, dictionary probing, and the existing
+levels-only aggregate path. It is not a runtime fallback: after an ordinary column selects the
+native reader, decode errors are returned directly. The production target eventually removes the
+remaining Arrow metadata/aggregate objects; tests may also use Arrow as a fixture writer or oracle.
 
-All production integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the
-correctness and performance control. Decoder code required by v2 is reimplemented in the v2 tree;
-the migration does not change v1 or route v1 reads through a new v2 path. This separation makes
-differential testing meaningful and prevents a v2 experiment from regressing the established
-reader.
+All new integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the correctness
+and performance control. Reusing its stable native kernel gives v2 the same physical/logical type,
+encoding, malformed-input, conversion, and page-cache behavior without duplicating thousands of
+lines before an actual semantic change is required. When such a change is required, the affected
+decoder is reimplemented in the v2 tree instead of modifying v1.
 
 ### 2.2 Native Interface Ownership
 
@@ -159,6 +160,13 @@ sequenceDiagram
   owns Page Cache, FileCache prefetch, and MergeRange routing. During migration this may still
   expose an Arrow adapter for metadata consumers, but native page decoding reads the same stable
   Doris byte ranges without producing Arrow arrays.
+
+For every selected Row Group, dictionary/index probes finish on the metadata adapter first. The
+scheduler then computes projected physical Column Chunk ranges and installs one shared native
+`MergeRangeFileReader` when their average size is below v1's small-I/O threshold. All predicate and
+lazy output readers share that wrapper; their internal `BufferedFileStreamReader` prefetch is
+disabled in this mode, avoiding duplicate buffers. Large chunks and in-memory files use the base
+reader, while remote FileCache prefetch remains the non-MergeRange path.
 
 > Planning intentionally proceeds from cheap to expensive. Split and metadata pruning reduce the
 > candidate set before finer indexes are read for surviving Row Groups, avoiding index I/O for data
@@ -439,7 +447,7 @@ batches.
 
 #### Complex-reader interface and materialization cost
 
-The Arrow migration adapter currently exposes four stateful operations:
+The retained Arrow complex-reader facade exposes four stateful operations:
 `load_nested_batch()`, `load_nested_levels_batch()`, `build_nested_column()`, and
 `consume_nested_column()`. This split made shape-only reads possible while Arrow still owned value
 decoding, but it is not the target native interface. It has three measurable costs:
@@ -478,8 +486,11 @@ leaf as the entry-shape owner and validates the value leaf against the same entr
 one representative leaf for parent validity and only checks sibling alignment while decoding each
 child.
 
-During migration, the four Arrow-facing methods are temporary scaffolding, not a runtime fallback.
-Their leaf reader,
+Ordinary production scans do not call these four methods: `NativeColumnReader::read/select/skip`
+uses the native `read_column_data()` boundary and materializes the complete complex column directly.
+The facade remains for the unchanged levels-only aggregate path and focused control tests; it is not
+a fallback after native reader selection. `ParquetLeafBatch` is the facade's decoded Arrow/level
+container and is intentionally forbidden from the ordinary value path. Its leaf reader,
 SerDe, binary/null/level scratch, selection ranges, nested batches, parent nulls, entry counts, and
 child-column handles must be persistent so the facade does not add per-batch allocation churn.
 New native decoder code must not depend on this phase ordering or reproduce the temporary
@@ -587,9 +598,11 @@ trustworthy version identity is unavailable, the footer is read and parsed witho
 reusable entry. Parse failures, short files, encrypted/unsupported metadata, and schema-affecting
 option changes cannot populate or reuse a successful entry.
 
-During migration, serialized-footer caching and parsed-native-metadata caching may be enabled in
-separate steps, but both use the same identity and lifetime rules. An Arrow-parsed metadata object
-must not be treated as the native cache value or leak an Arrow lifetime into the native decoder.
+V2 calls the same footer parser/cache and key builder as v1. On either a cache hit or miss, the
+immutable native Thrift metadata is the owner. While Arrow planning remains, V2 serializes that
+already cached Thrift object into Arrow's metadata parser, so opening the planner performs no second
+footer read. The Arrow object is never the cache value and its lifetime does not enter the native
+decoder.
 
 ### Page Cache Parity with V1
 
@@ -611,9 +624,9 @@ Chunks from surviving Row Groups are registered, limiting pollution and key coun
 
 - When the base reader is CachedRemoteFileReader, predicate/output ranges for the current Row Group
   may be prefetched into FileCache.
-- When average projected chunks are small and the reader is not in-memory, install
-  MergeRangeFileReader so subsequent native range reads or transitional Arrow `ReadAt` calls use
-  merged reads.
+- The remaining Arrow metadata/index path may use MergeRangeFileReader. The current native
+  BufferedFileStreamReader is not routed through that Arrow wrapper; it uses v1's stream/page cache
+  path while background prefetch warms the same Doris FileCache blocks.
 - With row-level filters, prefetch predicate columns first. Prefetch non-predicate columns only after
   at least one row survives, avoiding unnecessary bandwidth.
 

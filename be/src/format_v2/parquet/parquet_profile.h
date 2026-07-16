@@ -37,6 +37,33 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* arrow_read_records_time = nullptr; // Arrow RecordReader time (ns)
     RuntimeProfile::Counter* arrow_skip_records_time = nullptr; // Arrow SkipRecords time (ns)
     RuntimeProfile::Counter* materialization_time = nullptr;    // value materialization time (ns)
+    // Native page/encoding reader internals. These counters intentionally mirror v1 so a v1/v2
+    // profile comparison attributes page IO, decompression, levels, value decode and conversion to
+    // the same stages.
+    RuntimeProfile::Counter* decompress_time = nullptr;
+    RuntimeProfile::Counter* decompress_count = nullptr;
+    RuntimeProfile::Counter* decode_header_time = nullptr;
+    RuntimeProfile::Counter* decode_value_time = nullptr;
+    RuntimeProfile::Counter* decode_dictionary_time = nullptr;
+    RuntimeProfile::Counter* decode_level_time = nullptr;
+    RuntimeProfile::Counter* decode_null_map_time = nullptr;
+    RuntimeProfile::Counter* convert_time = nullptr;
+    RuntimeProfile::Counter* page_index_read_calls = nullptr;
+    RuntimeProfile::Counter* skip_page_header_count = nullptr;
+    RuntimeProfile::Counter* parse_page_header_count = nullptr;
+    RuntimeProfile::Counter* read_page_header_time = nullptr;
+    RuntimeProfile::Counter* page_read_count = nullptr;
+    RuntimeProfile::Counter* page_cache_write_count = nullptr;
+    RuntimeProfile::Counter* page_cache_compressed_write_count = nullptr;
+    RuntimeProfile::Counter* page_cache_decompressed_write_count = nullptr;
+    RuntimeProfile::Counter* page_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* page_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* page_cache_compressed_hit_count = nullptr;
+    RuntimeProfile::Counter* page_cache_decompressed_hit_count = nullptr;
+    RuntimeProfile::Counter* native_read_calls = nullptr;     // v1-native reader calls
+    RuntimeProfile::Counter* native_page_fragments = nullptr; // page-bounded read fragments
+    RuntimeProfile::Counter* page_crossing_batches = nullptr; // batches spanning multiple pages
+    RuntimeProfile::Counter* nested_batches = nullptr;        // complex-column read batches
 };
 
 // ============================================================================
@@ -48,6 +75,9 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* lazy_read_filtered_rows =
             nullptr;                                  // rows avoided by late materialization
     RuntimeProfile::Counter* total_batches = nullptr; // total batch count
+    RuntimeProfile::Counter* dense_batches = nullptr; // batches retaining every physical row
+    RuntimeProfile::Counter* selected_batches =
+            nullptr; // non-empty batches compacted by predicates
     RuntimeProfile::Counter* empty_selection_batches =
             nullptr;                                           // empty batches after full filtering
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr; // rows skipped by range gaps
@@ -96,6 +126,8 @@ struct ParquetProfile {
     RuntimeProfile::Counter* selected_rows = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
     RuntimeProfile::Counter* total_batches = nullptr;
+    RuntimeProfile::Counter* dense_batches = nullptr;
+    RuntimeProfile::Counter* selected_batches = nullptr;
     RuntimeProfile::Counter* empty_selection_batches = nullptr;
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
 
@@ -106,6 +138,10 @@ struct ParquetProfile {
     RuntimeProfile::Counter* arrow_read_records_time = nullptr;
     RuntimeProfile::Counter* arrow_skip_records_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
+    RuntimeProfile::Counter* native_read_calls = nullptr;
+    RuntimeProfile::Counter* native_page_fragments = nullptr;
+    RuntimeProfile::Counter* page_crossing_batches = nullptr;
+    RuntimeProfile::Counter* nested_batches = nullptr;
 
     RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
     RuntimeProfile::Counter* filtered_bytes = nullptr;

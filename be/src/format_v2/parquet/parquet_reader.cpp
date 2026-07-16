@@ -414,6 +414,7 @@ Status ParquetReader::init(RuntimeState* state) {
         _state->enable_strict_mode = state->enable_strict_mode();
         _state->scheduler.set_timezone(&state->timezone_obj());
         _state->scheduler.set_enable_strict_mode(_state->enable_strict_mode);
+        _state->scheduler.set_runtime_state(state);
     }
     int64_t merge_read_slice_size = -1;
     if (state != nullptr && state->query_options().__isset.merge_read_slice_size) {
@@ -423,7 +424,14 @@ Status ParquetReader::init(RuntimeState* state) {
     _state->scheduler.set_batch_size(_batch_size);
     // Open parquet file and parse metadata to get file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
-                                              _state->enable_page_cache, *_file_description));
+                                              _state->enable_page_cache, *_file_description,
+                                              _enable_mapping_timestamp_tz));
+    if (_profile != nullptr) {
+        COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
+                       _state->file_context.native_footer_read_calls);
+        COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
+                       _state->file_context.native_footer_cache_hits);
+    }
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
     RETURN_IF_ERROR(
@@ -808,6 +816,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
 
 Status ParquetReader::close() {
     if (_state != nullptr) {
+        _state->scheduler.close();
         _sync_page_cache_profile();
         RETURN_IF_ERROR(_state->file_context.close());
     }

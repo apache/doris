@@ -110,10 +110,11 @@ instructions as well; this file adds format-v2-specific review expectations.
 
 ### Parquet Native Decode Kernel
 
-- Keep the production integration under `be/src/format_v2/parquet/`. Doris v1 is the behavior and
-  performance baseline, not the migration target. Do not modify `be/src/format/parquet/` for a v2
-  decoder change. Reimplement the required decoder under the v2 tree and keep v1 unchanged so
-  differential correctness and performance results remain meaningful.
+- Keep new production integration under `be/src/format_v2/parquet/`. Doris v1 is the behavior and
+  performance baseline. A v2 adapter may reuse the unchanged native kernel while its semantics are
+  identical; do not modify `be/src/format/parquet/` for a v2 decoder change. When v2 requires a
+  decoder change, reimplement that decoder under the v2 tree and keep v1 unchanged so differential
+  correctness and performance results remain meaningful.
 - Keep the native decode boundary independent of both Arrow descriptors/builders and table-schema
   objects. A Column Chunk schema contract should contain only immutable physical type, fixed width,
   and Dremel-level thresholds. Review constructor arguments and stored references for ownership and
@@ -136,6 +137,10 @@ instructions as well; this file adds format-v2-specific review expectations.
   row count, selection, and `VALUES` versus `LEVELS_ONLY` mode. Shape parsing, payload-cursor
   advancement, validation, and output must have an obvious owner; callers must not depend on an
   undocumented load-before-build phase.
+- `ParquetLeafBatch` belongs only to that isolated Arrow facade and its levels-only migration path.
+  Ordinary predicate/output scans must construct `NativeColumnReader` and may not route decoded
+  values through `ParquetLeafBatch`, `DecodedColumnView`, Arrow arrays, or temporary nested Doris
+  columns before the final destination column.
 - Build ARRAY/MAP/STRUCT parent boundaries, offsets, nulls, and child payload spans in one level
   traversal and share the result. For example, `[[1, 2], NULL, []]` must yield entry counts
   `[2, 0, 0]` and parent nulls `[0, 1, 0]` without rescanning the same levels per child. MAP key
@@ -164,10 +169,11 @@ instructions as well; this file adds format-v2-specific review expectations.
   and FIXED_LEN_BYTE_ARRAY paths must validate byte width, endianness, sign extension, precision,
   and scale. Date/time and INT96 conversion must preserve timezone and overflow semantics. A direct
   path may not bypass the conversion rules used by the general conversion path.
-- Do not add an Arrow runtime fallback. Once v2 selects its native Parquet reader, unsupported
+- Do not add an Arrow runtime fallback. Once an ordinary v2 scan selects its native Parquet reader, unsupported
   physical types, encodings, page layouts, or malformed inputs return an explicit status. Arrow may
-  be used as a test oracle only; no Arrow array, builder, RecordReader, or metadata lifetime belongs
-  in the completed v2 runtime path.
+  be used by the explicitly documented metadata-planning or levels-only migration paths and as a
+  test oracle; no Arrow array, builder, RecordReader, or metadata lifetime belongs in ordinary
+  value materialization.
 - Reuse decoder, SerDe, null-map, selection-range, binary-value, level, and builder scratch across
   batches. String-like decoders should gather selected `StringRef` values and append once per batch,
   rather than allocate or grow the destination once per run. Scratch capacity may grow to a bounded
@@ -185,6 +191,10 @@ instructions as well; this file adds format-v2-specific review expectations.
   invalidation, admission, and fallback I/O. Any intentional difference needs benchmark and memory
   evidence showing it is no worse for v1 workloads. Cache lookup must never alter page ordinal,
   decoder, level, or dictionary cursor state.
+- Apply v1's MergeRange decision to the native data-page reader, after metadata/dictionary probes
+  finish. Predicate and lazy readers for one Row Group must share one ordered-range wrapper, and
+  native per-column prefetch must be disabled while that wrapper is active. Never allocate one
+  MergeRange buffer per leaf; wide complex projections would multiply its bounded scratch memory.
 - Preserve observability inside aggregate counters. `TotalBatches` must be decomposable into probe,
   dense, selected, empty, page-crossing, and nested/fragmented work where relevant; decode, level,
   selection, conversion, allocation, and materialization time must remain attributable without

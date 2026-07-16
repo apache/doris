@@ -59,6 +59,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                              TUnit::UNIT, parquet_profile, 1);
     total_batches =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "TotalBatches", TUnit::UNIT, parquet_profile, 1);
+    dense_batches =
+            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DenseBatches", TUnit::UNIT, parquet_profile, 1);
+    selected_batches = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SelectedBatches", TUnit::UNIT,
+                                                    parquet_profile, 1);
     empty_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "EmptySelectionBatches",
                                                            TUnit::UNIT, parquet_profile, 1);
     range_gap_skipped_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RangeGapSkippedRows",
@@ -75,6 +79,14 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowSkipRecordsTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
+    native_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NativeReadCalls", TUnit::UNIT,
+                                                     parquet_profile, 1);
+    native_page_fragments = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NativePageFragments",
+                                                         TUnit::UNIT, parquet_profile, 1);
+    page_crossing_batches = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PageCrossingBatches",
+                                                         TUnit::UNIT, parquet_profile, 1);
+    nested_batches =
+            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NestedBatches", TUnit::UNIT, parquet_profile, 1);
     lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByLazyRead",
                                                            TUnit::UNIT, parquet_profile, 1);
     filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredBytes", TUnit::BYTES,
@@ -202,6 +214,30 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .arrow_read_records_time = arrow_read_records_time,
             .arrow_skip_records_time = arrow_skip_records_time,
             .materialization_time = materialization_time,
+            .decompress_time = decompress_time,
+            .decompress_count = decompress_cnt,
+            .decode_header_time = decode_header_time,
+            .decode_value_time = decode_value_time,
+            .decode_dictionary_time = decode_dict_time,
+            .decode_level_time = decode_level_time,
+            .decode_null_map_time = decode_null_map_time,
+            .convert_time = convert_time,
+            .page_index_read_calls = page_index_read_calls,
+            .skip_page_header_count = skip_page_header_num,
+            .parse_page_header_count = parse_page_header_num,
+            .read_page_header_time = read_page_header_time,
+            .page_read_count = page_read_counter,
+            .page_cache_write_count = page_cache_write_counter,
+            .page_cache_compressed_write_count = page_cache_compressed_write_counter,
+            .page_cache_decompressed_write_count = page_cache_decompressed_write_counter,
+            .page_cache_hit_count = page_cache_hit_counter,
+            .page_cache_miss_count = page_cache_missing_counter,
+            .page_cache_compressed_hit_count = page_cache_compressed_hit_counter,
+            .page_cache_decompressed_hit_count = page_cache_decompressed_hit_counter,
+            .native_read_calls = native_read_calls,
+            .native_page_fragments = native_page_fragments,
+            .page_crossing_batches = page_crossing_batches,
+            .nested_batches = nested_batches,
     };
 }
 
@@ -212,6 +248,8 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .rows_filtered_by_conjunct = rows_filtered_by_conjunct,
             .lazy_read_filtered_rows = lazy_read_filtered_rows,
             .total_batches = total_batches,
+            .dense_batches = dense_batches,
+            .selected_batches = selected_batches,
             .empty_selection_batches = empty_selection_batches,
             .range_gap_skipped_rows = range_gap_skipped_rows,
             .column_read_time = column_read_time,
