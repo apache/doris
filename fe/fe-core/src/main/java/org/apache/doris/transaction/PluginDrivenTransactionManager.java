@@ -69,9 +69,9 @@ public class PluginDrivenTransactionManager implements TransactionManager {
         transactions.put(txnId, txn);
         // Register globally so the BE block-allocation RPC and the commit-data feedback can
         // look the transaction up by id (FrontendServiceImpl.getMaxComputeBlockIdRange ->
-        // getTxnById). Mirrors AbstractExternalTransactionManager.begin. Connectors whose writes
-        // BE auto-commits (jdbc) register a no-op transaction here too; BE never sends them commit
-        // fragments, so the global entry is simply never looked up before it is removed on commit.
+        // getTxnById). Connectors whose writes BE auto-commits (jdbc) register a no-op transaction
+        // here too; BE never sends them commit fragments, so the global entry is simply never
+        // looked up before it is removed on commit.
         Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(txnId, txn);
         LOG.debug("Plugin-driven transaction begun with SPI ConnectorTransaction: {}", txnId);
         return txnId;
