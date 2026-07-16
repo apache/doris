@@ -97,8 +97,9 @@ under the License.
              org.apache.parquet.avro.AvroSchemaConverter for hudi's FE-side schema read: TableSchemaResolver
              reads a data file's parquet footer to resolve the table Avro schema
              (ParquetUtils.readAvroSchema -> readSchema -> ParquetFileReader.readFooter(Configuration, Path),
-             then converts the parquet MessageType to Avro). hudi-common bundles NO parquet, and the
-             hive-catalog-shade jar carries only a RELOCATED (org.apache.paimon.shade.*) parquet — so the
+             then converts the parquet MessageType to Avro). hudi-common bundles NO parquet, and no other
+             jar in this plugin (the fe-connector-hms-hive-shade slim shade carries none either) provides an
+             un-relocated org.apache.parquet.hadoop.* — so the
              un-relocated ParquetFileReader would otherwise resolve from the parent 'app' loader while
              ParquetUtils and Configuration come from the child (org.apache.hadoop is child-first here, from the
              bundled hadoop-common) — readFooter's Configuration parameter then splits across two loaders and the
