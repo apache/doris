@@ -772,8 +772,8 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to
-// TableReader. Explicit slot-id mappings use the required_slots order; missing mappings fall back
-// to the slot id itself for legacy descriptors.
+// TableReader. Explicit slot-id mappings use the required_slots order; missing mappings are an
+// error because a scanner slot id is not a table-global ordinal.
 TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     {
@@ -789,11 +789,8 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
     {
         auto expr = slot_ref(7, 99, int_type, "legacy_value");
         const auto status = FileScannerV2::TEST_rewrite_slot_refs_to_global_index(&expr, {});
-        ASSERT_TRUE(status.ok()) << status;
-        const auto* rewritten = assert_cast<const VSlotRef*>(expr.get());
-        EXPECT_EQ(rewritten->slot_id(), 7);
-        EXPECT_EQ(rewritten->column_id(), 7);
-        EXPECT_EQ(rewritten->column_name(), "legacy_value");
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Can not resolve source slot id 7"), std::string::npos);
     }
     {
         auto cast_expr = format::Cast::create_shared(int_type);
