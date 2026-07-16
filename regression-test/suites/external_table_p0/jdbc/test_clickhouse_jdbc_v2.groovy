@@ -20,7 +20,10 @@ suite("test_clickhouse_jdbc_v2", "p0,external") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String clickhousePort = context.config.otherConfigs.get("clickhouse_22_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String driverUrl = "https://repo.maven.apache.org/maven2/com/clickhouse/clickhouse-jdbc/0.9.8/clickhouse-jdbc-0.9.8-all.jar"
+        String s3Endpoint = getS3Endpoint()
+        String bucket = getS3BucketName()
+        // Keep large drivers in the regression bucket so isolated workers do not require public egress.
+        String driverUrl = "https://${bucket}.${s3Endpoint}/regression/jdbc_driver/clickhouse-jdbc-0.9.8-all.jar"
 
         sql """ drop catalog if exists clickhouse_v2_schema """
         sql """ create catalog clickhouse_v2_schema properties(
