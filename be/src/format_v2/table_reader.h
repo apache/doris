@@ -211,7 +211,9 @@ public:
     virtual Status prepare_split(const SplitReadOptions& options);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
-    bool current_split_uses_metadata_count() const { return _current_split_uses_metadata_count; }
+    virtual bool current_split_uses_metadata_count() const {
+        return _current_split_uses_metadata_count;
+    }
 
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
