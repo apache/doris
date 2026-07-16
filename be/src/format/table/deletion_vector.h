@@ -17,9 +17,20 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 #include "roaring/roaring64map.hh"
 
 namespace doris {
+
+// Doris materializes an Iceberg deletion vector as one buffer. This is an implementation limit,
+// not an Iceberg format limit.
+inline constexpr int64_t MAX_ICEBERG_DELETION_VECTOR_BYTES = 1L << 30;
+inline constexpr size_t ICEBERG_DELETION_VECTOR_BLOB_OVERHEAD_BYTES = 12;
+
+// Keep the existing Paimon serialized-size guard independent from the Iceberg capability limit.
+inline constexpr int64_t MAX_PAIMON_DELETION_VECTOR_BYTES = 1L << 30;
 
 // A deletion vector is already a bitmap on the wire. Keep decoded DVs compressed in the
 // query-local cache instead of expanding every set bit into an int64_t. Position delete files use

@@ -38,8 +38,6 @@ struct IOContext;
 } // namespace io
 
 namespace doris {
-inline constexpr int64_t MAX_DELETION_VECTOR_BYTES = 1L << 30;
-
 Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
                                                    size_t& bytes_read);
 

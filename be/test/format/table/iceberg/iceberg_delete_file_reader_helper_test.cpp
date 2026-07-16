@@ -295,11 +295,16 @@ TEST(IcebergDeleteFileReaderHelperTest, ValidateDeletionVectorDescriptor) {
     EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(
                          make_iceberg_deletion_vector("dv.puffin", 0, 11), bytes_read)
                          .ok());
-    EXPECT_FALSE(
+    EXPECT_TRUE(
             validate_iceberg_deletion_vector_descriptor(
-                    make_iceberg_deletion_vector("dv.puffin", 0, MAX_DELETION_VECTOR_BYTES + 1),
+                    make_iceberg_deletion_vector("dv.puffin", 0, MAX_ICEBERG_DELETION_VECTOR_BYTES),
                     bytes_read)
                     .ok());
+    EXPECT_EQ(static_cast<size_t>(MAX_ICEBERG_DELETION_VECTOR_BYTES), bytes_read);
+    const auto unsupported_status = validate_iceberg_deletion_vector_descriptor(
+            make_iceberg_deletion_vector("dv.puffin", 0, MAX_ICEBERG_DELETION_VECTOR_BYTES + 1),
+            bytes_read);
+    EXPECT_TRUE(unsupported_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << unsupported_status;
     EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(
                          make_iceberg_deletion_vector("dv.puffin",
                                                       std::numeric_limits<int64_t>::max() - 10, 12),

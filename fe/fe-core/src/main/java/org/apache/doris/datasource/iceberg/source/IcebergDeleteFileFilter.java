@@ -29,9 +29,6 @@ import java.util.OptionalLong;
 
 @Data
 public class IcebergDeleteFileFilter {
-    // Keep in sync with doris::MAX_DELETION_VECTOR_BYTES in deletion_vector_reader.h.
-    static final long MAX_DELETION_VECTOR_BYTES = 1L << 30;
-
     private String deleteFilePath;
     private long filesize;
     private FileFormat fileformat;
@@ -82,12 +79,6 @@ public class IcebergDeleteFileFilter {
                     "Iceberg deletion vector metadata must be non-negative, file: %s, file size: %d, "
                             + "content offset: %d, content length: %d",
                     deleteFilePath, fileSize, contentOffset, contentLength));
-        }
-        if (contentLength > MAX_DELETION_VECTOR_BYTES) {
-            throw new IllegalArgumentException(String.format(
-                    "Iceberg deletion vector content length exceeds limit, file: %s, content length: %d, "
-                            + "limit: %d",
-                    deleteFilePath, contentLength, MAX_DELETION_VECTOR_BYTES));
         }
         if (contentOffset > Long.MAX_VALUE - contentLength) {
             throw new IllegalArgumentException(String.format(

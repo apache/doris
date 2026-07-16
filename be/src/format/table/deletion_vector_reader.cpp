@@ -26,12 +26,20 @@
 namespace doris {
 namespace {
 
-constexpr int64_t ICEBERG_DELETION_VECTOR_MIN_BYTES = 12;
+constexpr int64_t ICEBERG_DELETION_VECTOR_MIN_BYTES =
+        static_cast<int64_t>(ICEBERG_DELETION_VECTOR_BLOB_OVERHEAD_BYTES);
 constexpr int64_t PAIMON_DELETION_VECTOR_MIN_BYTES = 8;
 constexpr int64_t PAIMON_LENGTH_PREFIX_BYTES = 4;
 
+enum class DeletionVectorSizeLimitStatus {
+    DATA_QUALITY,
+    NOT_SUPPORTED,
+};
+
 Status validate_deletion_vector_read_range(const char* description, int64_t offset, int64_t size,
-                                           int64_t min_size, size_t& bytes_read) {
+                                           int64_t min_size, int64_t max_size,
+                                           DeletionVectorSizeLimitStatus size_limit_status,
+                                           size_t& bytes_read) {
     if (offset < 0) {
         return Status::DataQualityError("{} offset must be non-negative: {}", description, offset);
     }
@@ -39,9 +47,13 @@ Status validate_deletion_vector_read_range(const char* description, int64_t offs
         return Status::DataQualityError("{} size too small: {}, minimum: {}", description, size,
                                         min_size);
     }
-    if (size > MAX_DELETION_VECTOR_BYTES) {
+    if (size > max_size) {
+        if (size_limit_status == DeletionVectorSizeLimitStatus::NOT_SUPPORTED) {
+            return Status::NotSupported("{} size exceeds Doris supported limit: {}, limit: {}",
+                                        description, size, max_size);
+        }
         return Status::DataQualityError("{} size exceeds limit: {}, limit: {}", description, size,
-                                        MAX_DELETION_VECTOR_BYTES);
+                                        max_size);
     }
     if (offset > std::numeric_limits<int64_t>::max() - size) {
         return Status::DataQualityError("{} offset plus size overflows: offset {}, size {}",
@@ -55,8 +67,10 @@ Status validate_deletion_vector_read_range(const char* description, int64_t offs
 
 Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
                                                    size_t& bytes_read) {
-    return validate_deletion_vector_read_range("Iceberg deletion vector", offset, size,
-                                               ICEBERG_DELETION_VECTOR_MIN_BYTES, bytes_read);
+    return validate_deletion_vector_read_range(
+            "Iceberg deletion vector", offset, size, ICEBERG_DELETION_VECTOR_MIN_BYTES,
+            MAX_ICEBERG_DELETION_VECTOR_BYTES, DeletionVectorSizeLimitStatus::NOT_SUPPORTED,
+            bytes_read);
 }
 
 Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t length,
@@ -68,9 +82,10 @@ Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t length
     if (length > std::numeric_limits<int64_t>::max() - PAIMON_LENGTH_PREFIX_BYTES) {
         return Status::DataQualityError("Paimon deletion vector length overflows: {}", length);
     }
-    return validate_deletion_vector_read_range("Paimon deletion vector", offset,
-                                               length + PAIMON_LENGTH_PREFIX_BYTES,
-                                               PAIMON_DELETION_VECTOR_MIN_BYTES, bytes_read);
+    return validate_deletion_vector_read_range(
+            "Paimon deletion vector", offset, length + PAIMON_LENGTH_PREFIX_BYTES,
+            PAIMON_DELETION_VECTOR_MIN_BYTES, MAX_PAIMON_DELETION_VECTOR_BYTES,
+            DeletionVectorSizeLimitStatus::DATA_QUALITY, bytes_read);
 }
 
 DeletionVectorReader::~DeletionVectorReader() {

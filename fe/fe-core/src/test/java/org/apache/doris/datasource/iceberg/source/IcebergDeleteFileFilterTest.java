@@ -24,7 +24,7 @@ public class IcebergDeleteFileFilterTest {
     @Test
     public void testValidateDeletionVectorMetadataAcceptsLongRange() {
         Assertions.assertDoesNotThrow(() -> IcebergDeleteFileFilter.validateDeletionVectorMetadata(
-                "puffin.dv", 1L << 40, (1L << 32) + 17, (1L << 20) + 19));
+                "puffin.dv", 1L << 40, (1L << 32) + 17, (1L << 30) + 19));
     }
 
     @Test
@@ -39,10 +39,6 @@ public class IcebergDeleteFileFilterTest {
                 () -> IcebergDeleteFileFilter.validateDeletionVectorMetadata("puffin.dv", 100, -1L, 1L));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> IcebergDeleteFileFilter.validateDeletionVectorMetadata("puffin.dv", 100, 1L, -1L));
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> IcebergDeleteFileFilter.validateDeletionVectorMetadata(
-                        "puffin.dv", 1L << 40, 0L,
-                        IcebergDeleteFileFilter.MAX_DELETION_VECTOR_BYTES + 1));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> IcebergDeleteFileFilter.validateDeletionVectorMetadata(
                         "puffin.dv", Long.MAX_VALUE, Long.MAX_VALUE, 1L));
