@@ -61,8 +61,8 @@ under the License.
         </dependency>
 
         <!-- Shared HMS module: supplies Doris's version-aware org.apache.hadoop.hive.metastore.HiveMetaStoreClient
-             (bundled in fe-connector-hms-*.jar, which sorts before hive-catalog-shade-*.jar in the plugin lib so
-             it shadows the shaded, unpatched client). Required for the hms flavor: without it, iceberg's
+             (bundled in fe-connector-hms-*.jar, which sorts before fe-connector-hms-hive-shade-*.jar in the
+             plugin lib so it shadows the shaded, unpatched client). Required for the hms flavor: without it, iceberg's
              HiveCatalog uses the Hive-3 "@cat#" db-name marker that a Hive-1/2 metastore rejects, so list/get
              database return empty (see HiveMetaStoreClient header). Same module fe-connector-hive reuses. -->
         <dependency>
@@ -127,6 +127,21 @@ under the License.
             <version>2.9.3</version>
         </dependency>
 
+        <!-- iceberg-bundled-guava: needed on the COMPILE classpath for the vendored split-package
+             org.apache.iceberg.DeleteFileIndex (T08), which imports iceberg's relocated guava
+             (org.apache.iceberg.relocated.com.google.common.base/collect). iceberg-core brings this
+             artifact only at RUNTIME scope (so it is in the plugin-zip), and runtime-scoped transitives
+             are not on the compile classpath — the same treatment as caffeine above. Until the fe-connector
+             closure moved off the fat hive-catalog-shade, that shade jar carried these relocated-guava
+             classes at compile scope; the slim fe-connector-hms-hive-shade deliberately excludes
+             iceberg-bundled-guava (iceberg-core already ships it, avoiding a duplicate), so declare it here
+             at compile scope. Same version as iceberg-core, deduped at runtime. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-bundled-guava</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+
         <!-- Iceberg AWS integration: the glue flavor's org.apache.iceberg.aws.glue.GlueCatalog + S3FileIO.
              Needs the AWS SDK v2 modules below at runtime. -->
         <dependency>
@@ -135,18 +150,15 @@ under the License.
             <version>${iceberg.version}</version>
         </dependency>
 
-        <!-- Doris shaded Hive MetaStore client (D-059 Q1: DLF port-now). Supplies the hms flavor's
-             org.apache.iceberg.hive.HiveCatalog AND the dlf flavor's reflectively-loaded
-             com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient, both at their original package wired
-             to a relocated thrift (shade.doris.hive.org.apache.thrift) so the old-package HMS client does
-             NOT collide with the host fe-thrift 0.16. Same dependency fe-connector-hive/hms use; version
-             managed (${doris.hive.catalog.shade.version}). plugin-zip.xml excludes fe-thrift/libthrift so
-             no original-package thrift lands in the plugin (the relocated copy inside the shade is
-             self-contained). -->
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
-        </dependency>
+        <!-- The hms-flavor org.apache.iceberg.hive.HiveCatalog is NOT a direct dependency here: it is
+             bundled (with the shared relocated thrift shade.doris.hive.org.apache.thrift) inside
+             fe-connector-hms-hive-shade and reaches this plugin transitively via fe-connector-hms above —
+             the same slim shade that supplies the plain-HMS client, so HiveCatalog and the client link
+             against one identical relocated thrift + metastore-api. The old direct
+             org.apache.doris:hive-catalog-shade dependency (and the dead dlf-flavor ProxyMetaStoreClient
+             it carried) was removed atomically with the hms cutover off the fat shade — see
+             plan-doc/fe-connector-hive-shade-localization/design.md. plugin-zip.xml still excludes
+             fe-thrift/libthrift so no original-package thrift lands in the plugin. -->
 
         <!-- Hadoop for HadoopCatalog and Configuration -->
         <dependency>
