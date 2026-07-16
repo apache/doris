@@ -255,22 +255,6 @@ DataTypePtr physical_type_to_doris_type(const ::parquet::ColumnDescriptor* colum
     return nullable ? make_nullable(type) : type;
 }
 
-bool record_reader_physical_type_supported(::parquet::Type::type physical_type) {
-    switch (physical_type) {
-    case ::parquet::Type::BOOLEAN:
-    case ::parquet::Type::INT32:
-    case ::parquet::Type::INT64:
-    case ::parquet::Type::INT96:
-    case ::parquet::Type::FLOAT:
-    case ::parquet::Type::DOUBLE:
-    case ::parquet::Type::BYTE_ARRAY:
-    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
-        return true;
-    default:
-        return false;
-    }
-}
-
 } // namespace
 
 std::string parquet_column_name(const ::parquet::ColumnDescriptor* column) {
@@ -299,13 +283,11 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
         result.doris_type = logical_type;
     } else if (!result.unsupported_reason.empty()) {
         result.doris_type = nullptr;
-        result.supports_record_reader = false;
     } else if (auto converted_type = converted_type_to_doris_type(column, &result);
                converted_type != nullptr) {
         result.doris_type = converted_type;
     } else if (!result.unsupported_reason.empty()) {
         result.doris_type = nullptr;
-        result.supports_record_reader = false;
     } else {
         result.doris_type = result.physical_doris_type;
         if (result.physical_type == ::parquet::Type::INT96) {
@@ -318,14 +300,7 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
                             (result.physical_type == ::parquet::Type::BYTE_ARRAY ||
                              result.physical_type == ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
 
-    if (!record_reader_physical_type_supported(result.physical_type)) {
-        result.supports_record_reader = false;
-    }
     return result;
-}
-
-bool supports_record_reader(const ParquetTypeDescriptor& type_descriptor) {
-    return type_descriptor.supports_record_reader;
 }
 
 DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor) {

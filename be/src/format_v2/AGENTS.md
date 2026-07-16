@@ -131,16 +131,16 @@ instructions as well; this file adds format-v2-specific review expectations.
   shared definition/repetition-level plan that identifies parent-row boundaries, empty and null
   collections, null ancestors, and rows spanning pages. Sibling readers in a STRUCT, ARRAY, or MAP
   must consume the same parent-row plan rather than independently inferring offsets or null maps.
-- Treat the current `load_nested_batch()` / `load_nested_levels_batch()` /
-  `build_nested_column()` / `consume_nested_column()` split as an Arrow-migration facade, not the
-  native kernel API. Review new native code for one explicit nested-read request carrying parent
-  row count, selection, and `VALUES` versus `LEVELS_ONLY` mode. Shape parsing, payload-cursor
-  advancement, validation, and output must have an obvious owner; callers must not depend on an
-  undocumented load-before-build phase.
-- `ParquetLeafBatch` belongs only to that isolated Arrow facade and its levels-only migration path.
-  Ordinary predicate/output scans must construct `NativeColumnReader` and may not route decoded
-  values through `ParquetLeafBatch`, `DecodedColumnView`, Arrow arrays, or temporary nested Doris
-  columns before the final destination column.
+- The old Arrow value-reader hierarchy (`ParquetLeafBatch`, scalar/list/map/struct readers, and the
+  nested load/build/consume protocol) has been removed. Do not reintroduce an intermediate decoded
+  batch or a stateful load-before-build phase. Ordinary predicate/output scans construct
+  `NativeColumnReader`, consume compressed page data through the native decoder, and append directly
+  into the final Doris column.
+- `CountColumnReader` is the sole Arrow data-page exception. It is an isolated shape-only adapter
+  for the existing `COUNT(nullable_col)` pushdown because Arrow exposes no independent public level
+  decoder. It selects one representative leaf (the key for MAP), copies only definition/repetition
+  levels, immediately releases binary builder chunks, and exposes no value API. It must not be
+  reused as a scan reader or expanded into a fallback path.
 - Build ARRAY/MAP/STRUCT parent boundaries, offsets, nulls, and child payload spans in one level
   traversal and share the result. For example, `[[1, 2], NULL, []]` must yield entry counts
   `[2, 0, 0]` and parent nulls `[0, 1, 0]` without rescanning the same levels per child. MAP key
@@ -169,10 +169,10 @@ instructions as well; this file adds format-v2-specific review expectations.
   and FIXED_LEN_BYTE_ARRAY paths must validate byte width, endianness, sign extension, precision,
   and scale. Date/time and INT96 conversion must preserve timezone and overflow semantics. A direct
   path may not bypass the conversion rules used by the general conversion path.
-- Do not add an Arrow runtime fallback. Once an ordinary v2 scan selects its native Parquet reader, unsupported
-  physical types, encodings, page layouts, or malformed inputs return an explicit status. Arrow may
-  be used by the explicitly documented metadata-planning or levels-only migration paths and as a
-  test oracle; no Arrow array, builder, RecordReader, or metadata lifetime belongs in ordinary
+- Do not add an Arrow runtime fallback. Once an ordinary v2 scan selects its native Parquet reader,
+  unsupported physical types, encodings, page layouts, or malformed inputs return an explicit
+  status. Arrow may be used by metadata planning, the isolated COUNT shape adapter, and as a test
+  oracle; no Arrow array, builder, RecordReader, or metadata lifetime belongs in ordinary
   value materialization.
 - Reuse decoder, SerDe, null-map, selection-range, binary-value, level, and builder scratch across
   batches. String-like decoders should gather selected `StringRef` values and append once per batch,

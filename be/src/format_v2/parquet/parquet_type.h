@@ -70,15 +70,12 @@ struct ParquetTypeDescriptor {
     bool is_timestamp = false;                 // whether this is a timestamp type
     bool timestamp_is_adjusted_to_utc = false; // whether the timestamp is UTC-normalized
     bool is_string_like = false;               // binary type that is neither decimal nor FLOAT16
-    bool supports_record_reader = true;        // whether Arrow RecordReader can read this type
     std::string unsupported_reason; // non-empty when this Parquet logical type is unsupported
 };
 
 std::string parquet_column_name(const ::parquet::ColumnDescriptor* column);
 
 ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* column);
-
-bool supports_record_reader(const ParquetTypeDescriptor& type_descriptor);
 
 DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor);
 

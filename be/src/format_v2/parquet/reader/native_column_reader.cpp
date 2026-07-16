@@ -120,7 +120,7 @@ void collect_projected_ids(const ParquetColumnSchema& schema,
         DORIS_CHECK(!native_field.children.empty());
         // MAP entry existence and offsets are owned by the key stream even for value-only
         // projections. Keep the key reader live and validate key/value entry alignment in v1's
-        // native MapColumnReader.
+        // native complex-column reader.
         ids->insert(native_field.children[0].get_column_id());
     }
 }

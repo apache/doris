@@ -39,7 +39,7 @@
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
-#include "format_v2/parquet/reader/column_reader.h"
+#include "format_v2/parquet/reader/count_column_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
@@ -213,11 +213,11 @@ const ParquetColumnSchema& projected_root_schema(
 }
 
 int64_t count_loaded_non_null_values(const ParquetColumnSchema& root_schema,
-                                     const ParquetColumnReader& shape_reader,
+                                     const CountColumnReader& shape_reader,
                                      int64_t expected_rows) {
-    const auto& def_levels = shape_reader.nested_definition_levels();
-    const auto& rep_levels = shape_reader.nested_repetition_levels();
-    const int64_t levels_written = shape_reader.nested_levels_written();
+    const auto& def_levels = shape_reader.definition_levels();
+    const auto& rep_levels = shape_reader.repetition_levels();
+    const int64_t levels_written = shape_reader.levels_written();
     DORIS_CHECK(levels_written >= expected_rows);
     if (root_schema.max_repetition_level == 0) {
         DORIS_CHECK(levels_written == expected_rows);
@@ -728,14 +728,10 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                                              row_group_plan.row_group_id, e.what());
             }
 
-            ParquetColumnReaderFactory column_reader_factory(
-                    row_group, _state->file_context.schema->num_columns(),
-                    &row_group_plan.page_skip_plans, _parquet_profile.page_skip_profile(),
-                    _state->timezone, _state->enable_strict_mode,
-                    _parquet_profile.scan_profile().column_reader_profile);
-            std::unique_ptr<ParquetColumnReader> shape_reader;
-            RETURN_IF_ERROR(column_reader_factory.create_count_shape_reader(
-                    root_schema, &count_projection, &shape_reader));
+            std::unique_ptr<CountColumnReader> shape_reader;
+            RETURN_IF_ERROR(CountColumnReader::create(
+                    row_group, root_schema, &count_projection,
+                    _parquet_profile.scan_profile().column_reader_profile, &shape_reader));
             DORIS_CHECK(shape_reader != nullptr);
 
             int64_t row_group_cursor = 0;
@@ -749,18 +745,19 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                 while (range_rows_read < selected_range.length) {
                     const int64_t batch_rows =
                             std::min<int64_t>(_batch_size, selected_range.length - range_rows_read);
-                    // COUNT(col) only needs the top-level NULL state. The shape reader loads
-                    // def/rep levels from one representative leaf and does not build value_indices
-                    // or values_column. MAP chooses the key leaf; ARRAY/STRUCT may choose a string
-                    // leaf, but the levels-only protocol still avoids Doris-side string
-                    // materialization for that leaf.
+                    int64_t rows_read = 0;
                     RETURN_IF_ERROR(_stop_status_if_requested(
-                            shape_reader->load_nested_levels_batch(batch_rows)));
-                    _record_scan_rows(batch_rows);
+                            shape_reader->read_levels(batch_rows, &rows_read)));
+                    if (rows_read != batch_rows) {
+                        return Status::Corruption(
+                                "Parquet COUNT reader returned {} rows, expected {}", rows_read,
+                                batch_rows);
+                    }
+                    _record_scan_rows(rows_read);
                     result->count +=
-                            count_loaded_non_null_values(root_schema, *shape_reader, batch_rows);
-                    range_rows_read += batch_rows;
-                    row_group_cursor += batch_rows;
+                            count_loaded_non_null_values(root_schema, *shape_reader, rows_read);
+                    range_rows_read += rows_read;
+                    row_group_cursor += rows_read;
                 }
             }
         }

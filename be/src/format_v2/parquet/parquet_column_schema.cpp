@@ -264,7 +264,7 @@ Status resolve_map_entry_group(const ::parquet::schema::GroupNode& map_group,
     //       optional binary value (STRING);
     //     }
     //   }
-    // Accept that schema here so compatible files can be read. MapColumnReader validates the
+    // Accept that schema here so compatible files can be read. The native reader validates the
     // materialized key column and rejects data that really contains null map keys.
     result->entry_group = &entry_group;
     result->entry_context = child_context(map_context, entry_node, 0);

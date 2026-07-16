@@ -447,54 +447,37 @@ batches.
 
 #### Complex-reader interface and materialization cost
 
-The retained Arrow complex-reader facade exposes four stateful operations:
-`load_nested_batch()`, `load_nested_levels_batch()`, `build_nested_column()`, and
-`consume_nested_column()`. This split made shape-only reads possible while Arrow still owned value
-decoding, but it is not the target native interface. It has three measurable costs:
+The original v2 prototype placed an Arrow-decoded leaf batch and separate load/build/consume phases
+between encoded pages and Doris columns. That design required implicit phase ordering, duplicated
+level traversal in ARRAY/MAP/STRUCT wrappers, and retained decoded binary payload even when a caller
+needed only nullability. The prototype hierarchy and its batch container have been removed.
 
-1. callers must preserve an implicit load-before-build/consume phase and multiple nested cursors;
-2. ARRAY/MAP/STRUCT layers can rescan the same def/rep span to derive parent boundaries, child
-   counts, null maps, and alignment;
-3. a materialized leaf can copy levels, build a level-to-payload index, build a temporary null map,
-   and only then convert the payload to a Doris column.
+The production boundary is now the same compact cursor contract used for scalar columns:
+`NativeColumnReader::read/select/skip`. Its persistent native reader owns page, decoder, level,
+conversion, and complex-column state and materializes the complete result directly into the caller's
+Doris column. No Arrow value reader, intermediate decoded leaf container, temporary nested Doris
+column, or public load-before-build protocol participates in predicate or output scans.
 
-Doris v1 is simpler at the public boundary: a child `read_column_data()` call owns physical decode
-and exposes its persistent def/rep buffers to the collection reader. It nevertheless repeats some
-level interpretation in collection helpers, so v1 is a compatibility/performance baseline rather
-than the final abstraction. DuckDB uses a single `Read(input, vector)` operation. Its LIST reader
-reads a reusable child vector plus def/rep buffers, emits list entries in the same traversal, and
-keeps overflow for the next vector; its STRUCT reader invokes children directly into output vectors
-and verifies their row counts. See DuckDB's official
-[LIST reader](https://github.com/duckdb/duckdb/blob/main/extension/parquet/reader/list_column_reader.cpp),
+Internally, complex decoding still has to solve the shared-level-plan problem. For example, levels
+representing `[["a", "b"], NULL, []]` produce entry counts `[2, 0, 0]`, parent nulls `[0, 1, 0]`,
+and string payload ordinals `[0, 1]`. MAP uses the key leaf as the entry-shape owner and validates
+the value leaf against it; STRUCT children advance in parent-row lockstep. This state belongs behind
+the native reader boundary rather than in caller-visible phases.
+
+`CountColumnReader` is the only data-page compatibility exception. Existing
+`COUNT(nullable_col)` pushdown needs definition/repetition levels but Arrow does not expose its
+level decoder independently of `RecordReader`. The adapter therefore selects one representative
+leaf (the key for MAP), calls `ReadRecords`, copies only levels, and immediately releases any binary
+builder chunks. It exposes neither decoded values nor the ordinary scan-reader API, so it cannot
+become an Arrow fallback. This preserves the existing pushdown semantics while keeping large complex
+values out of the retained aggregate state.
+
+Doris v1 remains the behavior/performance baseline: `read_column_data()` owns physical decode and
+the collection reader consumes persistent level buffers. DuckDB provides the same useful design
+principle through its single `Read(input, vector)` boundary and reusable child vectors. See DuckDB's
+official [LIST reader](https://github.com/duckdb/duckdb/blob/main/extension/parquet/reader/list_column_reader.cpp),
 [STRUCT reader](https://github.com/duckdb/duckdb/blob/main/extension/parquet/reader/struct_column_reader.cpp),
 and [base column reader](https://github.com/duckdb/duckdb/blob/main/extension/parquet/column_reader.cpp).
-
-The native v2 boundary therefore uses one operation conceptually equivalent to:
-
-```text
-read_nested(request { parent_rows, selection, VALUES | LEVELS_ONLY }, output)
-    -> result { parent_rows, shared_level_plan, payload_counts }
-```
-
-`VALUES` decodes selected payload and materializes directly into the supplied Doris child columns;
-`LEVELS_ONLY` advances identical level/page cursors without materializing payload. Both modes build
-the same parent boundaries and validation decisions. ARRAY, MAP, and STRUCT consume a shared plan
-rather than calling separate public build/consume phases. For example, levels representing
-`[["a", "b"], NULL, []]` produce parent boundaries `[0, 2, 3, 4]`, entry counts `[2, 0, 0]`, and
-parent nulls `[0, 1, 0]` in one traversal; string payload ordinals are `[0, 1]`. MAP uses the key
-leaf as the entry-shape owner and validates the value leaf against the same entry plan. STRUCT uses
-one representative leaf for parent validity and only checks sibling alignment while decoding each
-child.
-
-Ordinary production scans do not call these four methods: `NativeColumnReader::read/select/skip`
-uses the native `read_column_data()` boundary and materializes the complete complex column directly.
-The facade remains for the unchanged levels-only aggregate path and focused control tests; it is not
-a fallback after native reader selection. `ParquetLeafBatch` is the facade's decoded Arrow/level
-container and is intentionally forbidden from the ordinary value path. Its leaf reader,
-SerDe, binary/null/level scratch, selection ranges, nested batches, parent nulls, entry counts, and
-child-column handles must be persistent so the facade does not add per-batch allocation churn.
-New native decoder code must not depend on this phase ordering or reproduce the temporary
-level-to-payload index when it can stream payload positions directly from the shared plan.
 
 ### 7.5 Index Coordinate Domains and Composition
 

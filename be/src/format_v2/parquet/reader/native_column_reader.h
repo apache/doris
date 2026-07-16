@@ -29,6 +29,7 @@
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "format/table/table_schema_change_helper.h"
+#include "format_v2/column_data.h"
 #include "format_v2/parquet/reader/column_reader.h"
 
 namespace doris {

@@ -34,8 +34,9 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* reader_read_rows = nullptr;        // rows read by read()
     RuntimeProfile::Counter* reader_skip_rows = nullptr;        // rows skipped by skip()
     RuntimeProfile::Counter* reader_select_rows = nullptr;      // rows selected by select()
-    RuntimeProfile::Counter* arrow_read_records_time = nullptr; // Arrow RecordReader time (ns)
-    RuntimeProfile::Counter* arrow_skip_records_time = nullptr; // Arrow SkipRecords time (ns)
+    // COUNT(nullable_col) shape-only compatibility path; ordinary scans keep both counters zero.
+    RuntimeProfile::Counter* arrow_read_records_time = nullptr;
+    RuntimeProfile::Counter* arrow_skip_records_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;    // value materialization time (ns)
     // Native page/encoding reader internals. These counters intentionally mirror v1 so a v1/v2
     // profile comparison attributes page IO, decompression, levels, value decode and conversion to
@@ -69,7 +70,7 @@ struct ParquetColumnReaderProfile {
 // ============================================================================
 // ============================================================================
 struct ParquetScanProfile {
-    RuntimeProfile::Counter* raw_rows_read = nullptr; // raw rows read from RecordReader
+    RuntimeProfile::Counter* raw_rows_read = nullptr; // logical rows consumed before filtering
     RuntimeProfile::Counter* selected_rows = nullptr; // rows selected after conjunct filtering
     RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr; // rows filtered by conjuncts
     RuntimeProfile::Counter* lazy_read_filtered_rows =
@@ -135,6 +136,7 @@ struct ParquetProfile {
     RuntimeProfile::Counter* reader_read_rows = nullptr;
     RuntimeProfile::Counter* reader_skip_rows = nullptr;
     RuntimeProfile::Counter* reader_select_rows = nullptr;
+    // COUNT(nullable_col) shape-only compatibility path; ordinary scans keep these zero.
     RuntimeProfile::Counter* arrow_read_records_time = nullptr;
     RuntimeProfile::Counter* arrow_skip_records_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;

@@ -31,10 +31,10 @@ class SchemaDescriptor;
 namespace doris::format::parquet {
 
 enum class ParquetColumnSchemaKind {
-    PRIMITIVE, // primitive leaf -> ScalarColumnReader
-    STRUCT,    // struct -> StructColumnReader
-    LIST,      // array -> ListColumnReader
-    MAP,       // map -> MapColumnReader
+    PRIMITIVE, // physical primitive leaf
+    STRUCT,    // Parquet group with STRUCT semantics
+    LIST,      // Parquet group with LIST semantics
+    MAP,       // Parquet group with MAP semantics
 };
 
 // ============================================================================

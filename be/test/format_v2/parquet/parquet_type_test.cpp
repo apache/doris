@@ -103,7 +103,6 @@ TEST(ParquetTypeTest, ResolveLogicalIntegerMappings) {
         EXPECT_EQ(primitive_type(type.doris_type), test_case.expected_type);
         EXPECT_EQ(type.integer_bit_width, test_case.bit_width);
         EXPECT_EQ(type.is_unsigned_integer, test_case.expected_unsigned);
-        EXPECT_TRUE(type.supports_record_reader);
     }
 }
 
@@ -131,7 +130,6 @@ TEST(ParquetTypeTest, ResolveLogicalTimeAndTimestampMappings) {
             ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::MILLIS),
             ::parquet::Type::INT32));
     EXPECT_EQ(adjusted_time.doris_type, nullptr);
-    EXPECT_FALSE(adjusted_time.supports_record_reader);
     EXPECT_FALSE(adjusted_time.unsupported_reason.empty());
 
     const auto timestamp_nanos = resolve_node(::parquet::schema::PrimitiveNode::Make(
@@ -193,7 +191,6 @@ TEST(ParquetTypeTest, ConvertedTimeIsRejectedButConvertedTimestampIsSupported) {
             "time_ms", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
             ::parquet::ConvertedType::TIME_MILLIS));
     EXPECT_EQ(converted_time.doris_type, nullptr);
-    EXPECT_FALSE(converted_time.supports_record_reader);
     EXPECT_FALSE(converted_time.unsupported_reason.empty());
 
     const auto converted_timestamp = resolve_node(::parquet::schema::PrimitiveNode::Make(
@@ -410,7 +407,6 @@ TEST(ParquetTypeTest, ResolveNullDescriptorAndPhysicalFallback) {
     const auto null_type = resolve_parquet_type(nullptr);
     EXPECT_EQ(null_type.doris_type, nullptr);
     EXPECT_EQ(null_type.physical_type, ::parquet::Type::UNDEFINED);
-    EXPECT_TRUE(null_type.supports_record_reader);
 
     const auto int96 = resolve_node(::parquet::schema::PrimitiveNode::Make(
             "ts", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT96));
@@ -462,7 +458,6 @@ TEST(ParquetTypeTest, ResolveEveryPhysicalFallback) {
         EXPECT_EQ(primitive_type(type.doris_type), test_case.expected_type);
         EXPECT_EQ(decoded_value_kind(type), test_case.expected_kind);
         EXPECT_EQ(type.is_string_like, test_case.expected_string_like);
-        EXPECT_TRUE(type.supports_record_reader);
     }
 }
 
@@ -482,7 +477,6 @@ TEST(ParquetTypeTest, InvalidLogicalAnnotationsFallBackOrRejectAsSpecified) {
             ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::NANOS),
             ::parquet::Type::INT64));
     EXPECT_EQ(adjusted_nanos_time.doris_type, nullptr);
-    EXPECT_FALSE(adjusted_nanos_time.supports_record_reader);
     EXPECT_FALSE(adjusted_nanos_time.unsupported_reason.empty());
 
     EXPECT_THROW(::parquet::schema::PrimitiveNode::Make("f16_bad", ::parquet::Repetition::REQUIRED,
