@@ -141,8 +141,6 @@ public:
 
     bool is_enable(const std::string& name);
     std::shared_ptr<DebugPoint> get_debug_point(const std::string& name);
-    // Inspect a debug point without consuming its execute limit.
-    std::shared_ptr<DebugPoint> peek_debug_point(const std::string& name);
     // A nonmatching access does not consume the debug point's execute limit.
     std::shared_ptr<DebugPoint> get_debug_point_if(const std::string& name,
                                                    const DebugPointPredicate& predicate);

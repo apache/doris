@@ -134,16 +134,16 @@ Status EnginePublishVersionTask::execute() {
         if (dp) {
             // The execute limit is consumed only after the partition predicate matches.
             auto token = dp->param<std::string>("token", "invalid_token");
-            auto block_dp = DebugPoints::instance()->get_debug_point(
-                    "EnginePublishVersionTask::execute.block");
-            while (block_dp) {
-                auto pass_token = block_dp->param<std::string>("pass_token", "");
-                if (pass_token == token) {
-                    break;
+            while (DebugPoints::instance()->is_enable("EnginePublishVersionTask::execute.block")) {
+                auto block_dp = DebugPoints::instance()->get_debug_point(
+                        "EnginePublishVersionTask::execute.block");
+                if (block_dp) {
+                    auto pass_token = block_dp->param<std::string>("pass_token", "");
+                    if (pass_token == token) {
+                        break;
+                    }
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                block_dp = DebugPoints::instance()->peek_debug_point(
-                        "EnginePublishVersionTask::execute.block");
             }
         }
     }

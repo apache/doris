@@ -315,11 +315,6 @@ void HttpService::register_debug_point_handler() {
             new ClearDebugPointsAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/debug_point/clear",
                                       clear_debug_points_action);
-
-    GetDebugPointStatusAction* get_debug_point_status_action = _pool.add(
-            new GetDebugPointStatusAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/debug_point/status/{debug_point}",
-                                      get_debug_point_status_action);
 }
 
 // NOLINTBEGIN(readability-function-size)

@@ -56,10 +56,4 @@ private:
     Status _handle(HttpRequest* req) override;
 };
 
-class GetDebugPointStatusAction : public HttpHandlerWithAuth {
-public:
-    using HttpHandlerWithAuth::HttpHandlerWithAuth;
-    void handle(HttpRequest* req) override;
-};
-
 } // namespace doris

@@ -112,22 +112,6 @@ public class DebugPointUtil {
         return debugPoint;
     }
 
-    public static DebugPoint peekDebugPoint(String debugPointName) {
-        if (!Config.enable_debug_points) {
-            return null;
-        }
-
-        DebugPoint debugPoint = debugPoints.get(debugPointName);
-        if (debugPoint == null) {
-            return null;
-        }
-        if (debugPoint.expireTime > 0 && System.currentTimeMillis() >= debugPoint.expireTime) {
-            debugPoints.remove(debugPointName);
-            return null;
-        }
-        return debugPoint;
-    }
-
     // if not enable debug point or its params not contains `key`, then return `defaultValue`
     // url: /api/debug_point/add/name?k1=v1&k2=v2&...
     public static <E> E getDebugParamOrDefault(String debugPointName, String key, E defaultValue) {

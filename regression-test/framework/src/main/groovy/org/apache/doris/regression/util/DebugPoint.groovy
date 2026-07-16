@@ -81,14 +81,6 @@ class DebugPoint {
         Http.checkHttpResult(result, type)
     }
 
-    static boolean isDebugPointHit(String host, int httpPort, NodeType type, String name) {
-        def url = 'http://' + host + ':' + httpPort + '/api/debug_point/status/' + name
-        def result = Http.GET(url, true, false)
-        Http.checkHttpResult(result, type)
-        def status = type == NodeType.FE ? result.data : result
-        return status.exists && (status.execute_num as long) > 0
-    }
-
     def operateDebugPointForAllFEs(Closure closure) {
         getFEHostAndHTTPPort().each { httpAddr ->
             def pos = httpAddr.indexOf(':')
@@ -172,15 +164,6 @@ class DebugPoint {
         return suite.getFrontendIpHttpPort()
     }
 
-    boolean isDebugPointHitOnAnyFE(String name) {
-        return getFEHostAndHTTPPort().any { httpAddr ->
-            def pos = httpAddr.indexOf(':')
-            def ip = httpAddr.substring(0, pos)
-            def port = httpAddr.substring(pos + 1) as int
-            port != -1 && isDebugPointHit(ip, port, NodeType.FE, name)
-        }
-    }
-
     def enableDebugPointForAllFEs(String name, Map<String, String> params = null) {
         operateDebugPointForAllFEs({ host, port ->
             logger.info("enable debug point ${name} with params ${params} for FE $host:$port")
@@ -214,3 +197,4 @@ class DebugPoint {
         }
     }
 }
+

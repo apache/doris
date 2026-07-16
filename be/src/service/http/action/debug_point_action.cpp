@@ -21,7 +21,6 @@
 #include "service/http/http_channel.h"
 #include "service/http/http_status.h"
 #include "util/debug_points.h"
-#include "util/easy_json.h"
 #include "util/time.h"
 
 namespace doris {
@@ -93,29 +92,6 @@ Status ClearDebugPointsAction::_handle(HttpRequest* req) {
     DebugPoints::instance()->clear();
 
     return Status::OK();
-}
-
-void GetDebugPointStatusAction::handle(HttpRequest* req) {
-    if (!config::enable_debug_points) {
-        auto status = Status::InternalError(
-                "Disable debug points. please check config::enable_debug_points");
-        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_json());
-        return;
-    }
-
-    auto name = req->param("debug_point");
-    if (name.empty()) {
-        auto status = Status::InternalError("Empty debug point name");
-        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_json());
-        return;
-    }
-
-    auto debug_point = DebugPoints::instance()->peek_debug_point(name);
-    EasyJson result;
-    result["status"] = "OK";
-    result["exists"] = debug_point != nullptr;
-    result["execute_num"] = debug_point ? debug_point->execute_num.load() : 0;
-    HttpChannel::send_reply(req, HttpStatus::OK, result.ToString());
 }
 
 } // namespace doris
