@@ -408,6 +408,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
     public static final String DPHYPER_LIMIT = "dphyper_limit";
+    public static final String ENABLE_HORN_OPTIMIZER = "enable_horn_optimizer";
+    public static final String ENABLE_HORN_DETAIL_INFO = "enable_horn_detail_info";
+    public static final String ENABLE_HORN_PROFILE = "enable_horn_profile";
     public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String ENABLE_HBO_OPTIMIZATION = "enable_hbo_optimization";
     public static final String ENABLE_HBO_INFO_COLLECTION = "enable_hbo_info_collection";
@@ -1958,6 +1961,21 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
     public boolean enableDPHypOptimizer = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_HORN_OPTIMIZER, description = {
+            "启用 Horn CBO 优化器替代 Nereids 内置优化器进行查询优化",
+            "Enable Horn CBO optimizer to replace the built-in Nereids optimizer for query optimization"})
+    public boolean enableHornOptimizer = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_HORN_DETAIL_INFO, description = {
+            "启用 Horn 优化器详细日志（cascade log、detail log、stats log）",
+            "Enable Horn optimizer detailed logging (cascade log, detail log, stats log)"})
+    public boolean enableHornDetailInfo = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_HORN_PROFILE, description = {
+            "EXPLAIN HORN PLAN 输出附带 cascades 各阶段耗时 timing 列表",
+            "Append cascades stage timing (Total Time + per-stage) to EXPLAIN HORN PLAN output"})
+    public boolean enableHornProfile = false;
 
     @VariableMgr.VarAttr(name = SHORT_CIRCUIT_EVALUATION, fuzzy = true, description = { "是否启用短路求值",
             "Whether to enable short-circuit evaluation" })

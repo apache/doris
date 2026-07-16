@@ -218,6 +218,7 @@ under the License.
     <modules>
         <module>fe-foundation</module>
         <module>fe-common</module>
+        <module>horn4j</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>

@@ -1129,6 +1129,7 @@ public final class MetricRepo {
         // init system metrics
         initSystemMetrics();
         CloudMetrics.init();
+        HornMetric.init();
 
         updateMetrics();
         isInit = true;

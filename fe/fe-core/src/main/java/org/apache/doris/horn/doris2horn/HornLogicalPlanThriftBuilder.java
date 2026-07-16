@@ -1,0 +1,798 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.horn.doris2horn;
+
+import org.apache.doris.horn.HornOptimizationContext;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.horn4j.thrift.TColumn;
+import org.apache.horn4j.thrift.TColumnStats;
+import org.apache.horn4j.thrift.TColumnValue;
+import org.apache.horn4j.thrift.TDistributionSpec;
+import org.apache.horn4j.thrift.TDistributionType;
+import org.apache.horn4j.thrift.TDorisHashSpec;
+import org.apache.horn4j.thrift.TSpecialHashSpec;
+import org.apache.horn4j.thrift.TSpecialHashSpecKind;
+import org.apache.horn4j.thrift.TExpression;
+import org.apache.horn4j.thrift.TFlattenedExpression;
+import org.apache.horn4j.thrift.TLogicalAgg;
+import org.apache.horn4j.thrift.TLogicalFilter;
+import org.apache.horn4j.thrift.TLogicalGrouping;
+import org.apache.horn4j.thrift.TLogicalJoin;
+import org.apache.horn4j.thrift.TLogicalLimit;
+import org.apache.horn4j.thrift.TLogicalProject;
+import org.apache.horn4j.thrift.TLogicalSetOp;
+import org.apache.horn4j.thrift.TLogicalWindow;
+import org.apache.horn4j.thrift.TOrderSpec;
+import org.apache.horn4j.thrift.TLogicalScan;
+import org.apache.horn4j.thrift.TLogicalTableScan;
+import org.apache.horn4j.thrift.TLogicalValueScan;
+import org.apache.horn4j.thrift.TOperator;
+import org.apache.horn4j.thrift.TOperatorType;
+import org.apache.horn4j.thrift.TOperatorUnion;
+import org.apache.horn4j.thrift.TScanTableType;
+import org.apache.horn4j.thrift.TTable;
+import org.apache.horn4j.thrift.TTableStats;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
+import org.apache.doris.nereids.rules.rewrite.MultiDistinctFunctionStrategy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.horn.horn2doris.Horn2DorisUtils;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.StatisticsCache;
+
+import com.google.common.collect.Lists;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+/** Visitor-based Doris LogicalPlan → Horn TFlattenedExpression translator */
+public class HornLogicalPlanThriftBuilder extends DefaultPlanVisitor<Void, List<TExpression>> {
+
+    private static final org.apache.logging.log4j.Logger LOG =
+            org.apache.logging.log4j.LogManager.getLogger(HornLogicalPlanThriftBuilder.class);
+
+    private final HornOptimizationContext hornCtx;
+    private final HornScalarThriftBuilder scalarTranslator;
+
+    public HornLogicalPlanThriftBuilder(HornOptimizationContext hornCtx) {
+        this.hornCtx = hornCtx;
+        this.scalarTranslator = new HornScalarThriftBuilder();
+    }
+
+    /** Translate the whole LogicalPlan tree to TFlattenedExpression */
+    public TFlattenedExpression translate(LogicalPlan logicalPlan) {
+        TFlattenedExpression result = new TFlattenedExpression();
+        List<TExpression> texprs = new ArrayList<>();
+        // sink 语义 = identity Project，承载 SELECT 列序
+        logicalPlan.accept(this, texprs);
+        result.setTexprs(texprs);
+        return result;
+    }
+
+    @Override
+    public Void visit(Plan plan, List<TExpression> texprs) {
+        throw new UnsupportedOperationException(
+                "Horn: unsupported Nereids node: " + plan.getClass().getSimpleName());
+    }
+
+    /** Append a TExpression for {@code plan}, then recurse into children pre-order */
+    private void emit(Plan plan, TOperatorType opType, TOperatorUnion opUnion,
+                      List<TExpression> texprs) {
+        TExpression texpr = new TExpression();
+        TOperator top = new TOperator();
+        top.setOp_type(opType);
+        top.setOp_union(opUnion);
+        texpr.setOp(top);
+        texpr.setArity(plan.children().size());
+
+        // FE-declared output column refs: each entry is a kColumnRef-shaped TOperator
+        List<TOperator> outputList = new ArrayList<>();
+        for (Slot slot : plan.getOutput()) {
+            if (slot instanceof SlotReference) {
+                outputList.add(scalarTranslator.visitSlotReference((SlotReference) slot, null));
+            }
+        }
+        if (!outputList.isEmpty()) {
+            texpr.setOutput_list(outputList);
+        }
+
+        texprs.add(texpr);
+
+        for (Plan child : plan.children()) {
+            child.accept(this, texprs);
+        }
+    }
+
+    @Override
+    public Void visitLogicalOlapScan(LogicalOlapScan scan, List<TExpression> texprs) {
+        TOperatorUnion opUnion = new TOperatorUnion();
+        TLogicalTableScan tscan = new TLogicalTableScan();
+        OlapTable table = scan.getTable();
+
+        // ====== DEBUG: LogicalOlapScan 此时是否已 partition pruning ======
+        LOG.warn("HORN_FWD_SCAN table={} totalPartitions={} selectedPartitionIds={} selectedTabletIds.size={}",
+                table.getName(), table.getPartitionIds().size(),
+                scan.getSelectedPartitionIds(), scan.getSelectedTabletIds().size());
+        // ====== END DEBUG ======
+
+        tscan.setDatabase_name(scan.getQualifier().get(1));
+        tscan.setTable_name(table.getName());
+        tscan.setTable_alias(table.getName());
+        tscan.setTable_type(TScanTableType.kTciTable);
+        // schema_id 不设：BE expression_builder.cc:40 默认读 -1，FindTablePair 用
+
+        // scan_list：scan 自有输出列(含列裁剪)的 ColumnRef(带 external_slot_id)，
+        List<TOperator> scanList = new ArrayList<>();
+        for (Slot slot : scan.getOutput()) {
+            if (slot instanceof SlotReference) {
+                scanList.add(scalarTranslator.visitSlotReference((SlotReference) slot, null));
+            }
+        }
+        tscan.setScan_list(scanList);
+
+        // external_relation_id: FE 自有 per-scan opaque id（relationId）
+        long relationId = scan.getRelationId().asInt();
+        tscan.setExternal_relation_id(relationId);
+        hornCtx.putScanPrunedPartitions(relationId, new ArrayList<>(scan.getSelectedPartitionIds()));
+
+        // task #227 sort elimination: emit base table 物理排序键 (OLAP tablet 内部
+        KeysType keysType = table.getKeysType();
+        if (keysType == KeysType.DUP_KEYS || keysType == KeysType.UNIQUE_KEYS
+                || keysType == KeysType.AGG_KEYS) {
+            // Doris OLAP 的 key 列物理上恒为「升序存储、NULL 作最小值（nulls first）」，据此声明 scan
+            List<OrderKey> keyOrderKeys = new ArrayList<>();
+            for (Column keyCol : table.getBaseSchemaKeyColumns()) {
+                SlotReference keySlot = findOutputSlotByColumn(scan.getOutput(), keyCol.getName());
+                if (keySlot == null) {
+                    break;
+                }
+                keyOrderKeys.add(new OrderKey(keySlot, /*isAsc=*/true, /*nullFirst=*/true));
+            }
+            if (!keyOrderKeys.isEmpty()) {
+                tscan.setBase_table_order_spec(buildOrderSpec(keyOrderKeys));
+            }
+        }
+
+        // scan 自有 distribution_spec：HASH 表 → kHashed + 分桶列 ColumnRef(getDistributionColumns
+        DistributionInfo distInfo = table.getDefaultDistributionInfo();
+        TDistributionSpec distSpec = new TDistributionSpec();
+        if (distInfo instanceof HashDistributionInfo) {
+            distSpec.setDistribution_type(TDistributionType.kHashed);
+            distSpec.setBucket_num(distInfo.getBucketNum());
+            List<TOperator> hashColumns = new ArrayList<>();
+            for (Column distCol : ((HashDistributionInfo) distInfo).getDistributionColumns()) {
+                SlotReference distSlot = findOutputSlotByColumn(scan.getOutput(), distCol.getName());
+                if (distSlot != null) {
+                    hashColumns.add(scalarTranslator.visitSlotReference(distSlot, null));
+                }
+            }
+            distSpec.setHash_columns(hashColumns);
+            // colocate 物理身份：属同一 stable colocate group 的所有 scan 拿同一个 grpId
+            ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+            long colocateGroupId = -1;
+            if (colocateIndex.isColocateTable(table.getId())
+                    && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(table.getId()))) {
+                colocateGroupId = colocateIndex.getGroup(table.getId()).grpId;
+            }
+            // FE 直接把整个 colocate 物理身份组装成 TDorisHashSpec 灌进 special_hash_spec
+            TDorisHashSpec dorisHashSpec = new TDorisHashSpec();
+            dorisHashSpec.setColocate_group_id(colocateGroupId);
+            dorisHashSpec.setTable_id(table.getId());
+            dorisHashSpec.setSelected_partition_ids(new ArrayList<>(scan.getSelectedPartitionIds()));
+            TSpecialHashSpec specialHashSpec = new TSpecialHashSpec();
+            specialHashSpec.setKind(TSpecialHashSpecKind.kDoris);
+            specialHashSpec.setDoris_hash_spec(dorisHashSpec);
+            distSpec.setSpecial_hash_spec(specialHashSpec);
+        } else {
+            distSpec.setDistribution_type(TDistributionType.kRandom);
+        }
+        tscan.setDistribution_spec(distSpec);
+
+        buildCatalog(table, tscan.getDatabase_name(), tscan.getTable_name());
+
+        TLogicalScan tLogicalScan = new TLogicalScan();
+        tLogicalScan.setLogical_table_scan(tscan);
+        opUnion.setLogical_scan(tLogicalScan);
+        emit(scan, TOperatorType.kLogicalTableGet, opUnion, texprs);
+        return null;
+    }
+
+    @Override
+    public Void visitLogicalOneRowRelation(LogicalOneRowRelation oneRow, List<TExpression> texprs) {
+        // SELECT 1, 'x' → LogicalValueGet, value_lists = [[lit, ...]]
+        buildValueGet(oneRow, java.util.Collections.singletonList(oneRow.getProjects()), texprs);
+        return null;
+    }
+
+    @Override
+    public Void visitLogicalEmptyRelation(LogicalEmptyRelation emptyRelation, List<TExpression> texprs) {
+        // SELECT * FROM t LIMIT 0 / WHERE false → LogicalValueGet, value_lists = []
+        buildValueGet(emptyRelation, java.util.Collections.emptyList(), texprs);
+        return null;
+    }
+
+    /** 两个 Doris constants-source 节点（OneRow / Empty）→ horn */
+    private void buildValueGet(Plan plan, List<List<NamedExpression>> rows, List<TExpression> texprs) {
+        TLogicalValueScan valueScan = new TLogicalValueScan();
+        if (!rows.isEmpty()) {
+            List<List<TOperator>> valueLists = new ArrayList<>(rows.size());
+            for (List<NamedExpression> row : rows) {
+                List<TOperator> rowCells = new ArrayList<>(row.size());
+                for (NamedExpression cell : row) {
+                    Expression literalExpr = Doris2HornUtils.unwrapExpr(cell);
+                    rowCells.add(scalarTranslator.translate(literalExpr));
+                }
+                valueLists.add(rowCells);
+            }
+            valueScan.setValue_lists(valueLists);
+        }
+        List<TOperator> outputSchema = new ArrayList<>();
+        for (Slot slot : plan.getOutput()) {
+            if (slot instanceof SlotReference) {
+                outputSchema.add(scalarTranslator.visitSlotReference((SlotReference) slot, null));
+            }
+        }
+        valueScan.setOutput_list(outputSchema);
+
+        TLogicalScan scanWrapper = new TLogicalScan();
+        scanWrapper.setLogical_value_scan(valueScan);
+        TOperatorUnion opUnion = new TOperatorUnion();
+        opUnion.setLogical_scan(scanWrapper);
+        emit(plan, TOperatorType.kLogicalValueGet, opUnion, texprs);
+    }
+
+    /** Build TTable (schema + col stats + table stats) for horn's StaticMataProvider */
+    private void buildCatalog(OlapTable table, String dbName, String tblName) {
+        TTable ttable = new TTable();
+        ttable.setDb_name(dbName);
+        ttable.setTbl_name(tblName);
+
+        // 以下 3 个 thrift 字段 horn BE 接到后 ParseTableDescriptor 解析存进
+
+        ConnectContext ctx = hornCtx.getCascadesContext().getConnectContext();
+        StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
+        long catalogId = table.getDatabase().getCatalog().getId();
+        long dbId = table.getDatabase().getId();
+        long tblId = table.getId();
+        long idxId = table.getBaseIndexId();
+
+        List<Column> baseSchema = table.getBaseSchema();
+        List<TColumn> columns = new ArrayList<>();
+        boolean allColumnStatsAvailable = true;
+        long tableRowCount = -1;
+        for (int i = 0; i < baseSchema.size(); i++) {
+            Column col = baseSchema.get(i);
+            ColumnStatistic colStat = statsCache.getColumnStatistics(
+                    catalogId, dbId, tblId, idxId, col.getName(), ctx);
+            boolean columnStatsAvailable = colStat != null && colStat != ColumnStatistic.UNKNOWN;
+            if (columnStatsAvailable && tableRowCount < 0) {
+                tableRowCount = (long) colStat.count;
+            } else if (!columnStatsAvailable) {
+                allColumnStatsAvailable = false;
+            }
+
+            TColumn tcol = new TColumn();
+            tcol.setColumnName(col.getName());
+            tcol.setColumnType(DorisTypeToHornConverter.convertCatalogType(col.getType()));
+            tcol.setPosition(i);
+            if (columnStatsAvailable) {
+                TColumnStats tcolStats = new TColumnStats();
+                tcolStats.setAvg_size(colStat.avgSizeByte);
+                tcolStats.setMax_size(col.getType().getLength());
+                tcolStats.setNum_distinct_values((long) colStat.ndv);
+                tcolStats.setNum_nulls((long) colStat.numNulls);
+                TColumnValue low = new TColumnValue();
+                low.setDouble_val(colStat.minValue);
+                tcolStats.setLow_value(low);
+                TColumnValue high = new TColumnValue();
+                high.setDouble_val(colStat.maxValue);
+                tcolStats.setHigh_value(high);
+                tcol.setCol_stats(tcolStats);
+            }
+            columns.add(tcol);
+        }
+        ttable.setColumns(columns);
+
+        TTableStats tableStats = new TTableStats();
+        tableStats.setNum_rows(allColumnStatsAvailable ? tableRowCount : -1);
+        ttable.setTable_stats(tableStats);
+
+        // table_id / partition_num 不再传:都是 horn C++ 从不读的死字段
+        hornCtx.addTable(ttable);
+    }
+
+    @Override
+    public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, List<TExpression> texprs) {
+        TOperatorUnion opUnion = new TOperatorUnion();
+        TLogicalFilter tfilter = new TLogicalFilter();
+        tfilter.setPredicate_list(
+                scalarTranslator.translateList(new ArrayList<>(filter.getConjuncts())));
+        opUnion.setLogical_filter(tfilter);
+        emit(filter, TOperatorType.kLogicalSelect, opUnion, texprs);
+        return null;
+    }
+
+    @Override
+    public Void visitLogicalProject(LogicalProject<? extends Plan> project, List<TExpression> texprs) {
+        buildProject(project, project.getProjects(), project.getOutput(), texprs);
+        return null;
+    }
+
+    /** identity Project，sink.outputExprs 即 SELECT 列序、对应 Project 的 */
+    @Override
+    public Void visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, List<TExpression> texprs) {
+        buildProject(sink, sink.getOutputExprs(), sink.getOutput(), texprs);
+        return null;
+    }
+
+    /** 把 plan 当成 LogicalProject emit：projects 写 project_list、output 写 */
+    private void buildProject(Plan plan, List<NamedExpression> projects,
+                                       List<Slot> output, List<TExpression> texprs) {
+        TLogicalProject projectOp = new TLogicalProject();
+        projectOp.setProject_list(scalarTranslator.translateList(projects));
+        List<TOperator> rewriteList = new ArrayList<>();
+        for (Slot slot : output) {
+            if (slot instanceof SlotReference) {
+                rewriteList.add(scalarTranslator.visitSlotReference((SlotReference) slot, null));
+            }
+        }
+        projectOp.setRewrite_list(rewriteList);
+        TOperatorUnion opUnion = new TOperatorUnion();
+        opUnion.setLogical_project(projectOp);
+        emit(plan, TOperatorType.kLogicalProject, opUnion, texprs);
+    }
+
+    /** Doris LogicalAggregate → horn TLogicalAgg（单层 forward，horn cascades */
+    @Override
+    public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, List<TExpression> texprs) {
+        // 由 visitLogicalRepeat 单独 emit TLogicalGrouping，所以这里不再 fallback
+        if (hasDistinctAggFn(agg)) {
+            LogicalAggregate<? extends Plan> converted = MultiDistinctFunctionStrategy.rewrite(agg);
+            if (hasDistinctAggFn(converted)) {
+                throw new UnsupportedOperationException(
+                        "Horn: distinct agg fn not convertible to multi_distinct");
+            }
+            return converted.accept(this, texprs);
+        }
+        TLogicalAgg tagg = new TLogicalAgg();
+        tagg.setGroup_by_exprs(scalarTranslator.translateList(agg.getGroupByExpressions()));
+        // 从 outputExpressions 抽出 AggregateFunction（通常包在 Alias 里），逐个
+        List<TOperator> aggFuncs = new ArrayList<>();
+        List<TOperator> aggComputedCols = new ArrayList<>();
+        for (NamedExpression out : agg.getOutputExpressions()) {
+            Expression inner = Doris2HornUtils.unwrapExpr(out);
+            if (inner instanceof AggregateFunction) {
+                aggFuncs.add(scalarTranslator.translate(inner));
+                aggComputedCols.add(scalarTranslator.visitSlotReference(
+                        (SlotReference) out.toSlot(), null));
+            }
+        }
+        tagg.setAggregate_functions(aggFuncs);
+        tagg.setAgg_computed_cols(aggComputedCols);
+        tagg.setIs_split(false);
+        TOperatorUnion opUnion = new TOperatorUnion();
+        opUnion.setLogical_agg(tagg);
+        emit(agg, TOperatorType.kLogicalAgg, opUnion, texprs);
+        return null;
+    }
+
+    /** 降级成 {@code Agg(group by 全列) → UnionAll}，故到此 qualifier 恒为 ALL；且经 */
+    @Override
+    public Void visitLogicalUnion(LogicalUnion union, List<TExpression> texprs) {
+        if (union.getQualifier() != Qualifier.ALL) {
+            throw new UnsupportedOperationException(
+                    "Horn: non-ALL union should have been lowered by BuildAggForUnion");
+        }
+        // 纯常量 union（0 孩子、仅 constantExprsList，如 SELECT 1 UNION ALL SELECT 2）暂不支持：
+        if (union.children().isEmpty()) {
+            throw new UnsupportedOperationException(
+                    "Horn: constant-only union (no child) not supported (cc StatisticsDerive SIGSEGV)");
+        }
+        emitSetOp(union, TOperatorType.kLogicalNarrayUnionAll, texprs);
+        return null;
+    }
+
+    /** MergeSetOperations 可把同型 intersect 合并成 N 元单节点；cc 的 implement xform 已改 PatternMultiLeaf */
+    @Override
+    public Void visitLogicalIntersect(LogicalIntersect intersect, List<TExpression> texprs) {
+        // intersect 恒 DISTINCT（Doris 绑定期拒 ALL）；防御性断言，非 DISTINCT → fallback。
+        if (intersect.getQualifier() != Qualifier.DISTINCT) {
+            throw new UnsupportedOperationException(
+                    "Horn: intersect must be DISTINCT (Doris rejects ALL at binding)");
+        }
+        emitSetOp(intersect, TOperatorType.kLogicalIntersect, texprs);
+        return null;
+    }
+
+    /** Doris LogicalExcept → horn TLogicalSetOp（op_type=kLogicalExcept） */
+    @Override
+    public Void visitLogicalExcept(LogicalExcept except, List<TExpression> texprs) {
+        // except 恒 DISTINCT（Doris 绑定期拒 ALL）；防御性断言，非 DISTINCT → fallback。
+        if (except.getQualifier() != Qualifier.DISTINCT) {
+            throw new UnsupportedOperationException(
+                    "Horn: except must be DISTINCT (Doris rejects ALL at binding)");
+        }
+        emitSetOp(except, TOperatorType.kLogicalExcept, texprs);
+        return null;
+    }
+
+    /** 所有 N 元 set op（UNION ALL / INTERSECT / EXCEPT）共用：建 TLogicalSetOp（children_output_list） */
+    private void emitSetOp(LogicalSetOperation setOp, TOperatorType opType,
+                           List<TExpression> texprs) {
+        TLogicalSetOp tsetop = new TLogicalSetOp();
+        List<List<TOperator>> childrenOut = new ArrayList<>();
+        for (List<SlotReference> oneChild : setOp.getRegularChildrenOutputs()) {
+            childrenOut.add(scalarTranslator.translateList(oneChild));
+        }
+        tsetop.setChildren_output_list(childrenOut);
+        if (setOp instanceof LogicalUnion) {
+            List<List<NamedExpression>> constExprsList = ((LogicalUnion) setOp).getConstantExprsList();
+            if (!constExprsList.isEmpty()) {
+                List<List<TOperator>> constRows = new ArrayList<>();
+                for (List<NamedExpression> row : constExprsList) {
+                    constRows.add(scalarTranslator.translateList(row));
+                }
+                tsetop.setChildren_const_expr_list(constRows);
+            }
+        }
+        TOperatorUnion opUnion = new TOperatorUnion();
+        opUnion.setLogical_set_op(tsetop);
+        emit(setOp, opType, opUnion, texprs);
+    }
+
+    /** NormalizeRepeat 已 desugar： */
+    @Override
+    public Void visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, List<TExpression> texprs) {
+        // 1. grouping_set_list
+        List<List<TOperator>> tGroupingSets = new ArrayList<>(repeat.getGroupingSets().size());
+        for (List<Expression> set : repeat.getGroupingSets()) {
+            tGroupingSets.add(scalarTranslator.translateList(set));
+        }
+
+        // 2. grouping_expr_list = flatten distinct
+        Set<Expression> groupingExprSet = new LinkedHashSet<>();
+        for (List<Expression> set : repeat.getGroupingSets()) {
+            groupingExprSet.addAll(set);
+        }
+        List<TOperator> tGroupingExprs = new ArrayList<>(groupingExprSet.size());
+        for (Expression e : groupingExprSet) {
+            tGroupingExprs.add(scalarTranslator.translate(e));
+        }
+
+        // 3
+        SlotReference groupingIdSlot = repeat.getGroupingId().get();
+        TOperator tGroupingIdFunc = scalarTranslator.visitSlotReference(groupingIdSlot, null);
+
+        // agg_fun_input_cols：repeat.outputExpressions 里「裸 SlotReference 且不是 grouping key」的列，
+        boolean hasGroupingPrefix = false;
+        List<TOperator> tAggFunInputCols = new ArrayList<>();
+        for (NamedExpression out : repeat.getOutputExpressions()) {
+            Expression inner = Doris2HornUtils.unwrapExpr(out);
+            if (inner instanceof SlotReference && !groupingExprSet.contains(inner)) {
+                tAggFunInputCols.add(scalarTranslator.visitSlotReference((SlotReference) inner, null));
+            } else if (inner instanceof GroupingScalarFunction) {
+                hasGroupingPrefix = true;
+            }
+        }
+
+        TLogicalGrouping tlg = new TLogicalGrouping();
+        tlg.setGrouping_set_list(tGroupingSets);
+        tlg.setGrouping_expr_list(tGroupingExprs);
+        tlg.setGrouping_id_func(Lists.newArrayList(tGroupingIdFunc));
+        if (!tAggFunInputCols.isEmpty()) {
+            tlg.setAgg_fun_input_cols(tAggFunInputCols);
+        }
+        TOperatorUnion opUnion = new TOperatorUnion();
+        opUnion.setLogical_grouping(tlg);
+
+        // 装 outputExpressions（含 `Grouping(..) AS PREFIX`，visitAlias 剥到函数）+ GROUPING_ID 透传，rewrite_list 是其
+        if (!hasGroupingPrefix) {
+            emit(repeat, TOperatorType.kLogicalGrouping, opUnion, texprs);
+            return null;
+        }
+        List<NamedExpression> projects = new ArrayList<>(repeat.getOutputExpressions());
+        projects.add(groupingIdSlot);
+        List<TOperator> projectOutput = new ArrayList<>();
+        for (NamedExpression project : projects) {
+            projectOutput.add(scalarTranslator.visitSlotReference((SlotReference) project.toSlot(), null));
+        }
+        TLogicalProject projectOp = new TLogicalProject();
+        projectOp.setProject_list(scalarTranslator.translateList(projects));
+        projectOp.setRewrite_list(projectOutput);
+        TOperatorUnion projectUnion = new TOperatorUnion();
+        projectUnion.setLogical_project(projectOp);
+
+        // pre-order：先手 add Project texpr（arity=1，不递归），再 emit grouping（emit 自带递归到 child），自然形成
+        TExpression projectTexpr = new TExpression();
+        TOperator projectTop = new TOperator();
+        projectTop.setOp_type(TOperatorType.kLogicalProject);
+        projectTop.setOp_union(projectUnion);
+        projectTexpr.setOp(projectTop);
+        projectTexpr.setArity(1);
+        projectTexpr.setOutput_list(projectOutput);
+        texprs.add(projectTexpr);
+        emit(repeat, TOperatorType.kLogicalGrouping, opUnion, texprs);
+        return null;
+    }
+
+    /** agg 的 outputExpressions 中是否含带 distinct 标志的 AggregateFunction */
+    private boolean hasDistinctAggFn(LogicalAggregate<? extends Plan> agg) {
+        for (NamedExpression out : agg.getOutputExpressions()) {
+            Expression inner = Doris2HornUtils.unwrapExpr(out);
+            if (inner instanceof AggregateFunction && ((AggregateFunction) inner).isDistinct()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** <p>单层 forward 模板对齐 visitLogicalAggregate： */
+    @Override
+    public Void visitLogicalWindow(LogicalWindow<? extends Plan> logicalWindow, List<TExpression> texprs) {
+        List<NamedExpression> windowExpressions = logicalWindow.getWindowExpressions();
+        if (windowExpressions.isEmpty()) {
+            throw new UnsupportedOperationException(
+                    "Horn: LogicalWindow with empty windowExpressions");
+        }
+
+        // LogicalWindowToPhysicalWindow.createWindowFrameGroups（partition 比较忽略 key 顺序）
+        List<WindowFrameGroup> sameSpecGroups =
+                LogicalWindowToPhysicalWindow.createWindowFrameGroups(windowExpressions);
+        if (sameSpecGroups.size() > 1) {
+            Plan windowChain = logicalWindow.child();
+            for (WindowFrameGroup sameSpecGroup : sameSpecGroups) {
+                windowChain = new LogicalWindow<>(sameSpecGroup.getGroups(), windowChain);
+            }
+            windowChain.accept(this, texprs);
+            return null;
+        }
+
+        // 走到这里 windowExpressions 必为同一 spec：createWindowFrameGroups 只返回 1 组，或多 spec
+        WindowExpression leaderWindow =
+                (WindowExpression) Doris2HornUtils.unwrapExpr(windowExpressions.get(0));
+        List<Expression> partitionKeys = leaderWindow.getPartitionKeys();
+        List<OrderExpression> orderKeys = leaderWindow.getOrderKeys();
+        Optional<WindowFrame> windowFrame = leaderWindow.getWindowFrame();
+
+        List<TOperator> analyticFunctions = new ArrayList<>(windowExpressions.size());
+        List<TOperator> analyticComputedColumns = new ArrayList<>(windowExpressions.size());
+        for (NamedExpression windowExpression : windowExpressions) {
+            WindowExpression analyticFunction =
+                    (WindowExpression) Doris2HornUtils.unwrapExpr(windowExpression);
+            analyticFunctions.add(scalarTranslator.translate(analyticFunction.getFunction()));
+            // Alias.toSlot() 携带 ExprId + name + type —— 跟 agg_computed_cols 同样路径。
+            analyticComputedColumns.add(scalarTranslator.visitSlotReference(
+                    (SlotReference) windowExpression.toSlot(), null));
+        }
+
+        TLogicalWindow logicalWindowThrift = new TLogicalWindow();
+        logicalWindowThrift.setAnalytic_functions(analyticFunctions);
+        logicalWindowThrift.setAnalytic_computed_cols(analyticComputedColumns);
+        if (!partitionKeys.isEmpty()) {
+            logicalWindowThrift.setPartition_exprs(scalarTranslator.translateList(partitionKeys));
+        }
+        if (!orderKeys.isEmpty()) {
+            List<OrderKey> windowOrderKeys = new ArrayList<>(orderKeys.size());
+            for (OrderExpression orderExpr : orderKeys) {
+                windowOrderKeys.add(orderExpr.getOrderKey());
+            }
+            logicalWindowThrift.setOrder_by_exprs(buildOrderSpec(windowOrderKeys));
+        }
+        if (windowFrame.isPresent()) {
+            // 直接调 visitWindowFrame 得到 TOperator(op_type=kWindowFrame, scalar union)，
+            logicalWindowThrift.setWindow_frame(Collections.singletonList(
+                    scalarTranslator.visitWindowFrame(windowFrame.get(), null)));
+        }
+
+        TOperatorUnion operatorUnion = new TOperatorUnion();
+        operatorUnion.setLogical_window(logicalWindowThrift);
+        emit(logicalWindow, TOperatorType.kLogicalWindow, operatorUnion, texprs);
+        return null;
+    }
+
+    // v7 (=v3) 路径：sort / limit / topn 全 emit 成 TLogicalLimit (带 order_spec / limit / offset)
+
+    @Override
+    public Void visitLogicalSort(LogicalSort<? extends Plan> sort, List<TExpression> texprs) {
+        // sort wrapper：limit=-1 表示纯 ORDER BY，没有 split 概念
+        buildLimit(sort, -1L, 0L, sort.getOrderKeys(), true, false, texprs);
+        return null;
+    }
+
+    @Override
+    public Void visitLogicalLimit(LogicalLimit<? extends Plan> limit, List<TExpression> texprs) {
+        // Doris Nereids LogicalLimit 的 phase != ORIGIN 表明已经被 Nereids 端拆出
+        boolean isSplit = limit.getPhase() != LimitPhase.ORIGIN;
+        boolean isGlobal = limit.getPhase() != LimitPhase.LOCAL;
+        buildLimit(limit, limit.getLimit(), limit.getOffset(), null, isGlobal, isSplit, texprs);
+        return null;
+    }
+
+    @Override
+    public Void visitLogicalTopN(LogicalTopN<? extends Plan> topn, List<TExpression> texprs) {
+        // Doris LogicalTopN 没有 phase 字段 — 单一形态，相当于 ORIGIN，is_split=false
+        buildLimit(topn, topn.getLimit(), topn.getOffset(), topn.getOrderKeys(), true, false, texprs);
+        return null;
+    }
+
+    /** 公共 emit helper：visitLogicalSort/Limit/TopN 三个变体共用同一份 TLogicalLimit wire */
+    private void buildLimit(Plan plan, long limit, long offset,
+                            List<OrderKey> orderKeys, boolean isGlobal, boolean isSplit,
+                            List<TExpression> texprs) {
+        TLogicalLimit tlimit = new TLogicalLimit();
+        tlimit.setLimit(limit);
+        tlimit.setOffset(offset);
+        tlimit.setIs_global_limit(isGlobal);
+        tlimit.setIs_split(isSplit);
+        if (orderKeys != null && !orderKeys.isEmpty()) {
+            tlimit.setOrder_spec(buildOrderSpec(orderKeys));
+        }
+        TOperatorUnion opUnion = new TOperatorUnion();
+        opUnion.setLogical_limit(tlimit);
+        emit(plan, TOperatorType.kLogicalLimit, opUnion, texprs);
+    }
+
+    /** 在 scan 输出里按列名（忽略大小写）找对应 SlotReference；找不到返回 null */
+    private SlotReference findOutputSlotByColumn(List<Slot> outputSlots, String columnName) {
+        for (Slot slot : outputSlots) {
+            if (slot instanceof SlotReference) {
+                Optional<Column> originalColumn = ((SlotReference) slot).getOriginalColumn();
+                if (originalColumn.isPresent()
+                        && originalColumn.get().getName().equalsIgnoreCase(columnName)) {
+                    return (SlotReference) slot;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 把 Doris OrderKey 列表翻成 horn TOrderSpec (parallel lists 形态) */
+    private TOrderSpec buildOrderSpec(List<OrderKey> orderKeys) {
+        TOrderSpec orderSpec = new TOrderSpec();
+        List<TOperator> exprList = new ArrayList<>(orderKeys.size());
+        List<Boolean> ascList = new ArrayList<>(orderKeys.size());
+        List<Boolean> nullsFirstList = new ArrayList<>(orderKeys.size());
+        for (OrderKey orderKey : orderKeys) {
+            exprList.add(scalarTranslator.translate(orderKey.getExpr()));
+            ascList.add(orderKey.isAsc());
+            nullsFirstList.add(orderKey.isNullFirst());
+        }
+        orderSpec.setOrder_by_exprs(exprList);
+        orderSpec.setIs_asc_order(ascList);
+        orderSpec.setNulls_first(nullsFirstList);
+        return orderSpec;
+    }
+
+    @Override
+    public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, List<TExpression> texprs) {
+        // 全部 10 种 Doris JoinType 映射到对应 horn logical join op_type
+        TOperatorType opType;
+        switch (join.getJoinType()) {
+            case INNER_JOIN:
+                opType = TOperatorType.kLogicalInnerJoin;
+                break;
+            case CROSS_JOIN:
+                opType = TOperatorType.kLogicalCrossJoin;
+                break;
+            case LEFT_OUTER_JOIN:
+                opType = TOperatorType.kLogicalLeftOuterJoin;
+                break;
+            case RIGHT_OUTER_JOIN:
+                opType = TOperatorType.kLogicalRightOuterJoin;
+                break;
+            case FULL_OUTER_JOIN:
+                opType = TOperatorType.kLogicalFullOuterJoin;
+                break;
+            case LEFT_SEMI_JOIN:
+                opType = TOperatorType.kLogicalLeftSemiJoin;
+                break;
+            case RIGHT_SEMI_JOIN:
+                opType = TOperatorType.kLogicalRightSemiJoin;
+                break;
+            case LEFT_ANTI_JOIN:
+                opType = TOperatorType.kLogicalLeftAntiSemiJoin;
+                break;
+            case RIGHT_ANTI_JOIN:
+                opType = TOperatorType.kLogicalRightAntiSemiJoin;
+                break;
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                // null-aware mark join（NOT IN）的 null 传播语义 horn 不实现 → fallback Nereids。
+                if (join.isMarkJoin()) {
+                    throw new UnsupportedOperationException(
+                            "Horn: null-aware mark join (NOT IN) not supported");
+                }
+                opType = TOperatorType.kLogicalNullAwareLeftAntiSemiJoin;
+                break;
+            default:
+                throw new UnsupportedOperationException(
+                        "Horn: unsupported join type: " + join.getJoinType());
+        }
+        TOperatorUnion opUnion = new TOperatorUnion();
+        TLogicalJoin tjoin = new TLogicalJoin();
+        if (!join.getHashJoinConjuncts().isEmpty()) {
+            // 等值 join 条件 (hash join 用)
+            tjoin.setEqual_join_predicate_list(
+                    scalarTranslator.translateList(new ArrayList<>(join.getHashJoinConjuncts())));
+        }
+        if (!join.getOtherJoinConjuncts().isEmpty()) {
+            // 非等值 / 后置 join 条件 (post-match filter)
+            tjoin.setOther_join_predicate_list(
+                    scalarTranslator.translateList(new ArrayList<>(join.getOtherJoinConjuncts())));
+        }
+        // mark join：emit mark_slot（MarkJoinSlotReference 是 SlotReference 子类，visitSlotReference
+        if (join.isMarkJoin()) {
+            // mark_slot 用单元素 list（同 grouping_id_func）规避 thrift TOperator 递归。
+            tjoin.setMark_slot(Lists.newArrayList(scalarTranslator.visitSlotReference(
+                    join.getMarkJoinSlotReference().get(), null)));
+            if (!join.getMarkJoinConjuncts().isEmpty()) {
+                tjoin.setMark_join_predicate_list(
+                        scalarTranslator.translateList(new ArrayList<>(join.getMarkJoinConjuncts())));
+            }
+        }
+        opUnion.setLogical_join(tjoin);
+        // emit 内 plan.children() = [left, right] 顺序 (BinaryPlan)
+        emit(join, opType, opUnion, texprs);
+        return null;
+    }
+}

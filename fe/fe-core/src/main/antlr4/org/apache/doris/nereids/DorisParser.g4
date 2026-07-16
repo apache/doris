@@ -1177,6 +1177,7 @@ planType
     | SHAPE
     | MEMO
     | DISTRIBUTED
+    | HORN
     | ALL // default type
     ;
 
@@ -2160,6 +2161,7 @@ nonReserved
     | HINT_START
     | HISTOGRAM
     | HLL_UNION
+    | HORN
     | HOSTNAME
     | HOTSPOT
     | HOUR

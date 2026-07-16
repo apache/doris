@@ -2611,13 +2611,41 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 // It means the local has satisfied the Gather property. We can just ignore mergeSort
                 return inputFragment;
             }
-            SortNode sortNode = (SortNode) inputFragment.getPlanRoot().getChild(0);
-            ((ExchangeNode) inputFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfo());
+            ExchangeNode exchangeNode = (ExchangeNode) inputFragment.getPlanRoot();
+            // 主路径 (Nereids 标准 ORDER BY plan)：Exchange child 是 LOCAL_SORT，
+            // mergeInfo 从 child SortNode 取，同时标记 mergeByExchange。
+            // 兜底路径 (horn sort_elimination)：child 已天然有序，反译时 Exchange
+            // 下没有 LOCAL_SORT 占位；这时直接从 PhysicalQuickSort 自身 orderKeys
+            // 构造 SortInfo。注意 sortTuple 必须复用 child 已注册的 tuple
+            // (exchangeNode 的 input tuple)，不能 generateTupleDesc 新建——因为没
+            // SortNode 挂进 fragment，新 tuple 不会进 fragment.tupleIds，BE 找不到。
+            if (exchangeNode.getChild(0) instanceof SortNode) {
+                SortNode childSort = (SortNode) exchangeNode.getChild(0);
+                exchangeNode.setMergeInfo(childSort.getSortInfo());
+                childSort.setMergeByExchange();
+                // distributeExprLists 注意必须设到下游 SortNode（不是 exchange 本身）—
+                // BE 端 mergeInfo 路径上 distribute 信息要从 SortNode 取
+                childSort.setChildrenDistributeExprLists(distributeExprLists);
+            } else {
+                TupleDescriptor childTuple = context.getDescTable()
+                        .getTupleDesc(exchangeNode.getTupleIds().get(0));
+                List<Expr> orderingExprs = Lists.newArrayList();
+                List<Boolean> ascOrders = Lists.newArrayList();
+                List<Boolean> nullsFirstParams = Lists.newArrayList();
+                sort.getOrderKeys().forEach(k -> {
+                    orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
+                    ascOrders.add(k.isAsc());
+                    nullsFirstParams.add(k.isNullFirst());
+                });
+                exchangeNode.setMergeInfo(
+                        new SortInfo(orderingExprs, ascOrders, nullsFirstParams, childTuple));
+                // 兜底路径 child 不是 SortNode，没有 sortNode 持 distributeExprLists；
+                // exchangeNode 自己持作 fallback (无 child sortNode 时的安放点)。
+                exchangeNode.setChildrenDistributeExprLists(distributeExprLists);
+            }
             if (inputFragment.hasChild(0) && inputFragment.getChild(0).getSink() != null) {
                 inputFragment.getChild(0).getSink().setMerge(true);
             }
-            sortNode.setMergeByExchange();
-            sortNode.setChildrenDistributeExprLists(distributeExprLists);
         }
         return inputFragment;
     }

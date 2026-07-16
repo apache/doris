@@ -142,8 +142,11 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
      * WindowFunctionRelatedGroups
      * ******************************************************************************************** */
 
-    // todo: can we simplify the following three algorithms?
-    private List<WindowFrameGroup> createWindowFrameGroups(List<NamedExpression> windowList) {
+    /**
+     * public static: 纯局部逻辑（不依赖实例状态）。暴露给 horn 正向反译（doris2horn）复用同一套
+     * (partition, order, frame) 分组，避免在 horn 侧重复实现——多 spec window 拆成单 spec 链时用。
+     */
+    public static List<WindowFrameGroup> createWindowFrameGroups(List<NamedExpression> windowList) {
         List<WindowFrameGroup> windowFrameGroupList = Lists.newArrayList();
         for (int i = 0; i < windowList.size(); i++) {
             NamedExpression windowAlias = windowList.get(i);

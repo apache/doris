@@ -5192,6 +5192,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (planTypeContext.DISTRIBUTED() != null) {
             return ExplainLevel.DISTRIBUTED_PLAN;
         }
+        if (planTypeContext.HORN() != null) {
+            return ExplainLevel.HORN_PLAN;
+        }
         return ExplainLevel.ALL_PLAN;
     }
 

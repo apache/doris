@@ -95,6 +95,9 @@ public class MetricCalculator extends TimerTask {
             lastMetaServiceRpcCounter = currentMetaServiceCounter;
         }
 
+        // horn fallback ratio = fallback / support
+        HornMetric.updateFallbackRatio();
+
         updateCloudMetrics(interval);
         lastTs = currentTs;
 
