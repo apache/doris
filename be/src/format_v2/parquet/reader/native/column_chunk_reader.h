@@ -66,6 +66,7 @@ struct ColumnChunkReaderStatistics {
     int64_t parse_page_header_num = 0;
     int64_t read_page_header_time = 0;
     int64_t page_read_counter = 0;
+    int64_t data_page_read_counter = 0;
     int64_t page_cache_write_counter = 0;
     int64_t page_cache_compressed_write_counter = 0;
     int64_t page_cache_decompressed_write_counter = 0;
@@ -153,6 +154,15 @@ public:
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
+    void release_decoder_scratch(size_t max_retained_bytes) {
+        for (auto& [encoding, decoder] : _decoders) {
+            decoder->release_scratch(max_retained_bytes);
+        }
+        // Level decoders may batch-convert unsigned RLE values into Doris' signed level_t.
+        _rep_level_decoder.release_scratch(max_retained_bytes);
+        _def_level_decoder.release_scratch(max_retained_bytes);
+    }
+
     tparquet::Encoding::type current_encoding() const { return _current_encoding; }
 
     ColumnChunkReaderStatistics& chunk_statistics() {
@@ -168,6 +178,8 @@ public:
         // ColumnChunkReader because insertion happens after decompression and therefore remain in
         // the chunk accumulator above.
         _chunk_statistics.page_read_counter = _page_reader->page_statistics().page_read_counter;
+        _chunk_statistics.data_page_read_counter =
+                _page_reader->page_statistics().data_page_read_counter;
         _chunk_statistics.page_cache_hit_counter =
                 _page_reader->page_statistics().page_cache_hit_counter;
         _chunk_statistics.page_cache_missing_counter =
@@ -203,7 +215,13 @@ public:
         def_values.resize(before_sz + append_sz, 0);
         if (max_def_level() != 0) {
             auto ptr = def_values.data() + before_sz;
-            _def_level_decoder.get_levels(ptr, append_sz);
+            const size_t decoded = _def_level_decoder.get_levels(ptr, append_sz);
+            if (UNLIKELY(decoded != append_sz)) {
+                def_values.resize(before_sz);
+                return Status::Corruption(
+                        "Parquet definition level stream ended after {} of {} slots", decoded,
+                        append_sz);
+            }
         }
         _remaining_def_nums -= append_sz;
         return Status::OK();
@@ -229,7 +247,7 @@ private:
     int32_t _get_type_length();
     void _insert_page_into_cache(const std::vector<uint8_t>& level_bytes, const Slice& payload);
 
-    void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
+    Status _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
     Status _skip_nested_rows_in_page(size_t num_rows);
 
     level_t _rep_level_get_next() {

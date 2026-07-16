@@ -719,6 +719,15 @@ TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
     EXPECT_EQ(profile.get_counter("BytesWriteIntoCache")->value(), 19);
     ASSERT_NE(profile.get_info_string("PeerCacheNodes"), nullptr);
     EXPECT_EQ(*profile.get_info_string("PeerCacheNodes"), "peer-a, peer-b");
+
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes[0].child_counters_map;
+    ASSERT_TRUE(children.contains("FileReader"));
+    EXPECT_TRUE(children.at("FileReader").contains("IO"));
+    ASSERT_TRUE(children.contains("IO"));
+    EXPECT_TRUE(children.at("IO").contains("FileCache"));
 }
 
 TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {

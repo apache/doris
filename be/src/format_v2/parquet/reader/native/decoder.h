@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <vector>
@@ -53,6 +54,9 @@ public:
         return Status::OK();
     }
 
+    // Page headers provide an upper bound before encoding-specific headers are trusted.
+    virtual void set_expected_values(size_t expected_values) { _expected_values = expected_values; }
+
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override {
         return Status::NotSupported("Fixed values are not supported by this Parquet decoder");
     }
@@ -63,15 +67,26 @@ public:
 
     Status skip_values(size_t num_values) override = 0;
 
+    virtual void release_scratch(size_t max_retained_bytes) {}
+    virtual size_t retained_scratch_bytes() const { return 0; }
+
     virtual Status set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                             size_t num_values) {
         return Status::NotSupported("set_dict is not supported");
     }
 
 protected:
-    int32_t _type_length;
+    template <typename T>
+    static void release_vector_if_oversized(std::vector<T>* values, size_t max_retained_bytes) {
+        if (values->capacity() * sizeof(T) > max_retained_bytes) {
+            std::vector<T>().swap(*values);
+        }
+    }
+
+    int32_t _type_length = -1;
     Slice* _data = nullptr;
     uint32_t _offset = 0;
+    size_t _expected_values = std::numeric_limits<size_t>::max();
 };
 
 class BaseDictDecoder : public Decoder {
@@ -87,6 +102,12 @@ public:
         _data = data;
         _offset = 0;
         uint8_t bit_width = *data->data;
+        // Dictionary indices are uint32_t; wider external widths make repeated runs overwrite the
+        // decoder's four-byte state before any dictionary-bound check can run.
+        if (UNLIKELY(bit_width > 32)) {
+            return Status::Corruption("Parquet dictionary index bit width {} exceeds 32",
+                                      bit_width);
+        }
         _index_batch_decoder = std::make_unique<RleBatchDecoder<uint32_t>>(
                 reinterpret_cast<uint8_t*>(data->data) + 1, static_cast<int>(data->size) - 1,
                 bit_width);
@@ -141,6 +162,13 @@ public:
         }
         DORIS_CHECK_EQ(output, selection.selected_values);
         return Status::OK();
+    }
+
+    void release_scratch(size_t max_retained_bytes) override {
+        release_vector_if_oversized(&_skip_indices, max_retained_bytes);
+    }
+    size_t retained_scratch_bytes() const override {
+        return _skip_indices.capacity() * sizeof(uint32_t);
     }
 
 protected:

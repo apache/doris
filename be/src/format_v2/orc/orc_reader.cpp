@@ -76,6 +76,7 @@
 #include "format_v2/timestamp_statistics.h"
 #include "io/fs/file_reader.h"
 #include "runtime/exec_env.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/segment/condition_cache.h"
@@ -776,7 +777,9 @@ void OrcReader::_init_profile() {
     }
 
     static const char* orc_profile = "OrcReader";
-    ADD_TIMER_WITH_LEVEL(_profile, orc_profile, 1);
+    file_scan_profile::ensure_hierarchy(_profile);
+    _orc_profile.total_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, orc_profile, file_scan_profile::FILE_READER, 1);
     _orc_profile.reader_call =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReaderCall", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_inclusive_latency_us = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -803,20 +806,20 @@ void OrcReader::_init_profile() {
             _profile, "EvaluatedRowGroupCount", TUnit::UNIT, orc_profile, 1);
     _orc_profile.read_row_count =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReadRowCount", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RowGroupsFiltered",
-                                                                    TUnit::UNIT, orc_profile, 1);
+    _orc_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "RowGroupsFiltered", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
     _orc_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.read_row_groups =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RowGroupsReadNum", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FilteredRowsByGroup",
-                                                                    TUnit::UNIT, orc_profile, 1);
+            _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+    _orc_profile.read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "RowGroupsReadNum", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+    _orc_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "FilteredRowsByGroup", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
     _orc_profile.lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "FilteredRowsByLazyRead", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.filtered_bytes =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FilteredBytes", TUnit::BYTES, orc_profile, 1);
-    _orc_profile.open_file_num =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT, orc_profile, 1);
+            _profile, "FilteredRowsByLazyRead", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+    _orc_profile.filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "FilteredBytes", TUnit::BYTES, file_scan_profile::FILE_READER, 1);
+    _orc_profile.open_file_num = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT,
+                                                              file_scan_profile::FILE_READER, 1);
 }
 
 void OrcReader::_collect_profile() const {
@@ -874,6 +877,8 @@ format::ColumnDefinition OrcReader::row_position_column_definition() {
 }
 
 Status OrcReader::init(RuntimeState* state) {
+    _init_profile();
+    SCOPED_TIMER(_orc_profile.total_time);
     RETURN_IF_ERROR(format::FileReader::init(state));
     _state = std::make_unique<OrcReaderScanState>();
     TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj);
@@ -1162,6 +1167,7 @@ Status OrcReader::_fill_map_schema_children(const ::orc::Type& type,
 }
 
 Status OrcReader::get_schema(std::vector<format::ColumnDefinition>* const file_schema) const {
+    SCOPED_TIMER(_orc_profile.total_time);
     if (file_schema == nullptr) {
         return Status::InvalidArgument("file_schema is null");
     }
@@ -1195,6 +1201,7 @@ std::unique_ptr<format::TableColumnMapper> OrcReader::create_column_mapper(
 }
 
 Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
+    SCOPED_TIMER(_orc_profile.total_time);
     if (_state == nullptr || _state->reader == nullptr || _state->root_type == nullptr) {
         return Status::Uninitialized("OrcReader is not open");
     }
@@ -1877,6 +1884,7 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
 }
 
 Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    SCOPED_TIMER(_orc_profile.total_time);
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -2000,6 +2008,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 // NOLINTNEXTLINE(readability-function-size)
 Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& request,
                                        format::FileAggregateResult* result) {
+    SCOPED_TIMER(_orc_profile.total_time);
     DORIS_CHECK(result != nullptr);
     if (_state == nullptr || _state->reader == nullptr || _state->root_type == nullptr) {
         return Status::Uninitialized("OrcReader is not open");
@@ -2455,6 +2464,7 @@ void OrcReader::_filter_requested_columns(Block* file_block, const IColumn::Filt
 }
 
 Status OrcReader::close() {
+    SCOPED_TIMER(_orc_profile.total_time);
     _collect_profile();
     if (_state != nullptr) {
         _state = std::make_unique<OrcReaderScanState>();

@@ -48,18 +48,22 @@ Status BoolRLEDecoder::set_data(Slice* slice) {
     }
     _num_bytes = num_bytes;
     auto decoder_data = data + 4;
-    _decoder = RleDecoder<uint8_t>(decoder_data, num_bytes, 1);
+    _decoder = RleBatchDecoder<uint8_t>(const_cast<uint8_t*>(decoder_data), num_bytes, 1);
     return Status::OK();
 }
 
 Status BoolRLEDecoder::skip_values(size_t num_values) {
-    _decoder.Skip(num_values);
+    _values.resize(num_values);
+    // GetBatch reports truncation; RleDecoder::Skip assumes a valid run and can spin forever.
+    if (_decoder.GetBatch(_values.data(), cast_set<uint32_t>(num_values)) != num_values) {
+        return Status::IOError("Can't skip enough booleans in Parquet RLE decoder");
+    }
     return Status::OK();
 }
 
 Status BoolRLEDecoder::decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) {
     _values.resize(num_values);
-    if (!_decoder.get_values(_values.data(), num_values)) {
+    if (_decoder.GetBatch(_values.data(), cast_set<uint32_t>(num_values)) != num_values) {
         return Status::IOError("Can't read enough booleans in Parquet RLE decoder");
     }
     return consumer.consume(_values.data(), _values.size(), sizeof(uint8_t));
@@ -68,7 +72,8 @@ Status BoolRLEDecoder::decode_fixed_values(size_t num_values, ParquetFixedValueC
 Status BoolRLEDecoder::decode_selected_fixed_values(const ParquetSelection& selection,
                                                     ParquetFixedValueConsumer& consumer) {
     _values.resize(selection.total_values);
-    if (!_decoder.get_values(_values.data(), selection.total_values)) {
+    if (_decoder.GetBatch(_values.data(), cast_set<uint32_t>(selection.total_values)) !=
+        selection.total_values) {
         return Status::IOError("Can't read enough booleans in Parquet RLE selection decoder");
     }
     size_t output = 0;

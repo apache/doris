@@ -21,13 +21,16 @@ namespace doris::format::parquet::native {
 Status DeltaLengthByteArrayDecoder::_decode_lengths() {
     RETURN_IF_ERROR(_len_decoder.set_bit_reader(_bit_reader));
     // get the number of encoded lengths
-    int num_length = _len_decoder.valid_values_count();
+    uint32_t num_length = _len_decoder.valid_values_count();
     _buffered_length.resize(num_length);
 
     // decode all the lengths. all the lengths are buffered in buffered_length_.
     uint32_t ret;
     RETURN_IF_ERROR(_len_decoder.decode(_buffered_length.data(), num_length, &ret));
-    DCHECK_EQ(ret, num_length);
+    if (UNLIKELY(ret != num_length)) {
+        return Status::Corruption("Parquet delta length stream decoded {} of {} lengths", ret,
+                                  num_length);
+    }
     _length_idx = 0;
     _num_valid_values = num_length;
     return Status::OK();
@@ -43,7 +46,7 @@ Status DeltaLengthByteArrayDecoder::_get_internal(Slice* buffer, int max_values,
         return Status::OK();
     }
 
-    int32_t data_size = 0;
+    int64_t data_size = 0;
     const int32_t* length_ptr = _buffered_length.data() + _length_idx;
     for (int i = 0; i < max_values; ++i) {
         int32_t len = length_ptr[i];
@@ -51,15 +54,21 @@ Status DeltaLengthByteArrayDecoder::_get_internal(Slice* buffer, int max_values,
             return Status::InvalidArgument("Negative string delta length");
         }
         buffer[i].size = len;
-        if (common::add_overflow(data_size, len, data_size)) {
+        if (common::add_overflow(data_size, static_cast<int64_t>(len), data_size)) {
             return Status::InvalidArgument("Excess expansion in DELTA_(LENGTH_)BYTE_ARRAY");
         }
+    }
+    // Every declared byte must exist in this page. Check before resize so a tiny malformed stream
+    // cannot reserve memory based only on attacker-controlled decoded lengths.
+    if (UNLIKELY(data_size > _bit_reader->bytes_left())) {
+        return Status::Corruption("Parquet delta lengths require {} bytes, only {} remain",
+                                  data_size, _bit_reader->bytes_left());
     }
     _length_idx += max_values;
 
     _buffered_data.resize(data_size);
     char* data_ptr = _buffered_data.data();
-    for (int j = 0; j < data_size; j++) {
+    for (int64_t j = 0; j < data_size; j++) {
         if (!_bit_reader->GetValue(8, data_ptr + j)) {
             return Status::IOError("Get length bytes EOF");
         }

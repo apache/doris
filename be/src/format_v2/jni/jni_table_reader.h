@@ -110,6 +110,7 @@ private:
     bool _eof = false;
     bool _split_profile_published = false;
 
+    RuntimeProfile::Counter* _connector_total_time = nullptr;
     RuntimeProfile::Counter* _open_scanner_time = nullptr;
     RuntimeProfile::Counter* _java_scan_time = nullptr;
     RuntimeProfile::Counter* _java_append_data_time = nullptr;

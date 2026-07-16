@@ -109,7 +109,12 @@ ColumnPtr ColumnTypeConverter::get_column(const DataTypePtr& src_type, ColumnPtr
     }
 
     if (!_cached_src_column) {
-        _cached_src_type = dst_type->is_nullable()
+        // Projection metadata can be non-nullable while the actual output block keeps a nullable
+        // wrapper (for example an Iceberg equality-delete key). Mirror the physical destination
+        // column so decoded null levels always have a temporary null map to propagate.
+        const bool destination_is_nullable =
+                dst_type->is_nullable() || is_column_nullable(*dst_column);
+        _cached_src_type = destination_is_nullable
                                    ? get_data_type_with_default_argument(make_nullable(src_type))
                                    : get_data_type_with_default_argument(remove_nullable(src_type));
         _cached_src_column = _cached_src_type->create_column();

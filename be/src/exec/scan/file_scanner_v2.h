@@ -185,12 +185,20 @@ private:
     std::unordered_map<std::string, PartitionSlotInfo> _partition_slot_descs;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    io::FileCacheStatistics _reported_file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
 
+    RuntimeProfile::Counter* _scanner_total_timer = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
+    RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
+    RuntimeProfile::Counter* _prepare_split_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_range_timer = nullptr;
+    RuntimeProfile::Counter* _close_timer = nullptr;
+    RuntimeProfile::Counter* _io_timer = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
@@ -207,6 +215,7 @@ private:
     int64_t _last_read_rows = 0;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
+    int64_t _reported_io_read_time = 0;
 };
 
 } // namespace doris

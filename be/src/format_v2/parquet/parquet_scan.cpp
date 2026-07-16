@@ -806,6 +806,7 @@ Status ParquetScanScheduler::open_next_row_group(
                 *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
                 row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
+                file_context.native_page_cache_file_key,
                 _current_dictionary_filters.contains(local_id), _scan_profile.column_reader_profile,
                 &column_reader));
         _current_predicate_columns[local_id] = std::move(column_reader);
@@ -842,7 +843,8 @@ Status ParquetScanScheduler::open_next_row_group(
                 *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
                 row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
-                false, _scan_profile.column_reader_profile, &column_reader));
+                file_context.native_page_cache_file_key, false, _scan_profile.column_reader_profile,
+                &column_reader));
         _current_non_predicate_columns[local_id] = std::move(column_reader);
     }
     if (!_current_merge_range_active && request.conjuncts.empty() &&

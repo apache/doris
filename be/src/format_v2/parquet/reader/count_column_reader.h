@@ -44,7 +44,8 @@ public:
     static Status create(io::FileReaderSPtr file, const FileMetaData* metadata, int row_group_id,
                          const ParquetColumnSchema& root_schema,
                          const format::LocalColumnIndex* projection, io::IOContext* io_ctx,
-                         bool enable_page_cache, ParquetColumnReaderProfile profile,
+                         bool enable_page_cache, const std::string& page_cache_file_key,
+                         ParquetColumnReaderProfile profile,
                          std::unique_ptr<CountColumnReader>* reader);
 
     Status skip(int64_t rows);

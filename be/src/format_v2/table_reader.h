@@ -99,6 +99,8 @@ struct ProjectedColumnBuildContext {
 };
 
 struct ReadProfile {
+    RuntimeProfile::Counter* total_timer = nullptr;
+    RuntimeProfile::Counter* init_timer = nullptr;
     RuntimeProfile::Counter* num_delete_files = nullptr;
     RuntimeProfile::Counter* num_delete_rows = nullptr;
     RuntimeProfile::Counter* parse_delete_file_time = nullptr;
@@ -115,6 +117,15 @@ struct ReadProfile {
     RuntimeProfile::Counter* open_reader_timer = nullptr;
     RuntimeProfile::Counter* runtime_filter_partition_prune_timer = nullptr;
     RuntimeProfile::Counter* runtime_filter_partition_pruned_range_counter = nullptr;
+    RuntimeProfile::Counter* close_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_total_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_init_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_schema_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_mapper_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_open_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_get_block_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_aggregate_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_close_timer = nullptr;
 };
 
 struct TableReadOptions {
@@ -236,6 +247,7 @@ public:
     // advances across EOF, and closes exhausted readers. Subclasses provide protected hooks for
     // table-format-specific behavior.
     virtual Status get_block(Block* block, bool* eos) {
+        SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.exec_timer);
         DORIS_CHECK(block->columns() == _projected_columns.size());
         block->clear_column_data(_projected_columns.size());
@@ -285,8 +297,12 @@ public:
             _data_reader.block_template.clear_column_data(
                     cast_set<int64_t>(_data_reader.file_block_layout.size()));
             size_t current_rows = 0;
-            RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
-                                                           &current_rows, &current_eof));
+            {
+                SCOPED_TIMER(_profile.file_reader_total_timer);
+                SCOPED_TIMER(_profile.file_reader_get_block_timer);
+                RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
+                                                               &current_rows, &current_eof));
+            }
             const bool stopped_during_read = _io_ctx != nullptr && _io_ctx->should_stop;
             if (current_rows == 0) {
                 if (current_eof) {
@@ -317,6 +333,8 @@ public:
     // Close the table reader and the currently active file reader. Subclasses that hold additional
     // table-format resources should override this and call TableReader::close() first.
     virtual Status close() {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.close_timer);
         if (_data_reader.reader) {
             RETURN_IF_ERROR(close_current_reader());
         }
@@ -380,7 +398,11 @@ protected:
         SCOPED_TIMER(_profile.open_reader_timer);
         // 1. Get file schema and create column mapping.
         std::vector<ColumnDefinition> file_schema;
-        RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_schema_timer);
+            RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
+        }
         // For Paimon/Hudi, FE can provide field ids through `history_schema_info`. Annotate the
         // file schema before column mapping when the table format maps columns by field id.
         RETURN_IF_ERROR(annotate_file_schema(&file_schema));
@@ -388,7 +410,11 @@ protected:
         _mapper_options.mode = mapping_mode();
         configure_mapper_options(&_mapper_options);
 
-        _data_reader.column_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_mapper_timer);
+            _data_reader.column_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
+        }
         DORIS_CHECK(_data_reader.column_mapper != nullptr);
         RETURN_IF_ERROR(_data_reader.column_mapper->create_mapping(_projected_columns,
                                                                    _partition_values, file_schema));
@@ -474,7 +500,11 @@ protected:
             VLOG_DEBUG << "TableReader debug: " << debug_string();
         }
         RETURN_IF_ERROR(_open_mapping_exprs());
-        RETURN_IF_ERROR(_data_reader.reader->open(file_request));
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_open_timer);
+            RETURN_IF_ERROR(_data_reader.reader->open(file_request));
+        }
         RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
         return Status::OK();
     }
@@ -681,7 +711,11 @@ protected:
     // close(), so it should remain idempotent.
     virtual Status close_current_reader() {
         _finalize_reader_condition_cache();
-        RETURN_IF_ERROR(_data_reader.reader->close());
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_close_timer);
+            RETURN_IF_ERROR(_data_reader.reader->close());
+        }
         _data_reader.reader.reset();
         if (_data_reader.column_mapper != nullptr) {
             _data_reader.column_mapper->clear();
@@ -962,7 +996,12 @@ protected:
         FileAggregateRequest file_request;
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
         FileAggregateResult file_result;
-        const auto status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
+        Status status;
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_aggregate_timer);
+            status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
+        }
         if (status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
             return Status::OK();
         }

@@ -59,6 +59,13 @@ public:
 
     Status skip_values(size_t num_values) override;
 
+    void release_scratch(size_t max_retained_bytes) override {
+        release_vector_if_oversized(&selected_values_, max_retained_bytes);
+    }
+    size_t retained_scratch_bytes() const override {
+        return selected_values_.capacity() * sizeof(uint8_t);
+    }
+
 protected:
     inline bool _decode_value(bool* value) {
         if (LIKELY(unpacked_value_idx_ < num_unpacked_values_)) {

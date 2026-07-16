@@ -26,10 +26,18 @@
 #include <vector>
 
 #include "core/custom_allocator.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "format_v2/parquet/reader/native/byte_array_dict_decoder.h"
 #include "format_v2/parquet/reader/native/column_reader.h"
 #include "format_v2/parquet/reader/native/decoder.h"
+#include "format_v2/parquet/reader/native/level_decoder.h"
+#include "format_v2/parquet/reader/native/page_reader.h"
+#include "io/fs/buffered_reader.h"
 #include "util/coding.h"
+#include "util/thrift_util.h"
 
 namespace doris::format::parquet::native {
 namespace {
@@ -73,6 +81,86 @@ public:
 
     size_t width = 0;
     std::vector<uint8_t> bytes;
+};
+
+const RowRanges& scripted_row_ranges() {
+    static const RowRanges ranges;
+    return ranges;
+}
+
+class ScriptedColumnReader final : public ColumnReader {
+public:
+    ScriptedColumnReader(size_t rows, size_t values, bool eof, std::vector<level_t> rep_levels,
+                         std::vector<level_t> def_levels)
+            : ColumnReader(scripted_row_ranges(), rows, nullptr, nullptr),
+              _rows(rows),
+              _values(values),
+              _eof(eof),
+              _rep_levels(std::move(rep_levels)),
+              _def_levels(std::move(def_levels)) {}
+
+    Status read_column_data(ColumnPtr& column, const DataTypePtr&,
+                            const std::shared_ptr<TableSchemaChangeHelper::Node>&, FilterMap&,
+                            size_t, size_t* read_rows, bool* eof, bool, int64_t = -1) override {
+        if (_used) {
+            *read_rows = 0;
+            *eof = true;
+            return Status::OK();
+        }
+        column = IColumn::mutate(std::move(column));
+        column->assert_mutable()->insert_many_defaults(_values);
+        *read_rows = _rows;
+        *eof = _eof;
+        _used = true;
+        return Status::OK();
+    }
+
+    Status read_column_levels(FilterMap&, size_t, size_t* read_rows, bool* eof) override {
+        *read_rows = _rows;
+        *eof = _eof;
+        return Status::OK();
+    }
+
+    const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
+    const std::vector<level_t>& get_def_level() const override { return _def_levels; }
+    ColumnStatistics column_statistics() override { return {}; }
+    void close() override {}
+    void release_batch_scratch(size_t) override {}
+    void reset_filter_map_index() override {}
+
+private:
+    size_t _rows;
+    size_t _values;
+    bool _eof;
+    bool _used = false;
+    std::vector<level_t> _rep_levels;
+    std::vector<level_t> _def_levels;
+};
+
+class MemoryBufferedReader final : public io::BufferedStreamReader {
+public:
+    explicit MemoryBufferedReader(std::vector<uint8_t> data) : _data(std::move(data)) {}
+
+    Status read_bytes(const uint8_t** buf, uint64_t offset, size_t bytes_to_read,
+                      const io::IOContext*) override {
+        if (offset > _data.size() || bytes_to_read > _data.size() - offset) {
+            return Status::IOError("out of bounds");
+        }
+        *buf = _data.data() + offset;
+        return Status::OK();
+    }
+    Status read_bytes(Slice& slice, uint64_t offset, const io::IOContext*) override {
+        if (offset > _data.size() || slice.size > _data.size() - offset) {
+            return Status::IOError("out of bounds");
+        }
+        slice.data = reinterpret_cast<char*>(_data.data() + offset);
+        return Status::OK();
+    }
+    std::string path() override { return "memory.parquet"; }
+    int64_t mtime() const override { return 0; }
+
+private:
+    std::vector<uint8_t> _data;
 };
 
 std::shared_ptr<::parquet::ColumnDescriptor> descriptor(::parquet::Type::type physical_type) {
@@ -158,6 +246,12 @@ TEST(ParquetV2NativeDecoderTest, ByteArrayDictionaryReferencesOwnedPageAndValida
 
     Slice empty_indices;
     EXPECT_TRUE(decoder.set_data(&empty_indices).is<ErrorCode::CORRUPTION>());
+
+    // Dictionary indices are uint32_t. Wider external bit widths would make the RLE decoder copy
+    // a five-byte repeated value into four-byte state before it can validate an index.
+    char oversized_bit_width[] = {33, 2, 0};
+    Slice oversized_bit_width_slice(oversized_bit_width, sizeof(oversized_bit_width));
+    EXPECT_TRUE(decoder.set_data(&oversized_bit_width_slice).is<ErrorCode::CORRUPTION>());
 }
 
 TEST(ParquetV2NativeDecoderTest, SparsePlainAndBooleanDecodeOnceAndPreserveCursor) {
@@ -416,6 +510,376 @@ TEST(ParquetV2NativeDecoderTest, ByteStreamSplitRestoresFixedWidthRows) {
     CaptureFixedConsumer consumer;
     ASSERT_TRUE(decoder->decode_fixed_values(2, consumer).ok());
     EXPECT_EQ(consumer.values<float>(), std::vector<float>({-2.5F, 3.25F}));
+}
+
+TEST(ParquetV2NativeDecoderTest, BitPackedLevelCursorOperationsPreservePosition) {
+    char encoded[] = {static_cast<char>(0b00001101)};
+    Slice levels(encoded, sizeof(encoded));
+    LevelDecoder decoder;
+    ASSERT_TRUE(decoder.init(&levels, tparquet::Encoding::BIT_PACKED, 1, 4).ok());
+
+    level_t value = -1;
+    EXPECT_EQ(decoder.get_next_run(&value, 4), 1);
+    EXPECT_EQ(value, 1);
+    EXPECT_EQ(decoder.get_next(), 0);
+    decoder.rewind_one();
+    EXPECT_EQ(decoder.get_next(), 0);
+    level_t tail[2] = {-1, -1};
+    EXPECT_EQ(decoder.get_levels(tail, 2), 2);
+    EXPECT_EQ(tail[0], 1);
+    EXPECT_EQ(tail[1], 1);
+
+    char truncated_rle[] = {0x01, 0x00, 0x00, 0x00, 0x03};
+    Slice truncated_levels(truncated_rle, sizeof(truncated_rle));
+    LevelDecoder rle_decoder;
+    ASSERT_TRUE(rle_decoder.init(&truncated_levels, tparquet::Encoding::RLE, 1, 1).ok());
+    level_t truncated_value = -1;
+    EXPECT_EQ(rle_decoder.get_levels(&truncated_value, 1), 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, TruncatedBooleanStreamsFailWhileSkipping) {
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(
+            Decoder::get_decoder(tparquet::Type::BOOLEAN, tparquet::Encoding::PLAIN, decoder).ok());
+    char plain_boolean[] = {static_cast<char>(0xFF)};
+    Slice plain_slice(plain_boolean, sizeof(plain_boolean));
+    ASSERT_TRUE(decoder->set_data(&plain_slice).ok());
+    EXPECT_FALSE(decoder->skip_values(9).ok());
+
+    ASSERT_TRUE(
+            Decoder::get_decoder(tparquet::Type::BOOLEAN, tparquet::Encoding::RLE, decoder).ok());
+    // A bit-packed run header for eight values without its required payload byte.
+    char truncated_rle[] = {0x01, 0x00, 0x00, 0x00, 0x03};
+    Slice rle_slice(truncated_rle, sizeof(truncated_rle));
+    ASSERT_TRUE(decoder->set_data(&rle_slice).ok());
+    EXPECT_FALSE(decoder->skip_values(1).ok());
+
+    // The first literal group is complete but the second has only its header. Exact-count checks
+    // must reject both dense and selected decodes instead of exposing the retained vector tail.
+    char partially_truncated_rle[] = {0x03, 0x00, 0x00, 0x00, 0x03, static_cast<char>(0xFF), 0x03};
+    Slice partially_truncated_slice(partially_truncated_rle, sizeof(partially_truncated_rle));
+    ASSERT_TRUE(decoder->set_data(&partially_truncated_slice).ok());
+    CaptureFixedConsumer dense_consumer;
+    EXPECT_FALSE(decoder->decode_fixed_values(9, dense_consumer).ok());
+    ASSERT_TRUE(decoder->set_data(&partially_truncated_slice).ok());
+    CaptureFixedConsumer selected_consumer;
+    const ParquetSelection select_tail {
+            .total_values = 9, .selected_values = 1, .ranges = {{.first = 8, .count = 1}}};
+    EXPECT_FALSE(decoder->decode_selected_fixed_values(select_tail, selected_consumer).ok());
+}
+
+TEST(ParquetV2NativeDecoderTest, DeltaFixedWidthValidatesFilteredAndSkippedValues) {
+    const std::vector<std::string> values {"good", "bad"};
+    std::vector<::parquet::ByteArray> byte_arrays;
+    for (const auto& value : values) {
+        byte_arrays.emplace_back(static_cast<uint32_t>(value.size()),
+                                 reinterpret_cast<const uint8_t*>(value.data()));
+    }
+    auto byte_descriptor = descriptor(::parquet::Type::BYTE_ARRAY);
+    auto encoder = ::parquet::MakeTypedEncoder<::parquet::ByteArrayType>(
+            ::parquet::Encoding::DELTA_BYTE_ARRAY, false, byte_descriptor.get());
+    encoder->Put(byte_arrays.data(), static_cast<int>(byte_arrays.size()));
+    auto buffer = encoder->FlushValues();
+
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::FIXED_LEN_BYTE_ARRAY,
+                                     tparquet::Encoding::DELTA_BYTE_ARRAY, decoder)
+                        .ok());
+    decoder->set_type_length(4);
+    Slice slice(buffer->data(), buffer->size());
+    ASSERT_TRUE(decoder->set_data(&slice).ok());
+    CaptureFixedConsumer selected_consumer;
+    const ParquetSelection select_good {
+            .total_values = 2, .selected_values = 1, .ranges = {{.first = 0, .count = 1}}};
+    EXPECT_TRUE(decoder->decode_selected_fixed_values(select_good, selected_consumer)
+                        .is<ErrorCode::CORRUPTION>());
+
+    ASSERT_TRUE(decoder->set_data(&slice).ok());
+    EXPECT_TRUE(decoder->skip_values(2).is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, DeltaSkipRequiresTheRequestedValueCount) {
+    const std::vector<int32_t> integers {7};
+    auto int_descriptor = descriptor(::parquet::Type::INT32);
+    auto encoder = ::parquet::MakeTypedEncoder<::parquet::Int32Type>(
+            ::parquet::Encoding::DELTA_BINARY_PACKED, false, int_descriptor.get());
+    encoder->Put(integers.data(), static_cast<int>(integers.size()));
+    auto buffer = encoder->FlushValues();
+
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::DELTA_BINARY_PACKED,
+                                     decoder)
+                        .ok());
+    Slice slice(buffer->data(), buffer->size());
+    ASSERT_TRUE(decoder->set_data(&slice).ok());
+    EXPECT_FALSE(decoder->skip_values(2).ok());
+}
+
+TEST(ParquetV2NativeDecoderTest, DeltaHeadersAndLengthsAreBoundedBeforeAllocation) {
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::DELTA_BINARY_PACKED,
+                                     decoder)
+                        .ok());
+    decoder->set_expected_values(1);
+    // block_size=128, miniblocks=4, total_values=INT_MAX, first_value=0.
+    char oversized_count[] = {static_cast<char>(0x80),
+                              0x01,
+                              0x04,
+                              static_cast<char>(0xFF),
+                              static_cast<char>(0xFF),
+                              static_cast<char>(0xFF),
+                              static_cast<char>(0xFF),
+                              0x07,
+                              0x00};
+    Slice oversized_count_slice(oversized_count, sizeof(oversized_count));
+    EXPECT_TRUE(decoder->set_data(&oversized_count_slice).is<ErrorCode::CORRUPTION>());
+
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::BYTE_ARRAY,
+                                     tparquet::Encoding::DELTA_LENGTH_BYTE_ARRAY, decoder)
+                        .ok());
+    decoder->set_expected_values(1);
+    // A single decoded length of 1 GiB with no following payload bytes must fail before the
+    // decoder resizes its backing data buffer.
+    char oversized_length[] = {static_cast<char>(0x80),
+                               0x01,
+                               0x04,
+                               0x01,
+                               static_cast<char>(0x80),
+                               static_cast<char>(0x80),
+                               static_cast<char>(0x80),
+                               static_cast<char>(0x80),
+                               0x08};
+    Slice oversized_length_slice(oversized_length, sizeof(oversized_length));
+    ASSERT_TRUE(decoder->set_data(&oversized_length_slice).ok());
+    CaptureBinaryConsumer consumer;
+    EXPECT_TRUE(decoder->decode_binary_values(1, consumer).is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(consumer.refs.empty());
+}
+
+TEST(ParquetV2NativeDecoderTest, EmptyDeltaLengthPageResetsDecoderState) {
+    const std::vector<std::string> strings {"old", "state"};
+    std::vector<::parquet::ByteArray> byte_arrays;
+    for (const auto& value : strings) {
+        byte_arrays.emplace_back(static_cast<uint32_t>(value.size()),
+                                 reinterpret_cast<const uint8_t*>(value.data()));
+    }
+    auto byte_descriptor = descriptor(::parquet::Type::BYTE_ARRAY);
+    auto encoder = ::parquet::MakeTypedEncoder<::parquet::ByteArrayType>(
+            ::parquet::Encoding::DELTA_LENGTH_BYTE_ARRAY, false, byte_descriptor.get());
+    encoder->Put(byte_arrays.data(), static_cast<int>(byte_arrays.size()));
+    auto buffer = encoder->FlushValues();
+
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::BYTE_ARRAY,
+                                     tparquet::Encoding::DELTA_LENGTH_BYTE_ARRAY, decoder)
+                        .ok());
+    Slice valid(buffer->data(), buffer->size());
+    ASSERT_TRUE(decoder->set_data(&valid).ok());
+    Slice empty;
+    EXPECT_TRUE(decoder->set_data(&empty).is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, ByteStreamSplitRejectsPartialRowsAtPageBoundary) {
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::FLOAT, tparquet::Encoding::BYTE_STREAM_SPLIT,
+                                     decoder)
+                        .ok());
+    decoder->set_type_length(sizeof(float));
+    char partial_row[] = {0, 1, 2, 3, 4};
+    Slice slice(partial_row, sizeof(partial_row));
+    EXPECT_TRUE(decoder->set_data(&slice).is<ErrorCode::CORRUPTION>());
+}
+
+Status read_scripted_map(const DataTypePtr& key_type, size_t key_rows, size_t value_rows,
+                         size_t key_values, size_t value_values,
+                         std::vector<level_t> key_rep_levels, std::vector<level_t> value_rep_levels,
+                         bool value_eof) {
+    auto value_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto map_type = std::make_shared<DataTypeMap>(key_type, value_type);
+    ColumnPtr column = map_type->create_column();
+    FieldSchema field;
+    field.name = "m";
+    field.data_type = map_type;
+    field.definition_level = 1;
+    field.repetition_level = 1;
+    field.repeated_parent_def_level = 0;
+
+    auto key_reader = std::make_unique<ScriptedColumnReader>(key_rows, key_values, true,
+                                                             std::move(key_rep_levels),
+                                                             std::vector<level_t>(key_values, 1));
+    auto value_reader = std::make_unique<ScriptedColumnReader>(
+            value_rows, value_values, value_eof, std::move(value_rep_levels),
+            std::vector<level_t>(value_values, 1));
+    MapColumnReader reader(scripted_row_ranges(), key_rows, nullptr, nullptr);
+    RETURN_IF_ERROR(reader.init(std::move(key_reader), std::move(value_reader), &field));
+
+    auto root = std::make_shared<TableSchemaChangeHelper::MapNode>(
+            TableSchemaChangeHelper::ConstNode::get_instance(),
+            TableSchemaChangeHelper::ConstNode::get_instance());
+    FilterMap filter;
+    size_t read_rows = 0;
+    bool eof = false;
+    return reader.read_column_data(column, map_type, root, filter, key_rows, &read_rows, &eof,
+                                   false);
+}
+
+TEST(ParquetV2NativeDecoderTest, ComplexReadersRejectMalformedSiblingShape) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    EXPECT_TRUE(read_scripted_map(int_type, 1, 1, 2, 2, {1, 0}, {1, 0}, true)
+                        .is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(read_scripted_map(int_type, 1, 1, 2, 2, {0, 1}, {0, 0}, true)
+                        .is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(
+            read_scripted_map(int_type, 2, 1, 2, 1, {0, 0}, {0}, true).is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, MapReaderRejectsNullKeys) {
+    auto nullable_key = make_nullable(std::make_shared<DataTypeInt32>());
+    EXPECT_TRUE(read_scripted_map(nullable_key, 1, 1, 1, 1, {0}, {0}, true)
+                        .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, StructReaderRejectsShortSibling) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    ColumnPtr column = struct_type->create_column();
+    FieldSchema field;
+    field.name = "s";
+    field.data_type = struct_type;
+    field.children.resize(2);
+    field.children[0].name = "a";
+    field.children[1].name = "b";
+
+    std::unordered_map<std::string, std::unique_ptr<ColumnReader>> children;
+    children["a"] = std::make_unique<ScriptedColumnReader>(2, 2, true, std::vector<level_t> {0, 0},
+                                                           std::vector<level_t> {0, 0});
+    children["b"] = std::make_unique<ScriptedColumnReader>(1, 1, true, std::vector<level_t> {0},
+                                                           std::vector<level_t> {0});
+    StructColumnReader reader(scripted_row_ranges(), 2, nullptr, nullptr);
+    ASSERT_TRUE(reader.init(std::move(children), &field).ok());
+    auto root = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    root->add_children("a", "a", TableSchemaChangeHelper::ConstNode::get_instance());
+    root->add_children("b", "b", TableSchemaChangeHelper::ConstNode::get_instance());
+    FilterMap filter;
+    size_t read_rows = 0;
+    bool eof = false;
+    EXPECT_TRUE(
+            reader.read_column_data(column, struct_type, root, filter, 2, &read_rows, &eof, false)
+                    .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, DecoderOwnedHighWaterScratchIsReleased) {
+    constexpr size_t value_count = 1UL << 20;
+    std::vector<uint8_t> encoded(value_count * sizeof(float), 0);
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::FLOAT, tparquet::Encoding::BYTE_STREAM_SPLIT,
+                                     decoder)
+                        .ok());
+    decoder->set_type_length(sizeof(float));
+    Slice slice(encoded.data(), encoded.size());
+    ASSERT_TRUE(decoder->set_data(&slice).ok());
+    CaptureFixedConsumer consumer;
+    ASSERT_TRUE(decoder->decode_fixed_values(value_count, consumer).ok());
+    ASSERT_GT(decoder->retained_scratch_bytes(), 1UL << 20);
+    decoder->release_scratch(64UL << 10);
+    EXPECT_LE(decoder->retained_scratch_bytes(), 64UL << 10);
+}
+
+TEST(ParquetV2NativeDecoderTest, PageHeaderRejectsSignedAndV2LevelSizeCorruption) {
+    auto parse_header = [](tparquet::PageHeader header) {
+        std::vector<uint8_t> bytes;
+        ThriftSerializer serializer(/*compact=*/true, 128);
+        DORIS_CHECK(serializer.serialize(&header, &bytes).ok());
+        if (header.compressed_page_size > 0) {
+            bytes.resize(bytes.size() + header.compressed_page_size);
+        }
+        MemoryBufferedReader reader(bytes);
+        tparquet::ColumnMetaData metadata;
+        ParquetPageReadContext context(false, "");
+        PageReader<false, false> page_reader(&reader, nullptr, 0, bytes.size(), 1, metadata,
+                                             context);
+        return page_reader.parse_page_header();
+    };
+
+    tparquet::PageHeader negative;
+    negative.type = tparquet::PageType::DATA_PAGE;
+    negative.__set_compressed_page_size(-1);
+    negative.__set_uncompressed_page_size(1);
+    negative.__isset.data_page_header = true;
+    negative.data_page_header.__set_num_values(1);
+    EXPECT_TRUE(parse_header(negative).is<ErrorCode::CORRUPTION>());
+
+    tparquet::PageHeader oversized_levels;
+    oversized_levels.type = tparquet::PageType::DATA_PAGE_V2;
+    oversized_levels.__set_compressed_page_size(1);
+    oversized_levels.__set_uncompressed_page_size(1);
+    oversized_levels.__isset.data_page_header_v2 = true;
+    oversized_levels.data_page_header_v2.__set_num_values(1);
+    oversized_levels.data_page_header_v2.__set_num_rows(1);
+    oversized_levels.data_page_header_v2.__set_repetition_levels_byte_length(2);
+    oversized_levels.data_page_header_v2.__set_definition_levels_byte_length(0);
+    EXPECT_TRUE(parse_header(oversized_levels).is<ErrorCode::CORRUPTION>());
+
+    tparquet::PageHeader impossible_counts = oversized_levels;
+    impossible_counts.__set_compressed_page_size(0);
+    impossible_counts.__set_uncompressed_page_size(0);
+    impossible_counts.data_page_header_v2.__set_repetition_levels_byte_length(0);
+    impossible_counts.data_page_header_v2.__set_num_nulls(2);
+    EXPECT_TRUE(parse_header(impossible_counts).is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, EmptyOffsetIndexCannotSelectIndexedPageReader) {
+    MemoryBufferedReader reader(std::vector<uint8_t> {0});
+    tparquet::ColumnMetaData metadata;
+    tparquet::OffsetIndex empty_index;
+    ParquetPageReadContext context(false, "");
+    PageReader<false, true> page_reader(&reader, nullptr, 0, 1, 1, metadata, context, &empty_index);
+    EXPECT_FALSE(page_reader.has_next_page());
+    EXPECT_TRUE(page_reader.next_page().is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, ComplexPageStatisticsPreservePerLeafCrossings) {
+    ColumnChunkReaderStatistics first_chunk;
+    first_chunk.page_read_counter = 1;
+    first_chunk.data_page_read_counter = 1;
+    ColumnChunkReaderStatistics second_chunk;
+    second_chunk.page_read_counter = 1;
+    second_chunk.data_page_read_counter = 1;
+    ColumnReader::ColumnStatistics combined;
+    ColumnReader::ColumnStatistics first(first_chunk, 0, 0);
+    ColumnReader::ColumnStatistics second(second_chunk, 0, 0);
+    combined.merge(first);
+    combined.merge(second);
+
+    EXPECT_EQ(combined.page_read_counter, 2);
+    ASSERT_EQ(combined.leaf_page_read_counters.size(), 2);
+    EXPECT_EQ(combined.leaf_page_read_counters[0], 1);
+    EXPECT_EQ(combined.leaf_page_read_counters[1], 1);
+}
+
+TEST(ParquetV2NativeDecoderTest, NativePageCacheUsesStableFileDescriptionIdentity) {
+    ParquetPageCacheKeyBuilder first;
+    ParquetPageCacheKeyBuilder replaced;
+    first.init("s3://bucket/object::etag-v1::1234");
+    replaced.init("s3://bucket/object::etag-v2::1234");
+    EXPECT_EQ(first.make_key(4096, 128).fname, "s3://bucket/object::etag-v1::1234");
+    EXPECT_NE(first.make_key(4096, 128).encode(), replaced.make_key(4096, 128).encode());
+}
+
+TEST(ParquetV2NativeDecoderTest, UncompressedV2PageCachePayloadIsAlwaysDecompressed) {
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE_V2;
+    header.__set_compressed_page_size(100);
+    header.__set_uncompressed_page_size(1000);
+    header.__isset.data_page_header_v2 = true;
+    header.data_page_header_v2.__set_is_compressed(false);
+    tparquet::ColumnMetaData metadata;
+    metadata.__set_codec(tparquet::CompressionCodec::SNAPPY);
+
+    // The representation is explicit in V2; a codec and compression ratio cannot override it on
+    // a warm cache hit.
+    EXPECT_TRUE(should_cache_decompressed(&header, metadata));
 }
 
 TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchIsReleased) {

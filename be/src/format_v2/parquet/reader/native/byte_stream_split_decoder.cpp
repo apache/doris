@@ -30,7 +30,6 @@ Status ByteStreamSplitDecoder::decode_fixed_values(size_t num_values,
     if (UNLIKELY(_offset > _data->size || byte_size > _data->size - _offset)) {
         return Status::IOError("Out-of-bounds access in Parquet byte-stream-split decoder");
     }
-    DORIS_CHECK_EQ(_data->size % static_cast<size_t>(_type_length), 0);
     const int64_t stride = static_cast<int64_t>(_data->size / _type_length);
     _decoded_values.resize(byte_size);
     byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data), _type_length,
@@ -69,12 +68,14 @@ Status ByteStreamSplitDecoder::decode_selected_fixed_values(const ParquetSelecti
 }
 
 Status ByteStreamSplitDecoder::skip_values(size_t num_values) {
-    _offset += _type_length * num_values;
-    if (UNLIKELY(_offset > _data->size)) {
+    // Check in row units before multiplication so a corrupt skip count cannot wrap back in-bounds.
+    if (UNLIKELY(_type_length <= 0 || _offset > _data->size ||
+                 num_values > (_data->size - _offset) / _type_length)) {
         return Status::IOError(
                 "Out-of-bounds access in parquet data decoder: offset = {}, size = {}", _offset,
                 _data->size);
     }
+    _offset += _type_length * num_values;
     return Status::OK();
 }
 

@@ -79,7 +79,10 @@ Status BoolPlainDecoder::skip_values(size_t num_values) {
     int num_remaining = cast_set<int>(num_values - skip_cached);
     int num_to_skip = BitUtil::RoundDownToPowerOf2(num_remaining, 32);
     if (num_to_skip > 0) {
-        bool_values_.SkipBatch(1, num_to_skip);
+        // A failed bulk skip must not be reported as success for a truncated boolean page.
+        if (!bool_values_.SkipBatch(1, num_to_skip)) {
+            return Status::IOError("Can't skip enough booleans in plain decoder");
+        }
     }
     num_remaining -= num_to_skip;
     if (num_remaining > 0) {

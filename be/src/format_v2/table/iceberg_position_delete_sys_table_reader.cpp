@@ -168,6 +168,7 @@ Status IcebergPositionDeleteSysTableV2Reader::prepare_split(
 }
 
 Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos) {
+    SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.exec_timer);
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(eos != nullptr);

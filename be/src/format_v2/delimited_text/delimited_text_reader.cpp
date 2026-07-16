@@ -38,6 +38,7 @@
 #include "io/file_factory.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/decompressor.h"
 #include "util/string_util.h"
@@ -180,7 +181,9 @@ void DelimitedTextReader::_init_profile() {
         return;
     }
 
-    ADD_TIMER_WITH_LEVEL(_profile, DELIMITED_TEXT_PROFILE, 1);
+    file_scan_profile::ensure_hierarchy(_profile);
+    _text_profile.total_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, DELIMITED_TEXT_PROFILE,
+                                                          file_scan_profile::FILE_READER, 1);
     _text_profile.open_file_time =
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, "OpenFileTime", DELIMITED_TEXT_PROFILE, 1);
     _text_profile.create_line_reader_time =
@@ -200,7 +203,7 @@ void DelimitedTextReader::_init_profile() {
     _text_profile.rows_read_before_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "RowsReadBeforeFilter", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
     _text_profile.rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "RowsFilteredByConjunct", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+            _profile, "RowsFilteredByConjunct", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
     _text_profile.rows_filtered_by_delete_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "RowsFilteredByDeleteConjunct", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
     _text_profile.rows_returned = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -215,6 +218,7 @@ void DelimitedTextReader::_init_profile() {
 
 Status DelimitedTextReader::init(RuntimeState* state) {
     _init_profile();
+    SCOPED_TIMER(_text_profile.total_time);
     _runtime_state = state;
     if (_scan_params == nullptr) {
         return Status::InvalidArgument("{} v2 reader requires scan params", _reader_name);
@@ -275,6 +279,7 @@ Status DelimitedTextReader::init(RuntimeState* state) {
 }
 
 Status DelimitedTextReader::get_schema(std::vector<ColumnDefinition>* file_schema) const {
+    SCOPED_TIMER(_text_profile.total_time);
     if (file_schema == nullptr) {
         return Status::InvalidArgument("{} v2 file_schema is null", _reader_name);
     }
@@ -288,6 +293,7 @@ std::unique_ptr<TableColumnMapper> DelimitedTextReader::create_column_mapper(
 }
 
 Status DelimitedTextReader::open(std::shared_ptr<FileScanRequest> request) {
+    SCOPED_TIMER(_text_profile.total_time);
     RETURN_IF_ERROR(FileReader::open(std::move(request)));
     DORIS_CHECK(_request != nullptr);
     RETURN_IF_ERROR(_build_requested_columns(*_request, &_requested_columns));
@@ -307,6 +313,7 @@ Status DelimitedTextReader::open(std::shared_ptr<FileScanRequest> request) {
 }
 
 Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    SCOPED_TIMER(_text_profile.total_time);
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -358,6 +365,7 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
 
 Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& request,
                                                  FileAggregateResult* result) {
+    SCOPED_TIMER(_text_profile.total_time);
     DORIS_CHECK(result != nullptr);
     if (request.agg_type != TPushAggOp::type::COUNT) {
         return Status::NotSupported("{} v2 reader only supports COUNT aggregate pushdown",
@@ -396,6 +404,7 @@ Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& req
 }
 
 Status DelimitedTextReader::close() {
+    SCOPED_TIMER(_text_profile.total_time);
     if (_line_reader != nullptr) {
         _line_reader->close();
         _line_reader.reset();

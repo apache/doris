@@ -108,6 +108,13 @@ TEST(FileMetaCacheTest, KeyGenerationFromFileReader) {
     std::string key2 = FileMetaCache::get_key(reader2, desc2);
     std::string expected_key2 = FileMetaCache::get_key(file_name, 0, 300);
     EXPECT_EQ(key2, expected_key2);
+
+    const std::string default_mapping = FileMetaCache::get_key(reader2, desc2, false, false);
+    const std::string varbinary_mapping = FileMetaCache::get_key(reader2, desc2, true, false);
+    const std::string timestamp_mapping = FileMetaCache::get_key(reader2, desc2, false, true);
+    EXPECT_NE(default_mapping, varbinary_mapping);
+    EXPECT_NE(default_mapping, timestamp_mapping);
+    EXPECT_NE(varbinary_mapping, timestamp_mapping);
 }
 TEST(FileMetaCacheTest, KeyContentVerification) {
     std::string file_name = "/path/to/file";

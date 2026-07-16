@@ -112,6 +112,8 @@ struct ParquetProfile {
     ParquetColumnReaderProfile column_reader_profile() const;
     ParquetScanProfile scan_profile() const;
 
+    RuntimeProfile::Counter* total_time = nullptr;
+
     RuntimeProfile::Counter* filtered_row_groups = nullptr;
     RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
     RuntimeProfile::Counter* filtered_row_groups_by_dictionary = nullptr;

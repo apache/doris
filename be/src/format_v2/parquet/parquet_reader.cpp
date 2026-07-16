@@ -393,6 +393,8 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
 ParquetReader::~ParquetReader() = default;
 
 Status ParquetReader::init(RuntimeState* state) {
+    _init_profile();
+    SCOPED_TIMER(_parquet_profile.total_time);
     if (_io_ctx != nullptr && _io_ctx->should_stop) {
         return Status::EndOfFile("stop");
     }
@@ -451,6 +453,7 @@ void ParquetReader::set_batch_size(size_t batch_size) {
 }
 
 Status ParquetReader::get_schema(std::vector<format::ColumnDefinition>* file_schema) const {
+    SCOPED_TIMER(_parquet_profile.total_time);
     if (file_schema == nullptr) {
         return Status::InvalidArgument("file_schema is null");
     }
@@ -478,6 +481,7 @@ std::unique_ptr<format::TableColumnMapper> ParquetReader::create_column_mapper(
 }
 
 Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
+    SCOPED_TIMER(_parquet_profile.total_time);
     if (_state == nullptr || _state->file_context.metadata == nullptr ||
         _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
@@ -553,6 +557,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
 }
 
 Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    SCOPED_TIMER(_parquet_profile.total_time);
     if (_state == nullptr || _state->file_context.file_reader == nullptr ||
         _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
@@ -653,6 +658,7 @@ int64_t ParquetReader::get_total_rows() const {
 
 Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& request,
                                            format::FileAggregateResult* result) {
+    SCOPED_TIMER(_parquet_profile.total_time);
     DORIS_CHECK(result != nullptr);
     if (_state == nullptr || _state->file_context.metadata == nullptr ||
         _state->file_context.schema == nullptr) {
@@ -716,6 +722,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                     row_group_plan.row_group_id, root_schema, &count_projection,
                     _state->file_context.native_io_ctx,
                     _state->file_context.native_page_cache_enabled,
+                    _state->file_context.native_page_cache_file_key,
                     _parquet_profile.scan_profile().column_reader_profile, &shape_reader));
             DORIS_CHECK(shape_reader != nullptr);
 
@@ -797,6 +804,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
 }
 
 Status ParquetReader::close() {
+    SCOPED_TIMER(_parquet_profile.total_time);
     if (_state != nullptr) {
         _state->scheduler.close();
         _sync_page_cache_profile();

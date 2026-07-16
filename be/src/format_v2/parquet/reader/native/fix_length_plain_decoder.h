@@ -45,6 +45,13 @@ public:
 
     Status skip_values(size_t num_values) override;
 
+    void release_scratch(size_t max_retained_bytes) override {
+        release_vector_if_oversized(&_selected_values, max_retained_bytes);
+    }
+    size_t retained_scratch_bytes() const override {
+        return _selected_values.capacity() * sizeof(uint8_t);
+    }
+
 private:
     std::vector<uint8_t> _selected_values;
 };

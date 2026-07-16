@@ -103,7 +103,8 @@ public:
                   page_cache_hit_counter(cs.page_cache_hit_counter),
                   page_cache_missing_counter(cs.page_cache_missing_counter),
                   page_cache_compressed_hit_counter(cs.page_cache_compressed_hit_counter),
-                  page_cache_decompressed_hit_counter(cs.page_cache_decompressed_hit_counter) {}
+                  page_cache_decompressed_hit_counter(cs.page_cache_decompressed_hit_counter),
+                  leaf_page_read_counters {cs.data_page_read_counter} {}
 
         int64_t page_index_read_calls;
         int64_t decompress_time;
@@ -129,6 +130,8 @@ public:
         int64_t page_cache_missing_counter;
         int64_t page_cache_compressed_hit_counter;
         int64_t page_cache_decompressed_hit_counter;
+        // Preserve per-leaf identity when complex readers aggregate their other counters.
+        std::vector<int64_t> leaf_page_read_counters;
 
         void merge(ColumnStatistics& col_statistics) {
             page_index_read_calls += col_statistics.page_index_read_calls;
@@ -149,6 +152,9 @@ public:
             parse_page_header_num += col_statistics.parse_page_header_num;
             read_page_header_time += col_statistics.read_page_header_time;
             page_read_counter += col_statistics.page_read_counter;
+            leaf_page_read_counters.insert(leaf_page_read_counters.end(),
+                                           col_statistics.leaf_page_read_counters.begin(),
+                                           col_statistics.leaf_page_read_counters.end());
             page_cache_write_counter += col_statistics.page_cache_write_counter;
             page_cache_compressed_write_counter +=
                     col_statistics.page_cache_compressed_write_counter;
@@ -188,10 +194,11 @@ public:
                          const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
                          const cctz::time_zone* ctz, io::IOContext* io_ctx,
                          std::unique_ptr<ColumnReader>& reader, size_t max_buf_size,
-                         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
+                         const std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
                          RuntimeState* state, bool in_collection = false,
                          const std::set<uint64_t>& column_ids = {},
-                         const std::set<uint64_t>& filter_column_ids = {});
+                         const std::set<uint64_t>& filter_column_ids = {},
+                         const std::string& page_cache_file_key = {});
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
     virtual ColumnStatistics column_statistics() = 0;
@@ -239,7 +246,7 @@ public:
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size,
-                RuntimeState* state);
+                RuntimeState* state, const std::string& page_cache_file_key);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,

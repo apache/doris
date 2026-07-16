@@ -159,7 +159,8 @@ Status NativeColumnReader::create(
         const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
         const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
-        bool enable_page_cache, bool enable_dictionary_filter, ParquetColumnReaderProfile profile,
+        bool enable_page_cache, const std::string& page_cache_file_key,
+        bool enable_dictionary_filter, ParquetColumnReaderProfile profile,
         std::unique_ptr<ParquetColumnReader>* reader) {
     if (reader == nullptr) {
         return Status::InvalidArgument("Native parquet reader result is null");
@@ -197,7 +198,7 @@ Status NativeColumnReader::create(
     RETURN_IF_ERROR(native_reader->init(
             std::move(file), metadata, row_group_id, field, std::move(schema_node),
             std::move(projected_ids), selected_ranges, offset_indexes, timezone, io_ctx,
-            runtime_state, enable_page_cache, enable_dictionary_filter));
+            runtime_state, enable_page_cache, page_cache_file_key, enable_dictionary_filter));
     *reader = std::move(native_reader);
     return Status::OK();
 }
@@ -208,7 +209,8 @@ Status NativeColumnReader::init(
         std::set<uint64_t> projected_column_ids, const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
         const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
-        bool enable_page_cache, bool enable_dictionary_filter) {
+        bool enable_page_cache, const std::string& page_cache_file_key,
+        bool enable_dictionary_filter) {
     DORIS_CHECK(file != nullptr);
     DORIS_CHECK(metadata != nullptr);
     DORIS_CHECK(field != nullptr);
@@ -224,7 +226,9 @@ Status NativeColumnReader::init(
         DORIS_CHECK(range.start + range.length <= _row_group_rows);
         _row_ranges.add(::doris::RowRange(range.start, range.start + range.length));
     }
-    _offset_indexes = offset_indexes;
+    // Offset indexes are immutable row-group metadata owned by ParquetScanScheduler. Sharing them
+    // avoids retaining the full N-column page-location map once per projected reader.
+    _offset_indexes = &offset_indexes;
     _schema_node = std::move(schema_node);
     _projected_column_ids = std::move(projected_column_ids);
     _dictionary_filter_enabled = enable_dictionary_filter;
@@ -243,10 +247,10 @@ Status NativeColumnReader::init(
         _page_cache_runtime_state = RuntimeState::create_unique(query_options, TQueryGlobals());
         native_runtime_state = _page_cache_runtime_state.get();
     }
-    RETURN_IF_ERROR(native::ColumnReader::create(std::move(file), field, row_group, _row_ranges,
-                                                 timezone, io_ctx, _native_reader, max_buffer_size,
-                                                 _offset_indexes, native_runtime_state, false,
-                                                 _projected_column_ids, _filter_column_ids));
+    RETURN_IF_ERROR(native::ColumnReader::create(
+            std::move(file), field, row_group, _row_ranges, timezone, io_ctx, _native_reader,
+            max_buffer_size, *_offset_indexes, native_runtime_state, false, _projected_column_ids,
+            _filter_column_ids, page_cache_file_key));
     DORIS_CHECK(_native_reader != nullptr);
     _skip_column = _type->create_column();
     return Status::OK();
@@ -346,7 +350,8 @@ Status NativeColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     RETURN_IF_ERROR(read_with_filter(rows, nullptr, false, column, _type, false, rows_read));
     advance_selected_span(*rows_read);
     update_reader_read_rows(*rows_read);
-    record_page_fragments(sync_native_profile());
+    int64_t max_leaf_page_reads = 0;
+    record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
     return Status::OK();
 }
 
@@ -377,7 +382,9 @@ Status NativeColumnReader::skip(int64_t rows) {
         const int64_t selected_rows =
                 std::min(remaining, range.start + range.length - _logical_row_position);
         _skip_column->clear();
-        _filter_scratch.resize(static_cast<size_t>(selected_rows));
+        // resize() preserves survivor bytes from the previous select(). An all-filtered nested read
+        // consumes the raw bitmap, so every slot must be explicitly reset before a lazy skip.
+        _filter_scratch.assign(static_cast<size_t>(selected_rows), 0);
         int64_t rows_read = 0;
         RETURN_IF_ERROR(read_with_filter(selected_rows, _filter_scratch.data(), true, _skip_column,
                                          _type, false, &rows_read));
@@ -388,7 +395,8 @@ Status NativeColumnReader::skip(int64_t rows) {
         remaining -= rows_read;
     }
     update_reader_skip_rows(native_skipped_rows);
-    record_page_fragments(sync_native_profile());
+    int64_t max_leaf_page_reads = 0;
+    record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
     return Status::OK();
 }
 
@@ -415,7 +423,8 @@ Status NativeColumnReader::select(const SelectionVector& selection, uint16_t sel
     }
     update_reader_read_rows(selected_rows);
     update_reader_skip_rows(batch_rows - selected_rows);
-    record_page_fragments(sync_native_profile());
+    int64_t max_leaf_page_reads = 0;
+    record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
     return Status::OK();
 }
 
@@ -505,20 +514,23 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
     }
     update_reader_read_rows(cast_set<int64_t>(matched_ids.size()));
     update_reader_skip_rows(batch_rows - cast_set<int64_t>(matched_ids.size()));
-    record_page_fragments(sync_native_profile());
+    int64_t max_leaf_page_reads = 0;
+    record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
     return Status::OK();
 }
 
-void NativeColumnReader::record_page_fragments(int64_t page_fragments) {
+void NativeColumnReader::record_page_fragments(int64_t page_fragments,
+                                               int64_t max_leaf_page_reads) {
     if (_profile.native_page_fragments != nullptr) {
         COUNTER_UPDATE(_profile.native_page_fragments, page_fragments);
     }
-    if (page_fragments > 1 && _profile.page_crossing_batches != nullptr) {
+    // Summed fragments from MAP/STRUCT siblings do not mean any individual leaf crossed a page.
+    if (max_leaf_page_reads > 1 && _profile.page_crossing_batches != nullptr) {
         COUNTER_UPDATE(_profile.page_crossing_batches, 1);
     }
 }
 
-int64_t NativeColumnReader::sync_native_profile() {
+int64_t NativeColumnReader::sync_native_profile(int64_t* max_leaf_page_reads) {
     if (_native_reader == nullptr) {
         return 0;
     }
@@ -587,6 +599,22 @@ int64_t NativeColumnReader::sync_native_profile() {
                        stats.read_page_header_time - reported.read_page_header_time);
     }
     const int64_t page_read_delta = stats.page_read_counter - reported.page_read_counter;
+    int64_t max_leaf_delta = 0;
+    if (stats.leaf_page_read_counters.size() == reported.leaf_page_read_counters.size()) {
+        for (size_t leaf = 0; leaf < stats.leaf_page_read_counters.size(); ++leaf) {
+            max_leaf_delta =
+                    std::max(max_leaf_delta, stats.leaf_page_read_counters[leaf] -
+                                                     reported.leaf_page_read_counters[leaf]);
+        }
+    } else {
+        // The tree shape is stable after initialization; retain a safe first-snapshot fallback.
+        for (const int64_t page_reads : stats.leaf_page_read_counters) {
+            max_leaf_delta = std::max(max_leaf_delta, page_reads);
+        }
+    }
+    if (max_leaf_page_reads != nullptr) {
+        *max_leaf_page_reads = max_leaf_delta;
+    }
     if (_profile.page_read_count != nullptr) {
         COUNTER_UPDATE(_profile.page_read_count, page_read_delta);
     }

@@ -42,14 +42,15 @@ class LevelReaderImpl final : public LevelReader::Impl {
 public:
     LevelReaderImpl(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk, FieldSchema* field,
                     size_t total_rows, size_t max_buffer_size, io::IOContext* io_ctx,
-                    bool enable_page_cache)
+                    bool enable_page_cache, std::string page_cache_file_key)
             : _file(std::move(file)),
               _column_chunk(std::move(column_chunk)),
               _field(field),
               _total_rows(total_rows),
               _max_buffer_size(max_buffer_size),
               _io_ctx(io_ctx),
-              _enable_page_cache(enable_page_cache) {}
+              _enable_page_cache(enable_page_cache),
+              _page_cache_file_key(std::move(page_cache_file_key)) {}
 
     Status init() override {
         DORIS_CHECK(_file != nullptr);
@@ -70,7 +71,7 @@ public:
                                                                  prefetch_buffer_size);
         _chunk_reader = std::make_unique<ColumnChunkReader<IN_COLLECTION, false>>(
                 _stream.get(), &_column_chunk, _field, nullptr, _total_rows, _io_ctx,
-                ParquetPageReadContext(_enable_page_cache));
+                ParquetPageReadContext(_enable_page_cache, _page_cache_file_key));
         return _chunk_reader->init();
     }
 
@@ -153,6 +154,7 @@ private:
     size_t _max_buffer_size = 0;
     io::IOContext* _io_ctx = nullptr;
     bool _enable_page_cache = false;
+    std::string _page_cache_file_key;
     size_t _current_row = 0;
     std::unique_ptr<io::BufferedFileStreamReader> _stream;
     std::unique_ptr<ColumnChunkReader<IN_COLLECTION, false>> _chunk_reader;
@@ -161,6 +163,7 @@ private:
 Status LevelReader::create(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk,
                            FieldSchema* field, size_t total_rows, size_t max_buffer_size,
                            io::IOContext* io_ctx, bool enable_page_cache,
+                           const std::string& page_cache_file_key,
                            std::unique_ptr<LevelReader>* reader) {
     DORIS_CHECK(reader != nullptr);
     DORIS_CHECK(field != nullptr);
@@ -168,11 +171,11 @@ Status LevelReader::create(io::FileReaderSPtr file, tparquet::ColumnChunk column
     if (field->repetition_level > 0) {
         impl = std::make_unique<LevelReaderImpl<true>>(std::move(file), std::move(column_chunk),
                                                        field, total_rows, max_buffer_size, io_ctx,
-                                                       enable_page_cache);
+                                                       enable_page_cache, page_cache_file_key);
     } else {
         impl = std::make_unique<LevelReaderImpl<false>>(std::move(file), std::move(column_chunk),
                                                         field, total_rows, max_buffer_size, io_ctx,
-                                                        enable_page_cache);
+                                                        enable_page_cache, page_cache_file_key);
     }
     RETURN_IF_ERROR(impl->init());
     reader->reset(new LevelReader(std::move(impl)));

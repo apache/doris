@@ -41,6 +41,10 @@ public:
     static std::string get_key(io::FileReaderSPtr file_reader,
                                const io::FileDescription& _file_description);
 
+    static std::string get_key(io::FileReaderSPtr file_reader,
+                               const io::FileDescription& file_description,
+                               bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz);
+
     bool lookup(const std::string& key, ObjLRUCache::CacheHandle* handle) {
         return _cache.lookup({key}, handle);
     }

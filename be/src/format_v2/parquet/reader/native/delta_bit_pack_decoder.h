@@ -67,8 +67,15 @@ public:
 
     Status skip_values(size_t num_values) override {
         _values.resize(num_values);
-        uint32_t num_valid_values;
-        return _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values);
+        uint32_t num_valid_values = 0;
+        RETURN_IF_ERROR(
+                _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values));
+        // Skips have the same exact-consumption contract as materialized decodes.
+        if (UNLIKELY(num_valid_values != num_values)) {
+            return Status::IOError("Expected to skip {} Parquet delta values, skipped {}",
+                                   num_values, num_valid_values);
+        }
+        return Status::OK();
     }
 
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override {
@@ -111,6 +118,14 @@ public:
     uint32_t valid_values_count() {
         // _total_value_count in header ignores of null values
         return _total_values_remaining;
+    }
+
+    void release_scratch(size_t max_retained_bytes) override {
+        release_vector_if_oversized(&_values, max_retained_bytes);
+        release_vector_if_oversized(&_delta_bit_widths, max_retained_bytes);
+    }
+    size_t retained_scratch_bytes() const override {
+        return _values.capacity() * sizeof(T) + _delta_bit_widths.capacity() * sizeof(uint8_t);
     }
 
     Status set_data(Slice* slice) override {
@@ -166,10 +181,21 @@ public:
     explicit DeltaLengthByteArrayDecoder()
             : _len_decoder(), _buffered_length(0), _buffered_data(0) {}
 
+    void set_expected_values(size_t expected_values) override {
+        Decoder::set_expected_values(expected_values);
+        _len_decoder.set_expected_values(expected_values);
+    }
+
     Status skip_values(size_t num_values) override {
         _values.resize(num_values);
-        int num_valid_values;
-        return _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values);
+        int num_valid_values = 0;
+        RETURN_IF_ERROR(
+                _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values));
+        if (UNLIKELY(num_valid_values != num_values)) {
+            return Status::IOError("Expected to skip {} Parquet delta-length values, skipped {}",
+                                   num_values, num_valid_values);
+        }
+        return Status::OK();
     }
 
     Status decode_binary_values(size_t num_values, ParquetBinaryValueConsumer& consumer) override {
@@ -214,9 +240,30 @@ public:
         return _get_internal(buffer, num_values, out_num_values);
     }
 
+    void release_scratch(size_t max_retained_bytes) override {
+        release_vector_if_oversized(&_values, max_retained_bytes);
+        release_vector_if_oversized(&_string_refs, max_retained_bytes);
+        release_vector_if_oversized(&_buffered_length, max_retained_bytes);
+        release_vector_if_oversized(&_buffered_data, max_retained_bytes);
+        _len_decoder.release_scratch(max_retained_bytes);
+    }
+    size_t retained_scratch_bytes() const override {
+        return _values.capacity() * sizeof(Slice) + _string_refs.capacity() * sizeof(StringRef) +
+               _buffered_length.capacity() * sizeof(int32_t) +
+               _buffered_data.capacity() * sizeof(char) + _len_decoder.retained_scratch_bytes();
+    }
+
     Status set_data(Slice* slice) override {
-        if (slice->size == 0) {
-            return Status::OK();
+        if (slice == nullptr || slice->size == 0) {
+            // Reused decoders must never retain lengths or payload pointers from the prior page.
+            _bit_reader.reset();
+            _data = nullptr;
+            _offset = 0;
+            _num_valid_values = 0;
+            _length_idx = 0;
+            _buffered_length.clear();
+            _buffered_data.clear();
+            return Status::Corruption("Parquet delta-length page is empty");
         }
         _bit_reader = std::make_shared<BitReader>((const uint8_t*)slice->data, slice->size);
         _data = slice;
@@ -252,10 +299,15 @@ class DeltaByteArrayDecoder : public DeltaDecoder {
 public:
     explicit DeltaByteArrayDecoder() : _buffered_prefix_length(0), _buffered_data(0) {}
 
+    void set_expected_values(size_t expected_values) override {
+        Decoder::set_expected_values(expected_values);
+        _prefix_len_decoder.set_expected_values(expected_values);
+        _suffix_decoder.set_expected_values(expected_values);
+    }
+
     Status skip_values(size_t num_values) override {
-        _values.resize(num_values);
-        int num_valid_values;
-        return _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values);
+        RETURN_IF_ERROR(_decode_slices(num_values));
+        return _validate_fixed_width_values();
     }
 
     Status decode_binary_values(size_t num_values, ParquetBinaryValueConsumer& consumer) override {
@@ -284,13 +336,10 @@ public:
 
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override {
         RETURN_IF_ERROR(_decode_slices(num_values));
+        RETURN_IF_ERROR(_validate_fixed_width_values());
         const size_t byte_size = num_values * static_cast<size_t>(_type_length);
         _fixed_values.resize(byte_size);
         for (size_t row = 0; row < num_values; ++row) {
-            if (UNLIKELY(_values[row].size != static_cast<size_t>(_type_length))) {
-                return Status::Corruption("Parquet fixed value has length {}, expected {}",
-                                          _values[row].size, _type_length);
-            }
             memcpy(_fixed_values.data() + row * _type_length, _values[row].data, _type_length);
         }
         return consumer.consume(_fixed_values.data(), num_values,
@@ -300,6 +349,9 @@ public:
     Status decode_selected_fixed_values(const ParquetSelection& selection,
                                         ParquetFixedValueConsumer& consumer) override {
         RETURN_IF_ERROR(_decode_slices(selection.total_values));
+        // Validate every consumed value, including filtered ranges, so selection cannot hide a
+        // malformed FIXED_LEN_BYTE_ARRAY width that a later cursor advance has already committed.
+        RETURN_IF_ERROR(_validate_fixed_width_values());
         DORIS_CHECK(_type_length > 0);
         const size_t value_width = static_cast<size_t>(_type_length);
         if (UNLIKELY(selection.selected_values >
@@ -311,10 +363,6 @@ public:
         for (const auto& range : selection.ranges) {
             for (size_t row = 0; row < range.count; ++row) {
                 const auto& value = _values[range.first + row];
-                if (UNLIKELY(value.size != value_width)) {
-                    return Status::Corruption("Parquet fixed value has length {}, expected {}",
-                                              value.size, value_width);
-                }
                 memcpy(_fixed_values.data() + output * value_width, value.data, value_width);
                 ++output;
             }
@@ -352,7 +400,44 @@ public:
         return _get_internal(buffer, num_values, out_num_values);
     }
 
+    void release_scratch(size_t max_retained_bytes) override {
+        release_vector_if_oversized(&_values, max_retained_bytes);
+        release_vector_if_oversized(&_string_refs, max_retained_bytes);
+        release_vector_if_oversized(&_fixed_values, max_retained_bytes);
+        release_vector_if_oversized(&_buffered_prefix_length, max_retained_bytes);
+        release_vector_if_oversized(&_buffered_data, max_retained_bytes);
+        _prefix_len_decoder.release_scratch(max_retained_bytes);
+        _suffix_decoder.release_scratch(max_retained_bytes);
+        if (_last_value.capacity() > max_retained_bytes) std::string().swap(_last_value);
+        if (_last_value_in_previous_page.capacity() > max_retained_bytes) {
+            std::string().swap(_last_value_in_previous_page);
+        }
+    }
+    size_t retained_scratch_bytes() const override {
+        return _values.capacity() * sizeof(Slice) + _string_refs.capacity() * sizeof(StringRef) +
+               _fixed_values.capacity() * sizeof(uint8_t) +
+               _buffered_prefix_length.capacity() * sizeof(int32_t) +
+               _buffered_data.capacity() * sizeof(char) + _last_value.capacity() +
+               _last_value_in_previous_page.capacity() +
+               _prefix_len_decoder.retained_scratch_bytes() +
+               _suffix_decoder.retained_scratch_bytes();
+    }
+
 private:
+    Status _validate_fixed_width_values() const {
+        if (_type_length <= 0) {
+            return Status::OK();
+        }
+        const size_t value_width = static_cast<size_t>(_type_length);
+        for (const auto& value : _values) {
+            if (UNLIKELY(value.size != value_width)) {
+                return Status::Corruption("Parquet fixed value has length {}, expected {}",
+                                          value.size, value_width);
+            }
+        }
+        return Status::OK();
+    }
+
     Status _decode_slices(size_t num_values) {
         _values.resize(num_values);
         int decoded_count = 0;
@@ -413,10 +498,17 @@ Status DeltaBitPackDecoder<T>::_init_header() {
                 "The number of values in a miniblock must be multiple of 32, but it's " +
                 std::to_string(_values_per_mini_block));
     }
+    // Encoded counts are external ULEB32 values. Bound them by the page's advertised logical
+    // values before any vector uses the count; optional levels may only reduce this upper bound.
+    if (UNLIKELY(_total_value_count > _expected_values)) {
+        return Status::Corruption("Parquet delta header advertises {} values, page allows {}",
+                                  _total_value_count, _expected_values);
+    }
     _total_values_remaining = _total_value_count;
-    _delta_bit_widths.resize(_mini_blocks_per_block);
+    _delta_bit_widths.clear();
     // init as empty property
     _block_initialized = false;
+    _delta_bit_width = 0;
     _values_remaining_current_mini_block = 0;
     return Status::OK();
 }
@@ -427,6 +519,14 @@ Status DeltaBitPackDecoder<T>::_init_block() {
     if (!_bit_reader->GetZigZagVlqInt(&_min_delta)) {
         return Status::IOError("Init block eof");
     }
+
+    // One byte follows for each miniblock. Defer allocation until a block is actually consumed so
+    // a one-value page cannot turn an irrelevant malicious miniblock count into a large resize.
+    if (UNLIKELY(_mini_blocks_per_block > static_cast<uint32_t>(_bit_reader->bytes_left()))) {
+        return Status::Corruption("Parquet delta miniblock count {} exceeds remaining {} bytes",
+                                  _mini_blocks_per_block, _bit_reader->bytes_left());
+    }
+    _delta_bit_widths.resize(_mini_blocks_per_block);
 
     // read the bitwidth of each miniblock
     uint8_t* bit_width_data = _delta_bit_widths.data();

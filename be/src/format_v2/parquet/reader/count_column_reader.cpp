@@ -100,7 +100,8 @@ CountColumnReader::~CountColumnReader() {
 Status CountColumnReader::create(io::FileReaderSPtr file, const FileMetaData* metadata,
                                  int row_group_id, const ParquetColumnSchema& root_schema,
                                  const format::LocalColumnIndex* projection, io::IOContext* io_ctx,
-                                 bool enable_page_cache, ParquetColumnReaderProfile profile,
+                                 bool enable_page_cache, const std::string& page_cache_file_key,
+                                 ParquetColumnReaderProfile profile,
                                  std::unique_ptr<CountColumnReader>* reader) {
     DORIS_CHECK(file != nullptr);
     DORIS_CHECK(metadata != nullptr);
@@ -136,7 +137,7 @@ Status CountColumnReader::create(io::FileReaderSPtr file, const FileMetaData* me
     RETURN_IF_ERROR(native::LevelReader::create(
             std::move(file), row_group.columns[leaf_schema->leaf_column_id], leaf_field,
             row_group.num_rows, std::min(max_group_buffer, max_column_buffer), io_ctx,
-            enable_page_cache, &level_reader));
+            enable_page_cache, page_cache_file_key, &level_reader));
     reader->reset(new CountColumnReader(leaf_schema->name, std::move(level_reader), profile));
     return Status::OK();
 }

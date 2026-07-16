@@ -54,14 +54,23 @@ namespace doris::format::parquet::native {
 
 // Session-level options for parquet page reading/caching.
 struct ParquetPageReadContext {
-    bool enable_parquet_file_page_cache = true;
+    // A default-constructed context has no stable file identity, so cache lookup must stay off.
+    bool enable_parquet_file_page_cache = false;
+    std::string page_cache_file_key;
     ParquetPageReadContext() = default;
-    ParquetPageReadContext(bool enable_parquet_file_page_cache)
-            : enable_parquet_file_page_cache(enable_parquet_file_page_cache) {}
+    ParquetPageReadContext(bool enable_parquet_file_page_cache, std::string page_cache_file_key)
+            : enable_parquet_file_page_cache(enable_parquet_file_page_cache &&
+                                             !page_cache_file_key.empty()),
+              page_cache_file_key(std::move(page_cache_file_key)) {}
 };
 
 inline bool should_cache_decompressed(const tparquet::PageHeader* header,
                                       const tparquet::ColumnMetaData& metadata) {
+    // Data Page V2 declares its payload representation independently of the column codec. A warm
+    // hit must never send an explicitly uncompressed cached payload through the codec again.
+    if (header->__isset.data_page_header_v2 && !header->data_page_header_v2.is_compressed) {
+        return true;
+    }
     if (header->compressed_page_size <= 0) return true;
     if (metadata.codec == tparquet::CompressionCodec::UNCOMPRESSED) return true;
     if (header->uncompressed_page_size == 0) return true;
@@ -73,7 +82,7 @@ inline bool should_cache_decompressed(const tparquet::PageHeader* header,
 
 class ParquetPageCacheKeyBuilder {
 public:
-    void init(const std::string& path, int64_t mtime);
+    void init(std::string file_key) { _file_key_prefix = std::move(file_key); }
     StoragePageCache::CacheKey make_key(uint64_t end_offset, int64_t offset) const {
         return StoragePageCache::CacheKey(_file_key_prefix, end_offset, offset);
     }
@@ -98,6 +107,7 @@ public:
         int64_t page_cache_compressed_write_counter = 0;
         int64_t page_cache_decompressed_write_counter = 0;
         int64_t page_read_counter = 0;
+        int64_t data_page_read_counter = 0;
     };
 
     PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
@@ -108,7 +118,8 @@ public:
 
     bool has_next_page() const {
         if constexpr (OFFSET_INDEX) {
-            return _page_index + 1 != _offset_index->page_locations.size();
+            return _offset_index != nullptr &&
+                   _page_index + 1 < _offset_index->page_locations.size();
         } else {
             // Deprecated
             // Parquet file may not be standardized,
@@ -126,6 +137,10 @@ public:
     Status next_page() {
         _page_statistics.skip_page_header_num += _state == INITIALIZED;
         if constexpr (OFFSET_INDEX) {
+            if (UNLIKELY(_offset_index == nullptr ||
+                         _page_index + 1 >= _offset_index->page_locations.size())) {
+                return Status::Corruption("Parquet OffsetIndex has no next page location");
+            }
             _page_index++;
             _start_row = _offset_index->page_locations[_page_index].first_row_index;
             if (_page_index + 1 < _offset_index->page_locations.size()) {
@@ -212,6 +227,8 @@ public:
     }
 
 private:
+    Status _validate_page_header(uint32_t header_size) const;
+
     enum PageReaderState { INITIALIZED, HEADER_PARSED, DATA_LOADED };
     PageReaderState _state = INITIALIZED;
     PageStatistics _page_statistics;

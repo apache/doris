@@ -44,7 +44,10 @@ Status FileMetaData::init_schema(const bool enable_mapping_varbinary,
     }
     _schema.set_enable_mapping_varbinary(enable_mapping_varbinary);
     _schema.set_enable_mapping_timestamp_tz(enable_mapping_timestamp_tz);
-    return _schema.parse_from_thrift(_metadata.schema);
+    RETURN_IF_ERROR(_schema.parse_from_thrift(_metadata.schema));
+    // Cached metadata is immutable after publication; assign native field IDs before insertion.
+    _schema.assign_ids();
+    return Status::OK();
 }
 
 const tparquet::FileMetaData& FileMetaData::to_thrift() const {

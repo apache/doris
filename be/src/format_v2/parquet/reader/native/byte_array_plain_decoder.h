@@ -52,6 +52,13 @@ public:
 
     Status skip_values(size_t num_values) override;
 
+    void release_scratch(size_t max_retained_bytes) override {
+        release_vector_if_oversized(&_binary_values, max_retained_bytes);
+    }
+    size_t retained_scratch_bytes() const override {
+        return _binary_values.capacity() * sizeof(StringRef);
+    }
+
 private:
     std::vector<StringRef> _binary_values;
 };

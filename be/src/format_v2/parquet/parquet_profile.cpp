@@ -18,6 +18,7 @@
 #include "format_v2/parquet/parquet_profile.h"
 
 #include "format_v2/parquet/parquet_statistics.h"
+#include "runtime/file_scan_profile.h"
 
 namespace doris::format::parquet {
 
@@ -26,13 +27,17 @@ void ParquetProfile::init(RuntimeProfile* profile) {
         return;
     }
 
+    file_scan_profile::ensure_hierarchy(profile);
     static const char* parquet_profile = "ParquetReader";
-    ADD_TIMER_WITH_LEVEL(profile, parquet_profile, 1);
+    total_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, parquet_profile, file_scan_profile::FILE_READER, 1);
 
+    // These counters are format-independent and can be reused when one scanner switches between
+    // Parquet and ORC splits; keep their single flat counter identity under FileReader.
     filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowGroupsFiltered", TUnit::UNIT,
-                                                       parquet_profile, 1);
+                                                       file_scan_profile::FILE_READER, 1);
     filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, parquet_profile, 1);
+            profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
     filtered_row_groups_by_dictionary = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "RowGroupsFilteredByDictionary", TUnit::UNIT, parquet_profile, 1);
     filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -40,13 +45,13 @@ void ParquetProfile::init(RuntimeProfile* profile) {
     filtered_row_groups_by_page_index = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "RowGroupsFilteredByPageIndex", TUnit::UNIT, parquet_profile, 1);
     to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowGroupsReadNum", TUnit::UNIT,
-                                                      parquet_profile, 1);
+                                                      file_scan_profile::FILE_READER, 1);
     total_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowGroupsTotalNum", TUnit::UNIT,
                                                     parquet_profile, 1);
     selected_row_ranges = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SelectedRowRanges", TUnit::UNIT,
                                                        parquet_profile, 1);
     filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByGroup", TUnit::UNIT,
-                                                       parquet_profile, 1);
+                                                       file_scan_profile::FILE_READER, 1);
     filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByPage", TUnit::UNIT,
                                                       parquet_profile, 1);
     pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -55,8 +60,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                                TUnit::BYTES, parquet_profile, 1);
     selected_rows =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SelectedRows", TUnit::UNIT, parquet_profile, 1);
-    rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowsFilteredByConjunct",
-                                                             TUnit::UNIT, parquet_profile, 1);
+    rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "RowsFilteredByConjunct", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
     total_batches =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "TotalBatches", TUnit::UNIT, parquet_profile, 1);
     dense_batches =
@@ -93,10 +98,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                          TUnit::UNIT, parquet_profile, 1);
     nested_batches =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NestedBatches", TUnit::UNIT, parquet_profile, 1);
-    lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByLazyRead",
-                                                           TUnit::UNIT, parquet_profile, 1);
+    lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "FilteredRowsByLazyRead", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
     filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredBytes", TUnit::BYTES,
-                                                  parquet_profile, 1);
+                                                  file_scan_profile::FILE_READER, 1);
     raw_rows_read =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RawRowsRead", TUnit::UNIT, parquet_profile, 1);
     column_read_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ColumnReadTime", parquet_profile, 1);
@@ -104,9 +109,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
     parse_footer_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ParseFooterTime", parquet_profile, 1);
     file_reader_create_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileReaderCreateTime", parquet_profile, 1);
-    open_file_num =
-            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileNum", TUnit::UNIT, parquet_profile, 1);
-    page_index_read_calls = ADD_COUNTER_WITH_LEVEL(profile, "PageIndexReadCalls", TUnit::UNIT, 1);
+    open_file_num = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileNum", TUnit::UNIT,
+                                                 file_scan_profile::FILE_READER, 1);
+    page_index_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PageIndexReadCalls", TUnit::UNIT,
+                                                         parquet_profile, 1);
     page_index_filter_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "PageIndexFilterTime", parquet_profile, 1);
     read_page_index_time =
@@ -121,8 +127,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                          TUnit::UNIT, parquet_profile, 1);
     row_group_filter_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "RowGroupFilterTime", parquet_profile, 1);
-    file_footer_read_calls = ADD_COUNTER_WITH_LEVEL(profile, "FileFooterReadCalls", TUnit::UNIT, 1);
-    file_footer_hit_cache = ADD_COUNTER_WITH_LEVEL(profile, "FileFooterHitCache", TUnit::UNIT, 1);
+    file_footer_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileFooterReadCalls",
+                                                          TUnit::UNIT, parquet_profile, 1);
+    file_footer_hit_cache = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileFooterHitCache", TUnit::UNIT,
+                                                         parquet_profile, 1);
     decompress_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "DecompressTime", parquet_profile, 1);
     decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecompressCount", TUnit::UNIT,
                                                   parquet_profile, 1);

@@ -585,7 +585,9 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     // Arrow metadata is opened: native readers can reuse a footer produced by a v1 scan (and vice
     // versa), and a cache miss performs one bounded tail read through the same Doris FileReader.
     auto* meta_cache = ExecEnv::GetInstance()->file_meta_cache();
-    const auto meta_cache_key = FileMetaCache::get_key(native_file, file_description);
+    const auto meta_cache_key =
+            FileMetaCache::get_key(native_file, file_description, /*enable_mapping_varbinary=*/true,
+                                   enable_mapping_timestamp_tz);
     size_t native_footer_size = 0;
     if (meta_cache != nullptr && meta_cache->enabled() &&
         meta_cache->lookup(meta_cache_key, &native_meta_cache_handle)) {
@@ -605,10 +607,11 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         }
     }
     DORIS_CHECK(native_metadata != nullptr);
-    const_cast<FieldDescriptor&>(native_metadata->schema()).assign_ids();
 
     auto page_cache_file_key = build_page_cache_file_key(*input_file_reader, file_description);
     native_page_cache_enabled = enable_page_cache && !page_cache_file_key.empty();
+    // Native and Arrow readers must use the same FileDescription-derived immutable identity.
+    native_page_cache_file_key = page_cache_file_key;
     arrow_file = std::make_shared<DorisRandomAccessFile>(
             input_file_reader, io_ctx, enable_page_cache, std::move(page_cache_file_key));
     try {
@@ -670,7 +673,9 @@ Status ParquetFileContext::load_native_offset_indexes(
         }
         for (const int leaf_column_id : leaf_column_ids) {
             auto arrow_index = row_group_reader->GetOffsetIndex(leaf_column_id);
-            if (arrow_index == nullptr) {
+            if (arrow_index == nullptr || arrow_index->page_locations().empty()) {
+                // An empty optional index is equivalent to no index. Publishing it would select
+                // the indexed PageReader even though there is no first page to dereference.
                 continue;
             }
             tparquet::OffsetIndex native_index;
@@ -776,6 +781,7 @@ Status ParquetFileContext::close() {
     native_file.reset();
     native_io_ctx = nullptr;
     native_page_cache_enabled = false;
+    native_page_cache_file_key.clear();
     return Status::OK();
 }
 

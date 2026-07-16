@@ -1516,6 +1516,35 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {
     EXPECT_TRUE(struct_type->get_element(1)->is_nullable());
 }
 
+TEST_F(NewParquetReaderTest, ComplexColumnDoesNotMisreportSiblingPagesAsCrossing) {
+    write_struct_filter_parquet_file(_file_path);
+    RuntimeProfile profile("new_parquet_reader_complex_page_fragments");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t total_rows = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, 4);
+    // Each STRUCT child reads one page per Row Group, but no individual leaf crosses a boundary in
+    // either batch. The aggregate fragment count remains useful without inflating crossing batches.
+    EXPECT_EQ(profile.get_counter("NativePageFragments")->value(), 8);
+    EXPECT_EQ(profile.get_counter("PageCrossingBatches")->value(), 0);
+}
+
 TEST_F(NewParquetReaderTest, GetSchemaMapsInt96ToTimestampTzWhenTimestampTzMappingEnabled) {
     write_int96_timestamp_parquet_file(_file_path);
     auto reader = create_reader(0, -1, nullptr, true);
@@ -2017,6 +2046,45 @@ TEST_F(NewParquetReaderTest, EmptySelectionUpdatesProfileCounters) {
     EXPECT_EQ(profile.get_counter("DenseBatches")->value(), 0);
     EXPECT_EQ(profile.get_counter("SelectedBatches")->value(), 0);
     EXPECT_EQ(profile.get_counter("EmptySelectionBatches")->value(), 1);
+}
+
+TEST_F(NewParquetReaderTest, ProfileNestsFormatReaderBelowFileReaderAndRecordsTotalTime) {
+    RuntimeProfile profile("new_parquet_reader_hierarchy_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+
+    auto* parquet_total = profile.get_counter("ParquetReader");
+    ASSERT_NE(parquet_total, nullptr);
+    EXPECT_GT(parquet_total->value(), 0);
+
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes[0].child_counters_map;
+    ASSERT_TRUE(children.contains(RuntimeProfile::ROOT_COUNTER));
+    EXPECT_TRUE(children.at(RuntimeProfile::ROOT_COUNTER).contains("FileScannerV2"));
+    ASSERT_TRUE(children.contains("FileScannerV2"));
+    EXPECT_TRUE(children.at("FileScannerV2").contains("TableReader"));
+    ASSERT_TRUE(children.contains("TableReader"));
+    EXPECT_TRUE(children.at("TableReader").contains("FileReader"));
+    ASSERT_TRUE(children.contains("FileReader"));
+    EXPECT_TRUE(children.at("FileReader").contains("IO"));
+    EXPECT_TRUE(children.at("FileReader").contains("ParquetReader"));
+    ASSERT_TRUE(children.contains("ParquetReader"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("ColumnReadTime"));
 }
 
 TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {

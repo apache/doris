@@ -52,6 +52,7 @@ public:
     static Status create(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk,
                          FieldSchema* field, size_t total_rows, size_t max_buffer_size,
                          io::IOContext* io_ctx, bool enable_page_cache,
+                         const std::string& page_cache_file_key,
                          std::unique_ptr<LevelReader>* reader);
 
     ~LevelReader();

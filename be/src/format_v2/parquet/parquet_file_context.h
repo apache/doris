@@ -162,6 +162,7 @@ struct ParquetFileContext {
     int64_t native_footer_read_calls = 0;
     int64_t native_footer_cache_hits = 0;
     bool native_page_cache_enabled = false;
+    std::string native_page_cache_file_key;
 
     std::shared_ptr<arrow::io::RandomAccessFile> arrow_file;   // Arrow wrapper for Doris FileReader
     std::unique_ptr<::parquet::ParquetFileReader> file_reader; // Arrow Parquet file parser

@@ -27,6 +27,7 @@
 #include "io/fs/tracing_file_reader.h"
 #include "io/io_common.h"
 #include "orc/Exceptions.hh"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "util/slice.h"
 
@@ -54,8 +55,10 @@ public:
               _size(_file_reader->size()) {
         _statistics.apply_bytes += _range.end_offset - _range.start_offset;
         if (_profile != nullptr) {
-            const char* profile_name = "MergedSmallIO";
-            ADD_TIMER_WITH_LEVEL(_profile, profile_name, 1);
+            const char* profile_name = "OrcMergedSmallIO";
+            _total_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                    _profile, profile_name,
+                    file_scan_profile::parent_or_root(_profile, file_scan_profile::IO), 1);
             _copy_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CopyTime", profile_name, 1);
             _read_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadTime", profile_name, 1);
             _request_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT,
@@ -113,6 +116,7 @@ protected:
         if (_profile == nullptr) {
             return;
         }
+        COUNTER_UPDATE(_total_time, _statistics.copy_time + _statistics.read_time);
         COUNTER_UPDATE(_copy_time, _statistics.copy_time);
         COUNTER_UPDATE(_read_time, _statistics.read_time);
         COUNTER_UPDATE(_request_io, _statistics.request_io);
@@ -165,6 +169,7 @@ private:
     OrcMergedRangeStatistics _statistics;
 
     RuntimeProfile::Counter* _copy_time = nullptr;
+    RuntimeProfile::Counter* _total_time = nullptr;
     RuntimeProfile::Counter* _read_time = nullptr;
     RuntimeProfile::Counter* _request_io = nullptr;
     RuntimeProfile::Counter* _merged_io = nullptr;

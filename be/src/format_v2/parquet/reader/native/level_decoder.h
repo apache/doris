@@ -21,6 +21,7 @@
 #include <stddef.h>
 
 #include <cstdint>
+#include <vector>
 
 #include "common/status.h"
 #include "format/parquet/parquet_common.h"
@@ -43,27 +44,30 @@ public:
 
     size_t get_levels(level_t* levels, size_t n);
 
-    inline size_t get_next_run(level_t* val, size_t max_run) {
-        return _rle_decoder.GetNextRun(val, max_run);
+    size_t get_next_run(level_t* val, size_t max_run);
+
+    level_t get_next();
+
+    void rewind_one();
+
+    void release_scratch(size_t max_retained_bytes) {
+        if (_rle_scratch.capacity() * sizeof(uint16_t) > max_retained_bytes) {
+            std::vector<uint16_t>().swap(_rle_scratch);
+        }
     }
-
-    inline level_t get_next() {
-        level_t next = -1;
-        _rle_decoder.Get(&next);
-        return next;
-    }
-
-    inline void rewind_one() { _rle_decoder.RewindOne(); }
-
-    const RleDecoder<level_t>& rle_decoder() const { return _rle_decoder; }
 
 private:
     tparquet::Encoding::type _encoding;
     level_t _bit_width = 0;
     level_t _max_level = 0;
     uint32_t _num_levels = 0;
-    RleDecoder<level_t> _rle_decoder;
+    RleBatchDecoder<uint16_t> _rle_decoder;
+    std::vector<uint16_t> _rle_scratch;
     BitReader _bit_packed_decoder;
+    bool _has_buffered_level = false;
+    bool _can_rewind = false;
+    level_t _buffered_level = -1;
+    level_t _last_level = -1;
 };
 
 } // namespace doris::format::parquet::native

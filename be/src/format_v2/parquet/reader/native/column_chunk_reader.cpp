@@ -328,14 +328,19 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-void ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_get_uncompressed_levels(
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_get_uncompressed_levels(
         const tparquet::DataPageHeaderV2& page_v2, Slice& page_data) {
-    int32_t rl = page_v2.repetition_levels_byte_length;
-    int32_t dl = page_v2.definition_levels_byte_length;
+    const size_t rl = page_v2.repetition_levels_byte_length;
+    const size_t dl = page_v2.definition_levels_byte_length;
+    if (UNLIKELY(rl > page_data.size || dl > page_data.size - rl)) {
+        // Validate the physical slice again because a cached entry may itself be truncated.
+        return Status::Corruption("Parquet data page v2 level bytes exceed available payload");
+    }
     _v2_rep_levels = Slice(page_data.data, rl);
     _v2_def_levels = Slice(page_data.data + rl, dl);
     page_data.data += dl + rl;
     page_data.size -= dl + rl;
+    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -366,16 +371,31 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 size_t rl = header_v2.repetition_levels_byte_length;
                 size_t dl = header_v2.definition_levels_byte_length;
                 levels_size = rl + dl;
+                if (UNLIKELY(header_size > cached.size ||
+                             levels_size > cached.size - header_size)) {
+                    return Status::Corruption("Cached Parquet page is shorter than its v2 levels");
+                }
                 _v2_rep_levels =
                         Slice(reinterpret_cast<const uint8_t*>(cached.data) + header_size, rl);
                 _v2_def_levels =
                         Slice(reinterpret_cast<const uint8_t*>(cached.data) + header_size + rl, dl);
             }
             // payload_slice points to the bytes after header and levels
+            if (UNLIKELY(header_size + levels_size > cached.size)) {
+                return Status::Corruption("Cached Parquet page is shorter than its header");
+            }
             Slice payload_slice(cached.data + header_size + levels_size,
                                 cached.size - header_size - levels_size);
 
             bool cache_payload_is_decompressed = _page_reader->is_cache_payload_decompressed();
+            const size_t expected_payload_size =
+                    cache_payload_is_decompressed
+                            ? static_cast<size_t>(header->uncompressed_page_size) - levels_size
+                            : static_cast<size_t>(header->compressed_page_size) - levels_size;
+            if (UNLIKELY(payload_slice.size != expected_payload_size)) {
+                return Status::Corruption("Cached Parquet page payload has size {}, expected {}",
+                                          payload_slice.size, expected_payload_size);
+            }
 
             if (cache_payload_is_decompressed) {
                 // Cached payload is already uncompressed
@@ -419,7 +439,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                     memcpy(level_bytes.data(), compressed_data.data, level_sz);
                 }
                 // now remove levels from compressed_data for decompression
-                _get_uncompressed_levels(header_v2, compressed_data);
+                RETURN_IF_ERROR(_get_uncompressed_levels(header_v2, compressed_data));
             }
             bool is_v2_compressed = header->__isset.data_page_header_v2 &&
                                     header->data_page_header_v2.is_compressed;
@@ -476,7 +496,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                     level_bytes.resize(level_sz);
                     memcpy(level_bytes.data(), uncompressed_data.data, level_sz);
                 }
-                _get_uncompressed_levels(header_v2, uncompressed_data);
+                RETURN_IF_ERROR(_get_uncompressed_levels(header_v2, uncompressed_data));
             }
             // copy page data out
             _page_data = Slice(uncompressed_data.data, uncompressed_data.size);
@@ -531,6 +551,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     }
+    // Encoding headers cannot legitimately advertise more physical values than the data page's
+    // logical value count; establish the bound before decoders inspect external counts.
+    _page_decoder->set_expected_values(_remaining_num_values);
     RETURN_IF_ERROR(_page_decoder->set_data(&_page_data));
 
     _state = DATA_LOADED;
@@ -573,6 +596,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
 
             if (cache_payload_is_decompressed) {
                 // Use cached decompressed dictionary data
+                if (UNLIKELY(payload_slice.size != static_cast<size_t>(uncompressed_size))) {
+                    return Status::Corruption(
+                            "Cached Parquet dictionary payload has size {}, expected {}",
+                            payload_slice.size, uncompressed_size);
+                }
                 memcpy(dict_data.get(), payload_slice.data, payload_slice.size);
                 dict_loaded = true;
             } else {
@@ -709,13 +737,13 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_values(size_t num_va
         return Status::IOError("Skip too many values in current page. {} vs. {}",
                                _remaining_num_values, num_values);
     }
-    _remaining_num_values -= num_values;
     if (skip_data) {
         SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
-        return _page_decoder->skip_values(num_values);
-    } else {
-        return Status::OK();
+        RETURN_IF_ERROR(_page_decoder->skip_values(num_values));
     }
+    // Commit logical page progress only after the physical decoder accepted the whole request.
+    _remaining_num_values -= num_values;
+    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -733,23 +761,29 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
         return Status::IOError("Decode too many values in current page");
     }
-    _remaining_num_values -= select_vector.num_values();
     RETURN_IF_ERROR(translate_value_encoding(_current_encoding, &context.encoding));
+    Status status;
     if (select_vector.has_filter()) {
         if (select_vector.num_nulls() == 0) {
             ++_chunk_statistics.hybrid_selection_batches;
-            const Status status = decode_selected_non_null_values(
-                    *doris_column, serde, *_page_decoder, context, state, select_vector,
-                    &_chunk_statistics.materialization_time);
+            status = decode_selected_non_null_values(*doris_column, serde, *_page_decoder, context,
+                                                     state, select_vector,
+                                                     &_chunk_statistics.materialization_time);
             _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
-            return status;
+        } else {
+            ++_chunk_statistics.hybrid_selection_null_fallback_batches;
+            status = decode_selected_values<true>(*doris_column, serde, *_page_decoder, context,
+                                                  state, select_vector,
+                                                  &_chunk_statistics.materialization_time);
         }
-        ++_chunk_statistics.hybrid_selection_null_fallback_batches;
-        return decode_selected_values<true>(*doris_column, serde, *_page_decoder, context, state,
-                                            select_vector, &_chunk_statistics.materialization_time);
+    } else {
+        status = decode_selected_values<false>(*doris_column, serde, *_page_decoder, context, state,
+                                               select_vector,
+                                               &_chunk_statistics.materialization_time);
     }
-    return decode_selected_values<false>(*doris_column, serde, *_page_decoder, context, state,
-                                         select_vector, &_chunk_statistics.materialization_time);
+    RETURN_IF_ERROR(status);
+    _remaining_num_values -= select_vector.num_values();
+    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -861,6 +895,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_nested_rows(
     rep_levels.reserve(rep_levels.size() + _remaining_rep_nums);
     while (_remaining_rep_nums) {
         level_t rep_level = _rep_level_get_next();
+        if (UNLIKELY(rep_level < 0)) {
+            return Status::Corruption("Parquet repetition level stream ended unexpectedly");
+        }
         if (rep_level == 0) {               // rep_level 0 indicates start of new row
             if (*result_rows == max_rows) { // this page contain max_rows, page no end.
                 _current_row += max_rows;
@@ -892,6 +929,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_cross_page_nested_ro
     *cross_page = has_next_page();
     while (_remaining_rep_nums) {
         level_t rep_level = _rep_level_get_next();
+        if (UNLIKELY(rep_level < 0)) {
+            return Status::Corruption("Parquet repetition level stream ended unexpectedly");
+        }
         if (rep_level == 0) { // rep_level 0 indicates start of new row
             *cross_page = false;
             _rep_level_rewind_one();

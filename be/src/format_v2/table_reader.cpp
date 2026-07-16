@@ -50,6 +50,7 @@
 #include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
 #include "util/string_util.h"
@@ -668,8 +669,13 @@ Status TableReader::init(TableReadOptions&& options) {
     _conjuncts = std::move(options.conjuncts);
 
     if (_scanner_profile != nullptr) {
-        static const char* table_profile = "TableReader";
-        ADD_TIMER_WITH_LEVEL(_scanner_profile, table_profile, 1);
+        const auto hierarchy = file_scan_profile::ensure_hierarchy(_scanner_profile);
+        static const char* table_profile = file_scan_profile::TABLE_READER;
+        static const char* file_reader_profile = file_scan_profile::FILE_READER;
+        _profile.total_timer = hierarchy.table_reader;
+        _profile.file_reader_total_timer = hierarchy.file_reader;
+        _profile.init_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "InitTime", table_profile, 1);
         _profile.num_delete_files = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "NumDeleteFiles",
                                                                  TUnit::UNIT, table_profile, 1);
         _profile.num_delete_rows = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "NumDeleteRows",
@@ -702,11 +708,32 @@ Status TableReader::init(TableReadOptions&& options) {
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PushDownAggTime", table_profile, 1);
         _profile.open_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "OpenReaderTime", table_profile, 1);
-        _profile.runtime_filter_partition_prune_timer = ADD_TIMER_WITH_LEVEL(
-                _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", 1);
-        _profile.runtime_filter_partition_pruned_range_counter = ADD_COUNTER_WITH_LEVEL(
-                _scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
+        _profile.runtime_filter_partition_prune_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", table_profile, 1);
+        _profile.runtime_filter_partition_pruned_range_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT,
+                table_profile, 1);
+        _profile.close_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "CloseTime", table_profile, 1);
+        // Lifecycle timer names remain globally unique because RuntimeProfile's visual hierarchy
+        // does not namespace counters that share the same display parent.
+        _profile.file_reader_init_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderInitTime", file_reader_profile, 1);
+        _profile.file_reader_schema_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderGetSchemaTime", file_reader_profile, 1);
+        _profile.file_reader_mapper_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderCreateColumnMapperTime", file_reader_profile, 1);
+        _profile.file_reader_open_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderOpenTime", file_reader_profile, 1);
+        _profile.file_reader_get_block_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderGetBlockTime", file_reader_profile, 1);
+        _profile.file_reader_aggregate_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderAggregatePushDownTime", file_reader_profile, 1);
+        _profile.file_reader_close_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderCloseTime", file_reader_profile, 1);
     }
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.init_timer);
     return Status::OK();
 }
 
@@ -855,7 +882,12 @@ Status TableReader::create_next_reader(bool* eos) {
     if (_batch_size > 0) {
         _data_reader.reader->set_batch_size(_batch_size);
     }
-    Status st = _data_reader.reader->init(_runtime_state);
+    Status st;
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_init_timer);
+        st = _data_reader.reader->init(_runtime_state);
+    }
     if (!st.ok()) {
         if (_io_ctx != nullptr && _io_ctx->should_stop && st.is<ErrorCode::END_OF_FILE>()) {
             *eos = true;
@@ -960,6 +992,7 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 }
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
+    SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
     _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;

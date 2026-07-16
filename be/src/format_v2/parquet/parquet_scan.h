@@ -190,6 +190,8 @@ private:
     size_t _next_row_group_plan_idx = 0;            // index of the next row group to process
 
     bool _has_current_row_group = false;
+    // Readers retain pointers into this immutable row-group map, so it must outlive both maps below.
+    std::unordered_map<int, tparquet::OffsetIndex> _current_offset_indexes;
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
             _current_predicate_columns; // predicate ColumnReaders
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
@@ -204,7 +206,6 @@ private:
     int64_t _current_row_group_first_row = 0;       // first file row of the current row group
     std::vector<RowRange>
             _current_selected_ranges; // selected ranges for the current row group after page-index pruning
-    std::unordered_map<int, tparquet::OffsetIndex> _current_offset_indexes;
     size_t _current_range_idx = 0;        // current selected_range index
     int64_t _current_range_rows_read = 0; // rows read in the current range
     // Predicate readers move immediately because they decide which rows survive. Non-predicate

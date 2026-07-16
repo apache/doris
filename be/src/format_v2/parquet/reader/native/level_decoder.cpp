@@ -37,6 +37,8 @@ Status LevelDecoder::init(Slice* slice, tparquet::Encoding::type encoding, level
     _bit_width = cast_set<level_t>(BitUtil::log2(max_level + 1));
     _max_level = max_level;
     _num_levels = num_levels;
+    _has_buffered_level = false;
+    _can_rewind = false;
     switch (encoding) {
     case tparquet::Encoding::RLE: {
         if (slice->size < V1_LEVEL_SIZE) {
@@ -48,7 +50,7 @@ Status LevelDecoder::init(Slice* slice, tparquet::Encoding::type encoding, level
         if (num_bytes > slice->size - V1_LEVEL_SIZE) {
             return Status::Corruption("Wrong parquet level format");
         }
-        _rle_decoder = RleDecoder<level_t>(data + V1_LEVEL_SIZE, num_bytes, _bit_width);
+        _rle_decoder = RleBatchDecoder<uint16_t>(data + V1_LEVEL_SIZE, num_bytes, _bit_width);
 
         slice->data += V1_LEVEL_SIZE + num_bytes;
         slice->size -= V1_LEVEL_SIZE + num_bytes;
@@ -77,31 +79,161 @@ Status LevelDecoder::init_v2(const Slice& levels, level_t max_level, uint32_t nu
     _bit_width = cast_set<level_t>(BitUtil::log2(max_level + 1));
     _max_level = max_level;
     _num_levels = num_levels;
+    _has_buffered_level = false;
+    _can_rewind = false;
     size_t byte_length = levels.size;
-    _rle_decoder =
-            RleDecoder<level_t>((uint8_t*)levels.data, cast_set<int>(byte_length), _bit_width);
+    _rle_decoder = RleBatchDecoder<uint16_t>((uint8_t*)levels.data, cast_set<int>(byte_length),
+                                             _bit_width);
     return Status::OK();
 }
 
 size_t LevelDecoder::get_levels(level_t* levels, size_t n) {
+    _can_rewind = false;
     // toto template.
     if (_encoding == tparquet::Encoding::RLE) {
         n = std::min((size_t)_num_levels, n);
-        auto num_decoded = _rle_decoder.get_values(levels, n);
+        size_t num_decoded = 0;
+        if (_has_buffered_level && n > 0) {
+            levels[num_decoded++] = _buffered_level;
+            _has_buffered_level = false;
+        }
+        if (num_decoded < n) {
+            const size_t remaining = n - num_decoded;
+            _rle_scratch.resize(remaining);
+            const size_t batch_decoded =
+                    _rle_decoder.GetBatch(_rle_scratch.data(), cast_set<uint32_t>(remaining));
+            for (size_t i = 0; i < batch_decoded; ++i) {
+                levels[num_decoded + i] = cast_set<level_t>(_rle_scratch[i]);
+            }
+            num_decoded += batch_decoded;
+        }
         _num_levels -= num_decoded;
+        _can_rewind = false;
         return num_decoded;
     } else if (_encoding == tparquet::Encoding::BIT_PACKED) {
         n = std::min((size_t)_num_levels, n);
-        for (size_t i = 0; i < n; ++i) {
-            if (!_bit_packed_decoder.GetValue(_bit_width, &levels[i])) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                       "Failed to decode BIT_PACKED levels");
+        size_t decoded = 0;
+        for (; decoded < n; ++decoded) {
+            if (!_bit_packed_decoder.GetValue(_bit_width, &levels[decoded])) {
+                break;
             }
         }
-        _num_levels -= n;
-        return n;
+        _num_levels -= decoded;
+        return decoded;
     }
     return 0;
+}
+
+size_t LevelDecoder::get_next_run(level_t* val, size_t max_run) {
+    DORIS_CHECK(val != nullptr);
+    _can_rewind = false;
+    max_run = std::min<size_t>(max_run, _num_levels);
+    if (max_run == 0) {
+        return 0;
+    }
+    if (_encoding == tparquet::Encoding::RLE) {
+        size_t decoded = 0;
+        if (_has_buffered_level) {
+            *val = _buffered_level;
+            _has_buffered_level = false;
+            decoded = 1;
+        } else {
+            uint16_t first = 0;
+            if (_rle_decoder.GetBatch(&first, 1) != 1) {
+                return 0;
+            }
+            *val = cast_set<level_t>(first);
+            decoded = 1;
+        }
+        while (decoded < max_run) {
+            const int32_t repeats = _rle_decoder.NextNumRepeats();
+            if (repeats > 0) {
+                const level_t repeated = cast_set<level_t>(_rle_decoder.GetRepeatedValue(0));
+                if (repeated != *val) break;
+                const int32_t consume = std::min(repeats, cast_set<int32_t>(max_run - decoded));
+                _rle_decoder.GetRepeatedValue(consume);
+                decoded += consume;
+                continue;
+            }
+            if (_rle_decoder.NextNumLiterals() == 0) break;
+            uint16_t literal = 0;
+            if (!_rle_decoder.GetLiteralValues(1, &literal)) break;
+            const level_t next = cast_set<level_t>(literal);
+            if (next != *val) {
+                // Batch RLE has no physical rewind; retain the one-value lookahead logically.
+                _buffered_level = next;
+                _has_buffered_level = true;
+                break;
+            }
+            ++decoded;
+        }
+        _num_levels -= decoded;
+        _can_rewind = false;
+        return decoded;
+    }
+    if (_encoding != tparquet::Encoding::BIT_PACKED ||
+        !_bit_packed_decoder.GetValue(_bit_width, val)) {
+        return 0;
+    }
+    size_t decoded = 1;
+    while (decoded < max_run) {
+        level_t next = -1;
+        if (!_bit_packed_decoder.GetValue(_bit_width, &next)) {
+            break;
+        }
+        if (next != *val) {
+            // The lookahead belongs to the following run, so cursor APIs must leave it unread.
+            _bit_packed_decoder.Rewind(_bit_width);
+            break;
+        }
+        ++decoded;
+    }
+    _num_levels -= decoded;
+    return decoded;
+}
+
+level_t LevelDecoder::get_next() {
+    if (_num_levels == 0) {
+        return -1;
+    }
+    level_t next = -1;
+    bool decoded = false;
+    if (_encoding == tparquet::Encoding::RLE) {
+        if (_has_buffered_level) {
+            next = _buffered_level;
+            _has_buffered_level = false;
+            decoded = true;
+        } else {
+            uint16_t value = 0;
+            decoded = _rle_decoder.GetBatch(&value, 1) == 1;
+            next = cast_set<level_t>(value);
+        }
+    } else if (_encoding == tparquet::Encoding::BIT_PACKED) {
+        decoded = _bit_packed_decoder.GetValue(_bit_width, &next);
+    }
+    if (!decoded) {
+        return -1;
+    }
+    --_num_levels;
+    _last_level = next;
+    _can_rewind = true;
+    return next;
+}
+
+void LevelDecoder::rewind_one() {
+    if (_encoding == tparquet::Encoding::RLE) {
+        DORIS_CHECK(_can_rewind && !_has_buffered_level);
+        _buffered_level = _last_level;
+        _has_buffered_level = true;
+    } else if (_encoding == tparquet::Encoding::BIT_PACKED) {
+        DORIS_CHECK(_can_rewind);
+        _bit_packed_decoder.Rewind(_bit_width);
+    } else {
+        return;
+    }
+    // Rewinding restores one advertised level as well as its encoded bits.
+    ++_num_levels;
+    _can_rewind = false;
 }
 
 } // namespace doris::format::parquet::native
