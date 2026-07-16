@@ -34,6 +34,7 @@ suite("test_clickhouse_jdbc_v2", "p0,external") {
 
         order_qt_clickhouse_v2_schema """ select count(*) from clickhouse_v2_schema.doris_test.type """
         order_qt_clickhouse_v2_distributed """ select count(*) from clickhouse_v2_schema.doris_test.distributed_type """
+        order_qt_clickhouse_v2_materialized_view """ select count(*) from clickhouse_v2_schema.doris_test.materialized_view_type """
         sql """ drop catalog clickhouse_v2_schema """
     }
 }

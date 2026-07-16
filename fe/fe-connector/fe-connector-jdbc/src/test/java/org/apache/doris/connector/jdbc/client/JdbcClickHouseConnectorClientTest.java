@@ -53,9 +53,9 @@ public class JdbcClickHouseConnectorClientTest {
     }
 
     @Test
-    void testRemoteTableTypeIsVisible() {
+    void testClickHouseSpecificTableTypesAreVisible() {
         Assertions.assertArrayEquals(
-                new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE"},
+                new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
                 createClient().getTableTypes());
     }
 }

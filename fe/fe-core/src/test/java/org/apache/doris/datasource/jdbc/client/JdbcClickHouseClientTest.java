@@ -41,11 +41,12 @@ public class JdbcClickHouseClientTest {
     }
 
     @Test
-    public void testRemoteTableTypeIsVisible() {
+    public void testClickHouseSpecificTableTypesAreVisible() {
         JdbcClickHouseClient client = Mockito.mock(JdbcClickHouseClient.class, Answers.CALLS_REAL_METHODS);
 
         Assert.assertArrayEquals(
-                new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE"}, client.getTableTypes());
+                new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
+                client.getTableTypes());
     }
 
     @Test

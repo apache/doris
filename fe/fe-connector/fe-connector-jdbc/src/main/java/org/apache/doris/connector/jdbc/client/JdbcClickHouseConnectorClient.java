@@ -133,7 +133,8 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
 
     @Override
     protected String[] getTableTypes() {
-        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE"};
+        // ClickHouse JDBC V2 filters engines by these vendor-specific table type names.
+        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"};
     }
 
     @Override
