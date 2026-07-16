@@ -44,10 +44,15 @@ class AnalyticWindowTest {
     @Test
     void testRowsOffsetOverMaxInt64IsRejected() {
         BigDecimal offset = BigDecimal.valueOf(Long.MAX_VALUE).add(BigDecimal.ONE);
-        AnalyticWindow.Boundary boundary = new AnalyticWindow.Boundary(
-                AnalyticWindow.BoundaryType.PRECEDING, new IntLiteral(1L), offset);
+        for (AnalyticWindow.BoundaryType boundaryType : new AnalyticWindow.BoundaryType[] {
+                AnalyticWindow.BoundaryType.PRECEDING, AnalyticWindow.BoundaryType.FOLLOWING}) {
+            AnalyticWindow.Boundary boundary = new AnalyticWindow.Boundary(
+                    boundaryType, new IntLiteral(1L), offset);
 
-        Assertions.assertThrows(IllegalStateException.class,
-                () -> boundary.toThrift(AnalyticWindow.Type.ROWS));
+            IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                    () -> boundary.toThrift(AnalyticWindow.Type.ROWS));
+            Assertions.assertEquals("ROWS window offset must not exceed " + Long.MAX_VALUE,
+                    exception.getMessage());
+        }
     }
 }
