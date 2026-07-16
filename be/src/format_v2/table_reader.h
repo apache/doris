@@ -660,7 +660,11 @@ protected:
             ColumnPtr column;
             RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
                                                         &column));
-            block->replace_by_position(idx, IColumn::mutate(std::move(column)));
+            // Keep projection columns shared with the file block. Before the next read,
+            // clear_column_data() replaces shared columns with clone_empty(), so forcing a mutable
+            // deep copy here only duplicates the just-read batch (which can be several GB for
+            // nested string/map columns).
+            block->replace_by_position(idx, std::move(column));
             idx++;
         }
         RETURN_IF_ERROR(materialize_virtual_columns(block));
@@ -971,11 +975,6 @@ protected:
         return true;
     }
 
-    static ColumnPtr _detach_column(ColumnPtr column) {
-        DORIS_CHECK(column.get() != nullptr);
-        return IColumn::mutate(std::move(column));
-    }
-
     static Status _align_column_nullability(ColumnPtr* column, const DataTypePtr& table_type) {
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(column->get() != nullptr);
@@ -1152,7 +1151,7 @@ protected:
                         rows, st.to_string(), mapping.debug_string());
             }
             ColumnPtr result_column = current_block->get_by_position(res_id).column;
-            *column = _detach_column(std::move(result_column));
+            *column = std::move(result_column);
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
@@ -1162,7 +1161,7 @@ protected:
                         mapping.default_expr, current_block, &result));
                 ColumnPtr result_column = result.column;
                 RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
+                *column = std::move(result_column);
             } else {
                 DORIS_CHECK(mapping.constant_index.has_value());
                 Block eval_block;
@@ -1173,12 +1172,12 @@ protected:
                         mapping.default_expr, &eval_block, &result));
                 ColumnPtr result_column = result.column;
                 RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
+                *column = std::move(result_column);
             }
             return Status::OK();
         }
         ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
-        *column = _detach_column(std::move(result_column));
+        *column = std::move(result_column);
         return Status::OK();
     }
 
@@ -1199,7 +1198,7 @@ protected:
             RETURN_IF_ERROR(_materialize_map_mapping_column(mapping, file_column, rows, column));
             break;
         default:
-            *column = _detach_column(file_column);
+            *column = file_column;
             break;
         }
         return Status::OK();

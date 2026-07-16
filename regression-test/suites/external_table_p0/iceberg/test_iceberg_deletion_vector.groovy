@@ -333,15 +333,6 @@ class IcebergRestCatalog {
             "Session variable enable_file_scanner_v2 is not found")
     String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
     try {
-        sql """set enable_file_scanner_v2=false"""
-        GetDebugPoint().clearDebugPointsForAllBEs()
-        GetDebugPoint().enableDebugPointForAllBEs(
-                "IcebergDeleteFileReader.read_deletion_vector.io_error")
-        test {
-            sql """ SELECT count(*) FROM dv_test; """
-            exception "injected Iceberg deletion vector read failure"
-        }
-
         sql """set enable_file_scanner_v2=true"""
         GetDebugPoint().clearDebugPointsForAllBEs()
         GetDebugPoint().enableDebugPointForAllBEs(

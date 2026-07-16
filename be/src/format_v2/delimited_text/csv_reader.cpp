@@ -17,6 +17,7 @@
 
 #include "format_v2/delimited_text/csv_reader.h"
 
+#include <algorithm>
 #include <cstring>
 #include <utility>
 
@@ -33,6 +34,226 @@
 #include "util/utf8_check.h"
 
 namespace doris::format::csv {
+
+enum class CsvReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
+
+struct CsvReaderStateWrapper {
+    void forward_to(CsvReaderState state) {
+        prev_state = curr_state;
+        curr_state = state;
+    }
+
+    void reset() {
+        curr_state = CsvReaderState::START;
+        prev_state = CsvReaderState::START;
+    }
+
+    CsvReaderState curr_state = CsvReaderState::START;
+    CsvReaderState prev_state = CsvReaderState::START;
+};
+
+// The v1 CSV context cannot distinguish a column separator that overlaps the line delimiter and
+// may rewind into a separator that was already emitted when the output buffer is refilled. Keep
+// the stricter behavior local to format v2 so the v1 reader remains unchanged.
+class EncloseCsvLineReaderV2Ctx final
+        : public BaseTextLineReaderContext<EncloseCsvLineReaderV2Ctx> {
+    using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
+
+public:
+    EncloseCsvLineReaderV2Ctx(const std::string& line_delimiter_, size_t line_delimiter_len_,
+                              std::string column_separator, size_t column_separator_len,
+                              size_t column_separator_count, char enclose, char escape,
+                              bool keep_cr_, bool skip_utf8_bom)
+            : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_),
+              _enclose(enclose),
+              _escape(escape),
+              _skip_utf8_bom(skip_utf8_bom),
+              _column_separator_len(column_separator_len),
+              _column_separator(std::move(column_separator)) {
+        if (_column_separator_len == 1) {
+            _find_column_separator = &look_for_column_separator<true>;
+        } else {
+            _find_column_separator = &look_for_column_separator<false>;
+        }
+        _column_separator_positions.reserve(column_separator_count);
+    }
+
+    void refresh_impl() {
+        _idx = 0;
+        _should_escape = false;
+        _quote_escape = false;
+        _result = nullptr;
+        _column_separator_positions.clear();
+        _state.reset();
+    }
+
+    [[nodiscard]] const std::vector<size_t>& column_sep_positions() const {
+        return _column_separator_positions;
+    }
+
+    void adjust_column_sep_positions(size_t offset) {
+        for (auto& position : _column_separator_positions) {
+            position -= offset;
+        }
+    }
+
+    const uint8_t* read_line_impl(const uint8_t* start, size_t length) {
+        if (_skip_utf8_bom && !_first_record_prefix_checked && _idx == 0) {
+            constexpr uint8_t UTF8_BOM[] = {0xEF, 0xBB, 0xBF};
+            constexpr size_t UTF8_BOM_SIZE = sizeof(UTF8_BOM);
+            const size_t prefix_size = std::min(length, UTF8_BOM_SIZE);
+            if (std::memcmp(start, UTF8_BOM, prefix_size) != 0) {
+                _first_record_prefix_checked = true;
+            } else if (length < UTF8_BOM_SIZE) {
+                return nullptr;
+            } else {
+                _idx = UTF8_BOM_SIZE;
+                _first_record_prefix_checked = true;
+            }
+        }
+
+        if (_state.curr_state == CsvReaderState::NORMAL ||
+            _state.curr_state == CsvReaderState::MATCH_ENCLOSE) {
+            const size_t last_separator_end =
+                    _column_separator_positions.empty()
+                            ? 0
+                            : _column_separator_positions.back() + _column_separator_len;
+            DORIS_CHECK_LE(last_separator_end, _idx);
+            _idx -= std::min(_column_separator_len - 1, _idx - last_separator_end);
+        }
+
+        _total_len = length;
+        size_t bound = update_reading_bound(start);
+        while (_idx != bound) {
+            switch (_state.curr_state) {
+            case CsvReaderState::START:
+                on_start(start);
+                break;
+            case CsvReaderState::NORMAL:
+                on_normal(start, bound);
+                break;
+            case CsvReaderState::PRE_MATCH_ENCLOSE:
+                on_pre_match_enclose(start, bound);
+                break;
+            case CsvReaderState::MATCH_ENCLOSE:
+                on_match_enclose(start, bound);
+                break;
+            }
+        }
+        return _result;
+    }
+
+private:
+    template <bool SingleChar>
+    static const uint8_t* look_for_column_separator(const uint8_t* start, size_t length,
+                                                    const char* separator, size_t separator_len) {
+        if constexpr (SingleChar) {
+            for (size_t i = 0; i < length; ++i) {
+                if (start[i] == separator[0]) {
+                    return start + i;
+                }
+            }
+            return nullptr;
+        }
+        return static_cast<const uint8_t*>(memmem(start, length, separator, separator_len));
+    }
+
+    size_t update_reading_bound(const uint8_t* start) {
+        _result = call_find_line_sep(start + _idx, _total_len - _idx);
+        return _result == nullptr ? _total_len : _result - start + line_delimiter_length();
+    }
+
+    void on_column_separator_found(const uint8_t* start, const uint8_t* separator_position) {
+        const uint8_t* field_start = start + _idx;
+        _column_separator_positions.push_back(separator_position - start);
+        _idx += separator_position + _column_separator_len - field_start;
+    }
+
+    void on_start(const uint8_t* start) {
+        if (start[_idx] == _enclose) [[unlikely]] {
+            _state.forward_to(CsvReaderState::PRE_MATCH_ENCLOSE);
+            ++_idx;
+        } else {
+            _state.forward_to(CsvReaderState::NORMAL);
+        }
+    }
+
+    void on_normal(const uint8_t* start, size_t bound) {
+        const size_t search_bound = _result == nullptr ? bound : _result - start;
+        DORIS_CHECK_LE(_idx, search_bound);
+        const uint8_t* separator_position =
+                _find_column_separator(start + _idx, search_bound - _idx, _column_separator.c_str(),
+                                       _column_separator_len);
+        if (separator_position != nullptr) [[likely]] {
+            on_column_separator_found(start, separator_position);
+            _state.forward_to(CsvReaderState::START);
+            return;
+        }
+        _idx = bound;
+    }
+
+    void on_pre_match_enclose(const uint8_t* start, size_t& bound) {
+        do {
+            do {
+                if (_escape != _enclose && start[_idx] == _escape) [[unlikely]] {
+                    _should_escape = !_should_escape;
+                } else if (_should_escape) [[unlikely]] {
+                    _should_escape = false;
+                } else if (_quote_escape) {
+                    if (start[_idx] == _enclose) {
+                        _quote_escape = false;
+                    } else {
+                        _quote_escape = false;
+                        _state.forward_to(CsvReaderState::MATCH_ENCLOSE);
+                        return;
+                    }
+                } else if (start[_idx] == _enclose) {
+                    _quote_escape = true;
+                } else {
+                    _quote_escape = false;
+                }
+                ++_idx;
+            } while (_idx != bound);
+
+            if (_idx != _total_len) {
+                bound = update_reading_bound(start);
+            } else {
+                _result = nullptr;
+                break;
+            }
+        } while (true);
+    }
+
+    void on_match_enclose(const uint8_t* start, size_t bound) {
+        const size_t search_bound = _result == nullptr ? bound : _result - start;
+        DORIS_CHECK_LE(_idx, search_bound);
+        const uint8_t* separator_position =
+                _find_column_separator(start + _idx, search_bound - _idx, _column_separator.c_str(),
+                                       _column_separator_len);
+        if (separator_position != nullptr) [[likely]] {
+            on_column_separator_found(start, separator_position);
+            _state.forward_to(CsvReaderState::START);
+            return;
+        }
+        _idx = bound;
+    }
+
+    CsvReaderStateWrapper _state;
+    const char _enclose;
+    const char _escape;
+    const bool _skip_utf8_bom;
+    bool _first_record_prefix_checked = false;
+    const uint8_t* _result = nullptr;
+    size_t _total_len = 0;
+    const size_t _column_separator_len;
+    size_t _idx = 0;
+    bool _should_escape = false;
+    bool _quote_escape = false;
+    const std::string _column_separator;
+    std::vector<size_t> _column_separator_positions;
+    FindDelimiterFunc _find_column_separator;
+};
+
 namespace {
 
 bool starts_with_at(const Slice& line, size_t pos, const std::string& needle) {
@@ -136,7 +357,7 @@ Status CsvReader::_create_line_reader() {
         } else {
             const size_t col_sep_num =
                     _source_file_slot_descs.size() > 1 ? _source_file_slot_descs.size() - 1 : 0;
-            _enclose_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
+            _enclose_reader_ctx = std::make_shared<EncloseCsvLineReaderV2Ctx>(
                     _line_delimiter, _line_delimiter.size(), _value_separator,
                     _value_separator.size(), col_sep_num, _enclose, _escape, _keep_cr,
                     _start_offset == 0);

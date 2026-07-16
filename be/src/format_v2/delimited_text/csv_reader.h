@@ -25,11 +25,12 @@
 #include "util/slice.h"
 
 namespace doris {
-class EncloseCsvLineReaderCtx;
 class SlotDescriptor;
 } // namespace doris
 
 namespace doris::format::csv {
+
+class EncloseCsvLineReaderV2Ctx;
 
 // FileScannerV2 CSV reader.
 //
@@ -70,7 +71,7 @@ private:
     bool _trim_tailing_spaces = false;
     bool _empty_field_as_null = false;
     bool _keep_cr = false;
-    std::shared_ptr<EncloseCsvLineReaderCtx> _enclose_reader_ctx;
+    std::shared_ptr<EncloseCsvLineReaderV2Ctx> _enclose_reader_ctx;
 };
 
 } // namespace doris::format::csv

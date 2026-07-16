@@ -628,6 +628,9 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             assertEquals("1", metrics["RowGroupsTotalNum"])
         }
 
+        // The existing profile counter expectations below describe the legacy reader. Keep them
+        // isolated from the format v2 default; q8() is the format v2 lazy-materialization check.
+        sql """ set enable_file_scanner_v2=false; """
         test_true_true();
         test_true_false();
         test_false_false();
