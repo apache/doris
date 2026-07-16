@@ -170,13 +170,14 @@ private:
 
     /// Build block-aligned source coverage for the unread suffix. It first performs one inflight
     /// batch lookup; a fully covered request returns without taking the BlockFileCache lock, while
-    /// incomplete coverage triggers one read-only cache probe for the whole aligned range.
+    /// incomplete coverage triggers one read-only whole-range probe with one result per aligned
+    /// block.
     /// @param[in] remaining_offset First user byte not filled by the direct-cache path.
     /// @param[in] remaining_size Number of unread user bytes.
     /// @param[in] write_epoch Epoch captured before any lookup or remote IO.
     /// @param[in] io_ctx Context used to build the cache admission/probe context.
     /// @param[in,out] stats Lookup and probe counters updated during planning.
-    /// @return Plan that owns any required probe holder and first-to-last remote range.
+    /// @return Plan that owns any retained probe blocks and first-to-last remote range.
     AsyncReadPlan _build_async_read_plan(size_t remaining_offset, size_t remaining_size,
                                          uint64_t write_epoch, const IOContext* io_ctx,
                                          ReadStatistics& stats);
@@ -184,8 +185,8 @@ private:
     /// Copy one block already available from an inflight buffer or downloaded cache file. Cache
     /// state is revalidated before IO; a race is reported to the caller as a simple full-range
     /// remote fallback.
-    /// @param[in] plan Plan owning the probe holder and user boundaries.
-    /// @param[in] read_block Aligned block classified as INFLIGHT, CACHE, or DOWNLOADING.
+    /// @param[in] plan Plan owning the probed blocks and user boundaries.
+    /// @param[in] block_index Index of the aligned block and its matching probe result.
     /// @param[in] user_offset Original user request offset used to locate the destination slice.
     /// @param[out] result Destination buffer for the complete user request.
     /// @param[in] cache_context Context used only when a successful local read touches LRU.
@@ -193,10 +194,10 @@ private:
     /// @param[in,out] materialized_bytes User bytes copied from cache or inflight memory.
     /// @param[in,out] need_self_heal Set when a cache file disappears during a local read.
     /// @return true when the block was copied; false when the caller should use remote fallback.
-    bool _materialize_async_block(const AsyncReadPlan& plan, const AsyncReadBlock& read_block,
-                                  size_t user_offset, Slice result,
-                                  const CacheContext& cache_context, ReadStatistics& stats,
-                                  size_t* materialized_bytes, bool* need_self_heal);
+    bool _materialize_async_block(const AsyncReadPlan& plan, size_t block_index, size_t user_offset,
+                                  Slice result, const CacheContext& cache_context,
+                                  ReadStatistics& stats, size_t* materialized_bytes,
+                                  bool* need_self_heal);
 
     /// Copy only blocks before the first and after the last REMOTE block. When no REMOTE block
     /// exists, copy the entire request. DOWNLOADING blocks outside the remote span keep the

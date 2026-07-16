@@ -188,8 +188,9 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
         CacheContext probe_context;
         probe_context.stats = &probe_stats;
         auto probe_result = cache()->probe(reader->_cache_hash, 0, 2_mb, probe_context);
-        ASSERT_EQ(probe_result.holder.file_blocks.size(), 2);
-        for (const auto& block : probe_result.holder.file_blocks) {
+        ASSERT_EQ(probe_result.file_blocks.size(), 2);
+        for (const auto& block : probe_result.file_blocks) {
+            ASSERT_NE(block, nullptr);
             ASSERT_EQ(block->state(), FileBlock::State::DOWNLOADED);
             cache_files.emplace_back(block->get_cache_file());
         }
@@ -224,10 +225,10 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
         bool metadata_removed = false;
         {
             auto probe_result = cache()->probe(reader->_cache_hash, 0, 2_mb, probe_context);
-            metadata_removed = probe_result.holder.file_blocks.empty() &&
-                               probe_result.gaps.size() == 1 &&
-                               probe_result.gaps.front().left == 0 &&
-                               probe_result.gaps.front().right == 2_mb - 1;
+            metadata_removed =
+                    probe_result.file_blocks.size() == 2 &&
+                    std::all_of(probe_result.file_blocks.begin(), probe_result.file_blocks.end(),
+                                [](const auto& block) { return block == nullptr; });
         }
         const bool files_removed =
                 std::none_of(cache_files.begin(), cache_files.end(),
@@ -311,17 +312,17 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     ReadStatistics cache_stats;
     CacheContext cache_context;
     cache_context.stats = &cache_stats;
-    auto holder = cache()->get_or_set(reader->_cache_hash, 0, 4096, cache_context);
+    auto holder = cache()->get_or_set(reader->_cache_hash, 0, 1_mb, cache_context);
     ASSERT_EQ(holder.file_blocks.size(), 1);
     const auto& prefix_block = holder.file_blocks.front();
     ASSERT_EQ(prefix_block->get_or_set_downloader(), FileBlock::get_caller_id());
-    const std::string cached_prefix(4096, 'x');
+    const std::string cached_prefix(1_mb, 'x');
     ASSERT_TRUE(prefix_block->append(Slice(cached_prefix.data(), cached_prefix.size())).ok());
     ASSERT_TRUE(prefix_block->finalize().ok());
     config::enable_read_cache_file_directly = true;
     reader->_insert_file_reader(prefix_block);
 
-    std::string result(8192, '\0');
+    std::string result(1_mb + 4096, '\0');
     FileCacheStatistics stats;
     IOContext context;
     context.file_cache_stats = &stats;
@@ -329,12 +330,12 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     ASSERT_TRUE(
             reader->read_at(0, Slice(result.data(), result.size()), &bytes_read, &context).ok());
     EXPECT_EQ(bytes_read, result.size());
-    EXPECT_EQ(result.substr(0, 4096), cached_prefix);
-    EXPECT_EQ(result.substr(4096), std::string(4096, '0'));
+    EXPECT_EQ(result.substr(0, 1_mb), cached_prefix);
+    EXPECT_EQ(result.substr(1_mb), std::string(4096, '1'));
     EXPECT_EQ(counting_reader->read_count(), 1);
-    EXPECT_EQ(counting_reader->last_offset(), 0);
+    EXPECT_EQ(counting_reader->last_offset(), 1_mb);
     EXPECT_EQ(counting_reader->last_size(), 1_mb);
-    EXPECT_EQ(stats.bytes_read_from_local, 4096);
+    EXPECT_EQ(stats.bytes_read_from_local, 1_mb);
     EXPECT_EQ(stats.bytes_read_from_remote, 4096);
     EXPECT_EQ(stats.async_cache_write_submitted, 1);
     wait_for_async_writes();
