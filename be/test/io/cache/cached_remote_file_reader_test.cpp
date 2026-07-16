@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <future>
+
 #include "block_file_cache_test_common.h"
 #include "cloud/config.h"
 
@@ -301,6 +303,85 @@ TEST_F(BlockFileCacheTest, async_write_reuses_inflight_buffer_then_reads_downloa
     EXPECT_EQ(third_page, std::string(third_page.size(), '0'));
     EXPECT_EQ(third_stats.probe_downloaded_hit, 1);
     EXPECT_EQ(third_stats.bytes_read_from_remote, 0);
+}
+
+TEST_F(BlockFileCacheTest, async_write_waits_for_downloading_block_outside_remote_span) {
+    const bool old_enable_async = config::enable_async_file_cache_write;
+    const bool old_enable_inflight = config::enable_inflight_write_buffer_index;
+    const bool old_enable_direct = config::enable_read_cache_file_directly;
+    const bool old_enable_peer = config::enable_cache_read_from_peer;
+    const int64_t old_block_size = config::file_cache_each_block_size;
+    config::enable_async_file_cache_write = true;
+    config::enable_inflight_write_buffer_index = true;
+    config::enable_read_cache_file_directly = false;
+    config::enable_cache_read_from_peer = false;
+    config::file_cache_each_block_size = 1_mb;
+    Defer restore_config {[&]() {
+        config::enable_async_file_cache_write = old_enable_async;
+        config::enable_inflight_write_buffer_index = old_enable_inflight;
+        config::enable_read_cache_file_directly = old_enable_direct;
+        config::enable_cache_read_from_peer = old_enable_peer;
+        config::file_cache_each_block_size = old_block_size;
+    }};
+
+    reset_async_reader_cache_factory();
+    const auto cache_path = caches_dir / "cached_remote_reader_wait_downloading";
+    std::error_code error;
+    fs::remove_all(cache_path, error);
+    fs::create_directories(cache_path);
+    Defer cleanup_cache {[&]() {
+        reset_async_reader_cache_factory();
+        std::error_code cleanup_error;
+        fs::remove_all(cache_path, cleanup_error);
+    }};
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_cache(cache_path.string(), async_reader_cache_settings())
+                        .ok());
+    auto* cache = FileCacheFactory::instance()->_path_to_cache[cache_path.string()];
+    ASSERT_NE(cache, nullptr);
+    wait_until_cache_ready(*cache);
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader).ok());
+    auto counting_reader = std::make_shared<CountingFileReader>(local_reader);
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.tablet_id = 10086;
+    auto reader = std::make_shared<CachedRemoteFileReader>(counting_reader, opts);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    auto holder = cache->get_or_set(reader->_cache_hash, 0, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& downloading_block = holder.file_blocks.front();
+    ASSERT_EQ(downloading_block->get_or_set_downloader(), FileBlock::get_caller_id());
+
+    std::string result(4096, '\0');
+    FileCacheStatistics read_stats;
+    IOContext context;
+    context.file_cache_stats = &read_stats;
+    size_t bytes_read = 0;
+    auto read_future = std::async(std::launch::async, [&]() {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        return reader->read_at(0, Slice(result.data(), result.size()), &bytes_read, &context);
+    });
+    EXPECT_EQ(read_future.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
+
+    const std::string payload(1_mb, '0');
+    ASSERT_TRUE(downloading_block->append(Slice(payload.data(), payload.size())).ok());
+    ASSERT_TRUE(downloading_block->finalize().ok());
+    ASSERT_TRUE(read_future.get().ok());
+
+    EXPECT_EQ(bytes_read, result.size());
+    EXPECT_EQ(result, std::string(result.size(), '0'));
+    EXPECT_EQ(counting_reader->read_count(), 0);
+    EXPECT_EQ(read_stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(read_stats.probe_downloading_hit, 1);
+    EXPECT_EQ(read_stats.block_wait_success, 1);
+    EXPECT_EQ(read_stats.block_wait_timeout, 0);
+    EXPECT_EQ(read_stats.async_cache_write_submitted, 0);
 }
 
 TEST_F(BlockFileCacheTest, async_write_reads_only_middle_span_between_cached_sides) {
