@@ -532,6 +532,12 @@ elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
     rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
 fi
 
+MECAB_IPADIC_DIR="${DORIS_THIRDPARTY}/installed/share/mecab-ipadic-2.7.0-20250920"
+if [[ ! -d "${MECAB_IPADIC_DIR}" ]]; then
+    echo "Staging mecab-ipadic (kuromoji dictionary source) into thirdparty ..."
+    bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" mecab_ipadic
+fi
+
 update_submodule() {
     local submodule_path=$1
     local submodule_name=$2
