@@ -75,6 +75,7 @@
 #include "format/csv/csv_reader.h"
 #include "format/generic_reader.h"
 #include "format/json/new_json_reader.h"
+#include "format/lance/lance_reader.h"
 #include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -870,6 +871,10 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         case TFileFormatType::FORMAT_AVRO: {
             reader = AvroJNIReader::create_unique(profile.get(), params, range, file_slots);
+            break;
+        }
+        case TFileFormatType::FORMAT_LANCE: {
+            reader = LanceReader::create_unique(file_slots, nullptr, profile.get(), range, &params);
             break;
         }
         default:
