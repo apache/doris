@@ -141,7 +141,8 @@ public class OlapTableRowBinlogSchemaTest {
         Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
         Assertions.assertTrue(columnNames.contains(Column.generateBeforeColName("v1")));
         Assertions.assertFalse(columnNames.contains(Column.generateBeforeColName("__DORIS_TEST_HIDDEN_KEY__")));
-        Assertions.assertEquals(4, columnNames.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertEquals(4, columnNames.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(5, columnNames.indexOf(Column.BINLOG_LSN_COL));
     }
 
     @Test
@@ -161,6 +162,7 @@ public class OlapTableRowBinlogSchemaTest {
         Assertions.assertEquals("k1", columnNames.get(0));
         Assertions.assertEquals("v1", columnNames.get(1));
         Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
-        Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(3, columnNames.indexOf(Column.BINLOG_LSN_COL));
     }
 }

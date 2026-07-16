@@ -900,9 +900,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         Column key = new Column("k1", PrimitiveType.INT);
         key.setIsKey(true);
         rowBinlogSchema.add(Column.generateRowBinlogKeyColumn(key));
-        rowBinlogSchema.add(new Column(Column.BINLOG_LSN_COL, PrimitiveType.LARGEINT));
+        rowBinlogSchema.add(new Column(Column.BINLOG_TSO_COL, PrimitiveType.BIGINT));
+        rowBinlogSchema.add(new Column(Column.BINLOG_LSN_COL, PrimitiveType.BIGINT));
         rowBinlogSchema.add(new Column(Column.BINLOG_OPERATION_COL, PrimitiveType.BIGINT));
-        rowBinlogSchema.add(new Column(Column.BINLOG_TIMESTAMP_COL, PrimitiveType.BIGINT));
 
         Column hiddenKey = new Column("__DORIS_TEST_HIDDEN_KEY__", PrimitiveType.BIGINT);
         hiddenKey.setIsKey(true);
@@ -918,7 +918,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         List<String> columnNames = rowBinlogSchema.stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(1, columnNames.indexOf("__DORIS_TEST_HIDDEN_KEY__"));
-        Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertEquals(3, columnNames.indexOf(Column.BINLOG_LSN_COL));
 
         Column hiddenValue = new Column("__DORIS_TEST_HIDDEN_VALUE__", PrimitiveType.INT);
         hiddenValue.setIsKey(false);
