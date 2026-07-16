@@ -23,17 +23,14 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -66,7 +63,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -727,9 +723,10 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                 // All conjuncts are safe to strip.
                 return stripOuterFilters(filter.child(0));
             }
-            // Keep only unsafe-to-move conjuncts at this position.
-            Plan strippedChild = stripOuterFilters(filter.child(0));
-            return new LogicalFilter<>(ImmutableSet.copyOf(keepConjuncts), strippedChild);
+            // An unsafe filter is a subtree movement barrier: stripping
+            // filters from below it would change which rows reach the
+            // side-effecting predicate and alter its evaluation domain.
+            return new LogicalFilter<>(ImmutableSet.copyOf(keepConjuncts), filter.child(0));
         }
         if (plan.children().isEmpty()) {
             return plan;
@@ -759,6 +756,16 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
     // ---- ExpressionIdenticalChecker ----------------------------------------
 
+    /**
+     * Structural-equality checker used by {@link #checkFilter} to decide
+     * whether an inner-filter conjunct (after slot replacement) matches an
+     * outer-filter conjunct.  The generic path delegates to
+     * {@link Expression#equals(Object)} which includes all semantic
+     * attributes (target type for Cast/TryCast, analyzer for Match, function
+     * name for BoundFunction, etc.).  The only exception is
+     * {@link ComparisonPredicate}, where we additionally accept the commuted
+     * form ({@code a = b} ↔ {@code b = a}).
+     */
     private static class ExpressionIdenticalChecker extends DefaultExpressionVisitor<Boolean, Expression> {
         public static final ExpressionIdenticalChecker INSTANCE = new ExpressionIdenticalChecker();
 
@@ -766,61 +773,9 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
             return expression.accept(this, expression1);
         }
 
-        private boolean isClassMatch(Object o1, Object o2) {
-            return o1.getClass().equals(o2.getClass());
-        }
-
-        private boolean isSameChild(Expression expression, Expression expression1) {
-            if (expression.children().size() != expression1.children().size()) {
-                return false;
-            }
-            for (int i = 0; i < expression.children().size(); ++i) {
-                if (!expression.children().get(i).accept(this, expression1.children().get(i))) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         @Override
         public Boolean visit(Expression expression, Expression expression1) {
-            return isClassMatch(expression, expression1) && isSameChild(expression, expression1);
-        }
-
-        @Override
-        public Boolean visitBoundFunction(BoundFunction boundFunction, Expression other) {
-            // BoundFunction equality requires matching function names
-            // (via extraEquals), not just matching class and children.
-            // Two UDF wrapper nodes (e.g. JavaUdf / PythonUdf) with the
-            // same runtime class and same children but different function
-            // names are different functions — they must not be matched.
-            return isClassMatch(boundFunction, other)
-                    && Objects.equals(boundFunction.getName(), ((BoundFunction) other).getName())
-                    && isSameChild(boundFunction, other);
-        }
-
-        @Override
-        public Boolean visitMatch(Match match, Expression other) {
-            // Match predicates (MATCH_ANY, MATCH_ALL, …) carry an analyzer
-            // (USING ANALYZER clause) that changes which rows are included.
-            // Two structurally identical MATCH nodes with different
-            // analyzers are semantically different predicates.
-            if (!isClassMatch(match, other)) {
-                return false;
-            }
-            Match otherMatch = (Match) other;
-            return Objects.equals(match.getAnalyzer(), otherMatch.getAnalyzer())
-                    && isSameChild(match, other);
-        }
-
-        @Override
-        public Boolean visitSlotReference(SlotReference slotReference, Expression other) {
-            return slotReference.equals(other);
-        }
-
-        @Override
-        public Boolean visitLiteral(Literal literal, Expression other) {
-            return literal.equals(other);
+            return expression.equals(expression1);
         }
 
         @Override

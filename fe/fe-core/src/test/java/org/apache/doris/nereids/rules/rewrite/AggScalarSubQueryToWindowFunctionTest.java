@@ -2018,6 +2018,174 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
     }
 
     @Test
+    public void testCastWithDifferentTargetTypeRejected() throws Exception {
+        // ExpressionIdenticalChecker must not match two TRY_CAST
+        // predicates with different target types.  The old generic
+        // visit() only checked class + children, ignoring the target
+        // type that Cast.equals() compares.  TRY_CAST(f.s AS INT) and
+        // TRY_CAST(f2.s AS DATE) share the same TryCast class and the
+        // same slot child after replacement, but target INT ≠ DATE.
+        createTable("CREATE TABLE fact_cast (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT,\n"
+                + "  s STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_cast (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_cast add constraint uq_dim_cast_k unique (k)");
+
+        // Outer: TRY_CAST(f.s AS INT) IS NULL
+        // Inner: TRY_CAST(f2.s AS DATE) IS NULL → after slot replacement
+        //        TRY_CAST(f.s AS DATE) IS NULL
+        // Same TryCast class, same child, different target types.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_cast f, dim_cast d "
+                + "WHERE f.k = d.k "
+                + "  AND TRY_CAST(f.s AS INT) IS NULL"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_cast f2 "
+                + "    WHERE f2.k = d.k"
+                + "      AND TRY_CAST(f2.s AS DATE) IS NULL"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — CAST/TRY_CAST with different target
+        // types are semantically different predicates.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when CAST/TRY_CAST predicates "
+                + "have different target types");
+    }
+
+    @Test
+    public void testUnsafeFilterPreservesSubtreeFilters() throws Exception {
+        // stripOuterFilters must not strip deterministic filters from
+        // below a retained unsafe (volatile/NoneMovableFunction) filter.
+        // If it recurses into the child of an unsafe filter and hoists
+        // a safe predicate, the unsafe predicate evaluates over a
+        // different row set — its input domain silently changes.
+        //
+        // Plan shape inside apply.left():
+        //   SubQueryAlias sf
+        //     Filter(assert_true(tag > 0, 'bad'))   ← unsafe, must stay
+        //       Project(tag, k, ...)                ← slot-only
+        //         Filter(tag > 0)                   ← safe, must stay below
+        //           Scan dim_unique
+        createTable("CREATE TABLE fact_unsafe_barrier (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // dim_unsafe_sf: outer-only table with nested assert_true + tag > 0
+        createTable("CREATE TABLE dim_unsafe_sf (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_unsafe_sf add constraint uq_dim_unsafe_sf_k unique (k)");
+
+        // Double-nested subquery on dim_unsafe_sf (outer-only): inner
+        // WHERE tag > 0, outer WHERE assert_true(tag > 0, 'bad').
+        // After analysis this produces:
+        //   SubQueryAlias sf
+        //     Filter(assert_true)          ← unsafe, must stay
+        //       Project(tag, k, ...)       ← slot-only
+        //         Filter(tag > 0)          ← safe, must stay below unsafe
+        //           Scan dim_unsafe_sf
+        // fact_unsafe_barrier is the shared table.
+        String sql = "SELECT sf.did, sf.k, f.v "
+                + "FROM ("
+                + "  SELECT * FROM ("
+                + "    SELECT * FROM dim_unsafe_sf WHERE tag > 0"
+                + "  ) inner_sf"
+                + "  WHERE assert_true(tag > 0, 'bad')"
+                + ") sf, "
+                + "fact_unsafe_barrier f "
+                + "WHERE sf.k = f.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_unsafe_barrier f2 "
+                + "    WHERE f2.k = sf.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule should match — the unsafe filter is on outer-only table
+        // and the subtree filter is preserved below it.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite should succeed when unsafe filter on outer-only "
+                + "table has a subtree filter preserved below it");
+
+        // The safe filter (tag > 0) must remain as a descendant of the
+        // unsafe filter (assert_true) in the plan — stripOuterFilters
+        // must not hoist it from under a retained unsafe filter.
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+
+        // Find the assert_true filter below the window — it must still
+        // have Filter(tag > 0) as a descendant.
+        List<LogicalFilter<Plan>> allBelowFilters = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        boolean safeBelowUnsafe = false;
+        for (LogicalFilter<Plan> f : allBelowFilters) {
+            boolean hasNoneMovableFunction = f.getConjuncts().stream()
+                    .anyMatch(c -> c.containsType(
+                            org.apache.doris.nereids.trees.expressions.functions
+                                    .NoneMovableFunction.class));
+            if (!hasNoneMovableFunction) {
+                continue;
+            }
+
+            // This filter has assert_true — verify it has Filter(tag > 0)
+            // somewhere in its subtree (not just below the window).
+            List<LogicalFilter<Plan>> subtreeFilters = f.child(0)
+                    .collectToList(LogicalFilter.class::isInstance);
+            for (LogicalFilter<Plan> sf : subtreeFilters) {
+                for (Expression conj : sf.getConjuncts()) {
+                    if (conj.toSql().contains("tag > 0")
+                            && !conj.containsType(
+                                    org.apache.doris.nereids.trees.expressions.functions
+                                            .NoneMovableFunction.class)) {
+                        safeBelowUnsafe = true;
+                    }
+                }
+            }
+        }
+        Assertions.assertTrue(safeBelowUnsafe,
+                "Deterministic filter (tag > 0) must remain in the subtree "
+                + "below the assert_true filter — stripOuterFilters must "
+                + "not hoist it from under a retained unsafe filter");
+    }
+
+    @Test
     public void testStackedPruningProjectsExpanded() throws Exception {
         // When the shared table is behind multiple stacked pruning
         // projects — e.g. SubQueryAlias sf → Project(k) → Project(k)
