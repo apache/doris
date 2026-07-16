@@ -17,12 +17,11 @@
 
 #pragma once
 
-#include <bthread/bthread.h>
-
 #include <brpc/adaptive_connection_type.h>
 #include <brpc/adaptive_protocol_type.h>
 #include <brpc/channel.h>
 #include <brpc/controller.h>
+#include <bthread/bthread.h>
 #include <butil/endpoint.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
@@ -262,8 +261,9 @@ public:
             auto check_entry = [&](const auto& v) {
                 const StubEntry<T>& entry = v.second;
                 if (entry.real_ip != realhost) {
-                    LOG(WARNING) << "Cached ip changed for " << host << ", before ip: "
-                                 << entry.real_ip << ", current ip: " << realhost;
+                    LOG(WARNING) << "Cached ip changed for " << host
+                                 << ", before ip: " << entry.real_ip
+                                 << ", current ip: " << realhost;
                     need_remove = true;
                 } else if (!static_cast<FailureDetectChannel*>(entry.stub->channel())
                                     ->channel_status()
@@ -280,10 +280,8 @@ public:
                     // returning it. Otherwise a cached stub pointing to an
                     // expired Pod IP will fail on the first real RPC.
                     if (enable_handshake && !available(stub_ptr, host_port)) {
-                        LOG(WARNING) << "cached channel handshake failed to "
-                                     << host_port
-                                     << ", attempt=" << attempt << "/"
-                                     << max_attempts;
+                        LOG(WARNING) << "cached channel handshake failed to " << host_port
+                                     << ", attempt=" << attempt << "/" << max_attempts;
                         _stub_map.erase(host_port);
                         if (dns_cache != nullptr && !is_valid_ip(host)) {
                             dns_cache->invalidate(host);
@@ -311,8 +309,8 @@ public:
                 return nullptr;
             }
             if (enable_handshake && !available(stub, real_host_port)) {
-                LOG(WARNING) << "handshake failed to " << real_host_port
-                             << ", attempt=" << attempt << "/" << max_attempts;
+                LOG(WARNING) << "handshake failed to " << real_host_port << ", attempt=" << attempt
+                             << "/" << max_attempts;
                 // The rebuilt stub talked to a dead peer (or stale IP). Mark
                 // DNS dirty so the next iteration re-resolves via getaddrinfo,
                 // and drop the freshly-built stub.
@@ -327,8 +325,8 @@ public:
                     host_port, [&stub](const auto& v) { stub = v.second.stub; }, entry);
             return stub;
         }
-        LOG(WARNING) << "get_client gave up after " << max_attempts
-                     << " handshake attempts to " << host_port;
+        LOG(WARNING) << "get_client gave up after " << max_attempts << " handshake attempts to "
+                     << host_port;
         return nullptr;
     }
 

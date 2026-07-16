@@ -2318,13 +2318,13 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_GRACEFUL_SHUTDOWN, flag = VarAttrDef.GLOBAL,
             setter = "setEnableGracefulShutdown", needForward = true,
             description = {
-            "集群级别开关：当 FE 或 BE 准备做滚动重启 / 优雅退出时，由运维 SET GLOBAL 打开。"
+                "集群级别开关：当 FE 或 BE 准备做滚动重启 / 优雅退出时，由运维 SET GLOBAL 打开。"
                     + "打开后：(1) FE QueryCancelWorker / Coordinator.shouldCancel 不再因 BE alive=false "
                     + "或 process epoch 变化 cancel in-flight query；(2) FE master 通过心跳把该标记下发"
                     + "给所有 BE，BE 端 FragmentMgr::cancel_worker 也跳过 'Coordinator restarted' / "
                     + "'Source frontend is not running' cancel。timeout / 用户主动 KILL / pipeline task "
                     + "leak 等其他 cancel 不受影响。滚动结束后必须 SET GLOBAL ... = false 复位。",
-            "Cluster-level switch operators flip on via SET GLOBAL before performing a rolling restart "
+                "Cluster-level switch operators flip on via SET GLOBAL before performing a rolling restart "
                     + "or graceful shutdown. When true: (1) FE QueryCancelWorker / Coordinator.shouldCancel "
                     + "skip cancelling in-flight queries on BEs whose alive=false or process_epoch changed; "
                     + "(2) FE master propagates the flag to all BEs via heartbeat so that BE "
@@ -6866,7 +6866,7 @@ public class SessionVariable implements Serializable, Writable {
             LOG.error("failed to set affect query result variables", e);
         }
     }
-}
+
     public void setEnableGracefulShutdown(String value) throws DdlException {
         if (value.equalsIgnoreCase("TRUE")) {
             enableGracefulShutdown = true;
@@ -6876,3 +6876,4 @@ public class SessionVariable implements Serializable, Writable {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, ENABLE_GRACEFUL_SHUTDOWN, value);
         }
     }
+}

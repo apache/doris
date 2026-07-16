@@ -211,12 +211,12 @@ void ExecEnv::wait_for_all_tasks_done() {
         }
         if (wait_seconds_passed > doris::config::grace_shutdown_wait_seconds) {
             LOG(INFO) << "There are still " << num_queries << " queries running and "
-                      << num_load_channels << " load channels active, but "
-                      << wait_seconds_passed << " seconds passed, has to exit now";
+                      << num_load_channels << " load channels active, but " << wait_seconds_passed
+                      << " seconds passed, has to exit now";
             break;
         }
-        LOG(INFO) << "There are still " << num_queries << " queries running, "
-                  << num_load_channels << " load channels active, waiting...";
+        LOG(INFO) << "There are still " << num_queries << " queries running, " << num_load_channels
+                  << " load channels active, waiting...";
         sleep(1);
         ++wait_seconds_passed;
     }
