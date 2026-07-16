@@ -33,6 +33,8 @@ set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+TP_CXX_STANDARD=20
+
 export DORIS_HOME="${curdir}/.."
 export TP_DIR="${curdir}"
 
@@ -1078,6 +1080,7 @@ build_arrow() {
 
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
