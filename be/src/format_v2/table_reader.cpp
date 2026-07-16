@@ -144,13 +144,15 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
 }
 
 bool external_field_matches_name(const schema::external::TField& field, const std::string& name) {
-    if (field.__isset.name && to_lower(field.name) == to_lower(name)) {
-        return true;
+    if (field.__isset.name_mapping) {
+        // The table defines schema.name-mapping.default: match strictly via the mapping aliases.
+        // A field the mapping does not cover (empty name_mapping) matches nothing instead of falling
+        // back to its own physical name.
+        return std::ranges::any_of(field.name_mapping, [&](const std::string& alias) {
+            return to_lower(alias) == to_lower(name);
+        });
     }
-    return field.__isset.name_mapping &&
-           std::ranges::any_of(field.name_mapping, [&](const std::string& alias) {
-               return to_lower(alias) == to_lower(name);
-           });
+    return field.__isset.name && to_lower(field.name) == to_lower(name);
 }
 
 DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struct_type,
@@ -189,6 +191,7 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
                     field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
+            .has_name_mapping = field.__isset.name_mapping,
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
@@ -488,6 +491,7 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
+    column->has_name_mapping = context->schema_column->has_name_mapping;
     return Status::OK();
 }
 

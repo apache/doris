@@ -663,10 +663,10 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcPartialNameMappingReturnsNull) {
     std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString("struct<a:int,b:int>"));
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
-    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
-                        root_field, orc_type.get(), IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE,
-                        ans_node)
-                        .ok());
+    ASSERT_TRUE(
+            TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+                    root_field, orc_type.get(), IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE, ans_node)
+                    .ok());
 
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"

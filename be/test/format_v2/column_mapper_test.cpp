@@ -179,6 +179,39 @@ std::vector<int32_t> projection_ids(const std::vector<LocalColumnIndex>& project
     return ids;
 }
 
+// When a table column carries schema.name-mapping.default (has_name_mapping), BY_NAME resolution
+// must go strictly through the mapping aliases and must not fall back to the column's own physical
+// name. This is the default-scanner (format_v2) counterpart of the legacy-helper name-mapping tests.
+TEST(ColumnMapperNameMappingTest, StrictNameMappingSkipsPhysicalNameFallback) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(name_col("a", i32()));
+    file_schema.push_back(name_col("b", i32()));
+
+    // Covered by the mapping: resolves via the alias.
+    ColumnDefinition covered = name_col("a", i32());
+    covered.has_name_mapping = true;
+    covered.name_mapping = {"a"};
+    const ColumnDefinition* covered_match = find_column_by_name(covered, file_schema);
+    ASSERT_NE(covered_match, nullptr);
+    EXPECT_EQ(covered_match->name, "a");
+
+    // Not covered by the mapping (empty aliases): must not fall back to the physical column `b`.
+    ColumnDefinition uncovered = name_col("b", i32());
+    uncovered.has_name_mapping = true;
+    uncovered.name_mapping = {};
+    EXPECT_EQ(find_column_by_name(uncovered, file_schema), nullptr);
+
+    // Covered, but the mapped name is absent from the file: also resolves to no match.
+    ColumnDefinition renamed = name_col("b", i32());
+    renamed.has_name_mapping = true;
+    renamed.name_mapping = {"absent_old_name"};
+    EXPECT_EQ(find_column_by_name(renamed, file_schema), nullptr);
+
+    // No name mapping at all: legacy physical-name matching still applies.
+    ColumnDefinition legacy = name_col("b", i32());
+    EXPECT_NE(find_column_by_name(legacy, file_schema), nullptr);
+}
+
 TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
     ColumnDefinition child = field_id_col("child", 2, str(), 3);
     child.name_mapping = {"legacy_child"};
