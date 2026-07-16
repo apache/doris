@@ -444,10 +444,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             return SelectedPartitions.NOT_PRUNED;
         }
         Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshot);
-        Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.ofNullable(
-                SortedPartitionRanges.build(nameToPartitionItems));
-        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false, false,
-                sortedPartitionRanges);
+        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
     }
 
     /**

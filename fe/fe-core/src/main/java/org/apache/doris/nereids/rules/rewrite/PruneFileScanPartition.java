@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
@@ -94,8 +95,9 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
-        if (enableBinarySearch) {
-            sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges;
+        if (enableBinarySearch && !nameToPartitionItem.isEmpty()) {
+            sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
+                    .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
@@ -104,9 +106,12 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
         for (String name : prunedPartitions) {
             PartitionItem item = nameToPartitionItem.get(name);
-            if (item != null) {
-                selectedPartitionItems.put(name, item);
-            }
+            // Both nameToPartitionItem and sortedPartitionRanges now come from the same frozen
+            // snapshot, so a missing item is an invariant violation rather than a partition to
+            // skip. Failing here surfaces the bug instead of silently returning a partial scan.
+            Preconditions.checkState(item != null,
+                    "pruned partition %s is missing in the selected partitions snapshot", name);
+            selectedPartitionItems.put(name, item);
         }
         return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
                 result.hasPartitionPredicate);

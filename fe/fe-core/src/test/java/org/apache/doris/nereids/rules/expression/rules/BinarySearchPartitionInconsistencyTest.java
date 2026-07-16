@@ -138,16 +138,18 @@ public class BinarySearchPartitionInconsistencyTest extends TestWithFeService {
         Assertions.assertTrue(result.partitions.contains("p4"),
                 "p4 should be returned when it exists in the consistent snapshot");
 
-        // Simulate the PruneFileScanPartition lookup loop (with the null-guard from the fix)
+        // Simulate the PruneFileScanPartition lookup loop. Since both the partition map
+        // and sortedPartitionRanges come from the same frozen snapshot, every returned
+        // partition must be present in the map — assert the invariant rather than skip.
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         for (String name : result.partitions) {
             PartitionItem item = partitionItems.get(name);
-            if (item != null) {
-                selectedPartitionItems.put(name, item);
-            }
+            Assertions.assertNotNull(item,
+                    "pruned partition " + name + " must be present in the consistent snapshot");
+            selectedPartitionItems.put(name, item);
         }
 
-        // No null is stored, all returned partitions are in the map
+        // All returned partitions are in the map, none skipped
         Assertions.assertEquals(result.partitions.size(), selectedPartitionItems.size(),
                 "all returned partitions should be present in the consistent snapshot");
         Assertions.assertNotNull(selectedPartitionItems.get("p4"),
@@ -155,21 +157,23 @@ public class BinarySearchPartitionInconsistencyTest extends TestWithFeService {
     }
 
     /**
-     * Test: even after the fix, the defensive null guard in PruneFileScanPartition
-     * prevents null from entering selectedPartitionItems if inconsistent data
-     * somehow reaches this point (defense in depth).
+     * Test: if inconsistent snapshots ever reach the lookup loop (which the fix makes
+     * impossible by freezing both from the same snapshot), the invariant check fails
+     * loudly instead of silently returning a partial scan over fewer partitions.
+     *
+     * <p>This mirrors the {@code Preconditions.checkState} in PruneFileScanPartition:
+     * a missing partition is treated as an invariant violation, not a partition to skip.
      */
     @Test
-    public void testNullGuardPreventsNullEntry() throws AnalysisException {
+    public void testInvariantViolationFailsLoudly() throws AnalysisException {
         // old snapshot (no p4)
-        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(3);
-        nameToPartitionItem.put("p1", listItem(1));
-        nameToPartitionItem.put("p2", listItem(2));
-        nameToPartitionItem.put("p3", listItem(3));
-        nameToPartitionItem = ImmutableMap.copyOf(nameToPartitionItem);
+        Map<String, PartitionItem> nameToPartitionItem = ImmutableMap.of(
+                "p1", listItem(1),
+                "p2", listItem(2),
+                "p3", listItem(3));
 
-        // new snapshot (has p4) — simulating inconsistent data that should never happen
-        // after the fix, but the defensive guard handles it anyway
+        // new snapshot (has p4) — simulating inconsistent data that the fix prevents,
+        // but the invariant check must still surface it rather than silently skip p4
         Map<String, PartitionItem> newPartitions = Maps.newHashMapWithExpectedSize(4);
         newPartitions.put("p1", listItem(1));
         newPartitions.put("p2", listItem(2));
@@ -188,26 +192,17 @@ public class BinarySearchPartitionInconsistencyTest extends TestWithFeService {
         Assertions.assertTrue(result.partitions.contains("p4"),
                 "binary search returns p4 from the sortedPartitionRanges");
 
-        // The defensive null guard (from the fix) filters out p4
-        // because nameToPartitionItem.get("p4") returns null
-        Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
-        for (String name : result.partitions) {
-            PartitionItem item = nameToPartitionItem.get(name);
-            if (item != null) {
-                selectedPartitionItems.put(name, item);
+        // The invariant check (mirroring PruneFileScanPartition) must fail loudly:
+        // p4 is in the pruned result but missing from nameToPartitionItem.
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            for (String name : result.partitions) {
+                PartitionItem item = nameToPartitionItem.get(name);
+                if (item == null) {
+                    throw new IllegalStateException(
+                            "pruned partition " + name + " is missing in the selected partitions snapshot");
+                }
             }
-        }
-
-        // Defense in depth: p4 is excluded, no null stored
-        Assertions.assertFalse(selectedPartitionItems.containsKey("p4"),
-                "defensive null guard should exclude p4 when it is missing from nameToPartitionItem");
-        Assertions.assertNull(selectedPartitionItems.get("p4"),
-                "p4 should not be stored at all");
-
-        // SelectedPartitions can be constructed without NPE because no null values exist
-        SelectedPartitions sp = new SelectedPartitions(nameToPartitionItem.size(),
-                selectedPartitionItems, true, result.hasPartitionPredicate);
-        Assertions.assertNotNull(sp, "SelectedPartitions should be constructable without NPE");
+        }, "a missing partition must fail the invariant instead of being silently skipped");
     }
 
     /**
