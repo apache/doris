@@ -26,6 +26,10 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
+#include "cpp/sync_point.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
+#include "util/defer_op.h"
 
 namespace doris::io {
 
@@ -235,6 +239,72 @@ TEST_F(FileCacheBlockDownloaderTest, TestCheckDownloadTaskInflightStatus) {
     // After task completes (should be quick since tablet doesn't exist)
     bool done = wait_for_task_done(downloader, tablet_id);
     EXPECT_TRUE(done) << "Task should complete with decremented inflight count";
+}
+
+TEST_F(FileCacheBlockDownloaderTest, DownloadSegmentForcesSynchronousCacheWriteForBothDryRunModes) {
+    const Path directory = "ut_dir/block_file_cache_downloader_sync_override";
+    const Path file = directory / "segment.dat";
+    static_cast<void>(global_local_filesystem()->delete_file(file));
+    static_cast<void>(global_local_filesystem()->delete_directory(directory));
+    ASSERT_TRUE(global_local_filesystem()->create_directory(directory).ok());
+    Defer cleanup {[&]() {
+        static_cast<void>(global_local_filesystem()->delete_file(file));
+        static_cast<void>(global_local_filesystem()->delete_directory(directory));
+    }};
+    FileWriterPtr writer;
+    ASSERT_TRUE(global_local_filesystem()->create_file(file, &writer).ok());
+    ASSERT_TRUE(writer->append(Slice("x", 1)).ok());
+    ASSERT_TRUE(writer->close().ok());
+
+    const bool old_dryrun_config = config::enable_reader_dryrun_when_download_file_cache;
+    const int64_t old_buffer_size = config::s3_write_buffer_size;
+    Defer restore_config {[&]() {
+        config::enable_reader_dryrun_when_download_file_cache = old_dryrun_config;
+        config::s3_write_buffer_size = old_buffer_size;
+    }};
+    config::s3_write_buffer_size = 1;
+
+    std::vector<std::pair<bool, CacheWriteMode>> observed_contexts;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "FileCacheBlockDownloader::download_segment_file:before_read",
+            [&](auto&& values) {
+                auto* context = try_any_cast<IOContext*>(values.back());
+                ASSERT_TRUE(context->cache_write_mode_override.has_value());
+                observed_contexts.emplace_back(context->is_dryrun,
+                                               *context->cache_write_mode_override);
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    FileCacheBlockDownloader downloader(_engine);
+    for (bool is_dryrun : {false, true}) {
+        config::enable_reader_dryrun_when_download_file_cache = is_dryrun;
+        Status completion_status = Status::InternalError("download completion was not called");
+        DownloadFileMeta meta {
+                .path = file,
+                .file_size = 1,
+                .offset = 0,
+                .download_size = 1,
+                .file_system = global_local_filesystem(),
+                .ctx = IOContext {.is_dryrun = is_dryrun},
+                .download_done = [&](Status status) { completion_status = std::move(status); },
+                .tablet_id = 10086,
+        };
+        DownloadTask task(std::move(meta));
+        downloader.download_blocks(task);
+        EXPECT_TRUE(completion_status.ok());
+    }
+
+    EXPECT_EQ(observed_contexts, (std::vector<std::pair<bool, CacheWriteMode>> {
+                                         {false, CacheWriteMode::SYNC_WRITE},
+                                         {true, CacheWriteMode::SYNC_WRITE},
+                                 }));
 }
 
 } // namespace doris::io

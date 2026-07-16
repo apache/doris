@@ -113,6 +113,81 @@ TEST_F(BlockFileCacheTest, ProbeReturnsDownloadedBlockAndIndependentGap) {
     fs::remove_all(path, error);
 }
 
+TEST_F(BlockFileCacheTest, ProbeTouchAndRemovalRevalidateTheRetainedBlock) {
+    const auto path = caches_dir / "block_file_cache_probe_touch_remove";
+    std::error_code error;
+    fs::remove_all(path, error);
+    fs::create_directories(path);
+    const bool old_async_touch = config::enable_file_cache_async_touch_on_get_or_set;
+    config::enable_file_cache_async_touch_on_get_or_set = false;
+    Defer restore_config {
+            [&]() { config::enable_file_cache_async_touch_on_get_or_set = old_async_touch; }};
+    {
+        BlockFileCache cache(path.string(), probe_cache_settings());
+        ASSERT_TRUE(cache.initialize().ok());
+        wait_until_cache_ready(cache);
+        const auto hash = BlockFileCache::hash("probe_touch_remove");
+        ReadStatistics stats;
+        CacheContext context;
+        context.stats = &stats;
+        {
+            auto holder = cache.get_or_set(hash, 0, 4096, context);
+            ASSERT_EQ(holder.file_blocks.size(), 1);
+            const auto& block = holder.file_blocks.front();
+            ASSERT_EQ(block->get_or_set_downloader(), FileBlock::get_caller_id());
+            const std::string payload(4096, 't');
+            ASSERT_TRUE(block->append(Slice(payload.data(), payload.size())).ok());
+            ASSERT_TRUE(block->finalize().ok());
+        }
+        {
+            std::lock_guard cache_lock(cache._mutex);
+            cache._files.at(hash).begin()->second.atime = 123;
+        }
+
+        fs::path cache_file;
+        const uint64_t old_epoch = cache.async_write_service()->current_write_epoch();
+        {
+            auto probe_result = cache.probe(hash, 0, 4096, context);
+            ASSERT_EQ(probe_result.holder.file_blocks.size(), 1);
+            const auto& block = probe_result.holder.file_blocks.front();
+            cache_file = block->get_cache_file();
+            {
+                std::lock_guard cache_lock(cache._mutex);
+                EXPECT_EQ(cache._files.at(hash).begin()->second.atime, 123);
+            }
+
+            EXPECT_FALSE(cache.is_block_deleting(block));
+            cache.touch_probe_block_if_cached(block, context);
+            {
+                std::lock_guard cache_lock(cache._mutex);
+                EXPECT_NE(cache._files.at(hash).begin()->second.atime, 123);
+            }
+
+            cache.remove_if_cached(hash);
+            EXPECT_EQ(cache.async_write_service()->current_write_epoch(), old_epoch + 1);
+            EXPECT_TRUE(cache.is_block_deleting(block));
+            cache.touch_probe_block_if_cached(block, context);
+        }
+
+        bool removed = false;
+        for (int attempt = 0; attempt < 5000; ++attempt) {
+            bool metadata_removed = false;
+            {
+                auto probe_result = cache.probe(hash, 0, 4096, context);
+                metadata_removed =
+                        probe_result.holder.file_blocks.empty() && probe_result.gaps.size() == 1;
+            }
+            if (metadata_removed && !fs::exists(cache_file)) {
+                removed = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        EXPECT_TRUE(removed);
+    }
+    fs::remove_all(path, error);
+}
+
 TEST_F(BlockFileCacheTest, ProbeObservesDownloadingAndEmptyBlocksWithoutTakingDownloader) {
     const auto path = caches_dir / "block_file_cache_probe_states";
     std::error_code error;

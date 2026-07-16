@@ -362,6 +362,157 @@ TEST_F(AsyncCacheWriteServiceTest, OneTaskWritesMultipleContainedCells) {
     EXPECT_EQ(second, std::string(cell_size, 'n'));
 }
 
+TEST_F(AsyncCacheWriteServiceTest, ExistingAndDeletingCellsKeepTheirOwners) {
+    auto cache = create_cache("async_write_service_existing_states");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+
+    constexpr size_t cell_size = 4096;
+    constexpr size_t task_size = cell_size * 3;
+    const auto hash = BlockFileCache::hash("existing_states");
+    ReadStatistics read_stats;
+    CacheContext context;
+    context.stats = &read_stats;
+    auto holder = cache->get_or_set(hash, 0, task_size, context);
+    ASSERT_EQ(holder.file_blocks.size(), 3);
+    auto iterator = holder.file_blocks.begin();
+    const auto downloaded_block = *iterator;
+    ++iterator;
+    const auto downloading_block = *iterator;
+    ++iterator;
+    const auto deleting_block = *iterator;
+
+    ASSERT_EQ(downloaded_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    const std::string original(cell_size, 'x');
+    ASSERT_TRUE(downloaded_block->append(Slice(original.data(), original.size())).ok());
+    ASSERT_TRUE(downloaded_block->finalize().ok());
+    ASSERT_EQ(downloading_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    deleting_block->set_deleting();
+
+    AsyncCacheWriteBufferPtr buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(task_size, &buffer).ok());
+    memset(buffer->data(), 'y', buffer->size());
+    std::promise<void> finished;
+    auto finished_future = finished.get_future();
+    AsyncCacheWriteTask task {
+            .cache_hash = hash,
+            .file_offset = 0,
+            .file_size = task_size,
+            .buffer = buffer,
+            .admission_ctx = {},
+            .submit_ts_us = MonotonicMicros(),
+            .write_epoch = service->current_write_epoch(),
+            .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
+    };
+    ASSERT_TRUE(service->try_submit(std::move(task)));
+    ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_GE(service->stats().skip_downloaded, 1);
+    EXPECT_GE(service->stats().skip_downloading, 1);
+    EXPECT_GE(service->stats().skip_deleting, 1);
+
+    std::string actual(cell_size, '\0');
+    ASSERT_TRUE(downloaded_block->read(Slice(actual.data(), actual.size()), 0).ok());
+    EXPECT_EQ(actual, original);
+    EXPECT_EQ(downloading_block->state(), FileBlock::State::DOWNLOADING);
+    EXPECT_EQ(downloading_block->get_downloader(), FileBlock::get_caller_id());
+    EXPECT_TRUE(cache->is_block_deleting(deleting_block));
+}
+
+TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCacheData) {
+    auto cache = create_cache("async_write_service_remove_during_append");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool before_append = false;
+    bool release_worker = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_append",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                before_append = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_worker; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto hash = BlockFileCache::hash("remove_during_append");
+    AsyncCacheWriteBufferPtr buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
+    memset(buffer->data(), 'r', buffer->size());
+    std::promise<void> finished;
+    auto finished_future = finished.get_future();
+    AsyncCacheWriteTask task {
+            .cache_hash = hash,
+            .file_offset = 0,
+            .file_size = buffer->size(),
+            .buffer = buffer,
+            .admission_ctx = {},
+            .submit_ts_us = MonotonicMicros(),
+            .write_epoch = service->current_write_epoch(),
+            .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
+    };
+    ASSERT_TRUE(service->try_submit(std::move(task)));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return before_append; }));
+    }
+
+    fs::path cache_file;
+    {
+        ReadStatistics probe_stats;
+        CacheContext probe_context;
+        probe_context.stats = &probe_stats;
+        auto probe_result = cache->probe(hash, 0, 4096, probe_context);
+        ASSERT_EQ(probe_result.holder.file_blocks.size(), 1);
+        EXPECT_EQ(probe_result.holder.file_blocks.front()->state(), FileBlock::State::DOWNLOADING);
+        cache_file = probe_result.holder.file_blocks.front()->get_cache_file();
+    }
+    const uint64_t old_epoch = service->current_write_epoch();
+    cache->remove_if_cached_async(hash);
+    EXPECT_EQ(service->current_write_epoch(), old_epoch + 1);
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    cv.notify_all();
+    ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_EQ(service->pending_count(), 0);
+
+    bool removed = false;
+    for (int attempt = 0; attempt < 5000; ++attempt) {
+        ReadStatistics probe_stats;
+        CacheContext probe_context;
+        probe_context.stats = &probe_stats;
+        bool metadata_removed = false;
+        {
+            auto probe_result = cache->probe(hash, 0, 4096, probe_context);
+            metadata_removed =
+                    probe_result.holder.file_blocks.empty() && probe_result.gaps.size() == 1;
+        }
+        if (metadata_removed && !fs::exists(cache_file)) {
+            removed = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_TRUE(removed);
+}
+
 TEST_F(AsyncCacheWriteServiceTest, PartialOverlapIsSkippedWithoutOutOfBoundsWrite) {
     auto cache = create_cache("async_write_service_partial_overlap");
     auto* service = cache->async_write_service();
@@ -420,10 +571,13 @@ TEST_F(AsyncCacheWriteServiceTest, PartialOverlapIsSkippedWithoutOutOfBoundsWrit
     EXPECT_EQ(tail, std::string(task_offset, 'y'));
 }
 
-TEST_F(AsyncCacheWriteServiceTest, EpochChangeAfterFirstCheckDropsTaskAndCleansEmptyCell) {
+TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndCleansEmptyCells) {
     auto cache = create_cache("async_write_service_epoch");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    ASSERT_TRUE(service->update_options(options).ok());
 
     std::mutex mutex;
     std::condition_variable cv;
@@ -451,52 +605,95 @@ TEST_F(AsyncCacheWriteServiceTest, EpochChangeAfterFirstCheckDropsTaskAndCleansE
         sync_point->clear_all_call_backs();
     }};
 
-    const auto hash = BlockFileCache::hash("epoch_drop");
-    AsyncCacheWriteBufferPtr buffer;
-    ASSERT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
-    memset(buffer->data(), 'c', buffer->size());
-    std::promise<void> finished;
-    auto finished_future = finished.get_future();
-    AsyncCacheWriteTask task {
-            .cache_hash = hash,
+    const auto active_hash = BlockFileCache::hash("epoch_drop_active");
+    AsyncCacheWriteBufferPtr active_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(4096, &active_buffer).ok());
+    memset(active_buffer->data(), 'a', active_buffer->size());
+    std::promise<void> active_finished;
+    auto active_future = active_finished.get_future();
+    AsyncCacheWriteTask active_task {
+            .cache_hash = active_hash,
             .file_offset = 0,
-            .file_size = buffer->size(),
-            .buffer = buffer,
+            .file_size = active_buffer->size(),
+            .buffer = active_buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
             .write_epoch = service->current_write_epoch(),
-            .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
+            .on_finalized =
+                    [&active_finished](const AsyncCacheWriteTask&) { active_finished.set_value(); },
     };
-    ASSERT_TRUE(service->try_submit(std::move(task)));
+    ASSERT_TRUE(service->try_submit(std::move(active_task)));
     {
         std::unique_lock lock(mutex);
         ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entered; }));
     }
-    service->invalidate_pending_writes();
+
+    const auto queued_hash = BlockFileCache::hash("epoch_drop_queued");
+    AsyncCacheWriteBufferPtr queued_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(4096, &queued_buffer).ok());
+    memset(queued_buffer->data(), 'q', queued_buffer->size());
+    std::promise<void> queued_finished;
+    auto queued_future = queued_finished.get_future();
+    AsyncCacheWriteTask queued_task {
+            .cache_hash = queued_hash,
+            .file_offset = 0,
+            .file_size = queued_buffer->size(),
+            .buffer = queued_buffer,
+            .admission_ctx = {},
+            .submit_ts_us = MonotonicMicros(),
+            .write_epoch = service->current_write_epoch(),
+            .on_finalized =
+                    [&queued_finished](const AsyncCacheWriteTask&) { queued_finished.set_value(); },
+    };
+    ASSERT_TRUE(service->try_submit(std::move(queued_task)));
+    ASSERT_EQ(service->pending_count(), 2);
+
+    const uint64_t old_epoch = service->current_write_epoch();
+    cache->remove_if_cached_async(active_hash);
+    EXPECT_EQ(service->current_write_epoch(), old_epoch + 1);
     {
         std::lock_guard lock(mutex);
         release_worker = true;
     }
     cv.notify_all();
-    ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-    EXPECT_GE(service->stats().drop_stale_epoch, 1);
+    ASSERT_EQ(active_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    ASSERT_EQ(queued_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_GE(service->stats().drop_stale_epoch, 2);
 
     ReadStatistics read_stats;
     CacheContext context;
     context.stats = &read_stats;
-    auto probe_result = cache->probe(hash, 0, 4096, context);
-    EXPECT_TRUE(probe_result.holder.file_blocks.empty());
-    ASSERT_EQ(probe_result.gaps.size(), 1);
-    EXPECT_EQ(probe_result.gaps.front().left, 0);
-    EXPECT_EQ(probe_result.gaps.front().right, 4095);
+    const auto expect_cache_gap = [&](const UInt128Wrapper& hash) {
+        auto probe_result = cache->probe(hash, 0, 4096, context);
+        EXPECT_TRUE(probe_result.holder.file_blocks.empty());
+        ASSERT_EQ(probe_result.gaps.size(), 1);
+        EXPECT_EQ(probe_result.gaps.front().left, 0);
+        EXPECT_EQ(probe_result.gaps.front().right, 4095);
+    };
+    expect_cache_gap(active_hash);
+    expect_cache_gap(queued_hash);
 }
 
-TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsAtRuntime) {
+TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsValidatesAndAppliesAtRuntime) {
     auto cache = create_cache("async_write_service_resize");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
 
     auto options = service->options();
+    auto invalid_options = options;
+    invalid_options.worker_count = 0;
+    EXPECT_TRUE(service->update_options(invalid_options).is<ErrorCode::INVALID_ARGUMENT>());
+    invalid_options = options;
+    invalid_options.max_pending_tasks = 0;
+    EXPECT_TRUE(service->update_options(invalid_options).is<ErrorCode::INVALID_ARGUMENT>());
+    invalid_options = options;
+    invalid_options.batch_size = 0;
+    EXPECT_TRUE(service->update_options(invalid_options).is<ErrorCode::INVALID_ARGUMENT>());
+    invalid_options = options;
+    invalid_options.watchdog_drop_secs = invalid_options.watchdog_warn_secs;
+    EXPECT_TRUE(service->update_options(invalid_options).is<ErrorCode::INVALID_ARGUMENT>());
+
     options.worker_count = 3;
     options.max_pending_tasks = 7;
     options.batch_size = 2;
@@ -516,16 +713,18 @@ TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsAtRuntime) {
     EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 1);
 }
 
-TEST_F(AsyncCacheWriteServiceTest, MultipleWorkersConsumeQueueConcurrently) {
+TEST_F(AsyncCacheWriteServiceTest, RuntimeGrowAndShrinkPreserveConcurrentTasks) {
     auto cache = create_cache("async_write_service_mpmc_consumers");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
 
     constexpr size_t worker_count = 8;
     auto options = service->options();
-    options.worker_count = worker_count;
+    options.worker_count = 1;
     options.max_pending_tasks = worker_count;
     options.batch_size = 1;
+    ASSERT_TRUE(service->update_options(options).ok());
+    options.worker_count = worker_count;
     ASSERT_TRUE(service->update_options(options).ok());
 
     std::mutex mutex;
@@ -582,6 +781,22 @@ TEST_F(AsyncCacheWriteServiceTest, MultipleWorkersConsumeQueueConcurrently) {
         ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
                                 [&]() { return entered_workers == worker_count; }));
         EXPECT_EQ(service->pending_count(), worker_count);
+    }
+
+    auto shrink_options = service->options();
+    shrink_options.worker_count = 1;
+    auto shrink_future = std::async(std::launch::async, [service, shrink_options]() {
+        return service->update_options(shrink_options);
+    });
+    for (int attempt = 0;
+         attempt < 5000 && service->_desired_worker_count.load(std::memory_order_acquire) != 1;
+         ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 1);
+    EXPECT_EQ(shrink_future.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
+    {
+        std::lock_guard lock(mutex);
         release_workers = true;
     }
     cv.notify_all();
@@ -590,7 +805,9 @@ TEST_F(AsyncCacheWriteServiceTest, MultipleWorkersConsumeQueueConcurrently) {
         ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
                                 [&]() { return finished_tasks == worker_count; }));
     }
+    ASSERT_TRUE(shrink_future.get().ok());
     EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(service->options().worker_count, 1);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
