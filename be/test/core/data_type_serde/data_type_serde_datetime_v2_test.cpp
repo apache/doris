@@ -371,6 +371,8 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ReadArrowTimestampBeforeEpoch) {
     DateV2Value<DateTimeV2ValueType> source_value;
     source_value.unchecked_set_time(1969, 12, 31, 23, 59, 59, 123456);
     source_column->insert_value(source_value);
+    std::string insert_value = "1969-12-31 23:59:59.123456";
+    ASSERT_EQ(insert_value, source_value.to_string(6));
 
     arrow::TimestampBuilder builder(arrow::timestamp(arrow::TimeUnit::MICRO),
                                     arrow::default_memory_pool());
@@ -384,14 +386,13 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ReadArrowTimestampBeforeEpoch) {
     const auto* timestamp_array = assert_cast<const arrow::TimestampArray*>(array.get());
     ASSERT_EQ(-876544, timestamp_array->Value(0));
 
-    auto destination_column = ColumnDateTimeV2::create();
+    auto dest_column = ColumnDateTimeV2::create();
     ASSERT_TRUE(serde_datetime_v2_6
-                        ->read_column_from_arrow(*destination_column, array.get(), 0,
-                                                 array->length(), cctz::utc_time_zone())
+                        ->read_column_from_arrow(*dest_column, array.get(), 0, array->length(),
+                                                 cctz::utc_time_zone())
                         .ok());
-    ASSERT_EQ(1, destination_column->size());
-    EXPECT_EQ(source_column->get_element(0).to_string(6),
-              destination_column->get_element(0).to_string(6));
+    ASSERT_EQ(1, dest_column->size());
+    EXPECT_EQ(insert_value, dest_column->get_element(0).to_string(6));
 }
 
 } // namespace doris
