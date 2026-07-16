@@ -42,6 +42,6 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF0
 --------------------------------PhysicalProject
-----------------------------------filter(ca_state IN ('IL', 'ME', 'TX'))
+----------------------------------filter(ca.ca_state IN ('IL', 'ME', 'TX'))
 ------------------------------------PhysicalOlapScan[customer_address(ca)]
 
