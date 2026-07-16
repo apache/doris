@@ -82,6 +82,7 @@ public class MetaCacheEntryTest {
                     MetaCacheEntry.singleKeyStripeCount());
 
             Assert.assertEquals(1, entry.stripeCountForTest());
+            Assert.assertEquals("single-key", entry.name());
             Assert.assertEquals(Integer.valueOf(1), entry.get("a"));
         } finally {
             refreshExecutor.shutdownNow();
@@ -283,6 +284,36 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testContextualOnlyEntryRejectsNonNullDefaultLoader() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+
+            // Contextual-only entries must not keep a default loader because callers provide the load context.
+            IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> new MetaCacheEntry<>("contextual", key -> 1, cacheSpec, refreshExecutor, false, true));
+            Assert.assertTrue(exception.getMessage().contains("contextual-only entry loader must be null"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testContextualOnlyEntryRejectsAutoRefresh() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+
+            // Contextual-only entries cannot auto refresh because refresh does not carry the original context.
+            IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> new MetaCacheEntry<>("contextual", null, cacheSpec, refreshExecutor, true, true));
+            Assert.assertTrue(exception.getMessage().contains("contextual-only entry can not enable auto refresh"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testManualMissLoadDeduplicatesSameKey() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExecutorService queryExecutor = Executors.newFixedThreadPool(2);
@@ -444,6 +475,20 @@ public class MetaCacheEntryTest {
             Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
             Assert.assertNull(entry.getIfPresent("k"));
             Assert.assertEquals(2, loadCounter.get());
+
+            AtomicInteger predicateCounter = new AtomicInteger();
+            AtomicInteger remappingCounter = new AtomicInteger();
+            // Disabled entries should bypass cache-only helpers without invoking predicate or remapping callbacks.
+            Assert.assertNull(entry.findIfPresent(key -> {
+                predicateCounter.incrementAndGet();
+                return true;
+            }));
+            Assert.assertNull(entry.compute("k", (key, value) -> {
+                remappingCounter.incrementAndGet();
+                return 100;
+            }));
+            Assert.assertEquals(0, predicateCounter.get());
+            Assert.assertEquals(0, remappingCounter.get());
 
             entry.put("k", 100);
             Assert.assertNull(entry.getIfPresent("k"));

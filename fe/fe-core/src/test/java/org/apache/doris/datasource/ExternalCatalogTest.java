@@ -503,6 +503,36 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testGetDbForReplayByIdReturnsEmptyWhenCatalogIsUninitialized() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+
+        // Replay-by-ID must stay cache-only even before the catalog finishes initialization.
+        Assertions.assertTrue(catalog.getDbForReplay(9999L).isEmpty());
+        Assertions.assertEquals(0, catalog.getBuildDatabaseCallCount());
+    }
+
+    @Test
+    public void testGetDbForReplayByIdIsCacheOnlyAcrossIdMapStates() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 404L, "db_replay", "db_replay");
+
+        // Verify replay-by-ID handles ID misses, cold object entries, and hot object hits without remote loading.
+        Assertions.assertTrue(catalog.getDbForReplay(404L).isEmpty());
+        Assertions.assertEquals(0, catalog.getBuildDatabaseCallCount());
+
+        catalog.simulateIncrementalRegisterDatabase(db);
+        Assertions.assertEquals("db_replay", catalog.getCachedDatabaseNameByIdForTest(404L));
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("db_replay"));
+        Assertions.assertTrue(catalog.getDbForReplay(404L).isEmpty());
+        Assertions.assertEquals(0, catalog.getBuildDatabaseCallCount());
+
+        catalog.addDatabaseForTest(db);
+        Assertions.assertSame(db, catalog.getDbForReplay(404L).orElse(null));
+        Assertions.assertEquals(0, catalog.getBuildDatabaseCallCount());
+    }
+
+    @Test
     public void testIncrementalDatabaseRegisterReplacesExistingIdMapping() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
@@ -861,6 +891,8 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     private static class IncrementalUpdateCatalog extends TestExternalCatalog {
+        private final AtomicInteger buildDatabaseCallCount = new AtomicInteger();
+
         IncrementalUpdateCatalog() {
             this(0);
         }
@@ -889,6 +921,17 @@ public class ExternalCatalogTest extends TestWithFeService {
 
         String getCachedDatabaseNameByIdForTest(long dbId) {
             return dbIdToName.get(dbId);
+        }
+
+        @Override
+        protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String remoteDbName, String localDbName,
+                long dbId, InitCatalogLog.Type logType, boolean checkExists) {
+            buildDatabaseCallCount.incrementAndGet();
+            return super.buildDbForInit(remoteDbName, localDbName, dbId, logType, checkExists);
+        }
+
+        int getBuildDatabaseCallCount() {
+            return buildDatabaseCallCount.get();
         }
 
         private static Map<String, String> buildIncrementalCatalogProps(int lowerCaseDatabaseNames) {

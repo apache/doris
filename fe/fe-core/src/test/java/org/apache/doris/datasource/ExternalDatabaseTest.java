@@ -53,21 +53,6 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
-    public void testGetTableForReplayByIdIsCacheOnlyOnObjectMiss() throws Exception {
-        InspectableCatalog catalog = new InspectableCatalog();
-        InspectableDatabase db = new InspectableDatabase(catalog, 100L, "db1", "db1");
-        db.setInitializedForTest(true);
-        TestExternalTable table = new TestExternalTable(101L, "tbl_hit", "tbl_hit", catalog, db);
-        db.addTableForTest(table);
-
-        // Keep the ID map entry but clear the object entry to verify replay-by-id stays cache-only.
-        extractTablesEntry(db).invalidateKey("tbl_hit");
-
-        Assertions.assertTrue(db.getTableForReplay(101L).isEmpty());
-        Assertions.assertEquals(0, db.getBuildTableCallCount());
-    }
-
-    @Test
     public void testResetMetaCacheNamesKeepsObjectAndIdCache() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 200L, "db1", "db1");
@@ -182,6 +167,38 @@ public class ExternalDatabaseTest extends TestWithFeService {
         Assertions.assertEquals("tbl_base", table.getName());
         Assertions.assertSame(table, db.getCachedTableForTest("tbl_base"));
         Assertions.assertEquals(1, db.getBuildTableCallCount());
+    }
+
+    @Test
+    public void testGetTableForReplayByIdReturnsEmptyWhenDatabaseIsUninitialized() {
+        InspectableCatalog catalog = new InspectableCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 302L, "db1", "db1");
+
+        // Replay-by-ID must stay cache-only even before the database finishes initialization.
+        Assertions.assertTrue(db.getTableForReplay(9999L).isEmpty());
+        Assertions.assertEquals(0, db.getBuildTableCallCount());
+    }
+
+    @Test
+    public void testGetTableForReplayByIdIsCacheOnlyAcrossIdMapStates() {
+        InspectableCatalog catalog = new InspectableCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 303L, "db1", "db1");
+        db.setInitializedForTest(true);
+        TestExternalTable table = new TestExternalTable(304L, "tbl_replay", "tbl_replay", catalog, db);
+
+        // Verify replay-by-ID handles ID misses, cold object entries, and hot object hits without remote loading.
+        Assertions.assertTrue(db.getTableForReplay(304L).isEmpty());
+        Assertions.assertEquals(0, db.getBuildTableCallCount());
+
+        db.registerTable(table);
+        Assertions.assertEquals("tbl_replay", db.getCachedTableNameByIdForTest(304L));
+        Assertions.assertNull(db.getCachedTableForTest("tbl_replay"));
+        Assertions.assertTrue(db.getTableForReplay(304L).isEmpty());
+        Assertions.assertEquals(0, db.getBuildTableCallCount());
+
+        db.addTableForTest(table);
+        Assertions.assertSame(table, db.getTableForReplay(304L).orElse(null));
+        Assertions.assertEquals(0, db.getBuildTableCallCount());
     }
 
     @Test
