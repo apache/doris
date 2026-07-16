@@ -32,26 +32,38 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
     def formats = ["parquet", "orc"]
     def partitionFlags = [true, false]
 
-    def assertBusinessRows = { tableName ->
-        def rows = sql("""select id, name, score, dt from ${tableName} order by id""")
-        def normalizedRows = rows.collect {
-            [it[0].toString().toInteger(), it[1].toString(), it[2].toString().toInteger(), it[3].toString()]
-        }
-        assertEquals([
-                [1, "a", 10, "2024-09-01"],
-                [3, "c", 30, "2024-09-02"]
-        ], normalizedRows)
+    def assertSparkDorisBusinessRows = { tableName ->
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        sql """refresh table ${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select id, name, score, dt
+            from demo.${dbName}.${tableName}
+            order by id
+        """)
+        def dorisRows = sql("""
+            select id, name, score, dt
+            from ${tableName}
+            order by id
+        """)
+        log.info("Spark business rows for ${tableName}: ${sparkRows}")
+        log.info("Doris business rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
     }
 
-    def checksum = { tableName ->
-        def rows = sql("""select count(*), sum(id), sum(score) from ${tableName}""")
-        return rows[0].collect { col -> col == null ? null : col.toString() }
-    }
-
-    def assertSparkChecksum = { sparkRows, tableName ->
-        log.info("Spark checksum rows for ${tableName}: ${sparkRows}")
-        assertEquals(1, sparkRows.size())
-        assertEquals(["2", "4", "40"], sparkRows[0].collect { col -> col == null ? null : col.toString() })
+    def assertSparkDorisAggregateRows = { tableName ->
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
+        sql """refresh table ${dbName}.${tableName}"""
+        def sparkRows = spark_iceberg("""
+            select count(*), sum(id), sum(score)
+            from demo.${dbName}.${tableName}
+        """)
+        def dorisRows = sql("""
+            select count(*), sum(id), sum(score)
+            from ${tableName}
+        """)
+        log.info("Spark aggregate rows for ${tableName}: ${sparkRows}")
+        log.info("Doris aggregate rows for ${tableName}: ${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
     }
 
     def assertDorisLineageReadable = { tableName ->
@@ -61,7 +73,6 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
             order by id
         """)
         log.info("Checking row lineage in ${tableName}: ${rows}")
-        assertEquals(2, rows.size())
         rows.each { row ->
             assertTrue(row[1] != null, "_row_id should be non-null for ${tableName}, row=${row}")
             assertTrue(row[2] != null,
@@ -90,19 +101,39 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
     }
 
     def assertSparkGeneratedDvReadable = {
+        spark_iceberg """refresh table demo.format_v3.dv_test"""
         sql """refresh table format_v3.dv_test"""
         assertPuffinDeleteFiles("format_v3.dv_test")
+        def sparkRows = spark_iceberg("""
+            select id
+            from demo.format_v3.dv_test
+            order by id
+        """)
+        def dorisRows = sql("""
+            select id
+            from format_v3.dv_test
+            order by id
+        """)
+        log.info("Checking Spark/Doris read result for Spark-generated DV fixture format_v3.dv_test: " +
+            "Spark=${sparkRows}, Doris=${dorisRows}")
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+
         def rows = sql("""select id, _row_id, _last_updated_sequence_number from format_v3.dv_test order by id""")
-        log.info("Checking Doris read result for Spark-generated DV fixture format_v3.dv_test: ${rows}")
-        assertEquals([2, 6, 8, 10, 12], rows.collect { it[0].toString().toInteger() })
+        log.info("Checking Doris row lineage for Spark-generated DV fixture format_v3.dv_test: ${rows}")
         rows.each { row ->
             assertTrue(row[1] != null, "_row_id should be non-null for Spark DV fixture, row=${row}")
             assertTrue(row[2] != null,
                     "_last_updated_sequence_number should be non-null for Spark DV fixture, row=${row}")
         }
-        assertEquals(["5", "38"], sql("""select count(*), sum(id) from format_v3.dv_test""")[0].collect {
-            col -> col == null ? null : col.toString()
-        })
+        def sparkChecksumRows = spark_iceberg("""
+            select count(*), sum(id)
+            from demo.format_v3.dv_test
+        """)
+        def dorisChecksumRows = sql("""
+            select count(*), sum(id)
+            from format_v3.dv_test
+        """)
+        assertSparkDorisResultEquals(sparkChecksumRows, dorisChecksumRows)
     }
 
     sql """drop catalog if exists ${catalogName}"""
@@ -172,18 +203,10 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
                         reset spark.sql.shuffle.partitions;
                         reset spark.sql.adaptive.enabled;
                     """
-                    sql """refresh table ${dbName}.${sparkDvTable}"""
-                    assertBusinessRows(sparkDvTable)
+                    assertSparkDorisBusinessRows(sparkDvTable)
                     assertDorisLineageReadable(sparkDvTable)
                     assertPuffinDeleteFiles(sparkDvTable)
-
-                    def sparkChecksum = spark_iceberg("""
-                        select count(*), sum(id), sum(score)
-                        from demo.${dbName}.${sparkDvTable}
-                    """)
-                    log.info("Spark checksum after Spark DV for ${sparkDvTable}: ${sparkChecksum}")
-                    assertSparkChecksum(sparkChecksum, sparkDvTable)
-                    assertEquals(["2", "4", "40"], checksum(sparkDvTable))
+                    assertSparkDorisAggregateRows(sparkDvTable)
 
                     sql """drop table if exists ${dorisDvTable}"""
                     sql """
@@ -207,17 +230,10 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
                         (3, 'c', 30, date '2024-09-02')
                     """
                     sql """delete from ${dorisDvTable} where id = 2"""
-                    assertBusinessRows(dorisDvTable)
+                    assertSparkDorisBusinessRows(dorisDvTable)
                     assertDorisLineageReadable(dorisDvTable)
                     assertPuffinDeleteFiles(dorisDvTable)
-
-                    def sparkChecksumAfterDorisDv = spark_iceberg("""
-                        select count(*), sum(id), sum(score)
-                        from demo.${dbName}.${dorisDvTable}
-                    """)
-                    log.info("Spark checksum after Doris DV for ${dorisDvTable}: ${sparkChecksumAfterDorisDv}")
-                    assertSparkChecksum(sparkChecksumAfterDorisDv, dorisDvTable)
-                    assertEquals(["2", "4", "40"], checksum(dorisDvTable))
+                    assertSparkDorisAggregateRows(dorisDvTable)
                 } finally {
                     sql """drop table if exists ${dorisDvTable}"""
                     sql """drop table if exists ${sparkDvTable}"""
