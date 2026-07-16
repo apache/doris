@@ -290,8 +290,9 @@ bool QueryCacheRuntime::_capture_tablet_delta(int64_t tablet_id, int64_t cached_
 
     // quiet: on a version-graph miss (the delta merged away by compaction, an
     // expected per-query situation) this option makes the capture API neither
-    // log nor error; it returns an EMPTY read source instead, so emptiness is
-    // checked below as the failure signal.
+    // log nor error; it returns whatever PREFIX of the path it walked before
+    // the miss (empty when the window start itself is gone), so emptiness AND
+    // window coverage are both checked below as the failure signals.
     auto source_res = tablet->capture_read_source({cached_version + 1, decision->current_version},
                                                   {.quiet = true});
     if (!source_res) {
@@ -306,6 +307,17 @@ bool QueryCacheRuntime::_capture_tablet_delta(int64_t tablet_id, int64_t cached_
         // least one rowset; an empty capture therefore means the delta
         // versions are gone, never "no new data". Treating it as INCREMENTAL
         // would silently drop the delta rows from the result.
+        decision->incremental_fallback_reason = "delta versions not capturable";
+        return false;
+    }
+    // A quiet capture broken mid-window (e.g. a replica whose local view ends
+    // short of current_version) yields a partial prefix, and treating it as
+    // INCREMENTAL would silently drop the tail rows and poison the entry on
+    // write-back. The path is contiguous by construction, so checking both
+    // endpoints pins the whole (cached_version, current_version] window.
+    if (read_source->rs_splits.front().rs_reader->rowset()->start_version() != cached_version + 1 ||
+        read_source->rs_splits.back().rs_reader->rowset()->end_version() !=
+                decision->current_version) {
         decision->incremental_fallback_reason = "delta versions not capturable";
         return false;
     }

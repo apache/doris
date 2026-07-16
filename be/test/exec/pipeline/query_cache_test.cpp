@@ -827,7 +827,8 @@ TEST_F(QueryCacheIncrementalTest, mow_irrelevant_bitmap_entries_ignored) {
 
 TEST_F(QueryCacheIncrementalTest, fallback_on_version_gap) {
     // The whole history lives in one compacted rowset [0, 100]: no version
-    // path can serve (50, 100] alone, so capture fails and we fall back.
+    // path can serve (50, 100] alone, so the capture comes back empty and we
+    // fall back.
     create_tablet(TKeysType::DUP_KEYS, false, {{0, 100}});
     auto decision = make_stale_decision();
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
@@ -837,9 +838,10 @@ TEST_F(QueryCacheIncrementalTest, fallback_on_version_gap) {
 
 TEST_F(QueryCacheIncrementalTest, fallback_on_capture_error) {
     // Non-pathfinding capture failures surface as real errors even under the
-    // quiet option (a pathfinding miss instead returns an empty read source,
-    // see fallback_on_version_gap). The storage debug point simulates such a
-    // failure, e.g. a rowset object missing for a found path.
+    // quiet option (a pathfinding miss instead returns an empty or partial
+    // read source, see fallback_on_version_gap and fallback_on_partial_capture).
+    // The storage debug point simulates such a failure, e.g. a rowset object
+    // missing for a found path.
     create_tablet(TKeysType::DUP_KEYS, false, {{0, 50}, {51, 100}});
     config::enable_debug_points = true;
     DebugPoints::instance()->add_with_params("Tablet::capture_consistent_versions.inject_failure",
@@ -860,6 +862,20 @@ TEST_F(QueryCacheIncrementalTest, fallback_on_delete_predicate) {
     auto decision = make_stale_decision();
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
     EXPECT_EQ(decision->incremental_fallback_reason, "delta contains delete predicates");
+}
+
+TEST_F(QueryCacheIncrementalTest, fallback_on_partial_capture) {
+    // The quiet capture returns whatever prefix of the version path it could
+    // walk: with rowsets {0,50},{51,80} and a query at version 100 (a replica
+    // whose local view ends short of the queried version), the (50,100]
+    // window walks up to 80 and stops, yielding a non-empty partial prefix.
+    // Treating it as INCREMENTAL would silently drop the (80,100] rows, so
+    // the endpoint coverage check must reject it.
+    create_tablet(TKeysType::DUP_KEYS, false, {{0, 50}, {51, 80}});
+    auto decision = make_stale_decision();
+    EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
+    EXPECT_TRUE(decision->key_valid);
+    EXPECT_EQ(decision->incremental_fallback_reason, "delta versions not capturable");
 }
 
 } // namespace doris
