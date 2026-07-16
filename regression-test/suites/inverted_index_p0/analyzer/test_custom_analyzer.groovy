@@ -462,8 +462,18 @@ suite("test_custom_analyzer", "p0") {
 
     sql """ alter table ${indexTbName1} add index idx_ch_default(`ch`)  using inverted; """
     wait_for_last_col_change_finish("${indexTbName1}", 60000)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(indexTbName1, 60000) {
+            build_index_on_table("idx_ch_default", indexTbName1)
+        }
+    }
     sql """ alter table ${indexTbName1} add index idx_ch(`ch`) using inverted properties("support_phrase" = "true", "analyzer" = "lowercase_delimited"); """
     wait_for_last_col_change_finish("${indexTbName1}", 60000)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(indexTbName1, 60000) {
+            build_index_on_table("idx_ch", indexTbName1)
+        }
+    }
 
     qt_sql """ select * from ${indexTbName1} where ch match_all 'FOO'; """
     qt_sql """ select * from ${indexTbName1} where ch match_all 'BAR'; """

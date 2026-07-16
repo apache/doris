@@ -74,16 +74,22 @@ Suite.metaClass.build_index_on_table = {index_name, table_name ->
 
 Suite.metaClass.wait_for_last_col_change_finish = { table_name, OpTimeout ->
     def finished = false
-    def alter_res = ""
+    def alter_res = []
 
     for (int t = 0; t <= OpTimeout; t += delta_time) {
         alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-        alter_res = alter_res.toString()
-        if (alter_res.contains("FINISHED")) {
-            sleep(3000) // wait change table state to normal
-            logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-            finished = true
-            break
+        if (!alter_res.isEmpty()) {
+            def state = alter_res[0][9].toString()
+            if (state.equalsIgnoreCase("CANCELLED")) {
+                logger.info(table_name + " latest alter job cancelled, detail: " + alter_res)
+                assertTrue(false, "column change job cancelled, result: ${alter_res}")
+            }
+            if (state.equalsIgnoreCase("FINISHED")) {
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                finished = true
+                break
+            }
         }
         if (t >= OpTimeout) {
             break
