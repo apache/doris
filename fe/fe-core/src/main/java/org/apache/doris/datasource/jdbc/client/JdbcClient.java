@@ -397,7 +397,7 @@ public abstract class JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
-                if (!isExactTable(rs, remoteTableName)) {
+                if (!isExactTable(databaseMetaData, rs, remoteDbName, remoteTableName)) {
                     continue;
                 }
                 tableSchema.add(new JdbcFieldSchema(rs));
@@ -495,9 +495,15 @@ public abstract class JdbcClient {
         return databaseMetaData.getColumns(catalogName, remoteDbName, remoteTableName, null);
     }
 
-    protected boolean isExactTable(ResultSet resultSet, String remoteTableName) throws SQLException {
-        // JDBC treats table names as search patterns, so reject sibling tables matched by '_' or '%'.
-        return remoteTableName.equals(resultSet.getString("TABLE_NAME"));
+    protected boolean isExactTable(DatabaseMetaData databaseMetaData, ResultSet resultSet,
+            String remoteDbName, String remoteTableName) throws SQLException {
+        // JDBC treats schema and table names as patterns, so verify both identities on returned rows.
+        return remoteDbName.equals(getRemoteDatabaseName(resultSet))
+                && remoteTableName.equals(resultSet.getString("TABLE_NAME"));
+    }
+
+    protected String getRemoteDatabaseName(ResultSet resultSet) throws SQLException {
+        return resultSet.getString("TABLE_SCHEM");
     }
 
     protected List<String> filterDatabaseNames(List<String> remoteDbNames) {

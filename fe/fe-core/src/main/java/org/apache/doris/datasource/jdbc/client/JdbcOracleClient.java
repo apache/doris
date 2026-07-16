@@ -76,7 +76,7 @@ public class JdbcOracleClient extends JdbcClient {
                 rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             }
             while (rs.next()) {
-                if (!isExactTable(rs, remoteTableName)) {
+                if (!isExactTable(databaseMetaData, rs, remoteDbName, remoteTableName)) {
                     continue;
                 }
                 tableSchema.add(new JdbcFieldSchema(rs));

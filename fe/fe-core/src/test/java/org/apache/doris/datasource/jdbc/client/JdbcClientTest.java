@@ -35,22 +35,76 @@ public class JdbcClientTest {
     @Test
     public void testGetJdbcColumnsInfoFiltersWildcardSiblingTable() throws Exception {
         JdbcClient client = Mockito.mock(JdbcClient.class, Mockito.CALLS_REAL_METHODS);
+        ResultSet resultSet = mockColumns(
+                new String[] {"remote_db", "remote_db"},
+                new String[] {"localXtable", "local_table"},
+                new String[] {"sibling_column", "target_column"});
+        mockMetadata(client, resultSet, "catalog", "remote_db", "local_table");
+
+        List<JdbcFieldSchema> columns = client.getJdbcColumnsInfo("remote_db", "local_table");
+
+        Assert.assertEquals(1, columns.size());
+        Assert.assertEquals("target_column", columns.get(0).getColumnName());
+    }
+
+    @Test
+    public void testGetJdbcColumnsInfoFiltersWildcardSiblingSchema() throws Exception {
+        JdbcClient client = Mockito.mock(JdbcClient.class, Mockito.CALLS_REAL_METHODS);
+        ResultSet resultSet = mockColumns(
+                new String[] {"salesX2024", "sales_2024"},
+                new String[] {"orders", "orders"},
+                new String[] {"sibling_column", "target_column"});
+        mockMetadata(client, resultSet, "catalog", "sales_2024", "orders");
+
+        List<JdbcFieldSchema> columns = client.getJdbcColumnsInfo("sales_2024", "orders");
+
+        Assert.assertEquals(1, columns.size());
+        Assert.assertEquals("target_column", columns.get(0).getColumnName());
+    }
+
+    @Test
+    public void testMySqlColumnsAcceptCanonicalLowercaseTableName() throws Exception {
+        JdbcMySQLClient client = Mockito.mock(JdbcMySQLClient.class, Mockito.CALLS_REAL_METHODS);
+        ResultSet resultSet = mockColumns(
+                new String[] {"remote_db"},
+                new String[] {"tusers"},
+                new String[] {"target_column"});
+        DatabaseMetaData databaseMetaData = mockMetadata(client, resultSet, null, "Remote_DB", "TUsers");
+        Mockito.when(databaseMetaData.supportsMixedCaseIdentifiers()).thenReturn(false);
+
+        List<JdbcFieldSchema> columns = client.getJdbcColumnsInfo("Remote_DB", "TUsers");
+
+        Assert.assertEquals(1, columns.size());
+        Assert.assertEquals("target_column", columns.get(0).getColumnName());
+    }
+
+    private DatabaseMetaData mockMetadata(JdbcClient client, ResultSet resultSet,
+            String catalogName, String remoteDbName, String remoteTableName) throws Exception {
         Connection connection = Mockito.mock(Connection.class);
         DatabaseMetaData databaseMetaData = Mockito.mock(DatabaseMetaData.class);
-        ResultSet resultSet = Mockito.mock(ResultSet.class);
-
         Mockito.doReturn(connection).when(client).getConnection();
         Mockito.when(connection.getMetaData()).thenReturn(databaseMetaData);
-        Mockito.when(connection.getCatalog()).thenReturn("catalog");
-        Mockito.when(databaseMetaData.getColumns("catalog", "remote_db", "local_table", null))
-                .thenReturn(resultSet);
+        Mockito.when(connection.getCatalog()).thenReturn(catalogName);
+        if (client instanceof JdbcMySQLClient) {
+            Mockito.when(databaseMetaData.getColumns(remoteDbName, null, remoteTableName, null))
+                    .thenReturn(resultSet);
+        } else {
+            Mockito.when(databaseMetaData.getColumns(catalogName, remoteDbName, remoteTableName, null))
+                    .thenReturn(resultSet);
+        }
+        return databaseMetaData;
+    }
 
-        String[] tableNames = {"localXtable", "local_table"};
-        String[] columnNames = {"sibling_column", "target_column"};
+    private ResultSet mockColumns(String[] databaseNames, String[] tableNames, String[] columnNames)
+            throws Exception {
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
         AtomicInteger row = new AtomicInteger(-1);
         Mockito.when(resultSet.next()).thenAnswer(invocation -> row.incrementAndGet() < tableNames.length);
         Mockito.when(resultSet.getString(Mockito.anyString())).thenAnswer(invocation -> {
             String columnLabel = invocation.getArgument(0);
+            if ("TABLE_SCHEM".equals(columnLabel) || "TABLE_CAT".equals(columnLabel)) {
+                return databaseNames[row.get()];
+            }
             if ("TABLE_NAME".equals(columnLabel)) {
                 return tableNames[row.get()];
             }
@@ -79,10 +133,6 @@ public class JdbcClientTest {
             return 0;
         });
         Mockito.when(resultSet.wasNull()).thenReturn(false);
-
-        List<JdbcFieldSchema> columns = client.getJdbcColumnsInfo("remote_db", "local_table");
-
-        Assert.assertEquals(1, columns.size());
-        Assert.assertEquals("target_column", columns.get(0).getColumnName());
+        return resultSet;
     }
 }

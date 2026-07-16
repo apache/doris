@@ -187,7 +187,7 @@ public class JdbcMySQLClient extends JdbcClient {
             }
 
             while (rs.next()) {
-                if (!isExactTable(rs, remoteTableName)) {
+                if (!isExactTable(databaseMetaData, rs, remoteDbName, remoteTableName)) {
                     continue;
                 }
                 JdbcFieldSchema field = new JdbcFieldSchema(rs, mapFieldtoType);
@@ -200,6 +200,22 @@ public class JdbcMySQLClient extends JdbcClient {
             close(rs, conn);
         }
         return tableSchema;
+    }
+
+    @Override
+    protected boolean isExactTable(DatabaseMetaData databaseMetaData, ResultSet resultSet,
+            String remoteDbName, String remoteTableName) throws SQLException {
+        String actualDbName = getRemoteDatabaseName(resultSet);
+        String actualTableName = resultSet.getString("TABLE_NAME");
+        // Connector/J reflects lower_case_table_names through supportsMixedCaseIdentifiers().
+        return databaseMetaData.supportsMixedCaseIdentifiers()
+                ? remoteDbName.equals(actualDbName) && remoteTableName.equals(actualTableName)
+                : remoteDbName.equalsIgnoreCase(actualDbName) && remoteTableName.equalsIgnoreCase(actualTableName);
+    }
+
+    @Override
+    protected String getRemoteDatabaseName(ResultSet resultSet) throws SQLException {
+        return resultSet.getString("TABLE_CAT");
     }
 
     @Override
