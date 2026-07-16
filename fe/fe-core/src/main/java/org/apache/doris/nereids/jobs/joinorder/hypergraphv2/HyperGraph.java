@@ -46,6 +46,7 @@ import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,15 +63,18 @@ public class HyperGraph {
     private final List<Edge> joinEdges;
     private final List<AbstractNode> nodes;
     private final List<NamedExpression> finalProjects;
-    private final Map<Long, List<NamedExpression>> nodeToLiteralAlias;
+    // Each value is an ordered list of Project layers (each layer = one LogicalProject's expressions).
+    // Layers preserve materialization boundaries for volatile expressions (e.g., uuid())
+    // and let consumer aliases reference producer aliases via separate Project nodes.
+    private final Map<Long, List<List<NamedExpression>>> nodeToProjectedAliases;
     private final CascadesContext ctx;
 
     HyperGraph(List<NamedExpression> finalProjects, List<Edge> joinEdges, List<AbstractNode> nodes,
-               Map<Long, List<NamedExpression>> nodeToLiteralAlias, CascadesContext ctx) {
+               Map<Long, List<List<NamedExpression>>> nodeToProjectedAliases, CascadesContext ctx) {
         this.finalProjects = ImmutableList.copyOf(finalProjects);
         this.joinEdges = ImmutableList.copyOf(joinEdges);
         this.nodes = ImmutableList.copyOf(nodes);
-        this.nodeToLiteralAlias = nodeToLiteralAlias;
+        this.nodeToProjectedAliases = nodeToProjectedAliases;
         this.ctx = ctx;
     }
 
@@ -125,30 +129,80 @@ public class HyperGraph {
         return joinEdges.get(index);
     }
 
-    public boolean hasLiteralAlias() {
-        return !nodeToLiteralAlias.isEmpty();
+    public boolean hasProjectedAliases() {
+        return !nodeToProjectedAliases.isEmpty();
     }
 
     /**
      * find all literal alias should be projected after left join right
      */
-    public List<NamedExpression> getLiteralAlias(long left, long right) {
+    public List<NamedExpression> getProjectedAliases(long left, long right) {
         ImmutableList.Builder<NamedExpression> aliasList = ImmutableList.builder();
         if (left == right) {
-            List<NamedExpression> namedExpressions = nodeToLiteralAlias.get(left);
-            if (namedExpressions != null) {
-                aliasList.addAll(namedExpressions);
+            List<List<NamedExpression>> layers = nodeToProjectedAliases.get(left);
+            if (layers != null) {
+                layers.forEach(aliasList::addAll);
             }
         } else {
             long nodes = LongBitmap.newBitmapUnion(left, right);
-            for (Map.Entry<Long, List<NamedExpression>> entry : nodeToLiteralAlias.entrySet()) {
+            for (Map.Entry<Long, List<List<NamedExpression>>> entry : nodeToProjectedAliases.entrySet()) {
                 if (!LongBitmap.isSubset(entry.getKey(), left) && !LongBitmap.isSubset(entry.getKey(), right)
                         && LongBitmap.isSubset(entry.getKey(), nodes)) {
-                    aliasList.addAll(entry.getValue());
+                    entry.getValue().forEach(aliasList::addAll);
                 }
             }
         }
         return aliasList.build();
+    }
+
+    /**
+     * Returns ordered Project layers for the given left/right nodes.
+     * Each inner list is one LogicalProject layer; layers are ordered bottom-up.
+     * PlanReceiver emits each layer as a separate LogicalProject to preserve
+     * materialization boundaries for volatile expressions.
+     */
+    public List<List<NamedExpression>> getProjectedAliasLayers(long left, long right) {
+        List<List<NamedExpression>> result = new ArrayList<>();
+        if (left == right) {
+            List<List<NamedExpression>> layers = nodeToProjectedAliases.get(left);
+            if (layers != null) {
+                result.addAll(layers);
+            }
+        } else {
+            long nodes = LongBitmap.newBitmapUnion(left, right);
+            for (Map.Entry<Long, List<List<NamedExpression>>> entry : nodeToProjectedAliases.entrySet()) {
+                if (!LongBitmap.isSubset(entry.getKey(), left) && !LongBitmap.isSubset(entry.getKey(), right)
+                        && LongBitmap.isSubset(entry.getKey(), nodes)) {
+                    result.addAll(entry.getValue());
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns the union of input slots of all projected aliases whose bitmap
+     * is a superset of the given nodes. Used by PlanReceiver to preserve
+     * columns in intermediate join outputs that are needed by pending aliases
+     * (both those emitted now and those deferred to a later join).
+     * Without this, calculateRequiredSlots prunes base columns like A.v/B.v
+     * that a pending alias s=A.v+B.v depends on, and CheckAfterRewrite fails.
+     * Uses isOverlap (not isSubset) because DPHyp can build mixed subplans
+     * like {A,C} that only partially overlap with an alias's source {A,B};
+     * inputs from the overlapping part (A.v) must still be preserved.
+     */
+    public Set<Slot> getAllAliasInputSlotsForNodes(long nodes) {
+        Set<Slot> result = new HashSet<>();
+        for (Map.Entry<Long, List<List<NamedExpression>>> entry : nodeToProjectedAliases.entrySet()) {
+            if (LongBitmap.isOverlap(nodes, entry.getKey())) {
+                for (List<NamedExpression> layer : entry.getValue()) {
+                    for (NamedExpression alias : layer) {
+                        result.addAll(alias.getInputSlots());
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     // find edges to connect left and right node
@@ -279,7 +333,12 @@ public class HyperGraph {
         // addAlias method add slots from both simple node and joined nodes, depending on the alias's input slots
         private final HashMap<Slot, Long> slotToHyperNodeMap = new LinkedHashMap<>();
 
-        private final Map<Long, List<NamedExpression>> nodeToLiteralAlias = new LinkedHashMap<>();
+        private final Map<Long, List<List<NamedExpression>>> nodeToProjectedAliases = new LinkedHashMap<>();
+
+        // Accumulates aliases for the current Project layer. Reset for each new Project
+        // in buildForDPhyper so that each source Project forms a separate layer,
+        // preserving materialization boundaries for volatile expressions.
+        private List<NamedExpression> currentProjectedAliasLayer = null;
 
         private Set<Slot> finalOutputs;
 
@@ -314,7 +373,7 @@ public class HyperGraph {
         }
 
         public HyperGraph build() {
-            return new HyperGraph(finalProjects, joinEdges, nodes, nodeToLiteralAlias, ctx);
+            return new HyperGraph(finalProjects, joinEdges, nodes, nodeToProjectedAliases, ctx);
         }
 
         public void updateNode(int idx, Group group) {
@@ -330,23 +389,57 @@ public class HyperGraph {
          *      latest join edges index
          */
         private Pair<BitSet, Long> buildForDPhyper(GroupExpression groupExpression) {
+            return buildForDPhyper(groupExpression, false);
+        }
+
+        private Pair<BitSet, Long> buildForDPhyper(GroupExpression groupExpression, boolean isNullableSide) {
             // process Project
             if (isValidProject(groupExpression.getPlan())) {
                 LogicalProject<?> project = (LogicalProject<?>) groupExpression.getPlan();
-                Pair<BitSet, Long> res = buildForDPhyper(groupExpression.child(0).getLogicalExpressions().get(0));
+                Pair<BitSet, Long> res = buildForDPhyper(
+                        groupExpression.child(0).getLogicalExpressions().get(0), isNullableSide);
+                // Start a new layer for this Project. Each source Project becomes one
+                // LogicalProject layer, preserving materialization boundaries for
+                // volatile expressions (e.g., uuid()) that PlanUtils.canMergeWithProjections
+                // would otherwise reject.
+                List<NamedExpression> savedLayer = this.currentProjectedAliasLayer;
+                this.currentProjectedAliasLayer = new ArrayList<>();
                 for (NamedExpression expr : project.getProjects()) {
                     if (expr instanceof Alias) {
-                        this.addAlias((Alias) expr, res.second);
+                        this.addAlias((Alias) expr, res.second, isNullableSide);
                     }
                 }
+                // Flush the layer if non-empty
+                if (!this.currentProjectedAliasLayer.isEmpty()) {
+                    nodeToProjectedAliases
+                            .computeIfAbsent(res.second, k -> new ArrayList<>())
+                            .add(this.currentProjectedAliasLayer);
+                }
+                this.currentProjectedAliasLayer = savedLayer;
                 return res;
             }
 
             // process Join
             if (isValidJoin(groupExpression.getPlan())) {
                 LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) groupExpression.getPlan();
-                Pair<BitSet, Long> left = buildForDPhyper(groupExpression.child(0).getLogicalExpressions().get(0));
-                Pair<BitSet, Long> right = buildForDPhyper(groupExpression.child(1).getLogicalExpressions().get(0));
+                JoinType joinType = join.getJoinType();
+                // Determine if children are on the nullable side:
+                // - For LEFT OUTER JOIN, the right child is nullable
+                // - For RIGHT OUTER JOIN, the left child is nullable
+                // - For FULL OUTER JOIN, both children are nullable
+                // - If we're already inside a nullable context, propagate down
+                boolean leftNullable = isNullableSide
+                        || joinType.isRightOuterJoin()
+                        || joinType.isAsofRightOuterJoin()
+                        || joinType.isFullOuterJoin();
+                boolean rightNullable = isNullableSide
+                        || joinType.isLeftOuterJoin()
+                        || joinType.isAsofLeftOuterJoin()
+                        || joinType.isFullOuterJoin();
+                Pair<BitSet, Long> left = buildForDPhyper(
+                        groupExpression.child(0).getLogicalExpressions().get(0), leftNullable);
+                Pair<BitSet, Long> right = buildForDPhyper(
+                        groupExpression.child(1).getLogicalExpressions().get(0), rightNullable);
                 return Pair.of(this.addJoin(join, left, right), LongBitmap.or(left.second, right.second));
             }
 
@@ -366,7 +459,7 @@ public class HyperGraph {
          *
          * @param alias The alias Expression in project Operator
          */
-        public boolean addAlias(Alias alias, long subTreeNodes) {
+        public boolean addAlias(Alias alias, long subTreeNodes, boolean isNullableSide) {
             Slot aliasSlot = alias.toSlot();
             if (slotToHyperNodeMap.containsKey(aliasSlot)) {
                 return true;
@@ -385,15 +478,54 @@ public class HyperGraph {
             if (bitmap == 0) {
                 bitmap = subTreeNodes;
                 addToReplaceMap = false;
-                List<NamedExpression> aliasList = nodeToLiteralAlias.get(bitmap);
-                if (aliasList == null) {
-                    aliasList = new ArrayList<>(1);
-                    nodeToLiteralAlias.put(bitmap, aliasList);
+                // Constant aliases go into the current Project layer (set up by
+                // buildForDPhyper) and will be flushed to nodeToProjectedAliases
+                // keyed by the layer's subtree bitmap after the Project is processed.
+                if (currentProjectedAliasLayer != null) {
+                    currentProjectedAliasLayer.add(alias);
                 }
-                aliasList.add(alias);
             }
             Preconditions.checkArgument(bitmap > 0, "slot must belong to some table");
-            slotToHyperNodeMap.put(aliasSlot, bitmap);
+            // Map nullable-side alias slots to subTreeNodes instead of the minimal
+            // referenced bitmap. Otherwise a later join predicate like s=C.k sees s as
+            // {B} (its input slot) and creates a {B}--{C} edge, allowing DPHyp to join
+            // B and C before A — but s can only be emitted when {A,B} is complete.
+            // Using subTreeNodes (e.g. {A,B}) forces the predicate edge to require the
+            // full source subtree, matching the emission key in nodeToProjectedAliases.
+            // Exception: a bare Slot-forwarding alias (e.g. s = A.k) substitutes
+            // values without changing evaluation count; mapping to subTreeNodes would
+            // block beneficial {A,C} joins before B. Keep those on the underlying
+            // slot's bitmap — the emission boundary is still enforced by
+            // nodeToProjectedAliases keyed by subTreeNodes.
+            long mapNodes;
+            if (isNullableSide && alias.child() instanceof Slot) {
+                mapNodes = bitmap;
+            } else if (isNullableSide) {
+                mapNodes = subTreeNodes;
+            } else {
+                mapNodes = bitmap;
+            }
+            slotToHyperNodeMap.put(aliasSlot, mapNodes);
+            // Do not add aliases on the nullable side of outer joins to aliasReplaceMap.
+            // Aliases on the nullable side (e.g., COALESCE(v, 0) AS dv on the right side of
+            // a LEFT JOIN) must execute BEFORE the outer join's null-extension.
+            // If added to aliasReplaceMap, they would be unwrapped and reconstructed above
+            // the outer join by PlanReceiver.proposeProject(), changing execution order
+            // and producing wrong results.
+            // Instead, add them to the current Project layer. buildForDPhyper flushes each
+            // layer to nodeToProjectedAliases keyed by subTreeNodes so the alias is only
+            // projected when the full original subtree is available, preserving the
+            // execution boundary and volatile materialization order.
+            // No replaceNameExpression here: nullable-side aliases are stored as
+            // independent layers that reference child-output slots, so expansion is
+            // unnecessary and could trigger expression-limit failures for large chains
+            // (the same reason PlanUtils.tryMergeProjections keeps layers).
+            if (addToReplaceMap && isNullableSide) {
+                if (currentProjectedAliasLayer != null) {
+                    currentProjectedAliasLayer.add(alias);
+                }
+                return true;
+            }
             alias = (Alias) ExpressionUtils.replaceNameExpression(alias, aliasReplaceMap);
             if (addToReplaceMap) {
                 aliasReplaceMap.put(aliasSlot, alias.child());
