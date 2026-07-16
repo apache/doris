@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.Hdfs
+import org.apache.hadoop.fs.Path
+
 suite("hive_config_test", "p0,external") {
     String db_name = "regression_test_external_table_p0_hive"
     String internal_table = "hive_config_test"
@@ -47,6 +50,16 @@ suite("hive_config_test", "p0,external") {
         // It's okay to use random `hdfsUser`, but can not be empty.
         def hdfsUserName = "doris"
 
+        // Make this suite idempotent: the OUTFILE writes below drop uniquely-named files into
+        // fixed HDFS dirs that nothing ever cleans, so reruns accumulate files and inflate the
+        // row counts asserted by order_qt_1/2/21/3. Clear the dirs this suite writes to before
+        // writing. Docker init loads no data into them (run.sh only mkdir -p), so this is safe.
+        // The country=India/Delhi absent-partition dir is intentionally left untouched so the
+        // final 'hive.ignore_absent_partitions'=false check still throws.
+        Hdfs hdfs = new Hdfs(defaultFS, hdfsUserName, context.config.dataPath + "/")
+        def fs = hdfs.fs
+        fs.delete(new Path("/user/doris/suites/default/hive_recursive_directories_table"), true)
+        fs.delete(new Path("/user/doris/suites/default/hive_ignore_absent_partitions_table/country=USA/city=NewYork"), true)
 
         def test_outfile = {format, uri ->
             def res = sql """

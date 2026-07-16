@@ -25,11 +25,13 @@ import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
 import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
@@ -52,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldO
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
@@ -86,6 +89,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     // via makeSureInitialized() → initLocalObjectsImpl(), or resetToUninitialized() → onClose().
     private transient volatile Connector connector;
 
+    // The engine-owned context shared by the connector (and any sibling it builds via createSiblingConnector).
+    // Held so the catalog can close the context's cached engine FileSystem (DefaultConnectorContext.getFileSystem)
+    // on teardown -- connectors only borrow that FS and must not close it. Null until the real connector is built
+    // (the lightweight CatalogFactory context is not tracked here; its FS is never built).
+    private transient volatile DefaultConnectorContext connectorContext;
+
     /** No-arg constructor for GSON deserialization. */
     public PluginDrivenExternalCatalog() {
     }
@@ -114,6 +123,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // The connector created by CatalogFactory used a lightweight context
         // without auth (the catalog didn't exist yet); we replace it now.
         Connector oldConnector = connector;
+        // Capture the old context before createConnectorFromProperties() overwrites connectorContext, so we can
+        // close its cached FileSystem when the connector is actually replaced.
+        DefaultConnectorContext oldContext = connectorContext;
         Connector newConnector = createConnectorFromProperties();
         if (newConnector != null) {
             connector = newConnector;
@@ -125,6 +137,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 } catch (IOException e) {
                     LOG.warn("Failed to close old connector during re-initialization "
                             + "for catalog {}", name, e);
+                }
+                // ...and close the replaced context's cached engine FileSystem (never the live one).
+                if (oldContext != null && oldContext != connectorContext) {
+                    closeConnectorContextQuietly(oldContext);
                 }
             }
         }
@@ -163,11 +179,14 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // This handles image deserialization of old resource-backed catalogs whose
         // properties never contained "type" (it was derived from the Resource object).
         String catalogType = getType();
-        return ConnectorFactory.createConnector(catalogType,
-                catalogProperty.getProperties(),
-                new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
-                        () -> catalogProperty.getStoragePropertiesMap(),
-                        catalogProperty::getEffectiveRawStorageProperties));
+        // Build the context up front and stash it so the catalog can close its cached engine FileSystem on
+        // teardown (onClose / connector replacement). The connector — and any sibling it builds — shares this
+        // one context instance, so there is a single cached FS per catalog.
+        DefaultConnectorContext context = new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
+                () -> catalogProperty.getStoragePropertiesMap(),
+                catalogProperty::getEffectiveRawStorageProperties);
+        this.connectorContext = context;
+        return ConnectorFactory.createConnector(catalogType, catalogProperty.getProperties(), context);
     }
 
     @Override
@@ -316,6 +335,22 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     /**
+     * Registers a newly-observed database into this catalog, driven by the metastore-event sync's
+     * REGISTER_DATABASE change (via {@code CatalogMgr.registerExternalDatabaseFromEvent}). Pulled up from
+     * {@code HMSExternalCatalog} so a flipped (generic) catalog no longer throws
+     * {@code NotImplementedException} on a create/rename-database event. The body is fully generic
+     * (buildDbForInit + metaCache, name-derived id) and mirrors the legacy HMS implementation.
+     */
+    @Override
+    public void registerDatabase(long dbId, String dbName) {
+        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
+        if (isInitialized()) {
+            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
+                    Util.genIdByName(name, db.getFullName()));
+        }
+    }
+
+    /**
      * FIX-4: let the connector's own cache knob also govern the schema cache (restoring the legacy single-knob
      * semantics — e.g. paimon's {@code meta.cache.paimon.table.ttl-second} sized the whole table cache, schema
      * included). Applied to the engine's EPHEMERAL cache-sizing property copy only (never persisted). An
@@ -406,6 +441,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Drop any stale connector-owned cache entry for this name before the new table goes live
+        // (belt-and-suspenders with the DROP path, which is the load-bearing invalidation for drop+recreate).
+        // Connector-agnostic: invalidateTable is a no-op SPI default; hive/iceberg/paimon drop their own
+        // per-table caches (metastore/file-listing, latest-snapshot pin). The table name is intentionally NOT
+        // remote-resolved (a new table has no local->remote mapping — parity with the create request + editlog).
+        connector.invalidateTable(db.getRemoteName(), createTableInfo.getTableName());
         org.apache.doris.persist.CreateTableInfo persistInfo =
                 new org.apache.doris.persist.CreateTableInfo(
                         getName(),
@@ -498,6 +539,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Drop the connector's own caches for every table in this db so a subsequent same-name CREATE
+        // DATABASE and the next reads go live rather than serving dropped tables up to the connector TTL.
+        // Connector-agnostic (no-op SPI default); keyed by the REMOTE db name, mirroring
+        // RefreshManager.refreshDbInternal. (createDb is intentionally NOT hooked: a brand-new db has no
+        // table-keyed connector entries that this dropDb did not already clear.)
+        connector.invalidateDb(db.getRemoteName());
         // Edit log + cache invalidation intentionally use the LOCAL name: followers replay the
         // persisted DropDbInfo and the on-FE cache is keyed by local name (follower-replay parity).
         Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), dbName));
@@ -549,6 +596,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             } catch (DorisConnectorException e) {
                 throw new DdlException(e.getMessage(), e);
             }
+            // Uniform with the table branch: drop the connector's own caches for this name (harmless no-op
+            // for a view, which carries no snapshot pin). Keyed by the REMOTE names.
+            connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
             Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
             getDbForReplay(dbName).ifPresent(d -> d.unregisterTable(tableName));
             LOG.info("finished to drop view {}.{}.{}", getName(), dbName, tableName);
@@ -569,6 +619,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Drop the connector's own caches for this table (paimon/iceberg latest-snapshot pin, hive
+        // metastore + file-listing) so a subsequent same-name CREATE and the next read go live rather than
+        // serving the dropped table up to the connector TTL — the load-bearing fix for drop+recreate.
+        // Connector-agnostic (no-op SPI default); keyed by the REMOTE db/table names the connector caches
+        // under, mirroring RefreshManager.refreshTableInternal.
+        connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
         // Edit log and cache invalidation deliberately use the LOCAL db/table names for
         // follower-replay consistency; only the connector-bound names are remote-resolved.
         Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
@@ -606,7 +662,119 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // R4: drop the connector's OWN caches for BOTH the source and target names so an atomic swap
+        // (RENAME t->t_arch; RENAME t_new->t) doesn't serve the pre-rename pinned snapshot under either name —
+        // afterExternalRename only fixes the FE name cache. Same drop+recreate class the dropTable hook covers.
+        // Connector-agnostic (no-op SPI default); the source is keyed by its resolved REMOTE names, the target
+        // by the new name in the same remote db (parity with createTable: a rename target has no prior
+        // local->remote mapping). Followers propagate this via RefreshManager.replayRefreshTable's rename branch.
+        connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+        connector.invalidateTable(dorisTable.getRemoteDbName(), newTableName);
         afterExternalRename(dbName, oldTableName, newTableName);
+    }
+
+    /**
+     * Routes {@code TRUNCATE TABLE} through the SPI's {@code ConnectorTableOps.truncateTable(session, handle,
+     * partitions)} instead of the base {@link ExternalCatalog#truncateTable} (which throws on
+     * {@code metadataOps == null}).
+     *
+     * <p>Resolves the table by REMOTE names for the connector (like {@link #dropTable}); {@code partitions} is
+     * {@code null} for a whole-table truncate or the named partitions otherwise. On success it emits the same
+     * {@link TruncateTableInfo} edit log the base op writes and refreshes the local table cache (mirroring legacy
+     * {@code HiveMetadataOps.afterTruncateTable -> RefreshManager.refreshTableInternal}); followers refresh via
+     * {@link #replayTruncateTable}. {@code forceDrop} / {@code rawTruncateSql} carry no external semantics (the
+     * connector truncates the remote table directly) and are ignored, matching the legacy path.</p>
+     */
+    @Override
+    public void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo,
+                              boolean forceDrop, String rawTruncateSql) throws DdlException {
+        makeSureInitialized();
+        ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + getName());
+        }
+        ExternalTable dorisTable = db.getTableNullable(tableName);
+        if (dorisTable == null) {
+            throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
+        }
+        List<String> partitions = partitionNamesInfo == null ? null : partitionNamesInfo.getPartitionNames();
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(dorisTable, session, metadata);
+        try {
+            metadata.truncateTable(session, handle, partitions);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        long updateTime = System.currentTimeMillis();
+        // Cache refresh + edit log use the LOCAL db/table names for follower-replay parity (only the
+        // connector-bound handle is remote-resolved), mirroring base ExternalCatalog.truncateTable.
+        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, dorisTable, updateTime);
+        Env.getCurrentEnv().getEditLog().logTruncateTable(
+                new TruncateTableInfo(getName(), dbName, tableName, partitions, updateTime));
+        LOG.info("finished to truncate table {}.{}.{}", getName(), dbName, tableName);
+    }
+
+    /**
+     * Refreshes the local table cache on edit-log replay of a connector-driven truncate. The base
+     * {@link ExternalCatalog#replayTruncateTable} delegates to {@code metadataOps.afterTruncateTable}, which is a
+     * no-op for PluginDriven ({@code metadataOps == null}); this override re-resolves the cached table by the
+     * replayed LOCAL names and runs {@code refreshTableInternal} (the same effect the master path applied),
+     * mirroring legacy {@code HiveMetadataOps.afterTruncateTable}.
+     */
+    @Override
+    public void replayTruncateTable(TruncateTableInfo info) {
+        getDbForReplay(info.getDb()).ifPresent(db ->
+                db.getTableForReplay(info.getTable()).ifPresent(tbl ->
+                        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, tbl, info.getUpdateTime())));
+    }
+
+    /**
+     * Propagates the coordinator {@link #dropTable} hook's connector-cache invalidation to followers/observers
+     * on edit-log replay. The base {@link ExternalCatalog#replayDropTable} plugin branch only touches the FE
+     * name cache ({@code unregisterTable}); without this, a follower that had queried a paimon/iceberg table
+     * keeps its latest-snapshot pin (and paimon's schema memo) for the dropped name until the 24h access-TTL —
+     * the coordinator-only half of the drop+recreate fix. Resolves the REMOTE names from the still-cached
+     * table BEFORE the base unregisters it, keyed exactly like the coordinator (mirrors
+     * {@code RefreshManager.replayRefreshTable → refreshTableInternal}'s connector hook).
+     *
+     * <p><b>Never force-initializes during replay:</b> {@code getConnector()} runs only inside the
+     * {@code getDbForReplay}/{@code getTableForReplay} match, which is present only when this catalog is
+     * already initialized on this FE (both return empty otherwise). A never-initialized catalog has no
+     * connector cache to drop, so skipping it is correct — mirroring {@code HiveConnector.forEachBuiltSibling}
+     * ("a never-built sibling has no cache") and preserving the base's no-force-init replay behavior.
+     */
+    @Override
+    public void replayDropTable(String dbName, String tblName) {
+        getDbForReplay(dbName).ifPresent(db ->
+                db.getTableForReplay(tblName).ifPresent(tbl ->
+                        getConnector().invalidateTable(db.getRemoteName(), tbl.getRemoteName())));
+        super.replayDropTable(dbName, tblName);
+    }
+
+    /**
+     * Replay analogue of the coordinator {@link #dropDb} hook's connector-cache invalidation — clears every
+     * table's connector cache for the dropped database on followers/observers (the base
+     * {@link ExternalCatalog#replayDropDb} plugin branch only unregisters the FE db). Resolves the REMOTE db
+     * name BEFORE the base unregisters the database. See {@link #replayDropTable} for the no-force-init
+     * rationale.
+     */
+    @Override
+    public void replayDropDb(String dbName) {
+        getDbForReplay(dbName).ifPresent(db -> getConnector().invalidateDb(db.getRemoteName()));
+        super.replayDropDb(dbName);
+    }
+
+    /**
+     * Replay analogue of the coordinator {@link #createTable} hook's belt-and-suspenders connector-cache
+     * invalidation (uniform with the drop path). The table name is NOT remote-resolved — parity with the
+     * coordinator, where a brand-new table has no local→remote mapping. See {@link #replayDropTable} for the
+     * no-force-init rationale.
+     */
+    @Override
+    public void replayCreateTable(String dbName, String tblName) {
+        super.replayCreateTable(dbName, tblName);
+        getDbForReplay(dbName).ifPresent(db -> getConnector().invalidateTable(db.getRemoteName(), tblName));
     }
 
     /**
@@ -1036,6 +1204,17 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
     }
 
+    private void closeConnectorContextQuietly(DefaultConnectorContext context) {
+        if (context == null) {
+            return;
+        }
+        try {
+            context.close();
+        } catch (IOException e) {
+            LOG.warn("Failed to close connector context filesystem for catalog {}", name, e);
+        }
+    }
+
     @Override
     public void onClose() {
         super.onClose();
@@ -1047,5 +1226,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             }
             connector = null;
         }
+        // Close the shared context's cached engine FileSystem AFTER the connector(s) release their borrowed
+        // reference to it. No-op when no FS was ever built (e.g. non-hive plugin catalogs never call
+        // getFileSystem()).
+        DefaultConnectorContext contextToClose = connectorContext;
+        connectorContext = null;
+        closeConnectorContextQuietly(contextToClose);
     }
 }

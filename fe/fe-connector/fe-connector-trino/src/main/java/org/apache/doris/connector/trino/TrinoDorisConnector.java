@@ -173,10 +173,15 @@ public class TrinoDorisConnector implements Connector {
         TrinoBootstrap.TrinoConnectionResult result = bootstrap.createConnection(
                 context.getCatalogName(), connectorNameStr, trinoProperties);
 
-        this.trinoConnector = result.getConnector();
+        // Publish the guard field (trinoConnector) LAST. ensureInitialized() and the other readers use
+        // `trinoConnector != null` as the initialized flag and then read trinoSession/trinoCatalogHandle.
+        // Assigning the guard after its dependencies means a concurrent reader that sees it non-null is
+        // guaranteed (via the volatile write/read happens-before) to also see the fully-published
+        // session / catalog handle / name — closing the transient half-initialized NPE window.
         this.trinoSession = result.getSession();
         this.trinoCatalogHandle = result.getCatalogHandle();
         this.trinoConnectorName = result.getConnectorName();
+        this.trinoConnector = result.getConnector();
 
         LOG.info("Trino connector initialized for catalog '{}', connector: {}",
                 context.getCatalogName(), connectorNameStr);

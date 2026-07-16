@@ -46,10 +46,18 @@ public final class ConnectorPartitionSpec {
     private final Style style;
     private final List<ConnectorPartitionField> fields;
     private final List<ConnectorPartitionValueDef> initialValues;
+    private final boolean hasExplicitPartitionValues;
 
     public ConnectorPartitionSpec(Style style,
             List<ConnectorPartitionField> fields,
             List<ConnectorPartitionValueDef> initialValues) {
+        this(style, fields, initialValues, false);
+    }
+
+    public ConnectorPartitionSpec(Style style,
+            List<ConnectorPartitionField> fields,
+            List<ConnectorPartitionValueDef> initialValues,
+            boolean hasExplicitPartitionValues) {
         this.style = Objects.requireNonNull(style, "style");
         this.fields = fields == null
                 ? Collections.emptyList()
@@ -57,6 +65,7 @@ public final class ConnectorPartitionSpec {
         this.initialValues = initialValues == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(initialValues);
+        this.hasExplicitPartitionValues = hasExplicitPartitionValues;
     }
 
     public Style getStyle() {
@@ -71,6 +80,18 @@ public final class ConnectorPartitionSpec {
         return initialValues;
     }
 
+    /**
+     * Whether the CREATE TABLE declared explicit partition value definitions (e.g.
+     * {@code PARTITION BY LIST(dt) (PARTITION p1 VALUES IN ('a'))}). The neutral converter does not lower
+     * those value expressions into {@link #getInitialValues()} (it stays empty), so this flag preserves the
+     * information a connector needs to reject them: Hive external tables discover partitions from the data
+     * layout and reject explicit partition values (legacy parity). Connectors that accept explicit partition
+     * definitions ignore this flag.
+     */
+    public boolean hasExplicitPartitionValues() {
+        return hasExplicitPartitionValues;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -81,19 +102,21 @@ public final class ConnectorPartitionSpec {
         }
         ConnectorPartitionSpec that = (ConnectorPartitionSpec) o;
         return style == that.style
+                && hasExplicitPartitionValues == that.hasExplicitPartitionValues
                 && fields.equals(that.fields)
                 && initialValues.equals(that.initialValues);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(style, fields, initialValues);
+        return Objects.hash(style, fields, initialValues, hasExplicitPartitionValues);
     }
 
     @Override
     public String toString() {
         return "ConnectorPartitionSpec{style=" + style
                 + ", fields=" + fields
-                + ", initialValues=" + initialValues.size() + "}";
+                + ", initialValues=" + initialValues.size()
+                + ", hasExplicitPartitionValues=" + hasExplicitPartitionValues + "}";
     }
 }

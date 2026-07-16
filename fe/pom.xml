@@ -289,6 +289,7 @@ under the License.
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <json-simple.version>1.1.1</json-simple.version>
+        <open-json.version>1.8</open-json.version>
         <junit.version>5.14.1</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
@@ -406,6 +407,7 @@ under the License.
              do NOT override paimon.version per-module. -->
         <paimon.version>1.3.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
+        <jetbrains-annotations.version>17.0.0</jetbrains-annotations.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
@@ -504,6 +506,49 @@ under the License.
     </profiles>
     <dependencyManagement>
         <dependencies>
+            <!-- MUST stay ahead of the netty-bom import below: netty-bom declares each
+                 netty-codec-native-quic classifier with an explicit <scope>runtime</scope>, and
+                 dependencyManagement scope is force-applied to transitive nodes. Doris uses no
+                 QUIC/HTTP3 anywhere, so that dragged ~31MB of unused native libs into every
+                 artifact carrying netty (fe-core lib, every be-java-extensions fat jar, the
+                 plugin zips). provided keeps them on the compile classpath but out of every
+                 shipped package. dependencyManagement is first-match-wins, so moving these
+                 below the import silently restores the bloat. -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>linux-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>linux-aarch_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>osx-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>osx-aarch_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>windows-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
@@ -803,6 +848,28 @@ under the License.
                 <artifactId>hive-catalog-shade</artifactId>
                 <version>${doris.hive.catalog.shade.version}</version>
             </dependency>
+            <!-- Hive-UDF compatibility. User JAVA_UDF jars may declare a symbol class extending
+                 org.apache.hadoop.hive.ql.exec.UDF; regression-test/java-udf-src/pom.xml compiles
+                 against this exact artifact at scope=provided, i.e. the base classes are deliberately
+                 NOT bundled in the user jar and the host must supply them.
+                 The `core` classifier is the unshaded jar: it carries only org/apache/hadoop and
+                 org/apache/hive, no caffeine/fastutil/guava, so it shadows nothing on the classpath.
+                 The wildcard exclusion is load-bearing, not tidiness: a classifier shares its
+                 artifact's pom, so without it hive-exec's 29 non-optional dependencies follow it
+                 onto the consumer's classpath, including a second SLF4J binding. A consumer that
+                 genuinely needs those must re-declare them deliberately. -->
+            <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-exec</artifactId>
+                <classifier>core</classifier>
+                <version>${hive.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>*</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
                 <artifactId>kerb-simplekdc</artifactId>
@@ -977,6 +1044,12 @@ under the License.
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
             </dependency>
+            <!-- Open JSON: Apache-2.0 clean-room implementation of the org.json API -->
+            <dependency>
+                <groupId>com.tdunning</groupId>
+                <artifactId>json</artifactId>
+                <version>${open-json.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
             <dependency>
                 <groupId>org.apache.thrift</groupId>
@@ -1039,6 +1112,11 @@ under the License.
                 <groupId>com.lmax</groupId>
                 <artifactId>disruptor</artifactId>
                 <version>${disruptor.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains</groupId>
+                <artifactId>annotations</artifactId>
+                <version>${jetbrains-annotations.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
             <dependency>
@@ -2010,6 +2088,7 @@ under the License.
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
     <reporting>

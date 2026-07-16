@@ -18,8 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.maxcompute.MCProperties;
-import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
-import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
 import org.apache.doris.datasource.property.storage.GCSProperties;
@@ -57,8 +55,18 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.addAll(Arrays.asList(
                 MCProperties.SECRET_KEY));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
+        // DLF 1.0 secret keys. Formerly reflected off AliyunDLFBaseProperties, removed with the DLF 1.0 thrift
+        // metastore. Masking must outlive the feature: a DLF catalog created before the removal still replays from
+        // the image (rejection deliberately fires at CREATE and at client creation, never during replay, so FE can
+        // still start), so it remains listable and SHOW CREATE CATALOG still prints its stored properties. All four
+        // former sensitive keys are enumerated here, byte-identical to the former reflection result (the class had
+        // no superclass, so the walk contributed nothing else). The overlap with OSSProperties/OSSHdfsProperties
+        // below is uneven and must NOT be relied on: they alias dlf.secret_key, but nothing else covers
+        // dlf.catalog.accessKeySecret or either session-token alias, so omitting those would silently unmask them.
+        SENSITIVE_KEY.add("dlf.secret_key");
+        SENSITIVE_KEY.add("dlf.catalog.accessKeySecret");
+        SENSITIVE_KEY.add("dlf.session_token");
+        SENSITIVE_KEY.add("dlf.catalog.sessionToken");
         // Iceberg REST catalog secret keys. Formerly reflected off the fe-core IcebergRestProperties
         // (getSensitiveKeys). That class is being removed with the fe-core iceberg property cluster; its
         // authoritative copy now lives connector-side (fe-connector-metastore-iceberg

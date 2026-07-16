@@ -27,6 +27,8 @@ import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.PrivilegedExceptionAction;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * Verifies the {@link TcclPinningConnectorContext} decorator the paimon connector wraps its context in: the op
@@ -126,6 +128,23 @@ public class TcclPinningConnectorContextTest {
         } finally {
             thread.setContextClassLoader(saved);
         }
+    }
+
+    @Test
+    public void delegatesSiblingConnectorToTheRawContext() {
+        // createSiblingConnector is a non-auth engine-service method: the decorator must forward it to the raw
+        // delegate (else a wrapped gateway context would return the SPI default null, masking a real sibling as
+        // "provider missing"). Assert the type + props reach the delegate unchanged.
+        RecordingConnectorContext delegate = new RecordingConnectorContext();
+        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, isolatedLoader(), () -> null);
+
+        Map<String, String> siblingProps = Collections.singletonMap("iceberg.catalog.type", "hms");
+        ctx.createSiblingConnector("iceberg", siblingProps);
+
+        Assertions.assertEquals("iceberg", delegate.lastSiblingType,
+                "createSiblingConnector type must reach the delegate (decorator is an exhaustive pass-through)");
+        Assertions.assertSame(siblingProps, delegate.lastSiblingProps,
+                "createSiblingConnector properties must reach the delegate unchanged");
     }
 
     /** Wiring-only {@link HadoopAuthenticator} double: records doAs calls and runs the action WITHOUT a UGI. */

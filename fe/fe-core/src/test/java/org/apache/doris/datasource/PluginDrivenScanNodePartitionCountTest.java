@@ -27,6 +27,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.OptionalLong;
 
 /**
  * FIX-EXPLAIN-PARTITION-COUNT — guards {@link PluginDrivenScanNode#displayPartitionCounts}, which
@@ -96,5 +97,39 @@ public class PluginDrivenScanNodePartitionCountTest {
         SelectedPartitions prunedToZero = new SelectedPartitions(2, Collections.emptyMap(), true);
         Assertions.assertArrayEquals(new long[] {0, 2},
                 PluginDrivenScanNode.displayPartitionCounts(prunedToZero));
+    }
+
+    // FIX-L12 — guards resolveSelectedPartitionNum, which prefers the connector's real scanned-partition
+    // count (distinct native partitions after the connector's SDK manifest/residual/transform pruning) over
+    // the engine's Nereids declared-column prune count, so partition=N/M and sql_block_rule reflect what is
+    // actually scanned. WHY it matters: for a predicate-driven connector (iceberg days(ts) hidden
+    // partitioning, paimon non-partition-column manifest pruning) the Nereids count OVER-reports the scanned
+    // partitions (it can only see declared partition columns) and would over-block a governed query that
+    // really touches one partition.
+
+    @Test
+    public void testConnectorCountOverridesNereidsWhenNotCountPushdown() {
+        // THE load-bearing RED assertion: a connector that reports 1 real scanned partition wins over the
+        // Nereids count of 30 (e.g. iceberg WHERE ts=<one day> over a days(ts) table). A mutation that drops
+        // the override and keeps the Nereids number makes this red.
+        Assertions.assertEquals(1L,
+                PluginDrivenScanNode.resolveSelectedPartitionNum(30L, false, OptionalLong.of(1L)));
+    }
+
+    @Test
+    public void testCountPushdownKeepsNereidsCount() {
+        // Under COUNT(*) pushdown the connector collapses its splits into one count range, so its
+        // per-partition info is lost — keep the conservative Nereids count (>= real, never under-blocks)
+        // even though the connector reports a (collapsed, wrong) 1.
+        Assertions.assertEquals(30L,
+                PluginDrivenScanNode.resolveSelectedPartitionNum(30L, true, OptionalLong.of(1L)));
+    }
+
+    @Test
+    public void testEmptyConnectorCountKeepsNereidsCount() {
+        // A connector that does not report a scanned-partition count (hive/MaxCompute, where the Nereids
+        // count already equals the real one) keeps the engine's Nereids count.
+        Assertions.assertEquals(5L,
+                PluginDrivenScanNode.resolveSelectedPartitionNum(5L, false, OptionalLong.empty()));
     }
 }

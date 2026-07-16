@@ -201,8 +201,9 @@ class JdbcDorisConnectorTest {
         Map<String, String> props = new HashMap<>();
         props.put(JdbcConnectorProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
         JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext());
-        Assertions.assertDoesNotThrow(connector::getWritePlanProvider,
-                "missing driver_class must not NPE inside HikariCP during client initialization");
+        Assertions.assertDoesNotThrow(() -> {
+            connector.getWritePlanProvider();
+        }, "missing driver_class must not NPE inside HikariCP during client initialization");
     }
 
     @Test

@@ -38,9 +38,11 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.StatementContext;
@@ -53,6 +55,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -121,6 +124,132 @@ public class PluginDrivenMvccExternalTableTest {
                 "an unknown partition name must raise AnalysisException, not silently succeed");
     }
 
+    // ==================== last-modified freshness (e.g. hive): table + partition snapshots ====================
+
+    /**
+     * Re-stubs {@code beginQuerySnapshot} so the query-begin pin advertises last-modified freshness (the flag a
+     * hive connector sets). fe-core reads this off the pin to decide whether to serve MTMV freshness from the
+     * on-demand SPI (hive) vs the snapshot id (paimon/iceberg).
+     */
+    private static void flagPinLastModified(Fixture f) {
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle))
+                .thenReturn(Optional.of(ConnectorMvccSnapshot.builder()
+                        .snapshotId(-1L).lastModifiedFreshness(true).build()));
+    }
+
+    @Test
+    public void testGetTableSnapshotLastModifiedEmitsMaxTimestampSnapshot() throws AnalysisException {
+        // A last-modified connector (hive) flags its pin and reports whole-table freshness via getTableFreshness;
+        // fe-core must wrap it in MTMVMaxTimestampSnapshot (byte-parity with legacy HiveDlaTable.getTableSnapshot),
+        // NOT the snapshot-id token. Without this a plain-hive empty pin's snapshot id is a constant -1, so an MV
+        // over a hive base table would compare equal forever and never refresh.
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(new ConnectorTableFreshness("dt=2024-02-02", TS_2024_02_02)));
+
+        // MUTATION: keeping the hardcoded MTMVSnapshotIdSnapshot (ignoring getTableFreshness) makes this cast
+        // throw ClassCastException -> red.
+        MTMVMaxTimestampSnapshot snap =
+                (MTMVMaxTimestampSnapshot) f.table.getTableSnapshot(Optional.empty());
+        // MTMVMaxTimestampSnapshot.equals compares BOTH the partition name and the timestamp (the name guards
+        // against dropping the partition that owns the max time). MUTATION: dropping the name or the millis makes
+        // this red.
+        Assertions.assertEquals(new MTMVMaxTimestampSnapshot("dt=2024-02-02", TS_2024_02_02), snap,
+                "a last-modified connector's table snapshot must carry (max-partition-name, max-modify-millis)");
+    }
+
+    @Test
+    public void testGetTableSnapshotContextOverloadAlsoLastModified() throws AnalysisException {
+        // The MTMVRefreshContext overload (used by MTMVPartitionUtil.getTableSnapshotFromContext) must route to
+        // the same freshness-aware path, not a separate hardcoded one.
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(new ConnectorTableFreshness("t", 4242L)));
+        MTMVMaxTimestampSnapshot snap =
+                (MTMVMaxTimestampSnapshot) f.table.getTableSnapshot(null, Optional.empty());
+        Assertions.assertEquals(new MTMVMaxTimestampSnapshot("t", 4242L), snap);
+    }
+
+    @Test
+    public void testGetPartitionSnapshotLastModifiedUsesOnDemandNotPin() throws AnalysisException {
+        // A last-modified connector withholds per-partition modify time from listPartitions (names-only hot
+        // path), so the pin carries the -1 UNKNOWN sentinel; getPartitionSnapshot must take the REAL time from
+        // the on-demand getPartitionFreshnessMillis, not the pin.
+        Fixture f = Fixture.with(Collections.singletonList(
+                cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(),
+                Mockito.eq("dt=2024-01-01"))).thenReturn(OptionalLong.of(TS_2024_01_01));
+
+        MTMVTimestampSnapshot ts = (MTMVTimestampSnapshot) f.table.getPartitionSnapshot(
+                "dt=2024-01-01", null, Optional.empty());
+        // MUTATION: reading the pin value (-1) instead of the on-demand fetch makes this red (would be -1),
+        // which would make every partition compare equal forever (stale MV at partition granularity).
+        Assertions.assertEquals(TS_2024_01_01, ts.getSnapshotVersion(),
+                "a last-modified connector's partition snapshot must use the on-demand millis, not the pin's -1");
+    }
+
+    @Test
+    public void testGetPartitionSnapshotLastModifiedMissingStillThrows() {
+        // Existence is validated against the materialized partition set BEFORE the on-demand fetch, so even a
+        // last-modified connector raises AnalysisException for an unknown partition (parity legacy
+        // HiveDlaTable.getPartitionSnapshot -> checkPartitionExists).
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(OptionalLong.of(TS_2024_01_01));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> f.table.getPartitionSnapshot("dt=1999-12-31", null, Optional.empty()),
+                "an unknown partition must throw even for a last-modified connector (existence checked first)");
+    }
+
+    @Test
+    public void testGetPartitionSnapshotLastModifiedVanishedThrows() {
+        // The partition IS in the materialized set (existence check passes) but VANISHED before the on-demand
+        // fetch (a refresh-time race), so getPartitionFreshnessMillis returns empty -> fe-core must raise the
+        // legacy "can not find partition", NOT emit a bogus MTMVTimestampSnapshot(0). MUTATION: falling back to
+        // MTMVTimestampSnapshot(0) instead of throwing makes this red.
+        Fixture f = Fixture.with(Collections.singletonList(
+                cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(OptionalLong.empty());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> f.table.getPartitionSnapshot("dt=2024-01-01", null, Optional.empty()),
+                "a vanished partition (on-demand empty) must throw, not return a bogus 0 timestamp");
+    }
+
+    // ==================== snapshot-id connectors (paimon/iceberg): NO extra freshness probe ====================
+
+    @Test
+    public void testGetTableSnapshotSnapshotIdConnectorSkipsFreshnessProbe() throws AnalysisException {
+        // A snapshot-id connector (paimon/iceberg) leaves the pin flag false, so getTableSnapshot must take the
+        // exact pre-change path: read the snapshot id off the pin and NEVER fire the freshness probe (an extra
+        // getTableHandle round-trip + a new throw surface on the live MTMV path). This guards the regression the
+        // adversarial review caught.
+        Fixture f = Fixture.partitioned();   // build() pin has lastModifiedFreshness=false
+        MTMVSnapshotIdSnapshot snap = (MTMVSnapshotIdSnapshot) f.table.getTableSnapshot(Optional.empty());
+        Assertions.assertEquals(PINNED_SNAPSHOT_ID, snap.getSnapshotVersion());
+        // MUTATION: dropping the pin-flag gate (probing unconditionally) makes this verify red.
+        Mockito.verify(f.metadata, Mockito.never()).getTableFreshness(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testGetPartitionSnapshotSnapshotIdConnectorSkipsFreshnessProbe() throws AnalysisException {
+        // Same guard at partition granularity: a pin-timestamp connector (paimon) must read the pin value and
+        // NEVER call getPartitionFreshnessMillis (which, per-partition in the isSyncWithPartitions loop, would be
+        // an O(partitions) metadata regression).
+        Fixture f = Fixture.partitioned();
+        MTMVTimestampSnapshot ts = (MTMVTimestampSnapshot) f.table.getPartitionSnapshot(
+                "dt=2024-01-01", null, Optional.empty());
+        Assertions.assertEquals(TS_2024_01_01, ts.getSnapshotVersion());
+        // MUTATION: probing unconditionally (no pin-flag gate) makes this verify red.
+        Mockito.verify(f.metadata, Mockito.never())
+                .getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     // ==================== getNameToPartitionItems: render-from-name parity ====================
 
     @Test
@@ -140,18 +269,13 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
-    public void testHiveDefaultSentinelBuildsNonNullStringKey() {
-        // Master parity (PaimonUtil.toListPartitionItem uses `new PartitionValue(value, false)`
-        // unconditionally): a genuine-NULL partition value — which the connector renders via the
-        // __HIVE_DEFAULT_PARTITION__ sentinel — builds a NON-null partition key (isNull=false), i.e. the
-        // literal sentinel string, NOT a NullLiteral. An MTMV refresh therefore emits
-        // `region IN ('__HIVE_DEFAULT_PARTITION__')`, which the scan's genuine SQL-NULL rows never match, so
-        // the null rows are dropped from the MV exactly like master ("Will lose null data", regression
-        // test_paimon_mtmv). `WHERE region IS NULL` still returns the genuine-null rows because the paimon
-        // scan is predicate-driven and does NOT short-circuit on an FE prune-to-zero (the connector's
-        // ignorePartitionPruningShortCircuit capability), NOT because the partition key is a NullLiteral.
-        // VARCHAR column: the sentinel parses to a plain StringLiteral (a DATE column can't parse it, so the
-        // bridge logs+skips that partition — also master parity, generatePartitionInfo's per-partition catch).
+    public void testDefaultSentinelWithoutFlagBuildsNonNullStringKey() {
+        // NO-FLAG DEFAULT path: a connector that supplies NO per-value null flags leaves every value non-null
+        // (isNull=false), so a __HIVE_DEFAULT_PARTITION__ value on a VARCHAR column builds a plain StringLiteral,
+        // NOT a NullLiteral. This is the unchanged default for connectors that do not opt in (hudi/maxcompute/
+        // iceberg). NB: hive and paimon DO opt in now (variant B) and would supply isNull=true here — see the two
+        // ...BuildsGenuineNullPartition tests below. VARCHAR keeps the sentinel parseable; a non-string column
+        // without the flag throws+drops (per-partition catch) — see testDefaultSentinelWithoutFlagStillDrops.
         Fixture f = Fixture.with(Collections.singletonList(
                 cpi("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01)), Type.VARCHAR);
         Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
@@ -160,12 +284,63 @@ public class PluginDrivenMvccExternalTableTest {
         PartitionItem item = items.get("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION);
         Assertions.assertTrue(item instanceof ListPartitionItem, "expected a ListPartitionItem");
         PartitionKey key = ((ListPartitionItem) item).getItems().get(0);
-        // MUTATION: marking the sentinel isNull=true -> the key is a NullLiteral -> red.
+        // MUTATION: defaulting the absent flag to isNull=true -> the key is a NullLiteral -> red.
         Assertions.assertFalse(key.getKeys().get(0).isNullLiteral(),
-                "master parity: a __HIVE_DEFAULT_PARTITION__ value must build a NON-null literal key (isNull=false)");
+                "no-flag default: a __HIVE_DEFAULT_PARTITION__ value must build a NON-null literal key (isNull=false)");
         Assertions.assertEquals(TablePartitionValues.HIVE_DEFAULT_PARTITION,
                 key.getKeys().get(0).getStringValue(),
-                "the genuine-null partition key must carry the sentinel string verbatim (a plain StringLiteral)");
+                "the no-flag partition key must carry the sentinel string verbatim (a plain StringLiteral)");
+    }
+
+    @Test
+    public void testDefaultSentinelWithNullFlagOnIntColumnBuildsGenuineNullPartition() {
+        // RED before the fix (fe-core hardcoded isNull=false): the sentinel on an INT column parses via
+        // IntLiteral("__HIVE_DEFAULT_PARTITION__") -> NumberFormatException -> the partition is dropped -> the
+        // snapshot is invalid -> the table mis-reports UNPARTITIONED (partition=0/0). With the connector-supplied
+        // isNull=true flag the value builds a typed NullLiteral (no parse), so the table stays LIST-partitioned
+        // with a genuine-NULL partition (legacy HiveExternalMetaCache:309 parity; hive/paimon variant B).
+        Fixture f = Fixture.with(Collections.singletonList(
+                cpiNull("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01, true)), Type.INT);
+
+        Assertions.assertEquals(PartitionType.LIST, f.table.getPartitionType(Optional.empty()),
+                "a genuine-NULL INT partition must NOT collapse the table to UNPARTITIONED");
+        Assertions.assertFalse(f.table.getPartitionColumns(Optional.empty()).isEmpty(),
+                "partition columns must survive (not emptied by an invalid partition set)");
+        Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
+        Assertions.assertEquals(1, items.size(), "the null partition must be present, not dropped");
+        PartitionKey key = ((ListPartitionItem) items.get(
+                "dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION)).getItems().get(0);
+        // MUTATION: ignoring the flag (hardcoded false) -> IntLiteral parse throws -> 0 items / UNPARTITIONED -> red.
+        Assertions.assertTrue(key.getKeys().get(0).isNullLiteral(),
+                "the connector-supplied NULL flag must build a typed NullLiteral for the INT column");
+    }
+
+    @Test
+    public void testDefaultSentinelWithNullFlagOnDateColumnBuildsGenuineNullPartition() {
+        // Second non-string family (DATEV2 also throws on the sentinel pre-fix). Same expectation as the INT case.
+        Fixture f = Fixture.with(Collections.singletonList(
+                cpiNull("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01, true)), Type.DATEV2);
+
+        Assertions.assertEquals(PartitionType.LIST, f.table.getPartitionType(Optional.empty()));
+        Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
+        Assertions.assertEquals(1, items.size());
+        PartitionKey key = ((ListPartitionItem) items.get(
+                "dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION)).getItems().get(0);
+        Assertions.assertTrue(key.getKeys().get(0).isNullLiteral(),
+                "the connector-supplied NULL flag must build a typed NullLiteral for the DATE column");
+    }
+
+    @Test
+    public void testDefaultSentinelWithoutFlagStillDrops() {
+        // Locks the fix as OPT-IN: a connector that does NOT supply the flag keeps the pre-fix behavior on a
+        // non-string column — the sentinel throws on IntLiteral, the partition is dropped, the table degrades to
+        // UNPARTITIONED. (Compile-independent guard: uses only the pre-existing no-flag cpi helper.)
+        Fixture f = Fixture.with(Collections.singletonList(
+                cpi("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01)), Type.INT);
+
+        Assertions.assertEquals(PartitionType.UNPARTITIONED, f.table.getPartitionType(Optional.empty()),
+                "without the connector flag, an INT sentinel still drops the partition (UNPARTITIONED)");
+        Assertions.assertTrue(f.table.getNameToPartitionItems(Optional.empty()).isEmpty());
     }
 
     // ==================== no-cache schema: bypass the name-keyed cache and read fresh ====================
@@ -273,19 +448,32 @@ public class PluginDrivenMvccExternalTableTest {
     // ==================== isPartitionInvalid -> UNPARTITIONED ====================
 
     @Test
-    public void testPartitionBuildFailureFallsBackToUnpartitioned() {
-        // A partition name with 2 values but only 1 partition column (dt) cannot build a key:
-        // Preconditions.checkState(values.size()==types.size()) fails, it is caught+dropped, so
-        // listed names(1) != built items(0) -> isPartitionInvalid -> UNPARTITIONED.
+    public void testValueCountMismatchDegradesToUnpartitioned() {
+        // A value/column count mismatch is LEGITIMATE under iceberg partition spec evolution: the column
+        // list comes from the CURRENT spec while a row's values come from the spec its data file was
+        // written under. It must degrade to UNPARTITIONED (parity master / PaimonUtil.generatePartitionInfo)
+        // rather than fail the query -- cfb0958e607 hoisted the size check out of the per-partition
+        // try/catch to "fail loud", and every real-world hit turned out to be a legitimate evolution,
+        // taking down 6 suites (CI 996541).
         Fixture f = Fixture.with(Arrays.asList(
                 cpi("dt=2024-01-01/region=cn", TS_2024_01_01)));
-        // MUTATION: returning LIST (ignoring isPartitionInvalid) makes this red; a partial partition
-        // set must NOT be exposed as a partitioned table (would silently prune rows).
-        Assertions.assertEquals(PartitionType.UNPARTITIONED,
-                f.table.getPartitionType(Optional.empty()),
-                "a dropped (un-parseable) partition must force UNPARTITIONED, not a partial LIST");
-        Assertions.assertTrue(f.table.getPartitionColumns(Optional.empty()).isEmpty(),
-                "partition columns must be empty when the partition set is invalid");
+        // MUTATION: hoisting the checkState back out of the per-partition try/catch makes this red.
+        Assertions.assertEquals(PartitionType.UNPARTITIONED, f.table.getPartitionType(Optional.empty()),
+                "a value/column count mismatch must degrade to UNPARTITIONED, not fail the query");
+    }
+
+    @Test
+    public void testZeroValuesFromUnpartitionedOriginDegradeToUnpartitioned() {
+        // The spec-0 shape: rows written before the table's first ADD PARTITION KEY render to an empty
+        // partition name and carry ZERO values while the table now has 1 partition column. This is the
+        // shape behind test_iceberg_table_cache / _partition_evolution_ddl / _partition_evolution_query_write.
+        // Supplied explicitly (not via cpi()) because orderedValuesOf("") derives [""] -- size 1 -- which
+        // would exercise the type-parse degrade instead of the arity one.
+        Fixture f = Fixture.with(Arrays.asList(
+                cpiValues("", TS_2024_01_01, Collections.emptyList())));
+        // MUTATION: hoisting the checkState back out of the per-partition try/catch makes this red.
+        Assertions.assertEquals(PartitionType.UNPARTITIONED, f.table.getPartitionType(Optional.empty()),
+                "a zero-value partition from an unpartitioned-origin spec must degrade, not fail the query");
     }
 
     @Test
@@ -688,6 +876,52 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testGetSchemaCacheValueBindsOwnVersionWhenTwoVersionsPinned() {
+        Fixture f = Fixture.timeTravel();
+        PluginDrivenSchemaCacheValue schemaV5 = new PluginDrivenSchemaCacheValue(
+                Collections.singletonList(new Column("c1", Type.INT)),
+                Collections.emptyList(), Collections.emptyList());
+        PluginDrivenSchemaCacheValue schemaV6 = new PluginDrivenSchemaCacheValue(
+                Arrays.asList(new Column("c1", Type.INT), new Column("c2", Type.INT)),
+                Collections.emptyList(), Collections.emptyList());
+        PluginDrivenMvccSnapshot pinV5 = new PluginDrivenMvccSnapshot(f.resolvedSnapshot,
+                Collections.emptyMap(), Collections.emptyMap(), schemaV5);
+        PluginDrivenMvccSnapshot pinV6 = new PluginDrivenMvccSnapshot(f.resolvedSnapshot,
+                Collections.emptyMap(), Collections.emptyMap(), schemaV6);
+
+        ConnectContext ctx = new ConnectContext();
+        StatementContext stmtCtx = new StatementContext(ctx, null);
+        ctx.setStatementContext(stmtCtx);
+        ctx.setThreadLocalInfo();
+        try {
+            // ONE table, TWO version selectors, NO bare reference: exactly the shape a self-join of two
+            // @tag/FOR-VERSION references produces, and the only shape where the version-BLIND lookup
+            // gives up (StatementContext.getSnapshot(TableIf): two non-default pins and no default).
+            stmtCtx.setSnapshot(new MvccTableInfo(f.table, "v:VERSION:5"), pinV5);
+            stmtCtx.setSnapshot(new MvccTableInfo(f.table, "v:VERSION:6"), pinV6);
+
+            // Each reference must bind ITS OWN schema, resolved from the snapshot IT pinned. This is the
+            // whole point: a reference's schema may not depend on what OTHER references the statement has.
+            // MUTATION: dropping the snapshot-aware override (so this re-enters the ambient lookup) makes
+            // both of these red by returning f.latestCacheValue.
+            Assertions.assertSame(schemaV5, f.table.getSchemaCacheValue(Optional.of(pinV5)).orElse(null),
+                    "a reference pinned at v5 must bind v5's schema regardless of what else is pinned");
+            Assertions.assertSame(schemaV6, f.table.getSchemaCacheValue(Optional.of(pinV6)).orElse(null),
+                    "a reference pinned at v6 must bind v6's schema regardless of what else is pinned");
+
+            // ...and the version-BLIND path still degrades to LATEST here. That degradation is WHY the
+            // per-reference overload exists: LATEST is a schema NO reference asked for, so handing it to
+            // the binding layer manufactures a schema skew the scan-time guard then reports on a column
+            // the query never referenced. Kept as an assertion (not a comment) so that if the blind
+            // fallback is ever changed, this test says so instead of silently agreeing.
+            Assertions.assertSame(f.latestCacheValue, f.table.getSchemaCacheValue().orElse(null),
+                    "the version-blind lookup is ambiguous with two versions pinned and still yields LATEST");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testGetSchemaCacheValueFallsBackToLatestWhenPinHasNullSchema() {
         Fixture f = Fixture.timeTravel();
         // A B5a latest pin (pinnedSchema == null).
@@ -767,6 +1001,52 @@ public class PluginDrivenMvccExternalTableTest {
         // its own; the all-UNKNOWN==0 test above is the primary sentinel-leak catcher.
         Assertions.assertEquals(TS_2024_02_02, f.table.getNewestUpdateVersionOrTime(),
                 "the UNKNOWN sentinel must be filtered, leaving the max of the REAL values");
+    }
+
+    // ==================== getNewestUpdateVersionOrTime: last-modified (hive) freshness ====================
+
+    private static final long TS_TABLE_FRESH = 1_888_000_000_000L; // distinct from the partition maxes above
+
+    @Test
+    public void testGetNewestUpdateVersionLastModifiedUsesTableFreshness() {
+        // A last-modified connector (hive) lists partitions names-only (all lastModifiedMillis == -1), so the
+        // legacy max-over-partitions path would collapse to a CONSTANT 0 and an MV / SQL dictionary over a hive
+        // base table would never auto-refresh. The pin flags last-modified freshness, so
+        // getNewestUpdateVersionOrTime must return the connector's whole-table freshness millis instead.
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(new ConnectorTableFreshness("dt=2024-02-02", TS_TABLE_FRESH)));
+
+        // MUTATION: taking the max-over-partitions path (ignoring the pin flag) would return the partition max
+        // TS_2024_02_02, not the freshness value TS_TABLE_FRESH -> red (the values are deliberately distinct).
+        Assertions.assertEquals(TS_TABLE_FRESH, f.table.getNewestUpdateVersionOrTime(),
+                "a last-modified connector must surface the whole-table freshness millis, not a constant 0");
+    }
+
+    @Test
+    public void testGetNewestUpdateVersionLastModifiedEmptyFreshnessReturnsZero() {
+        // A dropped catalog/table, or a genuinely empty partition set, makes getTableFreshness empty; fe-core must
+        // degrade to 0 (parity legacy getNewestUpdateVersionOrTime), NOT throw or leak a sentinel.
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.empty());
+        // MUTATION: mapping an empty freshness to anything but 0 (e.g. throwing, or leaking -1) makes this red.
+        Assertions.assertEquals(0L, f.table.getNewestUpdateVersionOrTime(),
+                "an empty whole-table freshness (dropped/empty) must reduce to the legacy 0");
+    }
+
+    @Test
+    public void testGetNewestUpdateVersionSnapshotIdConnectorSkipsFreshnessProbe() {
+        // Byte/cost-neutrality guard: a snapshot-id connector (paimon/iceberg) leaves the pin flag false, so
+        // getNewestUpdateVersionOrTime must take the EXACT pre-change max-over-partitions path and NEVER fire the
+        // freshness probe (an added metadata round-trip on the live dictionary poll).
+        Fixture f = Fixture.partitioned();   // build() pin has lastModifiedFreshness=false
+        Assertions.assertEquals(TS_2024_02_02, f.table.getNewestUpdateVersionOrTime(),
+                "a snapshot-id connector must keep the max-partition-modify path");
+        // MUTATION: dropping the pin-flag gate (probing unconditionally) makes this verify red.
+        Mockito.verify(f.metadata, Mockito.never()).getTableFreshness(Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -925,7 +1205,45 @@ public class PluginDrivenMvccExternalTableTest {
     private static ConnectorPartitionInfo cpi(String name, long lastModifiedMillis) {
         return new ConnectorPartitionInfo(name, Collections.emptyMap(), Collections.emptyMap(),
                 ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
-                ConnectorPartitionInfo.UNKNOWN);
+                ConnectorPartitionInfo.UNKNOWN, orderedValuesOf(name), Collections.emptyList());
+    }
+
+    /**
+     * Like {@link #cpi} but with the ordered values supplied EXPLICITLY rather than derived from the
+     * rendered name — needed for the spec-evolution shapes, where a row's value count legitimately
+     * differs from the current spec's field count (see
+     * {@code testZeroValuesFromUnpartitionedOriginDegradeToUnpartitioned}).
+     */
+    private static ConnectorPartitionInfo cpiValues(String name, long lastModifiedMillis,
+            List<String> orderedValues) {
+        return new ConnectorPartitionInfo(name, Collections.emptyMap(), Collections.emptyMap(),
+                ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
+                ConnectorPartitionInfo.UNKNOWN, orderedValues, Collections.emptyList());
+    }
+
+    /** Like {@link #cpi} but with connector-supplied per-value SQL-NULL flags (the opt-in path). */
+    private static ConnectorPartitionInfo cpiNull(String name, long lastModifiedMillis, boolean... nullFlags) {
+        List<Boolean> flags = new ArrayList<>(nullFlags.length);
+        for (boolean b : nullFlags) {
+            flags.add(b);
+        }
+        return new ConnectorPartitionInfo(name, Collections.emptyMap(), Collections.emptyMap(),
+                ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
+                ConnectorPartitionInfo.UNKNOWN, orderedValuesOf(name), flags);
+    }
+
+    /**
+     * One already-parsed value per name segment — what a real connector now supplies (mirrors the
+     * connector-side {@code HiveWriteUtils.toPartitionValues}). fe-core no longer parses the rendered
+     * name itself, so a fixture that supplies none is a mis-wired connector, not a valid input.
+     */
+    private static List<String> orderedValuesOf(String partitionName) {
+        List<String> values = new ArrayList<>();
+        for (String segment : partitionName.split("/", -1)) {
+            int eq = segment.indexOf('=');
+            values.add(eq < 0 ? segment : segment.substring(eq + 1));
+        }
+        return values;
     }
 
     /**
@@ -1051,6 +1369,13 @@ public class PluginDrivenMvccExternalTableTest {
                             ConnectorMvccSnapshot.builder().snapshotId(PINNED_SNAPSHOT_ID).build()));
             Mockito.when(metadata.listPartitions(Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
                     .thenReturn(partitions);
+            // A Mockito mock does NOT run interface default methods (returns null for these), so mimic the SPI
+            // default here: a snapshot-id connector (paimon/iceberg) surfaces no last-modified freshness. The
+            // last-modified tests below re-stub these to a present value.
+            Mockito.when(metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                    .thenReturn(Optional.empty());
+            Mockito.when(metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenReturn(OptionalLong.empty());
 
             // Single partition column "dt" (DATE by default; VARCHAR variant exercises the genuine-null
             // string-key path) — the LATEST schema.

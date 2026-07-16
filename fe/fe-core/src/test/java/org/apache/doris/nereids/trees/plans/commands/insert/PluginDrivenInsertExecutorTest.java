@@ -29,6 +29,7 @@ import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.planner.PluginDrivenTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
@@ -67,10 +68,18 @@ public class PluginDrivenInsertExecutorTest {
     public void beginTransactionOpensConnectorTxnRegistersGloballyAndStampsTxnId() {
         PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
         StubConnectorTransaction connectorTx = new StubConnectorTransaction(70001L);
+        FakeTxnWriteOps writeOps = new FakeTxnWriteOps(connectorTx);
         // Pre-seed the lazy setup so ensureConnectorSetup() short-circuits (no real catalog).
         Deencapsulation.setField(exec, "connectorSession", ConnectorSessionBuilder.create().build());
-        Deencapsulation.setField(exec, "writeOps", new FakeTxnWriteOps(connectorTx));
+        Deencapsulation.setField(exec, "writeOps", writeOps);
         Deencapsulation.setField(exec, "transactionManager", new PluginDrivenTransactionManager());
+        // Post-W4 beginTransaction resolves the write-target handle and threads it into the per-handle
+        // beginTransaction overload (a heterogeneous gateway opens its sibling's transaction for a foreign
+        // table). Seed a table whose handle resolves.
+        ConnectorTableHandle writeHandle = new ConnectorTableHandle() { };
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.resolveWriteTargetHandle()).thenReturn(writeHandle);
+        Deencapsulation.setField(exec, "table", table);
 
         exec.beginTransaction();
 
@@ -83,6 +92,10 @@ public class PluginDrivenInsertExecutorTest {
                     Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(70001L),
                     "the connector txn must be globally registered for the BE block-allocation / "
                             + "commit-data RPCs");
+            Mockito.verify(table).resolveWriteTargetHandle();
+            Assertions.assertSame(writeHandle, writeOps.handleSeenAtBegin,
+                    "the executor must thread the RESOLVED write-target handle into the per-handle "
+                            + "beginTransaction (a null 2nd arg would misroute a gateway write to the sibling)");
         } finally {
             Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(70001L);
         }
@@ -210,9 +223,10 @@ public class PluginDrivenInsertExecutorTest {
         return Mockito.mock(PluginDrivenInsertExecutor.class, Mockito.CALLS_REAL_METHODS);
     }
 
-    /** Write ops that hand back a fixed connector transaction from beginTransaction. */
+    /** Write ops that hand back a fixed connector transaction and record the handle the executor threads in. */
     private static final class FakeTxnWriteOps implements ConnectorWriteOps {
         private final ConnectorTransaction txn;
+        private ConnectorTableHandle handleSeenAtBegin;
 
         private FakeTxnWriteOps(ConnectorTransaction txn) {
             this.txn = txn;
@@ -220,6 +234,14 @@ public class PluginDrivenInsertExecutorTest {
 
         @Override
         public ConnectorTransaction beginTransaction(ConnectorSession session) {
+            return txn;
+        }
+
+        // The executor opens the txn through the per-handle overload; capture the handle it passes so the test
+        // can prove the RESOLVED write-target handle is threaded (not null / not a stale one).
+        @Override
+        public ConnectorTransaction beginTransaction(ConnectorSession session, ConnectorTableHandle handle) {
+            this.handleSeenAtBegin = handle;
             return txn;
         }
     }

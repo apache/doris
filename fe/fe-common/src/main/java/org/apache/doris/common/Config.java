@@ -2271,12 +2271,18 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
+     * @deprecated No-op since the hms/iceberg SPI cutover: external views (hive, iceberg) are always served.
+     *     Retained for one release so operator fe.conf that sets it still parses; will be removed later.
      */
+    @Deprecated
     @ConfField(mutable = true)
     public static boolean enable_query_hive_views = true;
 
+    /**
+     * @deprecated No-op since the iceberg SPI cutover: external views (hive, iceberg) are always served.
+     *     Retained for one release so operator fe.conf that sets it still parses; will be removed later.
+     */
+    @Deprecated
     @ConfField(mutable = true)
     public static boolean enable_query_iceberg_views = true;
 
@@ -2881,9 +2887,12 @@ public class Config extends ConfigBase {
                     + "multiple integration names are comma-separated"})
     public static String authentication_chain = "";
 
+    // The dir the trino-connector catalog loads Trino's own plugins from, used verbatim. Keep the
+    // default in sync with BE config trino_connector_plugin_dir: FE and BE load the same plugins and
+    // an operator who leaves both untouched expects both to find them.
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
-    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/trino_plugins";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;

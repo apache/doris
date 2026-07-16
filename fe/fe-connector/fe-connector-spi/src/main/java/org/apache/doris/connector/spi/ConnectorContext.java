@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import java.util.Collections;
@@ -107,21 +110,41 @@ public interface ConnectorContext {
     }
 
     /**
-     * Resolves the catalog's {@code hive.conf.resources} (comma-separated hive-site.xml file names
-     * under the FE's {@code hadoop_config_dir}) into a flat key-&gt;value map the connector can
-     * overlay onto its {@code HiveConf}. The connector cannot perform this filesystem/Config-dir
-     * resolution itself (it must not import fe-core/fe-common); the engine context loads the files
-     * via {@code CatalogConfigFileUtils}, matching legacy HMS behavior.
+     * Builds a <em>sibling</em> connector of another catalog type on top of this same catalog's context, for a
+     * heterogeneous "gateway" connector that serves more than one table format from a single catalog and must
+     * delegate some tables to another format's connector (e.g. a Hive-metastore catalog whose Iceberg-registered
+     * tables are served by the Iceberg connector).
      *
-     * <p>The default returns empty (no external file support), so connectors that do not use it —
-     * and every other connector — are unaffected.
+     * <p>The engine builds the sibling through the same connector factory it uses for a top-level catalog, so the
+     * sibling's concrete class is loaded by <em>that type's own plugin classloader</em> — never co-packaged into
+     * the caller's plugin (a duplicate native stack, e.g. a second AWS SDK, would poison shared JVM state). The
+     * returned connector shares THIS context (same catalog id, authentication, and storage), so the sibling reuses
+     * the caller's metastore/storage/credentials without re-deriving them.
      *
-     * @param resources the raw {@code hive.conf.resources} value (may be null/blank)
-     * @return a flat map of the resolved hive-site.xml key/values, or empty when none
-     * @throws RuntimeException if a referenced file is missing/unreadable (fail-loud, legacy parity)
+     * <p>fe-core stays connector-agnostic: this is a generic "give me a connector of type {@code catalogType} with
+     * these {@code properties}" factory. The caller (the gateway connector) is responsible for synthesizing the
+     * sibling's {@code properties} — the engine does not parse or translate them.
+     *
+     * <p><b>Cross-plugin type safety.</b> Because the sibling lives in a different (child-first) classloader, it is
+     * type-compatible with the caller ONLY through the parent-first SPI interfaces ({@link Connector},
+     * {@code ConnectorMetadata}, {@code ConnectorTableHandle}, …). The caller MUST hold the result as the bare
+     * {@link Connector} interface and MUST NOT cast it — or any object it produces — to a concrete connector type,
+     * or it will {@code ClassCastException} across the loader split.
+     *
+     * <p><b>Lifecycle.</b> The engine tracks and closes only a catalog's <em>primary</em> connector; a sibling built
+     * here is owned by the caller, which MUST forward {@link Connector#close()} to it from its own {@code close()}.
+     *
+     * <p>The default returns {@code null} (no sibling support), so every connector that is not a gateway — and the
+     * no-op default context — is unaffected.
+     *
+     * @param catalogType the sibling connector's type (e.g. {@code "iceberg"}); resolved by the same provider set
+     *                    the engine uses for top-level catalogs
+     * @param properties  the sibling connector's fully-synthesized catalog properties (caller-owned)
+     * @return the sibling connector, or {@code null} when no provider matches {@code catalogType} (or the engine has
+     *         no connector factory wired — e.g. the default context)
      */
-    default Map<String, String> loadHiveConfResources(String resources) {
-        return Collections.emptyMap();
+    default Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+        return null;
     }
 
     /**
@@ -270,6 +293,30 @@ public interface ConnectorContext {
     }
 
     /**
+     * Asks one alive backend to reach the given storage location, so a {@code test_connection=true}
+     * CREATE CATALOG fails on a warehouse that FE can read but BE cannot (a different network, a
+     * different credential set). The FE-side probe a connector runs itself cannot catch that.
+     *
+     * <p>The engine owns the round-trip (picking a live backend, the RPC, the status check) because it
+     * needs the backend registry and the client pool, which no plugin can see. It does not interpret the
+     * payload: {@code storageBackendTypeValue} is the connector's own {@code TStorageBackendType} enum
+     * value and {@code backendProperties} the BE-facing property map, sourced from
+     * {@link #getBackendStorageProperties()} / {@link #getStorageProperties()}. Callers targeting S3 must
+     * include a {@code test_location} entry — BE requires it.
+     *
+     * <p>The default does nothing (no backend fleet, e.g. in connector unit tests), matching the legacy
+     * behavior of skipping the probe when no backend is alive.
+     *
+     * @param storageBackendTypeValue the {@code TStorageBackendType} value BE should probe with
+     * @param backendProperties       BE-facing storage properties (credentials, endpoint, test_location)
+     * @throws Exception if the backend reports the storage unreachable
+     */
+    default void testBackendStorageConnectivity(int storageBackendTypeValue,
+            Map<String, String> backendProperties) throws Exception {
+        // Default: no backend fleet to ask -> skip.
+    }
+
+    /**
      * Returns the catalog's static storage configuration as a list of typed, already-bound
      * {@link StorageProperties} (the fe-filesystem API contract). fe-core binds the catalog's raw
      * properties against the registered filesystem providers and hands the result down here, so a
@@ -291,6 +338,34 @@ public interface ConnectorContext {
      */
     default List<StorageProperties> getStorageProperties() {
         return Collections.emptyList();
+    }
+
+    /**
+     * Returns the engine's {@link FileSystem} for this catalog — a scheme-routing handle backed by the
+     * catalog's parsed {@link #getStorageProperties() storage properties} and the registered fe-filesystem
+     * providers (hdfs/s3/oss/cos/obs/azure/http/local/broker). A connector uses it to list, read, and write
+     * table data without bundling any Hadoop {@code FileSystem} implementation itself; the engine owns scheme
+     * routing and per-scheme classloader pinning, exactly as Trino's {@code TrinoFileSystemFactory.create(session)}
+     * hands the connector a {@code TrinoFileSystem}.
+     *
+     * <p><b>Ownership.</b> The returned filesystem is <em>engine-owned and connector-borrowed</em>: the engine
+     * builds and caches it per catalog and closes it when the catalog/context is torn down. A connector MUST NOT
+     * call {@link FileSystem#close()} on it.
+     *
+     * <p><b>Identity.</b> The {@code session} parameter mirrors Trino's {@code create(ConnectorSession)} shape and
+     * reserves per-user identity via {@link ConnectorSession#getUser()}. The current implementation resolves the
+     * filesystem at catalog granularity (the session is not yet used to key a per-user filesystem); when per-user
+     * identity lands, the engine will key the cache by identity.
+     *
+     * <p>The default returns {@code null} (no engine-managed filesystem), so connectors that do not use it — and
+     * the no-op default context — are unaffected, matching the benign default of
+     * {@link #getBackendStorageProperties()}.
+     *
+     * @param session the query/connector session (reserved for per-user identity; may be null for catalog-level use)
+     * @return the catalog's engine-owned {@link FileSystem}, or {@code null} when the engine manages no storage
+     */
+    default FileSystem getFileSystem(ConnectorSession session) {
+        return null;
     }
 
     /**
