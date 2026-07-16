@@ -126,7 +126,7 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
 
     try {
         assertSparkGeneratedDvReadable()
-        spark_iceberg_jdbc """create database if not exists demo.${dbName}"""
+        spark_iceberg """create database if not exists demo.${dbName}"""
         formats.each { format ->
             partitionFlags.each { partitioned ->
                 String partitionSuffix = partitioned ? "part" : "unpart"
@@ -136,7 +136,7 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
                 String dorisPartitionClause = partitioned ? "partition by list (day(dt)) ()" : ""
 
                 try {
-                    spark_iceberg_jdbc_multi """
+                    spark_iceberg_multi """
                         drop table if exists demo.${dbName}.${sparkDvTable};
                         create table demo.${dbName}.${sparkDvTable} (
                             id int,
@@ -177,7 +177,7 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
                     assertDorisLineageReadable(sparkDvTable)
                     assertPuffinDeleteFiles(sparkDvTable)
 
-                    def sparkChecksum = spark_iceberg_jdbc("""
+                    def sparkChecksum = spark_iceberg("""
                         select count(*), sum(id), sum(score)
                         from demo.${dbName}.${sparkDvTable}
                     """)
@@ -211,7 +211,7 @@ suite("test_iceberg_v3_row_lineage_spark_doris_dv_interop", "p0,external,iceberg
                     assertDorisLineageReadable(dorisDvTable)
                     assertPuffinDeleteFiles(dorisDvTable)
 
-                    def sparkChecksumAfterDorisDv = spark_iceberg_jdbc("""
+                    def sparkChecksumAfterDorisDv = spark_iceberg("""
                         select count(*), sum(id), sum(score)
                         from demo.${dbName}.${dorisDvTable}
                     """)

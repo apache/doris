@@ -95,7 +95,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
         """
     }
 
-    spark_iceberg_jdbc """create database if not exists demo.${dbName}"""
+    spark_iceberg """create database if not exists demo.${dbName}"""
     formats.each { format ->
         createSparkUpgradeFixture(
                 tableNameForFormat("v2v3_row_lineage_null_after_upgrade", format),
@@ -156,7 +156,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
                     from ${tableName}
                     order by id, tag, score
                 """
-                def sparkBusinessRows = spark_iceberg_jdbc """
+                def sparkBusinessRows = spark_iceberg """
                     select id, tag, score, dt
                     from demo.${dbName}.${tableName}
                     order by id, tag, score
@@ -210,7 +210,7 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
         }
 
         def assertSparkBusinessRowsEqual = { tableName ->
-            def sparkRows = spark_iceberg_jdbc """
+            def sparkRows = spark_iceberg """
                 select id, tag, score, dt
                 from demo.${dbName}.${tableName}
                 order by id
