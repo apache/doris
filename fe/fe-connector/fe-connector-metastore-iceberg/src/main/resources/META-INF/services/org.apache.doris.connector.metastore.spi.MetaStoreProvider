@@ -15,7 +15,6 @@
 # specific language governing permissions and limitations
 # under the License.
 org.apache.doris.connector.metastore.iceberg.hms.IcebergHmsMetaStoreProvider
-org.apache.doris.connector.metastore.iceberg.dlf.IcebergDlfMetaStoreProvider
 org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProvider
 org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProvider
 org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStoreProvider

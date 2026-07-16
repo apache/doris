@@ -20,7 +20,6 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.thrift.TColumnCategory;
 
 import org.junit.jupiter.api.Assertions;
@@ -141,16 +140,5 @@ public class PluginDrivenScanNodeClassifyColumnTest {
         // WHY: partition keys must keep flowing through super() so partition handling is unchanged. MUTATION:
         // swallowing DEFAULT instead of calling super() would lose PARTITION_KEY -> red.
         Assertions.assertEquals(TColumnCategory.PARTITION_KEY, category);
-    }
-
-    @Test
-    public void connectorRowIdConstantContractIsPinned() {
-        // CONTRACT: the iceberg connector cannot import fe-core, so IcebergScanPlanProvider duplicates these
-        // literals (DORIS_ICEBERG_ROWID_COL / _row_id / _last_updated_sequence_number). Pin the Doris-side
-        // constant VALUES so a rename here fails loud, flagging that the connector duplicates must change too.
-        Assertions.assertEquals("__DORIS_ICEBERG_ROWID_COL__", Column.ICEBERG_ROWID_COL);
-        Assertions.assertEquals("_row_id", IcebergUtils.ICEBERG_ROW_ID_COL);
-        Assertions.assertEquals("_last_updated_sequence_number",
-                IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL);
     }
 }

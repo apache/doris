@@ -797,8 +797,8 @@ public class PaimonConnectorMetadataMvccTest {
                 "the schema must be resolved at the snapshot's schemaId");
         Assertions.assertEquals(Arrays.asList("id", "dt"), columnNames(schema),
                 "the at-snapshot schema's columns must be mapped (not the latest single-column schema)");
-        Assertions.assertEquals("dt", schema.getProperties().get("partition_columns"),
-                "the at-snapshot schema's partition keys must be emitted as partition_columns");
+        Assertions.assertEquals("dt", schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "the at-snapshot schema's partition keys must be emitted under the reserved partition-columns key");
     }
 
     @Test

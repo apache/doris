@@ -659,10 +659,16 @@ final class IcebergPartitionUtils {
         List<ConnectorPartitionInfo> partitions = new ArrayList<>(raws.size());
         for (IcebergRawPartition raw : raws) {
             Map<String, String> values = new LinkedHashMap<>();
+            // Ordered values aligned to raw.name's segments; supplied so fe-core skips the name parse.
+            // String.valueOf keeps byte-parity with the legacy parse, which reads a null field rendered
+            // into the name as the literal "null" (StringBuilder append of a null Object).
+            List<String> orderedValues = new ArrayList<>(raw.columnNames.size());
             for (int i = 0; i < raw.columnNames.size(); ++i) {
                 values.put(raw.columnNames.get(i), raw.values.get(i));
+                orderedValues.add(String.valueOf(raw.values.get(i)));
             }
-            partitions.add(new ConnectorPartitionInfo(raw.name, values, Collections.emptyMap()));
+            partitions.add(new ConnectorPartitionInfo(raw.name, values, Collections.emptyMap(),
+                    orderedValues, Collections.emptyList()));
         }
         return partitions;
     }

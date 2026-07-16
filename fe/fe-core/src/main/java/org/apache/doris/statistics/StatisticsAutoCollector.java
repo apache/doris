@@ -33,7 +33,7 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import org.apache.hudi.common.util.VisibleForTesting;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -149,9 +149,12 @@ public class StatisticsAutoCollector extends MasterDaemon {
             analysisMethod = AnalysisMethod.FULL;
         }
         if (table instanceof PluginDrivenExternalTable
-                && ((PluginDrivenExternalTable) table).supportsColumnAutoAnalyze()) {
-            // Post-flip plugin tables (iceberg/paimon) only support full analyze: ExternalAnalysisTask.doSample
-            // throws, so the SAMPLE default would fail. Mirrors the legacy IcebergExternalTable arm above.
+                && ((PluginDrivenExternalTable) table).supportsColumnAutoAnalyze()
+                && !((PluginDrivenExternalTable) table).supportsSampleAnalyze()) {
+            // Force FULL only for plugin tables that CANNOT sample (iceberg/paimon): ExternalAnalysisTask.doSample
+            // throws, so the SAMPLE default would fail. A flipped plain-hive table declares SUPPORTS_SAMPLE_ANALYZE
+            // and keeps the SAMPLE/FULL heuristic above (its PluginDrivenSampleAnalysisTask.doSample works), matching
+            // legacy hive background auto-analyze which could sample.
             analysisMethod = AnalysisMethod.FULL;
         }
         boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);

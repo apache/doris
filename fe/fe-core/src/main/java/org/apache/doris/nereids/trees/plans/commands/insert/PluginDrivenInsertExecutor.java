@@ -22,9 +22,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorWriteOps;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
@@ -78,7 +80,13 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
         // it up by id. Connectors whose writes are auto-committed by BE (jdbc) return a degenerate
         // no-op transaction; maxcompute returns a real one. The connector-specific write session is
         // created later by planWrite (reached through finalizeSink -> bindDataSink).
-        connectorTx = writeOps.beginTransaction(connectorSession);
+        //
+        // Pass the resolved write-target handle so a heterogeneous gateway (e.g. an iceberg-on-HMS table served
+        // by the hive plugin) opens the SIBLING connector's transaction, whose concrete type its write plan
+        // downcasts; a single-format connector ignores the handle (the SPI default delegates to the no-arg
+        // beginTransaction). resolveWriteTargetHandle fails loud rather than handing the gateway a null handle.
+        ConnectorTableHandle writeHandle = ((PluginDrivenExternalTable) table).resolveWriteTargetHandle();
+        connectorTx = writeOps.beginTransaction(connectorSession, writeHandle);
         txnId = ((PluginDrivenTransactionManager) transactionManager).begin(connectorTx);
     }
 

@@ -21,7 +21,9 @@ import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.iceberg.Schema;
@@ -38,6 +40,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -50,12 +53,13 @@ import java.util.function.Function;
 public class IcebergConnectorTest {
 
     @Test
-    public void s3TablesWithoutStorageFailsLoud() {
-        // WHY: legacy IcebergS3TablesMetaStoreProperties always derives from S3Properties.of(origProps); the
-        // connector needs a bound S3-compatible storage to derive the region + credentials for the control-plane
-        // S3TablesClient. Missing storage must fail loud (a clear DorisConnectorException), NOT silently route
-        // s3tables through the generic CatalogUtil path or fall back to an anonymous client. MUTATION: dropping
-        // the chosenS3 presence check -> a NullPointer / wrong-path error instead of this message -> red.
+    public void s3TablesWithoutStorageOrRegionFailsLoud() {
+        // WHY: a bound S3-compatible storage is NO LONGER required (M6): an EC2 instance-profile s3tables catalog
+        // carries only region + warehouse ARN and uses the SDK DefaultCredentialsProvider chain, mirroring legacy
+        // IcebergS3TablesMetaStoreProperties. The sole hard requirement is a REGION. With NEITHER a bound storage
+        // NOR a region alias in the props, the connector must still fail loud naming the missing region, before
+        // any AWS call. MUTATION: reinstating the chosenS3-presence throw -> the storage-worded message (which
+        // does not contain "requires a region") -> red.
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnector connector = new IcebergConnector(
                 Map.of("iceberg.catalog.type", "s3tables",
@@ -63,8 +67,46 @@ public class IcebergConnectorTest {
                 ctx);
         DorisConnectorException ex =
                 Assertions.assertThrows(DorisConnectorException.class, () -> connector.getMetadata(null));
-        Assertions.assertTrue(ex.getMessage().contains("S3-compatible storage"),
-                "expected a fail-loud message naming the missing S3-compatible storage, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("requires a region"),
+                "expected a fail-loud message naming the missing region, got: " + ex.getMessage());
+    }
+
+    @Test
+    public void s3TablesRegionResolvesFromPropsWhenNoStorageBound() {
+        // WHY: the M6 unblock — an EC2 instance-profile s3tables catalog (no bound storage) resolves its region
+        // from the raw props (s3.region here) instead of hard-failing, then uses the SDK default credential chain.
+        // MUTATION: reinstating the storage gate / removing the props fallback -> throws instead of resolving.
+        Assertions.assertEquals("us-east-1",
+                IcebergConnector.resolveS3TablesRegion(Optional.empty(), Map.of("s3.region", "us-east-1")));
+    }
+
+    @Test
+    public void s3TablesRegionResolvesFromWidenedAliasWhenNoStorageBound() {
+        // WHY: the props fallback scans the SAME widened S3 region-alias set as the vended-cred FileIO path (M7),
+        // so a region supplied only via AWS_REGION resolves. MUTATION: narrowing the alias set -> null -> throws.
+        Assertions.assertEquals("eu-west-1",
+                IcebergConnector.resolveS3TablesRegion(Optional.empty(), Map.of("AWS_REGION", "eu-west-1")));
+    }
+
+    @Test
+    public void s3TablesRegionPrefersBoundStorageRegion() {
+        // WHY: when a storage IS bound its typed region wins over a conflicting raw prop (parity with the bound-
+        // storage path). MUTATION: reading the props first -> us-east-1 instead of eu-west-1.
+        Optional<S3CompatibleFileSystemProperties> bound =
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").region("eu-west-1"));
+        Assertions.assertEquals("eu-west-1",
+                IcebergConnector.resolveS3TablesRegion(bound, Map.of("s3.region", "us-east-1")));
+    }
+
+    @Test
+    public void s3TablesRegionFailsLoudWhenNeitherStorageNorRegion() {
+        // WHY: a region is the sole hard requirement; neither a bound storage nor a props alias -> fail loud
+        // naming the region (Region.of("") would otherwise blow up deep in the SDK). MUTATION: returning "" /
+        // null instead of throwing -> no exception -> red.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergConnector.resolveS3TablesRegion(Optional.empty(), Map.of()));
+        Assertions.assertTrue(ex.getMessage().contains("requires a region"),
+                "expected a fail-loud message naming the missing region, got: " + ex.getMessage());
     }
 
     @Test
@@ -88,18 +130,18 @@ public class IcebergConnectorTest {
     }
 
     @Test
-    public void dlfWithoutStorageFailsLoud() {
-        // WHY: legacy IcebergAliyunDLFMetaStoreProperties always selected an OSS StorageProperties; the connector
-        // needs a bound OSS storage to back the DLFCatalog's S3FileIO. A missing one must fail loud BEFORE any
-        // metastore call, NOT route dlf through the generic CatalogUtil path (which would ClassNotFound on the
-        // dlf impl). MUTATION: dropping the chosenS3 presence check -> a different/cryptic error -> red.
+    public void removedDlfFlavorFailsLoudAtCatalogCreation() {
+        // WHY: iceberg.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed. A
+        // catalog still carrying it — e.g. one created before the removal and replayed from the image — must
+        // fail loud on first use naming the supported types, never silently route somewhere else. MUTATION:
+        // re-adding a dlf arm to resolveCatalogImpl -> red.
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnector connector = new IcebergConnector(
                 Map.of("iceberg.catalog.type", "dlf", "warehouse", "oss://b/wh"), ctx);
         DorisConnectorException ex =
                 Assertions.assertThrows(DorisConnectorException.class, () -> connector.getMetadata(null));
-        Assertions.assertTrue(ex.getMessage().contains("OSS storage"),
-                "expected a fail-loud message naming the missing OSS storage, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("Unknown iceberg.catalog.type"),
+                "expected the unknown-flavor rejection, got: " + ex.getMessage());
     }
 
     @Test
@@ -112,6 +154,20 @@ public class IcebergConnectorTest {
         IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Set<ConnectorCapability> caps = connector.getCapabilities();
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT));
+    }
+
+    @Test
+    public void ownsHandleOnlyForIcebergTableHandle() {
+        // WHY (hms 3-way sibling routing): a flipped hms gateway embeds this connector as a sibling and asks it
+        // "is this foreign handle yours?" to route a scan/metadata call, because the concrete handle type is
+        // invisible across the plugin classloader split. ownsHandle must be TRUE for this connector's own
+        // IcebergTableHandle and FALSE for any other connector's handle (e.g. a hudi sibling's), so the gateway
+        // routes correctly. MUTATION: returning true unconditionally -> the gateway sends hudi handles here -> red.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.ownsHandle(new IcebergTableHandle("db", "t")),
+                "an IcebergTableHandle is owned by the iceberg connector");
+        Assertions.assertFalse(connector.ownsHandle(new ConnectorTableHandle() {
+        }), "a foreign (non-iceberg) handle is NOT owned by the iceberg connector");
     }
 
     @Test

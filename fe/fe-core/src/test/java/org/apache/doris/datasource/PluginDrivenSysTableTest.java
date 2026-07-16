@@ -25,8 +25,10 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.datasource.systable.TvfSysTable;
 
 import com.google.gson.annotations.SerializedName;
 import org.junit.jupiter.api.Assertions;
@@ -80,6 +82,43 @@ public class PluginDrivenSysTableTest {
         Assertions.assertTrue(sysTables.get("snapshots") instanceof PluginDrivenSysTable,
                 "each value must be a generic PluginDrivenSysTable, not a connector-specific subtype");
         Mockito.verify(metadata).listSupportedSysTables(session, baseHandle);
+    }
+
+    @Test
+    public void testGetSupportedSysTablesMapsTvfKindToPartitionsSysTable() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("hms", metadata, session);
+        Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
+                .thenReturn(Optional.of(baseHandle));
+        Mockito.when(metadata.listSupportedSysTables(session, baseHandle))
+                .thenReturn(Arrays.asList("partitions", "snapshots"));
+        // The connector declares only "partitions" as partition_values-TVF-backed (hive). "snapshots"
+        // defaults to native. (mockito returns false for the unstubbed boolean call.)
+        Mockito.when(metadata.isPartitionValuesSysTable(session, baseHandle, "partitions"))
+                .thenReturn(true);
+
+        PluginDrivenExternalTable table = bareTable(catalog, mockDb("REMOTE_DB"), "REMOTE_TBL");
+        Map<String, SysTable> sysTables = table.getSupportedSysTables();
+
+        // WHY: a TVF-declared name must become the TVF-backed PartitionsSysTable (routed to the
+        // partition_values TVF in SysTableResolver), NOT the generic native PluginDrivenSysTable — else
+        // t$partitions would drive a native scan the hive connector has no BE reader for. MUTATION:
+        // wrapping every name as PluginDrivenSysTable (ignoring the kind) makes "partitions" native -> red.
+        SysTable partitions = sysTables.get("partitions");
+        Assertions.assertTrue(partitions instanceof PartitionsSysTable,
+                "a partition_values-TVF-declared name must map to the TVF-backed PartitionsSysTable");
+        Assertions.assertTrue(partitions instanceof TvfSysTable, "PartitionsSysTable is a TvfSysTable");
+        Assertions.assertFalse(partitions.useNativeTablePath(),
+                "the partitions sys table must route through the TVF path, not the native scan path");
+        // A name the connector did NOT declare TVF stays native.
+        Assertions.assertTrue(sysTables.get("snapshots") instanceof PluginDrivenSysTable,
+                "a name not declared TVF-backed stays a generic native PluginDrivenSysTable");
+        // findSysTable resolves the TVF-backed entry by its exact suffix.
+        Optional<SysTable> hit = table.findSysTable("REMOTE_TBL$partitions");
+        Assertions.assertTrue(hit.isPresent() && !hit.get().useNativeTablePath(),
+                "t$partitions must resolve to the TVF-backed sys table");
     }
 
     @Test

@@ -19,12 +19,14 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.catalog.FileSystemCatalogFactory;
 import org.apache.paimon.jdbc.JdbcCatalogFactory;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 
+import java.io.File;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -42,16 +44,16 @@ import java.util.function.BiConsumer;
  * <p>It also holds two PURE Hadoop config helpers: {@link #buildHadoopConfiguration} (the filesystem/jdbc
  * storage {@code Configuration} from the pre-computed canonical object-store config) and
  * {@link #assembleHiveConf} (layers the shared-parser HiveConf overrides over an optional hive-site.xml
- * base for the hms/dlf flavors). The {@code storageHadoopConfig} arg is assembled by
+ * base for the hms flavor). The {@code storageHadoopConfig} arg is assembled by
  * {@code PaimonConnector} from {@code ConnectorContext.getStorageProperties()} (fe-filesystem's
  * {@code toHadoopProperties().toHadoopConfigurationMap()}), so the helpers stay pure (Maps in, conf out)
  * and unit-testable offline; only the {@code CatalogFactory.createCatalog} call in
  * {@code PaimonConnector} needs a live metastore.
  *
- * <p>The metastore CONNECTION facts (validate rules, HMS/DLF HiveConf key sets, JDBC driver-url
+ * <p>The metastore CONNECTION facts (validate rules, HMS HiveConf key sets, JDBC driver-url
  * resolution, alias arrays) were moved to the shared {@code fe-connector-metastore-spi}
- * ({@code MetaStoreProviders.bind} -&gt; {@code HmsMetaStoreProperties.toHiveConfOverrides(String)} /
- * {@code DlfMetaStoreProperties.toDlfCatalogConf()}; {@code JdbcDriverSupport.resolveDriverUrl}) — see P2-T03.
+ * ({@code MetaStoreProviders.bind} -&gt; {@code HmsMetaStoreProperties.toHiveConfOverrides(String)};
+ * {@code JdbcDriverSupport.resolveDriverUrl}) — see P2-T03.
  */
 public final class PaimonCatalogFactory {
 
@@ -116,9 +118,6 @@ public final class PaimonCatalogFactory {
             case PaimonConnectorProperties.JDBC:
                 appendJdbcOptions(props, options);
                 break;
-            case PaimonConnectorProperties.DLF:
-                appendDlfOptions(options);
-                break;
             default:
                 // filesystem: nothing custom.
                 break;
@@ -155,7 +154,6 @@ public final class PaimonCatalogFactory {
             case PaimonConnectorProperties.REST:
                 return "rest";
             case PaimonConnectorProperties.HMS:
-            case PaimonConnectorProperties.DLF:
                 // = org.apache.paimon.hive.HiveCatalogOptions.IDENTIFIER; kept as a literal to
                 // mirror the existing rest/jdbc style (this is a pure option string, not a type ref).
                 return "hive";
@@ -210,12 +208,6 @@ public final class PaimonCatalogFactory {
                 options.set(k, v);
             }
         });
-    }
-
-    private static void appendDlfOptions(Options options) {
-        // String literal avoids the Aliyun datalake compile dep (the live SDK ships at runtime).
-        options.set("metastore.client.class", "com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient");
-        options.set("client-pool-cache.keys", "conf:dlf.catalog.id");
     }
 
     // ---------------------------------------------------------------------
@@ -300,18 +292,17 @@ public final class PaimonCatalogFactory {
     }
 
     /**
-     * Assembles a {@link HiveConf} for the {@code hms}/{@code dlf} flavors from a neutral key map.
-     * Seeds the optional {@code base} (e.g. an external {@code hive.conf.resources} hive-site.xml,
-     * resolved FE-side via {@code ConnectorContext.loadHiveConfResources}) FIRST, then applies the
-     * shared-parser {@code overrides} on top (last-write-wins), so the connection/user keys correctly
-     * OVERRIDE the file — matching the legacy {@code HMSBaseProperties.checkAndInit} precedence (file
-     * base, then overrides).
+     * Assembles a {@link HiveConf} for the {@code hms} flavor.
+     * Seeds the optional external {@code hive.conf.resources} hive-site.xml (resolved by this connector via
+     * {@link #addConfResources}) FIRST, then applies the shared-parser {@code overrides} on top, so the
+     * connection/user keys correctly OVERRIDE the file — matching the legacy precedence (file base, then
+     * overrides). Overrides win because {@code set()} values live in the {@link Configuration} overlay,
+     * which is applied after every {@code addResource}.
      *
      * <p>The {@code overrides} are produced by the shared metastore parsers
      * ({@code HmsMetaStoreProperties.toHiveConfOverrides(String)} — uri + verbatim {@code hive.*} + auth keys
-     * + socket-timeout default + storage overlay + kerberos block last; or
-     * {@code DlfMetaStoreProperties.toDlfCatalogConf()} — the 8 {@code dlf.catalog.*} keys + OSS storage
-     * overlay), which own the ordering-sensitive logic (storage overlay BEFORE the kerberos block). This
+     * + socket-timeout default + storage overlay + kerberos block last), which owns the ordering-sensitive
+     * logic (storage overlay BEFORE the kerberos block). This
      * method only layers the file base under those facts. The real Kerberos UGI {@code doAs} is injected
      * by the FE via {@code ConnectorContext.executeAuthenticated}; the keys here only describe it.
      *
@@ -320,7 +311,7 @@ public final class PaimonCatalogFactory {
      * @param base      optional base keys (e.g. a resolved hive-site.xml); may be {@code null}/empty
      * @param overrides the connection-fact overrides; never {@code null}
      */
-    public static HiveConf assembleHiveConf(Map<String, String> base, Map<String, String> overrides) {
+    public static HiveConf assembleHiveConf(String confResources, Map<String, String> overrides) {
         HiveConf hiveConf = new HiveConf();
         // Pin the conf classloader to the plugin loader, mirroring buildHadoopConfiguration (above).
         // HiveMetaStoreClient.loadFilterHooks resolves metastore.filter.hook via Configuration.getClass,
@@ -329,13 +320,56 @@ public final class PaimonCatalogFactory {
         // PaimonConnector.createCatalogFromContext). Under child-first plugin loading that resolves
         // DefaultMetaStoreFilterHookImpl from the parent while MetaStoreFilterHook is child-loaded, giving
         // "class DefaultMetaStoreFilterHookImpl not MetaStoreFilterHook". Pinning keeps the whole
-        // hive-metastore class graph in one loader (covers both the hms and dlf flavors).
+        // hive-metastore class graph in one loader.
         hiveConf.setClassLoader(PaimonCatalogFactory.class.getClassLoader());
-        if (base != null) {
-            base.forEach(hiveConf::set);
-        }
+        addConfResources(hiveConf, confResources);
         overrides.forEach(hiveConf::set);
         return hiveConf;
+    }
+
+    /**
+     * Resolves the FE's {@code hadoop_config_dir}. Mirrors {@code fe-filesystem-hdfs}'s
+     * {@code HdfsConfigFileLoader.resolveHadoopConfigDir}: a connector plugin cannot import fe-core's
+     * {@code Config}, so the engine bridges the operator-configured value in via the
+     * {@code doris.hadoop.config.dir} system property ({@code FileSystemFactory.bindAllStorageProperties}
+     * sets it). The fallback matches {@code Config.hadoop_config_dir}'s own default.
+     */
+    private static String resolveHadoopConfigDir() {
+        String fromEngine = System.getProperty("doris.hadoop.config.dir");
+        if (StringUtils.isNotBlank(fromEngine)) {
+            return fromEngine;
+        }
+        String home = System.getenv("DORIS_HOME");
+        if (StringUtils.isBlank(home)) {
+            home = System.getProperty("doris.home", "");
+        }
+        return home + "/plugins/hadoop_conf/";
+    }
+
+    /**
+     * Adds the comma-separated {@code hive.conf.resources} files (each resolved under
+     * {@link #resolveHadoopConfigDir()}) onto {@code hiveConf}. Blank is a no-op; a missing file fails loud,
+     * byte-identically to the legacy fe-common {@code CatalogConfigFileUtils} message.
+     *
+     * <p>The connector resolves and parses these itself rather than receiving pre-flattened keys from the
+     * engine: the previous engine-side hook handed over its own {@code new HiveConf()} in full, force-setting
+     * ~881 hive defaults computed from the ENGINE's hive version (3.1.1) on top of this plugin's own
+     * hive 2.3.9 HiveConf — an unintended side effect of iterating a HiveConf, not a contract.
+     */
+    static void addConfResources(HiveConf hiveConf, String confResources) {
+        if (StringUtils.isBlank(confResources)) {
+            return;
+        }
+        String baseDir = resolveHadoopConfigDir();
+        for (String resource : confResources.split(",")) {
+            String resourcePath = baseDir + resource.trim();
+            File file = new File(resourcePath);
+            if (file.exists() && file.isFile()) {
+                hiveConf.addResource(new Path(file.toURI()));
+            } else {
+                throw new IllegalArgumentException("Config resource file does not exist: " + resourcePath);
+            }
+        }
     }
 
 }

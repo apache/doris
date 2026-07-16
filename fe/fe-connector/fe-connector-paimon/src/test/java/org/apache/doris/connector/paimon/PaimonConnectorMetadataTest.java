@@ -294,7 +294,7 @@ public class PaimonConnectorMetadataTest {
         // fromRemoteColumnName). So "partition_columns" MUST keep the paimon case "Pt" to match the "Pt" column;
         // lower-casing it to "pt" would miss the "Pt" column and silently treat the table as NON-partitioned.
         // MUTATION: re-lowercase partition_columns (the pre-#65094 tier2 behavior) -> "pt" != "Pt" -> red.
-        Assertions.assertEquals("Pt", schema.getProperties().get("partition_columns"));
+        Assertions.assertEquals("Pt", schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
     }
 
     @Test

@@ -73,6 +73,24 @@ public interface ConnectorWriteOps {
         // default: no static-partition constraint
     }
 
+    /**
+     * Validates that the dynamic partition-NAME list form ({@code INSERT [OVERWRITE] ... PARTITION (p1, p2)} — a
+     * list of partition column NAMES with no values, distinct from the static {@code PARTITION(col=val)} spec) is
+     * permitted on {@code handle}, throwing a {@link DorisConnectorException} with a connector-authored message
+     * otherwise. Called at analysis time, before synthesizing the write plan, so the engine rejects an
+     * unsupported statement up front (fail loud).
+     *
+     * <p>The default accepts everything: connectors that ignore the name-list form need not override. A connector
+     * that must reject it (e.g. hive, where {@code INSERT ... PARTITION(p1, p2)} is unsupported) MUST override
+     * this and throw, so the rejection — and its message — stay in the connector rather than being drafted by the
+     * engine. {@code partitionNames} is the list of partition column names from the PARTITION clause (the engine
+     * calls this only when the list is non-empty).</p>
+     */
+    default void validateWritePartitionNames(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames) {
+        // default: no partition-name-list constraint
+    }
+
     // ──────────────────── TRANSACTION ────────────────────
 
     /**
@@ -90,5 +108,20 @@ public interface ConnectorWriteOps {
      */
     default ConnectorTransaction beginTransaction(ConnectorSession session) {
         throw new DorisConnectorException("Transactions not supported");
+    }
+
+    /**
+     * Per-table view of {@link #beginTransaction(ConnectorSession)}: opens the transaction for the connector
+     * that owns {@code handle}. The default ignores {@code handle} and returns the connector-level
+     * {@link #beginTransaction(ConnectorSession)}, so every single-format connector is unaffected.
+     *
+     * <p>A heterogeneous gateway (one catalog serving multiple table formats) overrides this to route a foreign
+     * handle to its sibling connector's transaction, so the session-bound transaction's concrete type matches
+     * the per-handle-selected write plan provider. The no-arg version alone would bind the gateway's own
+     * transaction and the sibling's write plan would fail to downcast it. Mirrors the per-handle
+     * {@code getWritePlanProvider(handle)} seam.</p>
+     */
+    default ConnectorTransaction beginTransaction(ConnectorSession session, ConnectorTableHandle handle) {
+        return beginTransaction(session);
     }
 }

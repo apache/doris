@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -103,7 +102,7 @@ public class IcebergUpdateCommand {
         projectItems.add(rowIdColumn);
         projectItems.addAll(updateColumns);
         for (Column col : columns) {
-            if (IcebergUtils.isIcebergRowLineageColumn(col)) {
+            if (col.isReservedPassthrough()) {
                 projectItems.add(new UnboundSlot(tableName, col.getName()));
             }
         }

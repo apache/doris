@@ -8,10 +8,10 @@
 
 ## 元信息
 
-- **状态**：🟢 规划完成（本 session 2026-06-21 brainstorm，用户签 **方案 A / 8 阶段 / 单一翻闸**）；**下一步 = P6.1 启动**（其 code-grounded recon + 逐 task 拆解）。
+- **状态**：✅ **COMPLETE** —— P6 iceberg 全阶段（P6.1–P6.6 迁移 + 翻闸 + GSON 迁移 + 属性/鉴权全归插件 S1–S10 + 删 fe-core 原生子系统）完成并 squash-合入 `branch-catalog-spi`（**#64688** `8b391c7459d`）。**下一步 = P7 hive/HMS 迁移**（工作分支 `catalog-spi-11-hive`；master plan §3.8 + connectors/hive.md）。遗留：fe-core `datasource/iceberg/` 尚存 23 个 HMS-iceberg 支撑类，随 P7 阶段四删。
 - **启动日期**：2026-06-21（阶段拆分设计）
 - **目标策略**：**先在 `fe-connector-iceberg` 实现完整 iceberg 能力（P6.1–P6.5，全程不翻闸）→ P6.6 一次性翻闸 → P6.7 删 legacy → P6.8 回归**。用户定调（2026-06-21）：翻闸是 per-catalog-type 全有或全无（`CatalogFactory:104-113`），故不做中途/混合翻闸。
-- **工作分支**：`catalog-spi-10-iceberg`（off `branch-catalog-spi` @ `e5959e1b53d`）。PR base = `branch-catalog-spi`，squash 合并（mirror P5-T29 #64653 / P3b #64655）。
+- **工作分支**：`catalog-spi-10-iceberg`（off `branch-catalog-spi` @ `e5959e1b53d`）。PR base = `branch-catalog-spi`，squash 合并（mirror P5-T29 #64653 / P3b #64655）。**✅ 已 squash-合入 #64688 `8b391c7459d`。**
 - **阻塞**：P6.1 起步**无硬前置**（P3b kerberos 收口 + docker e2e 已清）。子阶段内前置见下 §阶段内前置。
 - **阻塞下游**：P7 hive(+HMS) 复用 P6 的写路径 SPI / procedure SPI / DLA 模型；P8 收尾（删 `SPI_READY_TYPES`、删全部反向 instanceof）。
 - **主 owner**：@morningman / TBD

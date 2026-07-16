@@ -47,6 +47,7 @@ under the License.
              Maven topologically orders the reactor by the dependency graph. -->
         <module>fe-connector-metastore-paimon</module>
         <module>fe-connector-metastore-iceberg</module>
+        <module>fe-connector-metastore-hms</module>
         <module>fe-connector-es</module>
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>

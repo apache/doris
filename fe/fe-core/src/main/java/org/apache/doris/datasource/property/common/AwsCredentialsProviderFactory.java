@@ -40,51 +40,6 @@ public final class AwsCredentialsProviderFactory {
     }
 
     /* =========================
-     * AWS SDK V1
-     * ========================= */
-
-    public static com.amazonaws.auth.AWSCredentialsProvider createV1(
-            AwsCredentialsProviderMode mode) {
-
-        switch (mode) {
-            case ENV:
-                return new com.amazonaws.auth.EnvironmentVariableCredentialsProvider();
-            case SYSTEM_PROPERTIES:
-                return new com.amazonaws.auth.SystemPropertiesCredentialsProvider();
-            case WEB_IDENTITY:
-                return com.amazonaws.auth.WebIdentityTokenCredentialsProvider.create();
-            case CONTAINER:
-                return new com.amazonaws.auth.EC2ContainerCredentialsProviderWrapper();
-            case ANONYMOUS:
-                throw new UnsupportedOperationException(
-                        "AWS SDK V1 does not support anonymous credentials provider.");
-            case INSTANCE_PROFILE:
-                return new com.amazonaws.auth.InstanceProfileCredentialsProvider();
-            case DEFAULT:
-                return createDefaultV1();
-            default:
-                throw new UnsupportedOperationException(
-                        "AWS SDK V1 does not support credentials provider mode: " + mode);
-        }
-    }
-
-    private static com.amazonaws.auth.AWSCredentialsProvider createDefaultV1() {
-        List<com.amazonaws.auth.AWSCredentialsProvider> providers = new ArrayList<>();
-        providers.add(new com.amazonaws.auth.InstanceProfileCredentialsProvider());
-        //lazy + env
-        if (isWebIdentityConfigured()) {
-            providers.add(com.amazonaws.auth.WebIdentityTokenCredentialsProvider.create());
-        }
-        if (isContainerCredentialsConfigured()) {
-            providers.add(new com.amazonaws.auth.EC2ContainerCredentialsProviderWrapper());
-        }
-        providers.add(new com.amazonaws.auth.EnvironmentVariableCredentialsProvider());
-        providers.add(new com.amazonaws.auth.SystemPropertiesCredentialsProvider());
-        return new com.amazonaws.auth.AWSCredentialsProviderChain(
-                providers.toArray(new com.amazonaws.auth.AWSCredentialsProvider[0]));
-    }
-
-    /* =========================
      * AWS SDK V2
      * ========================= */
 

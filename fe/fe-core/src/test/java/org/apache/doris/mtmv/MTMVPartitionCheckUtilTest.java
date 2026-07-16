@@ -30,7 +30,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
 
 import com.google.common.collect.Lists;
 import org.junit.After;
@@ -43,7 +43,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 
 public class MTMVPartitionCheckUtilTest {
-    private HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
+    private PluginDrivenMvccExternalTable nonOlapTable = Mockito.mock(PluginDrivenMvccExternalTable.class);
     private OlapTable originalTable = Mockito.mock(OlapTable.class);
     private OlapTable relatedTable = Mockito.mock(OlapTable.class);
     private PartitionInfo originalPartitionInfo = Mockito.mock(PartitionInfo.class);
@@ -94,7 +94,7 @@ public class MTMVPartitionCheckUtilTest {
     @Test
     public void testCheckIfAllowMultiTablePartitionRefreshNotOlapTable() {
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.checkIfAllowMultiTablePartitionRefresh(
-                hmsExternalTable);
+                nonOlapTable);
         Assert.assertFalse(res.first);
     }
 

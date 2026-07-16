@@ -18,7 +18,6 @@
 package org.apache.doris.connector.metastore.iceberg;
 
 import org.apache.doris.connector.metastore.MetaStoreProperties;
-import org.apache.doris.connector.metastore.iceberg.dlf.IcebergDlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.hms.IcebergHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
@@ -49,7 +48,6 @@ public class IcebergMetaStoreProvidersDispatchTest {
     @Test
     public void bindForTypeRoutesEachFlavorToItsIcebergBackend() {
         Assertions.assertTrue(bind("hms") instanceof IcebergHmsMetaStoreProperties);
-        Assertions.assertTrue(bind("dlf") instanceof IcebergDlfMetaStoreProperties);
         Assertions.assertTrue(bind("rest") instanceof IcebergRestMetaStoreProperties);
         Assertions.assertTrue(bind("jdbc") instanceof IcebergJdbcMetaStoreProperties);
         Assertions.assertTrue(bind("glue") instanceof IcebergGlueMetaStoreProperties);
@@ -106,12 +104,25 @@ public class IcebergMetaStoreProvidersDispatchTest {
     }
 
     @Test
-    public void allSevenProvidersRegistered() {
-        // Per-engine scope: assert the iceberg flavor names are all present (HMS/DLF/REST/JDBC/GLUE share
+    public void allSixProvidersRegistered() {
+        // Per-engine scope: assert the iceberg flavor names are all present (HMS/REST/JDBC/GLUE share
         // the type token with paimon, but on the iceberg classpath only iceberg providers are loaded).
         Assertions.assertTrue(MetaStoreProviders.registeredNames().containsAll(
-                java.util.Arrays.asList("HMS", "DLF", "REST", "JDBC", "GLUE", "HADOOP", "S3TABLES")),
+                java.util.Arrays.asList("HMS", "REST", "JDBC", "GLUE", "HADOOP", "S3TABLES")),
                 "registered=" + MetaStoreProviders.registeredNames());
+        // WHY: dlf 1.0 was removed. Its provider must be gone from the ServiceLoader, not merely unreachable —
+        // a stale services entry would resurrect a backend whose thrift client no longer exists. GLUE stays:
+        // iceberg.catalog.type=glue is the iceberg-native backend and is NOT affected by the removal.
+        Assertions.assertFalse(MetaStoreProviders.registeredNames().contains("DLF"),
+                "the removed DLF 1.0 provider must not be registered: " + MetaStoreProviders.registeredNames());
+    }
+
+    @Test
+    public void removedDlfFlavorNoLongerDispatches() {
+        // WHY: iceberg.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed, so
+        // it must now fail loud like any unknown flavor. MUTATION: leaving the provider registered would route
+        // to a backend whose client no longer ships.
+        Assertions.assertThrows(IllegalArgumentException.class, () -> bind("dlf"));
     }
 
     @Test

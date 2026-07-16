@@ -962,6 +962,237 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void jniAndCountRangesUseFileSuffixNotAlteredTableDefault(@TempDir Path warehouse) throws Exception {
+        // FIX-L11: the JNI-serialized split (default reader path) and the COUNT(*) collapse range must derive
+        // file_format from the split's FIRST data-file SUFFIX (legacy PaimonScanNode.getFileFormat(getPathString)
+        // -> dataSplitFileFormat), NOT the table-level file.format option. These DIVERGE for an altered /
+        // mixed-format table: the option is changed to parquet while historical data files remain .orc. HEAD
+        // regressed to emitting the bare table default, so BE's paimon_cpp_reader would backfill the WRONG
+        // format for those files. WHY it matters: unlike jniAndCountRangesCarryRealFileFormatNotJni (where the
+        // table default == the .orc suffix, so it cannot distinguish default from suffix), this test forces a
+        // mismatch and thus is the one that actually goes RED if the emission points revert to defaultFileFormat.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("pt", DataTypes.INT())
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .partitionKeys("pt")
+                    .primaryKey("pt", "id")
+                    .option("bucket", "1")
+                    .option("file.format", "orc")   // on-disk data files are written as .orc
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 1, 100L));
+                write.write(GenericRow.of(1, 2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            // Overlay file.format=parquet as a dynamic option: the table now REPORTS parquet as its default
+            // (the connector reads table.options().file.format at plan time), while the committed data files
+            // stay .orc. copy() overlays read-time options only; it does NOT rewrite the on-disk files, and
+            // reads still decode each file by its own recorded format.
+            Table altered = table.copy(Collections.singletonMap("file.format", "parquet"));
+            Assertions.assertEquals("parquet", altered.options().get("file.format"),
+                    "precondition: the altered table default must be parquet (distinct from the .orc files)");
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = altered;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // (a) JNI data range: force_jni routes the .orc split to buildJniScanRange. Its file_format must be
+            // "orc" (the real data-file suffix), NOT "parquet" (the altered table default).
+            ConnectorSession forceJni = sessionWithProps(
+                    Collections.singletonMap("force_jni_scanner", "true"));
+            List<ConnectorScanRange> jniRanges = provider.planScan(
+                    forceJni, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            Assertions.assertFalse(jniRanges.isEmpty(), "force_jni scan must emit >=1 JNI range");
+            for (ConnectorScanRange r : jniRanges) {
+                Assertions.assertTrue(r.getProperties().containsKey("paimon.split"),
+                        "force_jni_scanner=true must route the split to the JNI path");
+                // MUTATION: buildJniScanRange .fileFormat(defaultFileFormat) -> "parquet" -> red.
+                Assertions.assertEquals("orc", ((PaimonScanRange) r).getFileFormat(),
+                        "a JNI range must carry the real data-file suffix (orc), not the altered table default");
+            }
+
+            // (b) COUNT(*) collapse range (buildCountRange): same suffix-over-default requirement.
+            ConnectorSession plain = sessionWithProps(Collections.emptyMap());
+            List<ConnectorScanRange> countRanges = provider.planScan(
+                    plain, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ true);
+            PaimonScanRange countRange = null;
+            for (ConnectorScanRange r : countRanges) {
+                if (r.getProperties().containsKey("paimon.row_count")) {
+                    countRange = (PaimonScanRange) r;
+                }
+            }
+            Assertions.assertNotNull(countRange, "count pushdown must emit a collapsed count range");
+            // MUTATION: buildCountRange .fileFormat(defaultFileFormat) -> "parquet" -> red.
+            Assertions.assertEquals("orc", countRange.getFileFormat(),
+                    "the COUNT(*) collapse range must carry the real data-file suffix (orc), not the altered default");
+        }
+    }
+
+    // ---- FIX-L14: ignore_split_type escape hatch ----
+
+    @Test
+    public void ignoreJniDropsForcedJniSplit(@TempDir Path warehouse) throws Exception {
+        // FIX-L14: force_jni routes the DataSplit to the JNI arm; ignore_split_type=IGNORE_JNI must then drop
+        // it (legacy PaimonScanNode.getSplits:483). MUTATION: not honoring IGNORE_JNI -> the JNI range is
+        // still emitted -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                write.write(GenericRow.of(2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // Baseline: force_jni alone emits a JNI range.
+            List<ConnectorScanRange> baseline = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
+                    handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            Assertions.assertFalse(baseline.isEmpty(), "force_jni alone must emit >=1 JNI range (baseline)");
+
+            // force_jni + IGNORE_JNI: the JNI split is dropped (2-entry props map).
+            Map<String, String> props = new HashMap<>();
+            props.put("force_jni_scanner", "true");
+            props.put("ignore_split_type", "IGNORE_JNI");
+            List<ConnectorScanRange> ignored = provider.planScan(
+                    sessionWithProps(props), handle, noColumns, Optional.empty(), -1, null, false);
+            Assertions.assertTrue(ignored.isEmpty(),
+                    "ignore_split_type=IGNORE_JNI must drop the forced-JNI DataSplit");
+        }
+    }
+
+    @Test
+    public void ignoreNativeDropsNativeSplit(@TempDir Path warehouse) throws Exception {
+        // FIX-L14: an append-only table's DataSplit is native-eligible; ignore_split_type=IGNORE_NATIVE must
+        // drop it (legacy PaimonScanNode.getSplits:443). MUTATION: not honoring IGNORE_NATIVE -> the native
+        // range is still emitted -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .option("bucket", "-1")   // append-only (no primary key) -> raw files -> native reader
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                write.write(GenericRow.of(2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // Baseline (NONE): a native range is emitted (no paimon.split marker == native path).
+            List<ConnectorScanRange> baseline = provider.planScan(
+                    sessionWithProps(Collections.emptyMap()),
+                    handle, noColumns, Optional.empty(), -1, null, false);
+            Assertions.assertFalse(baseline.isEmpty(), "append-only scan must emit >=1 range (baseline)");
+            boolean anyNative = baseline.stream()
+                    .anyMatch(r -> !r.getProperties().containsKey("paimon.split"));
+            Assertions.assertTrue(anyNative,
+                    "precondition: the append-only split must take the native path (no paimon.split)");
+
+            // IGNORE_NATIVE: the native split is dropped.
+            List<ConnectorScanRange> ignored = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("ignore_split_type", "IGNORE_NATIVE")),
+                    handle, noColumns, Optional.empty(), -1, null, false);
+            boolean anyNativeAfter = ignored.stream()
+                    .anyMatch(r -> !r.getProperties().containsKey("paimon.split"));
+            Assertions.assertFalse(anyNativeAfter,
+                    "ignore_split_type=IGNORE_NATIVE must drop the native split");
+        }
+    }
+
+    @Test
+    public void ignorePaimonCppIsNoOpParity(@TempDir Path warehouse) throws Exception {
+        // FIX-L14: IGNORE_PAIMON_CPP is a documented ignore_split_type value that legacy
+        // PaimonScanNode.getSplits NEVER consulted, so it stays a no-op (legacy parity) — the scan emits the
+        // same ranges as NONE. Pins that a future change does not add a half-implemented CPP arm.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                write.write(GenericRow.of(2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            int noneCount = provider.planScan(
+                    sessionWithProps(Collections.emptyMap()),
+                    handle, noColumns, Optional.empty(), -1, null, false).size();
+            int cppCount = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("ignore_split_type", "IGNORE_PAIMON_CPP")),
+                    handle, noColumns, Optional.empty(), -1, null, false).size();
+            Assertions.assertTrue(noneCount > 0, "baseline scan must emit >=1 range");
+            Assertions.assertEquals(noneCount, cppCount,
+                    "IGNORE_PAIMON_CPP must be a no-op (legacy parity): same range count as NONE");
+        }
+    }
+
     // ---- FIX-NATIVE-SUBSPLIT (M-3) ----
 
     private static final long MB = 1024L * 1024L;

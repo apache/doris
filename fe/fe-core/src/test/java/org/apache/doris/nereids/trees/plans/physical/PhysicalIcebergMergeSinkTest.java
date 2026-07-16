@@ -315,6 +315,8 @@ public class PhysicalIcebergMergeSinkTest {
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
+        // Production selects the write provider per-handle; a plain mock does not run the interface default.
+        Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(handlePresent ? Optional.of(handle) : Optional.empty());

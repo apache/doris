@@ -86,6 +86,28 @@ public class IcebergTypeMappingReadTest {
     }
 
     @Test
+    public void unknownAndV3TypesDegradeToUnsupportedByDesign() {
+        // WHY (user decision 2026-07-13, DV-051): iceberg types Doris cannot represent — the v3 primitives
+        // TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN and the non-primitive VARIANT — must map to
+        // UNSUPPORTED WITHOUT throwing, so the table still loads and only the exotic column is
+        // present-but-unqueryable. This deliberately DIVERGES from legacy fe-core, which threw
+        // IllegalArgumentException("Cannot transform unknown type") at schema-load and failed the whole table.
+        // This test PINS the graceful-degradation choice: MUTATION making either default arm throw -> red,
+        // surfacing that the accepted deviation was reverted. (The write direction toIcebergPrimitive still
+        // throws — see toIcebergPrimitiveRejectsUnrepresentableTypes if present / the connector's CREATE path.)
+        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
+        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withZone()).getTypeName());
+        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeometryType.crs84()).getTypeName());
+        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeographyType.crs84()).getTypeName());
+        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.UnknownType.get()).getTypeName());
+        // VARIANT is NOT a primitive (falls to the nested-switch default); legacy mapped it to UNSUPPORTED
+        // too, so this stays parity while the primitives above are the intentional divergence.
+        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.VariantType.get()).getTypeName());
+        // The mapping flags do not rescue an unrepresentable type (both arms are flag-independent).
+        Assertions.assertEquals("UNSUPPORTED", mapOn(Types.GeometryType.crs84()).getTypeName());
+    }
+
+    @Test
     public void decimalCarriesPrecisionAndScale() {
         // WHY: Iceberg DECIMAL(p,s) maps to Doris DECIMALV3(p,s) carrying both p and s verbatim; legacy
         // createDecimalV3Type(precision, scale). MUTATION: dropping scale, or emitting DECIMALV2 -> red.

@@ -88,6 +88,12 @@ public final class IcebergTypeMapping {
                 }
                 return ConnectorType.structOf(names, types).withChildrenFieldIds(fieldIds);
             default:
+                // Any non-primitive iceberg type Doris cannot represent (VARIANT today; future non-primitive
+                // typeIds) degrades to UNSUPPORTED: the table still LOADS and only this column is
+                // present-but-unqueryable. This DIVERGES from legacy fe-core (IcebergUtils.icebergTypeToDorisType
+                // threw IllegalArgumentException at schema-load, failing the whole table). Graceful degradation
+                // is INTENTIONAL (user decision 2026-07-13: map every unrepresentable column uniformly to
+                // UNSUPPORTED so one exotic column does not make a wide table unloadable). Registered DV-051.
                 return ConnectorType.of("UNSUPPORTED");
         }
     }
@@ -138,8 +144,18 @@ public final class IcebergTypeMapping {
                 }
                 return ConnectorType.of("DATETIMEV2", ICEBERG_DATETIME_SCALE_MS, 0);
             case TIME:
+                // iceberg TIME has no Doris analogue -> UNSUPPORTED (explicit, byte-parity with legacy
+                // IcebergUtils which also mapped TIME to Type.UNSUPPORTED).
                 return ConnectorType.of("UNSUPPORTED");
             default:
+                // Any primitive iceberg type Doris cannot represent — notably the v3 types TIMESTAMP_NANO /
+                // GEOMETRY / GEOGRAPHY / UNKNOWN — degrades to UNSUPPORTED: the table still LOADS and only this
+                // column is present-but-unqueryable. This DIVERGES from legacy (IcebergUtils.icebergPrimitiveType-
+                // ToDorisType threw IllegalArgumentException "Cannot transform unknown type", failing the whole
+                // table). Graceful degradation is INTENTIONAL (user decision 2026-07-13: map every unrepresentable
+                // column uniformly to UNSUPPORTED so one exotic column does not make a wide table unloadable).
+                // Registered DV-051. (The write direction toIcebergPrimitive still throws — CREATE TABLE must not
+                // silently accept a type it cannot round-trip.)
                 return ConnectorType.of("UNSUPPORTED");
         }
     }

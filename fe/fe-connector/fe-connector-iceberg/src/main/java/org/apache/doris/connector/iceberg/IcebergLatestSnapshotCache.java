@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
 
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
 import java.util.concurrent.ForkJoinPool;
@@ -96,6 +97,17 @@ final class IcebergLatestSnapshotCache {
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(TableIdentifier identifier) {
         entry.invalidateKey(identifier);
+    }
+
+    /**
+     * Drops every cached entry for one database so the next read of any of its tables goes live
+     * (REFRESH DATABASE / a Doris-issued DROP DATABASE). Entries are keyed by
+     * {@code TableIdentifier.of(db, table)} (single-level namespace = {@code [db]}, see
+     * {@code IcebergConnectorMetadata.beginQuerySnapshot}), so a db match is namespace equality.
+     */
+    void invalidateDb(String dbName) {
+        Namespace ns = Namespace.of(dbName);
+        entry.invalidateIf(id -> id.namespace().equals(ns));
     }
 
     /** Drops all cached entries. */

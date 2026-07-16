@@ -93,12 +93,13 @@ public final class CreateTableInfoToConnectorRequestConverter {
             // cannot store them (MaxCompute); see MaxComputeConnectorMetadata.validateColumns.
             boolean isAggregated = d.getAggType() != null
                     && d.getAggType() != AggregateType.NONE;
-            // Default value is not exposed via a public getter on ColumnDefinition
-            // (private Optional<DefaultValue>); pass null until the SPI gains a
-            // typed default-value carrier. See HANDOFF open issues.
+            // Thread the catalog-level default value string (null when the column has no DEFAULT clause).
+            // Hive builds metastore default constraints from it and gates its DLF catalog on per-column
+            // defaults; connectors that ignore create-time defaults (iceberg/paimon/maxcompute build their
+            // schema from name/type/nullable/comment only) are unaffected.
             out.add(new ConnectorColumn(
                     d.getName(), type, d.getComment(),
-                    d.isNullable(), null, d.isKey(), d.getAutoIncInitValue() != -1,
+                    d.isNullable(), d.getDefaultValueString(), d.isKey(), d.getAutoIncInitValue() != -1,
                     isAggregated));
         }
         return out;
@@ -140,8 +141,12 @@ public final class CreateTableInfoToConnectorRequestConverter {
         // require full analysis to flatten into List<List<String>>. Connectors
         // that need the initial values today read the Doris PartitionDesc
         // directly; this converter passes an empty list and leaves richer
-        // lowering for a follow-up.
-        return new ConnectorPartitionSpec(style, fields, Collections.emptyList());
+        // lowering for a follow-up. The presence flag is still threaded so a
+        // connector that rejects explicit partition values (Hive external tables
+        // discover partitions from the data layout) can fail loud (legacy parity).
+        boolean hasExplicitValues = info.getPartitionDefs() != null
+                && !info.getPartitionDefs().isEmpty();
+        return new ConnectorPartitionSpec(style, fields, Collections.emptyList(), hasExplicitValues);
     }
 
     private static boolean hasAnyTransform(List<Expression> exprs) {

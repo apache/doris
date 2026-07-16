@@ -17,11 +17,13 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
 
 public class ConnectorContextTest {
@@ -65,5 +67,15 @@ public class ConnectorContextTest {
         Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType("file:///tmp/data", null));
         Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType("/no/scheme", null));
         Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType(null, null));
+    }
+
+    @Test
+    public void createSiblingConnector_defaultsToNull() {
+        // The cross-plugin sibling seam: only a gateway connector's context (fe-core's DefaultConnectorContext)
+        // overrides this to build a real sibling; every other connector keeps the default null, so introducing
+        // the seam must not change their behavior -- a non-gateway connector that never calls it is unaffected.
+        Connector sibling = minimalContext().createSiblingConnector("iceberg", Collections.emptyMap());
+        Assertions.assertNull(sibling,
+                "default createSiblingConnector() must return null so non-gateway connectors are unaffected");
     }
 }

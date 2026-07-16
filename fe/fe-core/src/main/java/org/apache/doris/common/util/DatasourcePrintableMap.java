@@ -18,9 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.maxcompute.MCProperties;
-import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
-import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
-import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.util.BasicPrintableMap;
 
 import com.google.common.collect.Sets;
@@ -48,8 +45,22 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("elasticsearch.password");
         SENSITIVE_KEY.addAll(Arrays.asList(
                 MCProperties.SECRET_KEY));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
+        // DLF 1.0 secret keys. Formerly reflected off AliyunDLFBaseProperties, removed with the DLF 1.0 thrift
+        // metastore. Masking must outlive the feature: a DLF catalog created before the removal still replays from
+        // the image (rejection deliberately fires at CREATE and at client creation, never during replay, so FE can
+        // still start), so it remains listable and SHOW CREATE CATALOG still prints its stored properties. All four
+        // former sensitive keys are enumerated here, byte-identical to the former reflection result (the class had
+        // no superclass, so the walk contributed nothing else). The overlap with the inlined storage keys
+        // below is uneven and must NOT be relied on: they alias dlf.secret_key, but nothing else covers
+        // dlf.catalog.accessKeySecret or either session-token alias, so omitting those would silently unmask them.
+        // AWS Glue's only sensitive property (glueSecretKey) aliased
+        // {glue.secret_key, aws.glue.secret-key, client.credentials-provider.glue.secret_key}; all three are
+        // already in the inlined storage-key union below, so removing AWSGlueMetaStoreBaseProperties with the
+        // hive migration drops no masked key.
+        SENSITIVE_KEY.add("dlf.secret_key");
+        SENSITIVE_KEY.add("dlf.catalog.accessKeySecret");
+        SENSITIVE_KEY.add("dlf.session_token");
+        SENSITIVE_KEY.add("dlf.catalog.sessionToken");
         // Iceberg REST catalog secret keys. Formerly reflected off the fe-core IcebergRestProperties
         // (getSensitiveKeys). That class is removed with the fe-core iceberg property cluster; its
         // authoritative copy now lives connector-side (fe-connector-metastore-iceberg

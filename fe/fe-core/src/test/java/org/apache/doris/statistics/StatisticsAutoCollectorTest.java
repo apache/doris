@@ -26,16 +26,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -137,19 +131,6 @@ public class StatisticsAutoCollectorTest {
         PluginDrivenExternalTable incapablePluginTable = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(incapablePluginTable.supportsColumnAutoAnalyze()).thenReturn(false);
         Assertions.assertFalse(collector.supportAutoAnalyze(incapablePluginTable));
-
-        HMSExternalDatabase hmsExternalDatabase = new HMSExternalDatabase(null, 1L, "hmsDb", "hmsDb");
-        HMSExternalCatalog hmsCatalog = new HMSExternalCatalog(0, "jdbc_ctl", null, Maps.newHashMap(), "");
-        HMSExternalTable icebergRaw = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog,
-                hmsExternalDatabase);
-        ExternalTable icebergExternalTable = Mockito.spy(icebergRaw);
-        Mockito.doReturn(DLAType.ICEBERG).when((HMSExternalTable) icebergExternalTable).getDlaType();
-        Assertions.assertTrue(collector.supportAutoAnalyze(icebergExternalTable));
-
-        HMSExternalTable hiveRaw = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog, hmsExternalDatabase);
-        ExternalTable hiveExternalTable = Mockito.spy(hiveRaw);
-        Mockito.doReturn(DLAType.HIVE).when((HMSExternalTable) hiveExternalTable).getDlaType();
-        Assertions.assertTrue(collector.supportAutoAnalyze(hiveExternalTable));
     }
 
     @Test

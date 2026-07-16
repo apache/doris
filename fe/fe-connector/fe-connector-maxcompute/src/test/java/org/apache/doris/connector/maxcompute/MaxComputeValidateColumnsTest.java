@@ -48,7 +48,8 @@ public class MaxComputeValidateColumnsTest {
 
     private MaxComputeConnectorMetadata metadata() {
         return new MaxComputeConnectorMetadata(
-                null, null, "proj", "ep", "quota", Collections.emptyMap());
+                null, null, "proj", "ep", "quota", Collections.emptyMap(),
+                null); // null: partition cache unused by this test
     }
 
     @Test

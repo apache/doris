@@ -135,4 +135,38 @@ public class IcebergLatestSnapshotCacheTest {
         c.invalidateAll();
         Assertions.assertEquals(0, c.size());
     }
+
+    @Test
+    public void invalidateDbClearsOnlyThatDbsTables() {
+        AtomicInteger loads = new AtomicInteger();
+        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(100, 1000);
+        c.getOrLoad(TableIdentifier.of("db1", "t1"),
+                () -> new IcebergLatestSnapshotCache.CachedSnapshot(1L, 11L));
+        c.getOrLoad(TableIdentifier.of("db1", "t2"),
+                () -> new IcebergLatestSnapshotCache.CachedSnapshot(2L, 22L));
+        c.getOrLoad(TableIdentifier.of("db2", "t1"),
+                () -> new IcebergLatestSnapshotCache.CachedSnapshot(3L, 33L));
+        Assertions.assertEquals(3, c.size());
+
+        // REFRESH DATABASE db1 (or a Doris DROP DATABASE db1) must drop BOTH db1 tables and leave db2 intact.
+        // MUTATION: invalidateDb a no-op (the inherited SPI default this fix replaces) -> db1.t1 still cached
+        // -> loads stays 0 / after.snapshotId == 1 -> red.
+        c.invalidateDb("db1");
+        Assertions.assertEquals(1, c.size(), "only db2's single entry must survive");
+
+        IcebergLatestSnapshotCache.CachedSnapshot afterDb1 = c.getOrLoad(TableIdentifier.of("db1", "t1"), () -> {
+            loads.incrementAndGet();
+            return new IcebergLatestSnapshotCache.CachedSnapshot(9L, 99L);
+        });
+        Assertions.assertEquals(9L, afterDb1.snapshotId, "db1.t1 must reload live after invalidateDb");
+        Assertions.assertEquals(1, loads.get());
+
+        // db2 was untouched: still the original pin, no reload.
+        IcebergLatestSnapshotCache.CachedSnapshot db2 = c.getOrLoad(TableIdentifier.of("db2", "t1"), () -> {
+            loads.incrementAndGet();
+            return new IcebergLatestSnapshotCache.CachedSnapshot(7L, 77L);
+        });
+        Assertions.assertEquals(3L, db2.snapshotId, "db2 must keep its cached pin (not dropped by invalidateDb(db1))");
+        Assertions.assertEquals(1, loads.get(), "db2 read must be a hit (no extra load)");
+    }
 }
