@@ -62,10 +62,11 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "DROP INDEX idx_v2 ON ${tableName1} PARTITION (p1)"
 
     def job_ids_after = snapshot_build_index_job_ids(tableName1)
-    logger.info("job count after drop: " + job_ids_after.size())
-    assertTrue(job_ids_after.size() > previous_job_ids.size(),
+    def new_job_ids = job_ids_after.findAll { !previous_job_ids.contains(it) }.toSet()
+    logger.info("new job count after drop: " + new_job_ids.size())
+    assertTrue(!new_job_ids.isEmpty(),
             "DROP INDEX ON PARTITION should create new build index jobs, " +
-            "before: ${previous_job_ids.size()}, after: ${job_ids_after.size()}")
+            "previous: ${previous_job_ids}, new: ${new_job_ids}")
 
     wait_for_new_build_index_jobs_finish(tableName1, timeout, previous_job_ids)
 
@@ -116,9 +117,10 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "DROP INDEX idx_v1 ON ${tableName2} PARTITIONS (p1, p2)"
 
     job_ids_after = snapshot_build_index_job_ids(tableName2)
-    logger.info("multi-partition drop: job count before=${previous_job_ids.size()}, after=${job_ids_after.size()}")
-    assertTrue(job_ids_after.size() >= previous_job_ids.size() + 2,
-            "DROP INDEX ON 2 PARTITIONS should create at least 2 new jobs")
+    new_job_ids = job_ids_after.findAll { !previous_job_ids.contains(it) }.toSet()
+    logger.info("multi-partition drop: new job count=${new_job_ids.size()}")
+    assertTrue(new_job_ids.size() >= 2,
+            "DROP INDEX ON 2 PARTITIONS should create at least 2 new jobs, new: ${new_job_ids}")
 
     wait_for_new_build_index_jobs_finish(tableName2, timeout, previous_job_ids)
 
@@ -234,8 +236,9 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "ALTER TABLE ${tableName5} DROP INDEX idx_v1 PARTITION (p1)"
 
     job_ids_after = snapshot_build_index_job_ids(tableName5)
-    assertTrue(job_ids_after.size() > previous_job_ids.size(),
-            "ALTER TABLE DROP INDEX ON PARTITION should create new jobs")
+    new_job_ids = job_ids_after.findAll { !previous_job_ids.contains(it) }.toSet()
+    assertTrue(!new_job_ids.isEmpty(),
+            "ALTER TABLE DROP INDEX ON PARTITION should create new jobs, new: ${new_job_ids}")
 
     wait_for_new_build_index_jobs_finish(tableName5, timeout, previous_job_ids)
 
