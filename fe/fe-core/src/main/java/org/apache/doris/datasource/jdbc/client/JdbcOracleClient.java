@@ -76,7 +76,7 @@ public class JdbcOracleClient extends JdbcClient {
                 rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             }
             while (rs.next()) {
-                if (isModify && isTableModified(rs.getString("TABLE_NAME"), remoteTableName)) {
+                if (!isExactTable(rs, remoteTableName)) {
                     continue;
                 }
                 tableSchema.add(new JdbcFieldSchema(rs));
@@ -110,11 +110,6 @@ public class JdbcOracleClient extends JdbcClient {
     @Override
     protected String modifyTableNameIfNecessary(String remoteTableName) {
         return remoteTableName.replace("/", "%");
-    }
-
-    @Override
-    protected boolean isTableModified(String modifiedTableName, String actualTableName) {
-        return !modifiedTableName.equals(actualTableName);
     }
 
     @Override

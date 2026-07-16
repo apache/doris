@@ -187,6 +187,9 @@ public class JdbcMySQLClient extends JdbcClient {
             }
 
             while (rs.next()) {
+                if (!isExactTable(rs, remoteTableName)) {
+                    continue;
+                }
                 JdbcFieldSchema field = new JdbcFieldSchema(rs, mapFieldtoType);
                 tableSchema.add(field);
             }

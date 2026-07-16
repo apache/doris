@@ -96,6 +96,9 @@ public class JdbcGbaseClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
+                if (!isExactTable(rs, remoteTableName)) {
+                    continue;
+                }
                 JdbcFieldSchema field = new JdbcFieldSchema(rs);
                 tableSchema.add(field);
             }
