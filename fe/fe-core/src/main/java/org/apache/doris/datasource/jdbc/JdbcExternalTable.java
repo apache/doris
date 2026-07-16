@@ -134,12 +134,15 @@ public class JdbcExternalTable extends ExternalTable {
     @Override
     public Optional<SchemaCacheValue> initSchema() {
         String remoteDbName = ((ExternalDatabase<?>) this.getDatabase()).getRemoteName();
+        // A missing table pattern makes JDBC enumerate every table in the database, so honor the
+        // effective-name fallback before any metadata or identifier-mapping call.
+        String remoteTableName = getRemoteName();
         if (DebugPointUtil.isEnable("JdbcExternalTable.initSchema.sleep")) {
             long sleepMs = DebugPointUtil.getDebugParamOrDefault(
                     "JdbcExternalTable.initSchema.sleep", "sleepMs", 0L);
             if (sleepMs > 0) {
                 LOG.info("debug point JdbcExternalTable.initSchema.sleep hit for {}.{}, sleep {}ms",
-                        remoteDbName, getRemoteName(), sleepMs);
+                        remoteDbName, remoteTableName, sleepMs);
                 try {
                     Thread.sleep(sleepMs);
                 } catch (InterruptedException ignore) {
@@ -149,7 +152,7 @@ public class JdbcExternalTable extends ExternalTable {
         }
 
         // 1. Retrieve remote column information
-        List<Column> columns = ((JdbcExternalCatalog) catalog).listColumns(remoteDbName, remoteName);
+        List<Column> columns = ((JdbcExternalCatalog) catalog).listColumns(remoteDbName, remoteTableName);
         if (columns == null || columns.isEmpty()) {
             return Optional.empty();
         }
@@ -161,7 +164,7 @@ public class JdbcExternalTable extends ExternalTable {
         List<String> localColumnNames = Lists.newArrayListWithCapacity(remoteColumnNames.size());
         for (String remoteColName : remoteColumnNames) {
             String localName = ((JdbcExternalCatalog) catalog).getIdentifierMapping()
-                    .fromRemoteColumnName(remoteDbName, remoteName, remoteColName);
+                    .fromRemoteColumnName(remoteDbName, remoteTableName, remoteColName);
             localColumnNames.add(localName);
         }
 
@@ -186,7 +189,7 @@ public class JdbcExternalTable extends ExternalTable {
                     "Found conflicting column names under case-insensitive conditions. "
                             + "Conflicting column names: %s in remote table '%s.%s' under catalog '%s'. "
                             + "Please use meta_names_mapping to handle name mapping.",
-                    String.join(", ", conflicts), remoteDbName, remoteName, catalog.getName()));
+                    String.join(", ", conflicts), remoteDbName, remoteTableName, catalog.getName()));
         }
 
         // 5. Update column objects with local names
