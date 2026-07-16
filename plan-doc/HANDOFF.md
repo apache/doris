@@ -1,150 +1,69 @@
 # 🤝 Session Handoff
 
 > **滚动文档**：每次 session 结束**覆盖式更新**，**只保留下一个 session 必须的上下文**；完成的工作明细**不落这里**（在 `git log` + `tasks/` 设计文档里）。协作规范：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)。
-> **范围** = 修 TeamCity **CI 996541**（Doris_External_Regression）的失败用例。
+> **范围** = 修 TeamCity **CI 997422**（Doris_External_Regression）的失败用例。
 
 ---
 
-# 🆕 下一个 session = **接 T4（唯一剩余的失败用例修复）+ C（押后项）**
+# 🆕 下一个 session = **重跑 CI 验证本轮 3 个修复**
 
-> **本轮任务** = TeamCity `Doris_External_Regression` **#996541**（PR 65474 @ `fa2fcf4b246`，即本分支）
-> **12 failed + 1 muted**（runner 口径 = 13 failed suites）。
-> **权威文档**：根因分析 = [`tasks/ci-996541-failure-analysis.md`](./tasks/ci-996541-failure-analysis.md)（22-agent recon + 双 lens 对抗复核定稿，每条证据带 file:line 与日志行号）；进度/交接 = [`tasks/task-list-CI-996541.md`](./tasks/task-list-CI-996541.md)。
+> **本轮任务** = TeamCity `Doris_External_Regression` **#997422**（PR 65474 @ `6a450c9fa79`）
+> **10 failed + 2 muted**（occurrence 口径 12）。
+> **权威文档**：根因分析 = [`tasks/ci-997422-failure-analysis.md`](./tasks/ci-997422-failure-analysis.md)（18-agent recon + 3-lens 对抗复核 + 本人独立复核；每条证据带 file:line / 日志行号 / 实测数字）。
 
-## 🔑 定性：**不是集群故障，别去查宕机/OOM**
+## 🔑 定性：**不是集群故障**，别去查宕机/OOM
 
-BE **单次启动、优雅退出**（`be.INFO:593309` `doris_main.cpp:747] All service stopped, doris main exited.`）· be.WARNING **0 条 `F:` 级** · pipeline 自检 `no core dump file` / `exit_flag is 0` · 550 通过。
-`dmesg.txt` 里两组 doris_be segfault **均无害**（一组属本 BE 之前的另一进程；一组在 `main exited` **之后 69 秒** = LSAN at-exit 残留线程的 ASAN shadow 地址计算）。**无 OOM-killer**。内存压力只有一次孤立事件（22 条 `Allocator sys memory check failed` 全属同一个 query id、集中在 2 秒内；201 个 daemon 采样无一越过 soft limit）。
-**13 个失败 = 5 个独立根因**（A/B/C/D/E），**不是一个共因**。
+BE 单次启动、优雅退出（`be.out` 仅退出时 LSAN leak summary，零 `SIGSEGV`/`SIGABRT`/`CHECK failed`）· `dmesg.txt` **无 OOM-killer**（失败时宿主机余 **19.03GB**）· 551 通过。
+**12 个失败 = 4 个独立根因**（A+B / C / D / E），**A+B 是同一个 bug、占 9 个**。
 
-## ✅ 已交付（10/11 个可修用例，各自独立 commit + **变异验证**）
+## ✅ 上一轮（996541）的修复已被本轮 e2e 验证生效 —— **不是回炉**
 
-| commit | 任务 | 修的用例 | 守门 |
+`test_iceberg_time_travel`、`iceberg_branch_complex_queries`、`paimon_system_table`、`test_catalogs_tvf`、6 个 spec 演进用例**本轮全部未再出现**。本轮即上一版 HANDOFF 要求的 TODO 9（`4f8b35c2126` 的 e2e），**它验出了 `4f8b35c2126` 自己引入的回归**。
+
+⚠️ **易混点**：`bd6fdf7009a` 修的是 `__DORIS_GLOBAL_ROWID_COL__`（topn lazy-mat 合成列）；本轮 A+B 是 `__DORIS_ICEBERG_ROWID_COL__`（iceberg 写路径合成列）。**两个不同的列、不同的 bug**，勿当同一个反复修。
+
+---
+
+## ✅ 已交付（3 个可修根因，各自独立 commit + 变异验证）
+
+| commit | 根因 | 修的用例 | 守门 |
 |---|---|---|---|
-| `181e7c14459` | **T1 (A)** 分区值 arity 不匹配回归为 UNPARTITIONED 降级 | **6 个** iceberg spec 演进 | 60/60 绿；变异（重新 hoist）**恰好 2 红** |
-| `bd6fdf7009a` | **T2 (B 触发器1)** L17 guard 排除合成 row-id | `test_iceberg_time_travel`、`iceberg_branch_complex_queries` | 9/9 绿；变异（`continue`→`return`）如期红 |
-| `270bd11f4da` | **T3 (B 触发器2)** sys-table pin 按能力位门控 | `paimon_system_table` | 23/23 绿；变异（去门控）如期红 |
-| `023f8d55e41` | **T5 (D)** 注释掉已移除的 DLF 1.0 路由属性 | `test_catalogs_tvf` | `.out` **零改动** |
+| `35cf72cce91` | **A+B** 计划路径丢连接器合成写列（`4f8b35c2126` 把 `LogicalFileScan:223` 改调**无人 override** 的 1-arg `getFullSchema(Optional<MvccSnapshot>)`） | **9 个** iceberg DML / hidden-column | 38/38；变异（删 1-arg override）红在 `expected:<3> but was:<2>` = CI 症状本身；相关 92/92；checkstyle 0 |
+| `a4cba35725c` | **D** paimon shade 缺 `hive-serde` ⇒ `serdeConstants`（`9a10ece30c8` 删 hive-catalog-shade 触发 `c276e955683` 的潜伏洞） | `test_create_paimon_table` | 基线 jar serdeConstants=0 → 修后=1；**classload 冒烟**跑通 `<clinit>`；**plugin zip 端到端**加载成功且全 zip 恰好 1 份 |
+| `6320389dc06` | **C** L17 guard 对 sys-table 是范畴错误（`270bd11f4da` 知情延期，**延期前提为假**） | `test_iceberg_position_deletes_sys_table` | 11/11；双变异（删排除→1 红；放宽到父类→5 红）；相关 62/62；checkstyle 0 |
 
-**两处方案在施工前被对抗评审推翻并经用户二次拍板改掉**（勿回退成原方案）：
-- **T1**：**不走**「连接器侧名字列表比较降级」，改为**回退 `cfb0958e607` 的 checkState hoist**。原方案漏了第二个 `listPartitions` 消费者（`partition_values()` TVF 会 N 行→0 行）、其核心前提「v1 保留 void field / v2 不保留」**在本仓零证据**、且首要否决理由是 non-sequitur。现方案：改动更小 · connector-agnostic · hive/paimon/hudi/iceberg 全覆盖 · 不改 `listPartitions` 返回值 · 无 nested-source 残留洞。
-- **T5**：**不走**「整段注释」，改为**只注两行**。「整段」实为注释 `:80-145` —— 该 suite 后半段整个拿 `catalog_tvf_test_dlf` 当载具（GRANT→`test_17~20` 期望可见、REVOKE→`test_21~24` 期望空），整段注释会连 `catalogs()` 的**权限过滤覆盖**一起丢，而那与 DLF 无关。现方案 `test_10~24` 全保、`.out` 逐字节不动。
+**E（muted，`test_hdfs_parquet_group0`）= 有意不修**：上游 `51e44133b1d` 的 `mem_limit=35%` + 一个真含 2.000GiB 字符串列的上游 fixture（footer 实测 `total_uncompressed_size=2,147,483,749`=2³¹+101）⇒ PODArray 2GiB→4GiB 增长。`git merge-base --is-ancestor 51e44133b1d master` = **YES** ⇒ **master 同样复现**。无真 OOM、无泄漏、非过期用例。在本分支改那个 conf = 静默 revert 上游决定并掩盖真回归。**保持 mute + 记录理由**（理由全文见分析文档 E 节）。
 
 ---
 
-# ✅ 版本感知绑定 **已实现并提交 `4f8b35c2126`** —— 只剩 e2e 验证
+# ⏭ 下一个 session 要做的
 
-> **2026-07-16**：用户批准设计后已施工完毕。**TODO 0–8 全绿，只剩 TODO 9（e2e）。**
-> 权威文档 = [`tasks/designs/version-aware-schema-binding-design.md`](./tasks/designs/version-aware-schema-binding-design.md)
-> （顶部「施工实况」记录了与设计的 **4 处偏差**，其中 2 条是坑，照设计原文施工会踩）。
->
-> **单测实况**：新增 2 条（schema 解析层 + 计划层）均先红后绿；计划层那条变异（换回 blind 调用）红在
-> `expected: <[c1]> but was: <[c1, c2]>` = **CI 里 guard 报警的那个幽灵列**。既有 **156/156 绿**、checkstyle 绿。
-> **「零既有单测被推翻」由推演升级为实测**（`StatementContextMvccSnapshotTest` 5/5 保持绿）。
->
-> ## ⏭ 下一个 session 只需做 e2e（TODO 9）
-> `iceberg_query_tag_branch`（**闸门**，`.out` 零改动）、`iceberg_tag_retention_and_consistency`、
-> `test_iceberg_time_travel`、`paimon_time_travel`、`iceberg_branch_complex_queries`、
-> `iceberg_branch_partition_operations`。
-> **⚠️「修完就绿」仍未证**：该 suite 在 `:132` 第一个 tag-join 就 abort ⇒ 其后的
-> `sub_join_tag_with_tag_2/3/4`、`sub_join_tag_with_branch_1/2/3`、`sub_with_tag_1..4` 及第二轮
-> (`num_files_in_batch_mode=1024`) 的断言**在本分支从未执行过**。本改动只保证抛出机制被消除。以真实 CI 为准。
+1. **重跑 CI（唯一真闸门）**。预期：A+B 的 9 个解开列数断言、C 解开 init、D 的 paimon HMS 恢复。
+2. **⚠️ C 很可能需要第二轮**：去掉抛出只解开 init。真正绿还需 iceberg `$position_deletes` planner 认这个 pin（`doPlanPositionDeletesSystemTableScan` 读 `handle.hasSnapshotPin()` ← `IcebergConnectorMetadata.applySnapshot` 喂）—— **已 trace 未执行**。且该 suite `:562-568`（源表跨 ADD COLUMN 时间旅行）在本分支**从未跑过**。
+3. **⚠️ A+B「修完就绿」未证**：v1 suite 原在 `:98` abort，其后 `:101` "row-id column must be populated" 与 v3 取值断言**在本分支从未执行过**。本改动只保证列回到输出。
+4. **待用户裁决**：`scannedPartitionCount` 在 `$position_deletes` 上触发（= 旧 HANDOFF gap ③ 的后半、`PluginDrivenScanNode:1213`）—— 与 2026-07-13 `selectedPartitionNum` 签字冲突，**本轮故意未打包**，需先裁决。
+5. **勿顺手修的潜伏洞**：A+B 的合成 row-id `uniqueId = -1`（`IcebergWritePlanProvider.buildRowIdColumn` 6-arg ctor；`ConnectorColumnConverter:89-91` 只回填 `>= 0`）⇒ 列回到输出后 L17 guard 退化成 name 匹配、无法在 pinned schema resolve。**今天不可达**（pinnedSchema 仅显式时间旅行非空，且无用例组合 show_hidden/DML + `@tag`/`@branch`/`FOR..AS OF`）。若要修，**按通用属性（schema-cache 来源）判，绝不按 iceberg 列名**。
 
 ---
 
-# 🗄 背景（已解决，留作上下文）：该失败用例的机制与方案演进
+# 🧰 构建/验证坑（本轮实测，下轮直接复用，别再踩）
 
-> **2026-07-15 用户拍板**：**拒绝**接受 C1-a 的语义收窄（「删列形状」从碰巧能跑变成 fail-loud 报错），
-> **直接做版本感知重构**。⇒ **C1-a 作废**，`T4-mvcc-version-aware-binding-design.md` 已标 **SUPERSEDED**（保留作史料）。
->
-> **新权威设计** = [`tasks/designs/version-aware-schema-binding-design.md`](./tasks/designs/version-aware-schema-binding-design.md)
-> （research note + design + 10 步 TODO）。**状态：待用户批准，未施工。**
-
-**机制**（不变）：绑定层走 version-**blind** `StatementContext.getSnapshot(TableIf)`（`:1015-1034`），对「同表两个非默认版本、无默认」判歧义 → empty → `PluginDrivenMvccExternalTable.getSchemaCacheValue:497-506` 回退 **LATEST `{c1,c2,c3}`**；扫描层的 version-**aware** 查找正确解析 tag t1 → `{c1}` → L17 guard 在 **c2** 上抛。**查询根本没引用 c2**，它是「放弃后回退最新」凭空塞进来的幽灵列。
-
-## ✅ 上一轮那 3 个「施工前必须解决」的点 —— 已全部结清
-
-1. **「上游实为最后一个获胜」的怀疑 = 证伪**。上游 `StatementContext.java:717` `if (!snapshots.containsKey(...))` 把键冲突变成**丢弃而非覆盖** ⇒ 上游确为 **first-write-wins**。2 个专职对抗 agent 各试 5 条绕过路径（MTMV 无守卫 `setSnapshot`、子查询/视图是否换新上下文、null 值、早退、场景不可达）全部失败，均判 SURVIVES。**附带修正**：上游的"first-wins"实为「**第一个被绑定的引用的参数广播到语句里所有未 pin 的表**」（上游遍历 `tables.values()`）⇒ `ice_a@tag(t1) JOIN ice_b` 在上游会把 t1 错钉到 ice_b —— **那是上游 bug，本分支已修好**（按 `specificTable` 逐表钉）。**新设计不依赖任何上游平价论证**，此条现已无关。
-2. **语义收窄** → **用户拒绝接受** ⇒ 换方案（见上）。新设计下该形状**由构造正确**，不再需要签字。
-3. **null value** → **已核实不存在**：`snapshots` 只有 2 个写入点（`:994`、`:1091`），均追溯到非空。（新设计不改该方法，此条现已无关。）
-
-## 🔑 新设计的决定性发现（**旧设计判死重构的三条前提全错**，每条已本人核实）
-
-1. **版本已经随对象走**：`LogicalFileScan:59-60` 的 `tableSnapshot`/`scanParams` 是 `final`、ctor 期(`:91-92`)赋值，**早于** `LazyCompute`(`AbstractPlan:91-94`) 触发 ⇒ **惰性求值不构成障碍**。且 version-aware 查找 `MvccUtil.getSnapshotFromContext(t, ts, sp)`(`:58-69`) 是 **key-exact**，与 pin 数量/求值时机全无关。
-2. **fix locus 不是 `LogicalCatalogRelation`（会改错文件）**：`LogicalFileScan:195-207` **override** 了 `computeOutput()`，PluginDriven 表走 `computePluginDrivenOutput():210-220` 调 **`getFullSchema()`**。
-3. **blind 调用点 = 24 不是 20**，且绝大多数是 statement-global（MTMV/preload/dictionary/sink），**无需动**。
-
-**⇒ 治本 = 5 处接线（全在 fe-core，零 SPI、零连接器），不是 2–4 人天 Nereids 重构。**
-**⇒ 且零既有单测被推翻**（C1-a 反要推翻 2 条）—— 因为新设计**不改 blind 语义**，只让 per-reference 消费者不再用它。
-**⇒ 既有范式照抄 `CheckPolicy.java:136-139`**（已在从 relation 取 ts/sp 调 3-arg lookup），勿另起炉灶。
-
-## ⚠️ 下一个 session 的起手式
-
-1. **先跑 TODO 0**（`version-aware-schema-binding-design.md §8`）：grep 确认 Doris 是否支持 `INSERT INTO t@branch(...)`。**支持则须先扩设计**（`PhysicalPlanTranslator:639,698` 的 sink pin 要从 statement-global 升级为 per-reference）。
-2. **两条设计铁律**（违反则本 bug 原样复活且升级为跨 session）：**永不**把版本化 schema 路由进 `ExternalTable.getSchemaCacheValue()` 的缓存分支；**永不**让 `initSchema()` 变 ambient-sensitive。`SchemaCacheKey.equals` 用 `instanceof` 而非 `getClass()` ⇒ 天真的 `VersionedSchemaCacheKey extends SchemaCacheKey` 会与基类 key 及兄弟版本**互相 equals**。**本设计不需要任何版本化缓存 key**（pinned schema 骑在 `MvccSnapshot` 上，pinned 路径今天就绕过缓存）。
-3. **L17 guard 一个字不改**（设计决策 3）。**`.out` 一律不改**：三个 fixture 与 merge-base 逐字节相同（md5 已核），`1 1` 是上游验证过的答案。
-
-**新设计顺带修掉一个至今无人记录的静默错误**：blind 规则 (1)「default key 通吃」对 `t@tag(v1) JOIN t` **也是错的且静默** —— latest 的 pin 赢下**两个**引用的绑定，tag schema 若是兼容子集则**静默通过 guard**（读到被绑错 schema 的数据）。⇒ **「guard 是完整兜底」即使在今天也不成立。**
-
----
-
-# ⏸ C = paimon `hive-serde` 打包（**押后**，用户决定）
-
-**押后原因**：并发 session 正在**同一战场**（插件包瘦身 / 依赖 scope：`dece64b9ff5` 删 195.6MB、`ae82ffd2573` QUIC scope 清 335MB），且 C 的**产物级验证**（重复类=0 / +916KB）是在**瘦身前的旧产物**上做的，须在新产物上重跑。**等对方收工再做。**
-
-**根因（工件级证据，非推断）**：`fe.warn.log:423078` `NoClassDefFoundError: org/apache/hadoop/hive/serde/serdeConstants @ MetaStoreUtils.<clinit>(MetaStoreUtils.java:830)`。
-**不是 TCCL split-brain**（`ChildFirstClassLoader.java:81` 是 fallback 里的 `super.loadClass`，CNFE 从 super 冒出 ⇒ child 和 parent **都没有** = 缺 jar；split-brain 会是 ClassCast/LinkageError）。
-两处改动的**交集**：`fe-connector-paimon-hive-shade/pom.xml:115` **显式排除** `org.apache.hive:hive-serde`，而本分支又从 fe-core 移除了 `hive-catalog-shade`（此前经 parent fallback 的**静默供给者**）。
-**修法**：在该 pom 的 hive-metastore 块之后显式加 `org.apache.hive:hive-serde:2.3.7` `<optional>true</optional>` + exclusions，**保留 :115 的 exclusion**（简单删 :115 会让 parquet-hadoop-bundle 等传递拖进 shade jar）。
-**⚠️ 必须整个 jar，不能只捞 serdeConstants**：对失败路径三个类求真实缺失 = **12 个类**（还有 `serde2/Deserializer`、`SerDeUtils`、`typeinfo/*`、`lazy/LazySimpleSerDe`、`objectinspector/*`），加 hive-serde-2.3.7 后 **0 缺失** ⇒ 任何「更外科」的窄版**会在下一个类上再挂**。
-**⚠️ `dependencyManagement` first-match-wins，顺序承重**（`ae82ffd2573` 实证：挪到 netty-bom import 之后即**静默失效**）。
-**⚠️ 修复充分性未证**：只做了三个类的 depth-1 引用闭包，用例过了 `:44` 还要建 test01~05，只有真跑 HMS 才知道。
-**⚠️ 别据此当 flake 隔离**：`MetaStoreUtils.<clinit>` 失败会**永久毒化**该 ChildFirstClassLoader，`test_paimon_catalog` 同用 hms 却通过（未查明），故它在别的 build 里可能**看起来像 flaky**。
-
----
-
-# 🧾 本轮发现的独立欠账（**非本轮引入、未修**）
-
-1. **🔴 门禁 `check-connector-imports` 现在是红的，且被构建缓存掩盖**：`fe-connector-trino/src/test/java/.../TrinoBootstrapTest.java:20-21` import 了 `org.apache.doris.common.Config` 与 `EnvUtils`（fe-core internals），由 **`5e9d9449767`**（trino plugin dir 守门）引入。**开构建缓存时门禁根本不跑**，故一直没被发现。本轮全程靠 `-Dexec.skip=true` 绕过。**须单独修**（把两个常量经 SPI 暴露，或把该断言挪出连接器模块）。
-2. **iceberg sys 表时间旅行的 L17 误报**（既存、**零 e2e 覆盖**）：能力位为 true 的连接器（iceberg）做 sys 表时间旅行时仍会拿**源表** pin 去跑 L17 guard —— 拿 sys 表的列比源表 schema 属**范畴错误**。已写进 `PluginDrivenScanNode.pinMvccSnapshot` 的 `KNOWN GAP` 注释。修它需 guard 的 sys-table carve-out + 一个 iceberg sys 表时间旅行 e2e（今天不存在）。
-3. **E = `test_hdfs_parquet_group0`（MUTED，非本分支，本轮零改动，不要阻塞 PR）**：对抗性 fixture（footer 里两个 column-chunk size 各略超 2^31、brotli ~500000:1）⇒ **4GB 是真实数据不是尺寸误估**；`count(arr)` 不下推是因为 `AggregateStrategies:721-727` 对 nullable 列一律 canNotPush，而 **HDFS TVF 推断出的每一列无条件可空**（`ExternalFileTableValuedFunction:457` 3-arg Column ctor）。**🔴 评审已推翻「把 null-veto 收窄为 OLAP-only」的上游修法**——`request.columns` 为空时每个 reader 都返回**总行数**，改了会让 `test_tvf_p0` 的 7 列 count **静默返回错数据**。mute 保留（但应给 owner + 退出条件）。
-4. **§F 被绿色测试掩盖的真实缺陷（不解释任何失败）**：`IcebergWriterHelper:297` 静默吞咽 **378 次**，其中 **370 次 = `Transaction tables do not support scans`** ⇒ 任何**同时缺** `write-format` 与 `write.format.default` 的 iceberg 表写入被**静默当成 PARQUET**，横跨 37 个 catalog。`test_polaris` **通过**、**不是该 bug 的闸门**。下一步最高价值检查 = 对照 master 的 `IcebergTableSink` 在等价点传的是不是 **base table**（非事务）。另 8 次 = `PluginDrivenTableSink.bindDataSink:175` 缺 TCCL pin（修法应在**插件侧**包 `IcebergWritePlanProvider.planWrite:201`，fe-core 零新增）。
-5. **`DorisConnectorException` ×253 未逐条调查**（token 预算）。在迁移分支上这是「SPI 方法未实现」的典型签名，且不被 13 个已知失败解释 —— **第二个被吞 bug 最可能的藏身处**。
-
----
-
-# ❗ 诚实前提（不得当成已验证）
-
-- **「修完就绿」全部未证**：每个 suite 都在**第一个** query 就 abort ⇒ 下游断言（如 `test_iceberg_partition_evolution_ddl` 约 22 个 qt_、`$partitions` 系统表断言）**在本分支从未执行过**。本轮修复只保证「**不再 crash**」，被解锁的断言状态**未知**，以真实 CI 为准。
-- **T1 丢掉了 `cfb0958e607` 的 fail-loud**（明确接受）：真正接错线的新连接器将静默降级为 partition=0/0 而非报错。缓解 = 逐分区 `LOG.warn` 仍在 + **这正是 master 今天的契约**，非新造的坑。是否需要「连接器接入自检」（注册期而非查询期校验），建议单开 issue。
-- **工具告警**：本机 `rg` 存在**静默改写匹配文本**的行为，根因分析中任何来自 `rg` 的「零命中」结论都不可信（载重的否定结论已用 `grep` 复核）。**后续排查优先 `grep`。**
-
----
-
-# 📦 分支 / Commit 须知
-
-- **工作分支 = `catalog-spi-11-hive`**（off `branch-catalog-spi`）。PR base = `branch-catalog-spi`，**squash 合并**。
-- **公开 tracking issue = apache/doris#65185**。
-- **⚠️ 并发**：另一 session 在**同一工作树**活动（插件包瘦身 / 依赖 scope）。动码前先探（`git log`/`status` + maven 进程 + 近 90s mtime）；**发现活跃即停手、只写新文件**；**小步快提交**缩短被 amend 卷走的窗口。
-- **⚠️ path-whitelist `git add`，严禁 `git add -A`**：工作树大量历史遗留 scratch（`regression-conf.groovy` 明文 key / `*.bak` / `.audit-scratch/` / `conf.cmy/` / `META-INF/` / `.claude/` / `failed-cases.out` —— **勿混入任何 commit**）。
-- commit message：`[feat|fix|doc|test](catalog) …` + 末尾 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: …`。**每条 fix = 独立 commit**；HANDOFF + 设计文档单独 commit（与 code 分开）。上下文超 30% 找干净节点交接。
-
-# ⚙️ 操作须知（构建/测试）
-
-- maven：`mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core -am test-compile -Dmaven.build.cache.enabled=false`（**漏 `-am` → 假错 `${revision}`**）。连接器：`-pl :fe-connector-<mod> -am`。
-- **本轮必加 `-Dexec.skip=true`** 绕开上面第 1 条的红门禁，否则 fe-core 根本编不到。
-- **靶向单测**：`-Dtest=<Class> -DfailIfNoTests=false`。**⚠️ 多个类必须用逗号 `A,B,C` 分隔**——本轮踩坑：写成 `A+B+C` 配 `-DfailIfNoTests=false` 会**静默假绿**、读到的还是**旧的 surefire 报告**。跑完**务必核对 `Tests run:` 数字与 `testcase name=` 是否含新测试**。
-- **⚠️ paimon 模块必须用 `install`（不是 `test`）验证**（shade jar 绑 `package` 阶段）；hms/hive 无此坑。
-- 后台 task 通知的 "exit code" 是 echo 的**非 maven 的**，要读 `BUILD` 行或显式取 `PIPESTATUS[0]`。
+1. **maven build cache 会静默跳过 surefire** —— 日志 `Skipping plugin execution (cached): surefire:test`，此时 **BUILD SUCCESS 是空的**（surefire 报告是上次的陈旧文件）。**所有测试必须加 `-Dmaven.build.cache.enabled=false`**。本轮第一次跑就中招（BUILD SUCCESS 但 0 测试真跑）。
+2. **`mvn ... | tail` 后的 `$?` 是 `tail` 的**，不是 maven 的 —— 重定向到文件再取 `$?`，或读 `BUILD SUCCESS`/`BUILD FAILURE` 行。
+3. **`surefire:test` 独立 goal 解析不了 `${revision}`** ⇒ 必须走 `test` 生命周期 + `-am`；上游模块无匹配测试时加 `-DfailIfNoTests=false`。
+4. **`hive-serde` 闭包首次需联网**（`javax.servlet:servlet-api:2.4` 不在本地仓），`-o` 会失败。
+5. **`-Dtest='org.apache.doris.datasource.**'` 全包 sweep > 10min**，会被 shell 超时砍；用具体类名清单。
+6. **`regression-test/conf/regression-conf.groovy` 工作区本就是脏的**（session 开始前即 `M`）—— 三个 commit 均未包含它，**别顺手 `git add -A`**。
+7. **`pgrep maven` 可能查到 1 天前的僵尸 until-loop**（本轮见 PID 843896，etime `1-01:58`，在轮询 Jul 15 就跑完的日志）—— **看 `etime` 再判定是否真并发**，别误判成活跃 session 而无谓停手。
 
 ---
 
 # 🗄 被本次覆盖的旧上下文（catalog-spi 主线：删旧代码 / rebase / trino / QUIC 瘦身）
 
-按用户 2026-07-15 指示，本文件已用 CI 996541 任务上下文**完全覆盖**。**旧内容完整保存在 `8eb5463f769:plan-doc/HANDOFF.md`**（`git show 8eb5463f769:plan-doc/HANDOFF.md`）。其中**仍未结项、需要时去那里捞**的条目：
+按用户 2026-07-15 指示，本文件已用 CI 任务上下文**完全覆盖**。**旧内容完整保存在 `8eb5463f769:plan-doc/HANDOFF.md`**（`git show 8eb5463f769:plan-doc/HANDOFF.md`）。其中**仍未结项、需要时去那里捞**的条目：
 ① 删除线 PR 收尾（拓扑多 commit → 最终 squash）+ 用户自跑翻闸 hms 全量回归；
-② e2e 欠账矩阵（`tasks/hms-cutover-execution-plan-2026-07-10.md §4/§5`）+ 继承自上游的 `$position_deletes` e2e 翻闸门；
-③ rebase 引入的 2 个集成缺口（`IcebergScanPlanProvider:1419` 丢 `enable.mapping.timestamp_tz`；`:297` `scannedPartitionCount` 对 `$position_deletes` 触发，语义待用户拍板）；
+② e2e 欠账矩阵（`tasks/hms-cutover-execution-plan-2026-07-10.md §4/§5`）+ 继承自上游的 `$position_deletes` e2e 翻闸门（**本轮 C 即其中一项，已修待验**）；
+③ rebase 引入的 2 个集成缺口（`IcebergScanPlanProvider:1419` 丢 `enable.mapping.timestamp_tz`；`scannedPartitionCount` 对 `$position_deletes` 触发，语义待用户拍板 = 上面第 4 点）；
 ④ trino 改名 PR 收尾两笔（**需 release note**；BE 未跑全量构建 + fallback 无 e2e）；
 ⑤ 独立任务空间 `plan-doc/hive-catalog-shade-removal/`（**从它自己的 HANDOFF 进**）；
-⑥ 并发 session 刚结项的 QUIC 根治（`ae82ffd2573`）+ 插件包瘦身 Tier A（`dece64b9ff5`）明细。
+⑥ 并发 session 已结项的 QUIC 根治（`ae82ffd2573`）+ 插件包瘦身 Tier A（`dece64b9ff5`）明细。
