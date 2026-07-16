@@ -691,4 +691,210 @@ TEST_F(QueryCacheOperatorTest, test_missing_runtime_fails_init) {
     EXPECT_EQ(query_cache->get_element_count(), 0);
 }
 
+TEST_F(QueryCacheOperatorTest, test_hit_cache_multi_block_reordered_slots) {
+    // Two normalized-equivalent queries can share one digest with different
+    // output slot orders, so the entry is served through a column
+    // permutation. With MORE THAN ONE cached block the permutation must be
+    // applied to each cached block before merging it into the reused output
+    // block: the pipeline's clear_column_data() keeps the already-permuted
+    // schema, so merging a cached-order block into it positionally breaks --
+    // a type error for heterogeneous slots like these (BIGINT/INT swapped),
+    // silently misplaced data for same-typed ones.
+    sink = std::make_unique<CacheSinkOperatorX>();
+    source = std::make_unique<CacheSourceOperatorX>();
+    EXPECT_TRUE(source->set_child(child_op));
+    auto* row_desc = new MockRowDescriptor {
+            {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()}, &pool};
+    child_op->_mock_row_desc.reset(row_desc);
+    // The mock descriptor leaves every slot id at its default; give the two
+    // output slots distinct ids so the slot-order mapping is meaningful.
+    auto& slots = static_cast<MockTupleDescriptor*>(row_desc->tuple_desc_map.front())->Slots;
+    slots[0]->_id = 100;
+    slots[1]->_id = 101;
+
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[100] = 10;
+    cache_param.output_slot_mapping[101] = 11;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+
+    {
+        // The entry was written by the sibling query whose output order was
+        // (INT32 slot 11, INT64 slot 10) -- the reverse of this query.
+        int64_t version = 0;
+        std::string cache_key;
+        EXPECT_TRUE(
+                QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
+        CacheResult result;
+        result.push_back(std::make_unique<Block>());
+        *result.back() = Block({ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2}),
+                                ColumnHelper::create_column_with_name<DataTypeInt64>({10, 20})});
+        result.push_back(std::make_unique<Block>());
+        *result.back() = Block({ColumnHelper::create_column_with_name<DataTypeInt32>({3}),
+                                ColumnHelper::create_column_with_name<DataTypeInt64>({30})});
+        query_cache->insert(cache_key, version, result, {11, 10}, 1);
+    }
+
+    source->_cache_param = cache_param;
+    source->_query_cache_runtime = std::make_shared<QueryCacheRuntime>(cache_param, query_cache);
+    // In production this operator is also built without a plan node, so its
+    // _row_descriptor reports zero materialized slots and clear_column_data()
+    // wipes the block every pull -- the schema-carrying reused-block shape is
+    // accidentally unreachable today. Report a real slot count here to pin
+    // the permute-before-merge invariant against the natural cleanups (a real
+    // row descriptor, or removing the redundant per-operator wipe) that would
+    // make that shape live.
+    source->_row_descriptor._num_materialized_slots = 2;
+    create_local_state();
+
+    EXPECT_EQ(source_local_state->_slot_orders, (std::vector<int> {10, 11}));
+    EXPECT_EQ(source_local_state->_hit_cache_column_orders, (std::vector<int> {1, 0}));
+
+    {
+        auto block = ColumnHelper::create_block<DataTypeInt64>({0});
+        auto st = sink->sink(state.get(), &block, true);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    }
+    // ONE output block reused across pulls, exactly like the pipeline driver
+    // (PipelineTask feeds the same block every iteration and
+    // clear_column_data() keeps its schema): pull 2 is the shape that broke,
+    // because the reused block already carries the permuted schema.
+    Block block;
+    {
+        // First cached block, permuted to this query's order.
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_FALSE(eos);
+        Block expected({ColumnHelper::create_column_with_name<DataTypeInt64>({10, 20}),
+                        ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2})});
+        EXPECT_TRUE(ColumnHelper::block_equal(block, expected)) << block.dump_data();
+    }
+    {
+        // Second cached block through the schema-carrying reused block.
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_FALSE(eos);
+        Block expected({ColumnHelper::create_column_with_name<DataTypeInt64>({30}),
+                        ColumnHelper::create_column_with_name<DataTypeInt32>({3})});
+        EXPECT_TRUE(ColumnHelper::block_equal(block, expected)) << block.dump_data();
+    }
+}
+
+TEST_F(QueryCacheOperatorTest, test_incremental_reordered_write_back) {
+    // An INCREMENTAL merge through a permuted entry: the cached blocks are
+    // emitted in this query's slot order and the written-back entry must
+    // hold "cached + delta" under this query's slot order as one consistent
+    // whole, so a later exact hit through it permutes correctly again.
+    sink = std::make_unique<CacheSinkOperatorX>();
+    source = std::make_unique<CacheSourceOperatorX>();
+    EXPECT_TRUE(source->set_child(child_op));
+    auto* row_desc = new MockRowDescriptor {
+            {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()}, &pool};
+    child_op->_mock_row_desc.reset(row_desc);
+    auto& slots = static_cast<MockTupleDescriptor*>(row_desc->tuple_desc_map.front())->Slots;
+    slots[0]->_id = 100;
+    slots[1]->_id = 101;
+
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[100] = 10;
+    cache_param.output_slot_mapping[101] = 11;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+    cache_param.__set_allow_incremental(true);
+
+    std::string cache_key;
+    int64_t version = 0;
+    EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
+    {
+        // Two stale cached blocks written by the reverse-ordered sibling.
+        CacheResult result;
+        result.push_back(std::make_unique<Block>());
+        *result.back() = Block({ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2}),
+                                ColumnHelper::create_column_with_name<DataTypeInt64>({10, 20})});
+        result.push_back(std::make_unique<Block>());
+        *result.back() = Block({ColumnHelper::create_column_with_name<DataTypeInt32>({3}),
+                                ColumnHelper::create_column_with_name<DataTypeInt64>({30})});
+        query_cache->insert(cache_key, 100, result, {11, 10}, 1, /*delta_count=*/0);
+    }
+
+    source->_cache_param = cache_param;
+    source->_query_cache_runtime = std::make_shared<QueryCacheRuntime>(cache_param, query_cache);
+    {
+        auto decision = std::make_shared<QueryCacheInstanceDecision>();
+        decision->mode = QueryCacheInstanceDecision::Mode::INCREMENTAL;
+        decision->key_valid = true;
+        decision->cache_key = cache_key;
+        decision->current_version = version;
+        decision->cached_version = 100;
+        decision->cached_delta_count = 0;
+        EXPECT_TRUE(query_cache->lookup_any_version(cache_key, &decision->handle));
+        source->_query_cache_runtime->inject_decision_for_test(cache_key, decision);
+    }
+    // Pin the schema-carrying reused-block shape; see the rationale in
+    // test_hit_cache_multi_block_reordered_slots.
+    source->_row_descriptor._num_materialized_slots = 2;
+    create_local_state();
+
+    EXPECT_TRUE(source_local_state->_is_incremental);
+    EXPECT_TRUE(source_local_state->_need_insert_cache);
+    EXPECT_EQ(source_local_state->_hit_cache_column_orders, (std::vector<int> {1, 0}));
+
+    {
+        // The delta partial result arrives in THIS query's slot order.
+        auto block = Block({ColumnHelper::create_column_with_name<DataTypeInt64>({40}),
+                            ColumnHelper::create_column_with_name<DataTypeInt32>({4})});
+        auto st = sink->sink(state.get(), &block, true);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    }
+    // ONE output block reused across pulls, like the pipeline driver: the
+    // second cached pull must permute correctly into the schema-carrying
+    // reused block before its write-back copy is taken.
+    Block block;
+    for (int i = 0; i < 2; ++i) {
+        // Both cached blocks flow out permuted, without merge errors.
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_FALSE(eos);
+    }
+    {
+        // Then the delta.
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(block.rows(), 1);
+    }
+
+    // The merged entry holds every block under THIS query's slot order.
+    doris::QueryCacheHandle handle;
+    EXPECT_TRUE(query_cache->lookup(cache_key, 114514, &handle));
+    EXPECT_EQ(handle.get_cache_delta_count(), 1);
+    EXPECT_EQ(*handle.get_cache_slot_orders(), (std::vector<int> {10, 11}));
+    const auto& cached_blocks = *handle.get_cache_result();
+    EXPECT_EQ(cached_blocks.size(), 3);
+    Block expected0({ColumnHelper::create_column_with_name<DataTypeInt64>({10, 20}),
+                     ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2})});
+    EXPECT_TRUE(ColumnHelper::block_equal(*cached_blocks[0], expected0))
+            << cached_blocks[0]->dump_data();
+    Block expected1({ColumnHelper::create_column_with_name<DataTypeInt64>({30}),
+                     ColumnHelper::create_column_with_name<DataTypeInt32>({3})});
+    EXPECT_TRUE(ColumnHelper::block_equal(*cached_blocks[1], expected1))
+            << cached_blocks[1]->dump_data();
+    Block expected2({ColumnHelper::create_column_with_name<DataTypeInt64>({40}),
+                     ColumnHelper::create_column_with_name<DataTypeInt32>({4})});
+    EXPECT_TRUE(ColumnHelper::block_equal(*cached_blocks[2], expected2))
+            << cached_blocks[2]->dump_data();
+}
+
 } // namespace doris

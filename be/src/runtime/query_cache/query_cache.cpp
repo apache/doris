@@ -17,9 +17,12 @@
 
 #include "runtime/query_cache/query_cache.h"
 
+#include <limits>
+
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
+#include "cpp/sync_point.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader.h"
@@ -143,27 +146,45 @@ std::shared_ptr<QueryCacheInstanceDecision> QueryCacheRuntime::get_or_make_decis
         return _invalid_decision;
     }
 
-    // The lock also serializes decision making of different instances of this
-    // fragment. That is acceptable in the common case: a decision only touches
-    // tablet metadata (no data IO), so it finishes in microseconds to
-    // milliseconds. On very wide fragments (hundreds of tablets per instance)
-    // combined with tablet header lock contention (e.g. compaction meta
-    // commits) this serialization can stretch the fragment init tail; if that
-    // ever shows up in profiles, move the capture out of the lock and let the
-    // losing racer drop its duplicate decision.
-    std::lock_guard<std::mutex> lock(_lock);
-    auto it = _decisions.find(cache_key);
-    if (it != _decisions.end()) {
-        return it->second;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto it = _decisions.find(cache_key);
+        if (it != _decisions.end()) {
+            return it->second;
+        }
     }
 
+    // Build the candidate outside the lock: a stale-entry decision walks
+    // tablet metadata under the header lock and, on merge-on-write tables,
+    // scans the delete bitmap, so its cost grows with the tablets per
+    // instance and the bitmap size. This runtime is fragment-wide, so a
+    // single lock-scoped build would serialize even unrelated instances'
+    // keys behind one slow decision. Racing callers of the same instance
+    // build duplicate candidates; the loser adopts the winner's decision
+    // below and its own candidate releases with the shared_ptr (the entry
+    // pin and any captured delta read sources go with it), which only costs
+    // a redundant metadata pass. The metrics are settled once, by the
+    // winner, after publication.
     auto decision = std::make_shared<QueryCacheInstanceDecision>();
     decision->key_valid = true;
     decision->cache_key = cache_key;
     decision->current_version = version;
     _make_decision(scan_ranges, decision.get());
-    _decisions.emplace(std::move(cache_key), decision);
-    return decision;
+    TEST_SYNC_POINT("QueryCacheRuntime::get_or_make_decision.before_publish");
+
+    std::lock_guard<std::mutex> lock(_lock);
+    auto [it, inserted] = _decisions.emplace(std::move(cache_key), decision);
+    if (inserted) {
+        if (decision->mode == QueryCacheInstanceDecision::Mode::INCREMENTAL) {
+            DorisMetrics::instance()->query_cache_stale_hit_total->increment(1);
+        } else if (decision->mode == QueryCacheInstanceDecision::Mode::MISS &&
+                   !decision->incremental_fallback_reason.empty()) {
+            // Only count real fallbacks: an empty reason means incremental
+            // merge was not enabled for this query in the first place.
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->increment(1);
+        }
+    }
+    return it->second;
 }
 
 void QueryCacheRuntime::_make_decision(const std::vector<TScanRangeParams>& scan_ranges,
@@ -196,19 +217,15 @@ void QueryCacheRuntime::_make_decision(const std::vector<TScanRangeParams>& scan
 
     if (_try_prepare_incremental(scan_ranges, decision)) {
         decision->mode = QueryCacheInstanceDecision::Mode::INCREMENTAL;
-        DorisMetrics::instance()->query_cache_stale_hit_total->increment(1);
         return;
     }
 
     // Stale entry not reusable: drop the pin and fall back to a full scan.
+    // The stale-hit/fallback metrics are settled by the caller once the
+    // winning candidate is published, so a losing racer cannot double-count.
     decision->_delta_read_sources.clear();
     decision->handle = QueryCacheHandle();
     decision->mode = QueryCacheInstanceDecision::Mode::MISS;
-    if (!decision->incremental_fallback_reason.empty()) {
-        // Only count real fallbacks: an empty reason means incremental merge
-        // was not enabled for this query in the first place.
-        DorisMetrics::instance()->query_cache_incremental_fallback_total->increment(1);
-    }
 }
 
 bool QueryCacheRuntime::_try_prepare_incremental(const std::vector<TScanRangeParams>& scan_ranges,
@@ -358,16 +375,41 @@ bool QueryCacheRuntime::_delta_rewrites_history(BaseTablet& tablet,
     // the version becomes visible), so this scan is race free for the window
     // we care about. Pending entries use DeleteBitmap::TEMP_VERSION_COMMON
     // (= 0) and stay below the window as well.
+    //
+    // The map is ordered by (rowset, segment, version), and most entries of
+    // a group lie OUTSIDE the delta window (dedup history below it, pending
+    // entries at 0, concurrent newer loads above it), so on a long-lived
+    // merge-on-write tablet the map is much larger than the window. Hop from
+    // group to group with lower_bound/upper_bound instead of visiting every
+    // entry: the shared-lock hold, which excludes bitmap writers such as
+    // load publish, is then bounded by the in-window entries plus one
+    // logarithmic hop per group instead of the full map size.
+    // Compare versions in the uint64 key domain (both window bounds are
+    // non-negative), so a hypothetical out-of-int64-range stored version can
+    // only take the above-window hop, whose target is strictly past the
+    // whole group: forward progress holds for arbitrary map contents, like
+    // the plain walk this replaces.
+    const auto window_begin = static_cast<uint64_t>(cached_version) + 1;
+    const auto window_end = static_cast<uint64_t>(current_version);
     const DeleteBitmap& delete_bitmap = tablet.tablet_meta()->delete_bitmap();
     std::shared_lock rdlock(delete_bitmap.lock);
-    for (const auto& [bitmap_key, bitmap] : delete_bitmap.delete_bitmap) {
-        const auto version = static_cast<int64_t>(std::get<2>(bitmap_key));
-        if (version <= cached_version || version > current_version || bitmap.isEmpty()) {
+    const auto& bitmap_map = delete_bitmap.delete_bitmap;
+    auto it = bitmap_map.begin();
+    while (it != bitmap_map.end()) {
+        const auto& [rowset_id, segment_id, version_key] = it->first;
+        if (version_key < window_begin) {
+            it = bitmap_map.lower_bound({rowset_id, segment_id, window_begin});
             continue;
         }
-        if (!delta_rowsets.contains(std::get<0>(bitmap_key))) {
+        if (version_key > window_end) {
+            it = bitmap_map.upper_bound(
+                    {rowset_id, segment_id, std::numeric_limits<uint64_t>::max()});
+            continue;
+        }
+        if (!it->second.isEmpty() && !delta_rowsets.contains(rowset_id)) {
             return true;
         }
+        ++it;
     }
     return false;
 }

@@ -203,21 +203,36 @@ Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
         // the delta scan -- a possible future latency optimization.
         const auto& hit_cache_block =
                 local_state._hit_cache_results->at(local_state._hit_cache_pos++);
+        // Reorder the cached block to this query's slot order BEFORE merging
+        // (a zero-copy view: inserting reuses the COW column pointers).
+        // Merging first and permuting afterwards is an order trap on the
+        // second cached block whenever the reused output block keeps its
+        // schema between pulls: a cached-order block then merges positionally
+        // into query-order columns -- a type error for heterogeneous slots,
+        // silently misplaced data for same-typed ones. Today the trap stays
+        // latent by accident: this operator is built without a plan node, so
+        // its own _row_descriptor reports zero materialized slots and the
+        // clear_column_data() above wipes the whole block every pull. The
+        // pipeline driver's clears are schema-keeping though, so giving this
+        // operator a real row descriptor (or dropping the redundant-looking
+        // wipe above) would arm it; reordering the source keeps the merge
+        // order-aligned under both block shapes.
+        Block reordered_cache_block;
+        const Block* cache_block_to_merge = hit_cache_block.get();
+        if (!local_state._hit_cache_column_orders.empty()) {
+            for (auto loc : local_state._hit_cache_column_orders) {
+                reordered_cache_block.insert(hit_cache_block->get_by_position(loc));
+            }
+            cache_block_to_merge = &reordered_cache_block;
+        }
         if (need_clone_empty) {
-            *block = hit_cache_block->clone_empty();
+            *block = cache_block_to_merge->clone_empty();
         }
         {
             ScopedMutableBlock scoped_mutable_block(block);
             auto& mutable_block = scoped_mutable_block.mutable_block();
-            RETURN_IF_ERROR(mutable_block.merge(*hit_cache_block));
+            RETURN_IF_ERROR(mutable_block.merge(*cache_block_to_merge));
             scoped_mutable_block.restore();
-        }
-        if (!local_state._hit_cache_column_orders.empty()) {
-            auto datas = block->get_columns_with_type_and_name();
-            block->clear();
-            for (auto loc : local_state._hit_cache_column_orders) {
-                block->insert(datas[loc]);
-            }
         }
         if (local_state._is_incremental && local_state._need_insert_cache) {
             // The emitted block is already reordered to this query's slot

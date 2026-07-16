@@ -23,7 +23,11 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <chrono>
+#include <limits>
 #include <memory>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -31,6 +35,7 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "core/data_type/data_type_number.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/data_dir.h"
@@ -43,6 +48,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "testutil/column_helper.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -368,11 +374,19 @@ TEST_F(QueryCacheTest, runtime_decision_invalid_key) {
     cache_param.tablet_to_range.insert({43, "range"});
     QueryCacheRuntime runtime(cache_param, cache.get());
 
+    int64_t stale_before = DorisMetrics::instance()->query_cache_stale_hit_total->value();
+    int64_t fallback_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     auto decision = runtime.get_or_make_decision(scan_ranges);
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
     EXPECT_FALSE(decision->key_valid);
     // Every caller shares one immutable invalid decision (and one log line).
     EXPECT_EQ(decision.get(), runtime.get_or_make_decision(scan_ranges).get());
+    // The degraded-scan path returns before the candidate build, so it must
+    // settle no metrics at all.
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_stale_hit_total->value(), stale_before);
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallback_before);
 }
 
 TEST_F(QueryCacheTest, runtime_decision_hit) {
@@ -385,11 +399,18 @@ TEST_F(QueryCacheTest, runtime_decision_hit) {
     EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
     insert_entry(cache.get(), cache_key, 100, 0);
 
+    int64_t stale_before = DorisMetrics::instance()->query_cache_stale_hit_total->value();
+    int64_t fallback_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     QueryCacheRuntime runtime(cache_param, cache.get());
     auto decision = runtime.get_or_make_decision(scan_ranges);
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::HIT);
     EXPECT_TRUE(decision->handle.valid());
     EXPECT_EQ(decision->handle.get_cache_version(), 100);
+    // An exact hit is neither a stale hit nor a fallback.
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_stale_hit_total->value(), stale_before);
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallback_before);
 }
 
 TEST_F(QueryCacheTest, runtime_decision_force_refresh) {
@@ -403,12 +424,18 @@ TEST_F(QueryCacheTest, runtime_decision_force_refresh) {
     insert_entry(cache.get(), cache_key, 100, 0);
 
     cache_param.__set_force_refresh_query_cache(true);
+    int64_t fallback_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     QueryCacheRuntime runtime(cache_param, cache.get());
     auto decision = runtime.get_or_make_decision(scan_ranges);
     // Recompute and write back even though a fresh entry exists.
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
     EXPECT_TRUE(decision->key_valid);
     EXPECT_FALSE(decision->handle.valid());
+    // A forced refresh is a deliberate MISS with an empty reason, not a
+    // fallback: the caller-side settlement must not count it.
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallback_before);
 }
 
 TEST_F(QueryCacheTest, runtime_decision_binlog_scan) {
@@ -421,12 +448,17 @@ TEST_F(QueryCacheTest, runtime_decision_binlog_scan) {
     EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
     insert_entry(cache.get(), cache_key, 100, 0);
 
+    int64_t fallback_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     QueryCacheRuntime runtime(cache_param, cache.get());
     runtime.disable_for_binlog_scan();
     auto decision = runtime.get_or_make_decision(scan_ranges);
-    // A binlog scan must neither serve the cached entry nor write back.
+    // A binlog scan must neither serve the cached entry nor write back, and
+    // its deliberate MISS (empty reason) must not count as a fallback.
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
     EXPECT_FALSE(decision->key_valid);
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallback_before);
 }
 
 TEST_F(QueryCacheTest, runtime_decision_stale_without_incremental) {
@@ -440,11 +472,17 @@ TEST_F(QueryCacheTest, runtime_decision_stale_without_incremental) {
     insert_entry(cache.get(), cache_key, 50, 0);
 
     // allow_incremental unset: a stale entry is a plain miss (full recompute).
+    int64_t fallback_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     QueryCacheRuntime runtime(cache_param, cache.get());
     auto decision = runtime.get_or_make_decision(scan_ranges);
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
     EXPECT_TRUE(decision->key_valid);
     EXPECT_FALSE(decision->handle.valid());
+    // Incremental merge never engaged (empty reason), so the caller-side
+    // settlement must not count a fallback.
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallback_before);
 }
 
 TEST_F(QueryCacheTest, runtime_decision_stale_incremental_fallbacks) {
@@ -600,6 +638,12 @@ protected:
     }
 
     void TearDown() override {
+        // Idempotent guard: a fatal assertion between enable_processing() and
+        // the in-test cleanup (see the racer tests) must not leak an enabled
+        // SyncPoint with callbacks over dead stack variables to later tests.
+        auto* sp = SyncPoint::get_instance();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
         _cache.reset();
         _data_dir.reset();
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
@@ -699,6 +743,55 @@ protected:
         return runtime.get_or_make_decision(scan_ranges);
     }
 
+    // Runs two get_or_make_decision callers concurrently, parked at the
+    // pre-publish sync point until both built a live candidate, so the
+    // publish genuinely races. Returns both results (same object expected).
+    std::pair<std::shared_ptr<QueryCacheInstanceDecision>,
+              std::shared_ptr<QueryCacheInstanceDecision>>
+    race_two_callers(QueryCacheRuntime& runtime, const std::vector<TScanRangeParams>& scan_ranges) {
+        auto* sp = SyncPoint::get_instance();
+        std::atomic<int> arrived {0};
+        sp->set_call_back("QueryCacheRuntime::get_or_make_decision.before_publish", [&](auto&&) {
+            arrived.fetch_add(1);
+            // Deadline instead of an unbounded spin: if publication ever
+            // stops passing through this sync point, fail the test instead
+            // of hanging the whole UT binary.
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (arrived.load() < 2 && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::yield();
+            }
+            EXPECT_GE(arrived.load(), 2) << "racer barrier timed out";
+        });
+        sp->enable_processing();
+
+        std::shared_ptr<QueryCacheInstanceDecision> d1;
+        std::shared_ptr<QueryCacheInstanceDecision> d2;
+        std::thread t1;
+        std::thread t2;
+        // If the second thread's constructor ever throws (resource
+        // exhaustion), destroying the still-joinable first one would
+        // std::terminate() the whole UT binary; join both on every exit.
+        Defer join_guard {[&] {
+            if (t1.joinable()) {
+                t1.join();
+            }
+            if (t2.joinable()) {
+                t2.join();
+            }
+        }};
+        t1 = std::thread([&] { d1 = runtime.get_or_make_decision(scan_ranges); });
+        t2 = std::thread([&] { d2 = runtime.get_or_make_decision(scan_ranges); });
+        t1.join();
+        t2.join();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+        // Guard against vacuous passes: if the production sync point is ever
+        // renamed or removed, the barrier never fires and the racer tests
+        // would silently stop exercising the two-candidate race.
+        EXPECT_EQ(arrived.load(), 2);
+        return {d1, d2};
+    }
+
     std::string _absolute_dir;
     StorageEngine* _engine = nullptr;
     std::unique_ptr<DataDir> _data_dir;
@@ -794,7 +887,9 @@ TEST_F(QueryCacheIncrementalTest, mow_history_rewrite_falls_back) {
     // folded into the cached entry cannot be subtracted, so fall back.
     auto tablet = create_tablet(TKeysType::UNIQUE_KEYS, true, {{0, 50}, {51, 100}});
     ASSERT_NE(tablet, nullptr);
-    tablet->tablet_meta()->delete_bitmap().add({rowset_id_for(0), 0, 60}, 7);
+    // Stamped exactly at the window's upper edge (= current_version), which
+    // must be inclusive.
+    tablet->tablet_meta()->delete_bitmap().add({rowset_id_for(0), 0, 100}, 7);
     int64_t fallbacks_before =
             DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     auto decision = make_stale_decision();
@@ -820,9 +915,35 @@ TEST_F(QueryCacheIncrementalTest, mow_irrelevant_bitmap_entries_ignored) {
     delete_bitmap.add({rowset_id_for(0), 0, 150}, 2); // version > current
     delete_bitmap.add({rowset_id_for(0), 0, 0}, 4);   // pending (TEMP_VERSION_COMMON)
     delete_bitmap.set({rowset_id_for(0), 0, 60}, roaring::Roaring()); // empty bitmap
+    // An out-of-int64-range version, only producible by corrupt persisted
+    // meta: must take the above-window hop and stay skipped. Placed as the
+    // ONLY entry of its (rowset, segment) group on purpose -- the int64-cast
+    // predecessor of the skip-scan classified such a key as below-window and
+    // its lower_bound hop then landed back on the key itself, livelocking.
+    // An above-window sibling in the same group would mask that: its own hop
+    // overshoots this key so it is never classified (an in-window sibling
+    // would merely relocate the landing into a two-entry livelock).
+    delete_bitmap.add({rowset_id_for(0), 1, std::numeric_limits<uint64_t>::max()}, 5);
     auto decision = make_stale_decision();
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::INCREMENTAL);
     EXPECT_TRUE(decision->incremental_fallback_reason.empty());
+}
+
+TEST_F(QueryCacheIncrementalTest, mow_rewrite_on_later_segment_still_detected) {
+    // Pins two precision properties of the bitmap skip-scan: the above-window
+    // hop must stay within its (rowset, segment) group -- an in-window
+    // rewrite on a LATER segment of the same rowset must still be seen --
+    // and the window's lower edge (cached_version + 1) is inclusive. A hop
+    // that jumped the whole rowset would miss the segment-1 evidence and
+    // wrongly keep the incremental path.
+    auto tablet = create_tablet(TKeysType::UNIQUE_KEYS, true, {{0, 50}, {51, 100}});
+    ASSERT_NE(tablet, nullptr);
+    auto& delete_bitmap = tablet->tablet_meta()->delete_bitmap();
+    delete_bitmap.add({rowset_id_for(0), 0, 150}, 1); // segment 0: above window, hops
+    delete_bitmap.add({rowset_id_for(0), 1, 51}, 2);  // segment 1: at window begin, foreign
+    auto decision = make_stale_decision();
+    EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
+    EXPECT_EQ(decision->incremental_fallback_reason, "delta rewrites history rows");
 }
 
 TEST_F(QueryCacheIncrementalTest, fallback_on_version_gap) {
@@ -876,6 +997,88 @@ TEST_F(QueryCacheIncrementalTest, fallback_on_partial_capture) {
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
     EXPECT_TRUE(decision->key_valid);
     EXPECT_EQ(decision->incremental_fallback_reason, "delta versions not capturable");
+}
+
+TEST_F(QueryCacheIncrementalTest, concurrent_racers_share_one_decision) {
+    // The candidate decision is built outside the runtime lock (a stale
+    // merge-on-write decision may scan a large delete bitmap there), so two
+    // operators of the same instance can race: the sync point parks both
+    // threads right before publication, forcing two live candidates. Exactly
+    // one must win, both callers must observe the winner, and the metrics
+    // must be settled once.
+    create_tablet(TKeysType::DUP_KEYS, false, {{0, 50}, {51, 100}});
+    auto scan_ranges = make_scan_ranges(kTabletId, "100");
+    auto cache_param = make_cache_param(kTabletId);
+    cache_param.__set_allow_incremental(true);
+    std::string cache_key;
+    int64_t version = 0;
+    EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
+    insert_entry(_cache.get(), cache_key, 50, 0);
+    QueryCacheRuntime runtime(cache_param, _cache.get());
+
+    int64_t stale_hits_before = DorisMetrics::instance()->query_cache_stale_hit_total->value();
+    auto [d1, d2] = race_two_callers(runtime, scan_ranges);
+
+    ASSERT_NE(d1, nullptr);
+    EXPECT_EQ(d1.get(), d2.get());
+    EXPECT_EQ(d1->mode, QueryCacheInstanceDecision::Mode::INCREMENTAL);
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_stale_hit_total->value(),
+              stale_hits_before + 1);
+    // The winner's captured read source is intact no matter which candidate
+    // won: the loser's duplicate capture released with its own candidate.
+    auto source = d1->take_delta_read_source(kTabletId);
+    ASSERT_NE(source, nullptr);
+    EXPECT_EQ(source->rs_splits.size(), 1);
+}
+
+TEST_F(QueryCacheIncrementalTest, concurrent_racers_on_miss_settle_no_metrics) {
+    // No cache entry exists at all: both racers build plain-MISS candidates
+    // with an empty fallback reason (incremental merge never engaged), so
+    // publication must settle neither metric while both callers still adopt
+    // one shared object.
+    auto scan_ranges = make_scan_ranges(kTabletId, "100");
+    auto cache_param = make_cache_param(kTabletId);
+    cache_param.__set_allow_incremental(true);
+    QueryCacheRuntime runtime(cache_param, _cache.get());
+
+    int64_t stale_before = DorisMetrics::instance()->query_cache_stale_hit_total->value();
+    int64_t fallback_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
+    auto [d1, d2] = race_two_callers(runtime, scan_ranges);
+
+    ASSERT_NE(d1, nullptr);
+    EXPECT_EQ(d1.get(), d2.get());
+    EXPECT_EQ(d1->mode, QueryCacheInstanceDecision::Mode::MISS);
+    EXPECT_TRUE(d1->incremental_fallback_reason.empty());
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_stale_hit_total->value(), stale_before);
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallback_before);
+}
+
+TEST_F(QueryCacheIncrementalTest, concurrent_racers_settle_fallback_once) {
+    // Both racers build a fallback candidate (an AGG-keys tablet rejects the
+    // incremental path with a non-empty reason): the fallback counter must
+    // move exactly once, by the published winner.
+    create_tablet(TKeysType::AGG_KEYS, false, {{0, 50}, {51, 100}});
+    auto scan_ranges = make_scan_ranges(kTabletId, "100");
+    auto cache_param = make_cache_param(kTabletId);
+    cache_param.__set_allow_incremental(true);
+    std::string cache_key;
+    int64_t version = 0;
+    EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
+    insert_entry(_cache.get(), cache_key, 50, 0);
+    QueryCacheRuntime runtime(cache_param, _cache.get());
+
+    int64_t fallback_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
+    auto [d1, d2] = race_two_callers(runtime, scan_ranges);
+
+    ASSERT_NE(d1, nullptr);
+    EXPECT_EQ(d1.get(), d2.get());
+    EXPECT_EQ(d1->mode, QueryCacheInstanceDecision::Mode::MISS);
+    EXPECT_EQ(d1->incremental_fallback_reason, "keys type not append-only");
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallback_before + 1);
 }
 
 } // namespace doris
