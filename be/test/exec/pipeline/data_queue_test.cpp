@@ -221,8 +221,7 @@ public:
 
 // Initial state: no data, no finish.
 TEST_F(DataQueueTest, InitialState) {
-    EXPECT_FALSE(data_queue->has_more_data());
-    EXPECT_FALSE(data_queue->is_all_finish());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = false, has_data = false)");
     auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
     EXPECT_EQ(queue_block.block, nullptr);
     EXPECT_FALSE(queue_block.eos);
@@ -231,22 +230,25 @@ TEST_F(DataQueueTest, InitialState) {
 // Push one block and retrieve it.
 TEST_F(DataQueueTest, SinglePushPop) {
     EXPECT_TRUE(data_queue->push_block(make_block(), 0, false).ok());
-    EXPECT_TRUE(data_queue->has_more_data());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = false, has_data = true)");
 
     auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
     EXPECT_NE(queue_block.block, nullptr);
     EXPECT_FALSE(queue_block.eos);
-    EXPECT_FALSE(data_queue->has_more_data());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = false, has_data = false)");
 }
 
 // is_all_finish only becomes true after all children push eos.
 TEST_F(DataQueueTest, IsAllFinishAfterAllChildren) {
     EXPECT_TRUE(data_queue->push_block(nullptr, 0, true).ok());
-    EXPECT_FALSE(data_queue->is_all_finish());
+    auto first_queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_FALSE(first_queue_block.eos);
     EXPECT_TRUE(data_queue->push_block(nullptr, 1, true).ok());
-    EXPECT_FALSE(data_queue->is_all_finish());
+    auto second_queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_FALSE(second_queue_block.eos);
     EXPECT_TRUE(data_queue->push_block(nullptr, 2, true).ok());
-    EXPECT_TRUE(data_queue->is_all_finish());
+    auto last_queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_TRUE(last_queue_block.eos);
 }
 
 // eos push is idempotent.
@@ -255,7 +257,8 @@ TEST_F(DataQueueTest, EosPushIdempotent) {
     EXPECT_TRUE(data_queue->push_block(nullptr, 0, true).ok());
     EXPECT_TRUE(data_queue->push_block(nullptr, 1, true).ok());
     EXPECT_TRUE(data_queue->push_block(nullptr, 2, true).ok());
-    EXPECT_TRUE(data_queue->is_all_finish());
+    auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_TRUE(queue_block.eos);
 }
 
 // DataQueueBlock can return a popped block to the originating child free list.
@@ -321,7 +324,9 @@ TEST_F(DataQueueTest, Terminate) {
 
     data_queue->terminate();
 
-    EXPECT_TRUE(data_queue->is_all_finish());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = true, has_data = false)");
+    source_dep->block();
+    EXPECT_TRUE(source_dep->ready());
     auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
     EXPECT_EQ(queue_block.block, nullptr);
     EXPECT_TRUE(queue_block.eos);
@@ -422,7 +427,7 @@ TEST_F(DataQueueTest, MultiTest) {
     output1.join();
 
     EXPECT_EQ(output_count, 150);
-    EXPECT_TRUE(data_queue->is_all_finish());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = true, has_data = false)");
 }
 
 // ./run-be-ut.sh --run --filter=DataQueueTest.*

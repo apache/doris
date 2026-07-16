@@ -25,6 +25,7 @@
 #include "common/thread_safety_annotations.h"
 #include "core/block/block.h"
 #include "exec/pipeline/dependency.h"
+#include "fmt/format.h"
 
 namespace doris {
 
@@ -97,6 +98,10 @@ bool DataQueue::has_more_data() const {
     return _cur_blocks_total_nums.load() > 0;
 }
 
+std::string DataQueue::debug_string() const {
+    return fmt::format("(is_all_finish = {}, has_data = {})", is_all_finish(), has_more_data());
+}
+
 void DataQueue::set_source_dependency(std::shared_ptr<Dependency> source_dependency)
         NO_THREAD_SAFETY_ANALYSIS {
     _source_dependency = std::move(source_dependency);
@@ -162,7 +167,7 @@ void DataQueue::terminate() {
     }
     _cur_blocks_total_nums = 0;
     clear_free_blocks();
-    set_source_ready();
+    set_source_always_ready();
 }
 
 Result<DataQueueBlock> DataQueue::get_block_from_queue() {
@@ -225,7 +230,7 @@ void DataQueue::mark_finish(int child_idx) {
     }
 }
 
-bool DataQueue::is_all_finish() {
+bool DataQueue::is_all_finish() const {
     return _is_all_finished;
 }
 
@@ -233,6 +238,13 @@ void DataQueue::set_source_ready() {
     LockGuard lc(_source_lock);
     if (_source_dependency) {
         _source_dependency->set_ready();
+    }
+}
+
+void DataQueue::set_source_always_ready() {
+    LockGuard lc(_source_lock);
+    if (_source_dependency) {
+        _source_dependency->set_always_ready();
     }
 }
 

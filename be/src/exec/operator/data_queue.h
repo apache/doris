@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
@@ -97,9 +98,7 @@ public:
     std::unique_ptr<Block> get_free_block(int child_idx = 0);
     void push_free_block(DataQueueBlock&& queue_block);
 
-    bool is_all_finish();
-
-    bool has_more_data() const;
+    std::string debug_string() const;
 
     void set_source_dependency(std::shared_ptr<Dependency> source_dependency)
             NO_THREAD_SAFETY_ANALYSIS;
@@ -110,9 +109,12 @@ public:
     void terminate();
 
 private:
+    bool is_all_finish() const;
+    bool has_more_data() const;
     void clear_free_blocks();
     void mark_finish(int child_idx);
     void set_source_ready();
+    void set_source_always_ready();
     void set_source_block();
 
     std::vector<std::unique_ptr<SubQueue>> _sub_queues;

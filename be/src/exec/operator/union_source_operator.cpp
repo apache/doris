@@ -92,9 +92,8 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     if (_shared_state) {
-        fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
-                       _shared_state->data_queue.is_all_finish(),
-                       _shared_state->data_queue.has_more_data());
+        fmt::format_to(debug_string_buffer, ", data_queue: {}",
+                       _shared_state->data_queue.debug_string());
     }
     return fmt::to_string(debug_string_buffer);
 }
