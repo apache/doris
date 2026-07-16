@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.s3;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
+import org.apache.doris.filesystem.spi.ObjectStorageUri;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.StsCredentials;
@@ -77,6 +78,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -117,6 +119,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      */
     public boolean isUsePathStyle() {
         return usePathStyle;
+    }
+
+    /** Returns the URI schemes this provider accepts (e.g. {@code {s3, s3a, s3n}}). */
+    public Set<String> getSupportedSchemes() {
+        return s3Properties.getSupportedSchemes();
     }
 
     @Override
@@ -202,7 +209,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
                 .bucket(uri.bucket())
                 .prefix(uri.key());
@@ -283,7 +290,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public org.apache.doris.filesystem.spi.RemoteObject headObject(String remotePath) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
             HeadObjectResponse response = getClient().headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
@@ -305,7 +312,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public void putObject(String remotePath, org.apache.doris.filesystem.spi.RequestBody requestBody)
             throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try (InputStream content = requestBody.content()) {
             getClient().putObject(
                     PutObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build(),
@@ -318,7 +325,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public void deleteObject(String remotePath) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
             getClient().deleteObject(DeleteObjectRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).build());
@@ -334,8 +341,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public void copyObject(String srcPath, String dstPath) throws IOException {
-        S3Uri srcUri = S3Uri.parse(srcPath, usePathStyle);
-        S3Uri dstUri = S3Uri.parse(dstPath, usePathStyle);
+        ObjectStorageUri srcUri = ObjectStorageUri.parse(srcPath, usePathStyle, getSupportedSchemes());
+        ObjectStorageUri dstUri = ObjectStorageUri.parse(dstPath, usePathStyle, getSupportedSchemes());
         try {
             getClient().copyObject(CopyObjectRequest.builder()
                     .copySource(SdkHttpUtils.urlEncodeIgnoreSlashes(
@@ -351,7 +358,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
             CreateMultipartUploadResponse response = getClient().createMultipartUpload(
                     CreateMultipartUploadRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
@@ -365,7 +372,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             org.apache.doris.filesystem.spi.RequestBody body) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try (InputStream content = body.content()) {
             UploadPartResponse response = getClient().uploadPart(
                     UploadPartRequest.builder()
@@ -385,7 +392,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         List<CompletedPart> completedParts = parts.stream()
                 .map(p -> CompletedPart.builder().partNumber(p.partNumber()).eTag(p.etag()).build())
                 .collect(Collectors.toList());
@@ -402,7 +409,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
             getClient().abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId).build());
@@ -422,7 +429,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * Open an InputStream for reading an S3 object.
      */
     InputStream openInputStream(String remotePath) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
             return getClient().getObject(
                     GetObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
@@ -438,7 +445,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      */
     @Override
     public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
             GetObjectRequest.Builder req = GetObjectRequest.builder()
                     .bucket(uri.bucket()).key(uri.key());
@@ -458,7 +465,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      */
     @Override
     public long headObjectLastModified(String remotePath) throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
             HeadObjectResponse resp = getClient().headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
