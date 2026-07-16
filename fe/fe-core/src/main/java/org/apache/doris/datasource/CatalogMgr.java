@@ -733,7 +733,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        long tblId = Util.genIdByName(catalogName, dbName, tableName);
+        ExternalDatabase<?> externalDatabase = (ExternalDatabase<?>) db;
+        String localTableName = externalDatabase.canonicalLocalTableNameFromRemote(tableName);
+        long tblId = Util.genIdByName(catalogName, db.getFullName(), localTableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
@@ -741,12 +743,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            // buildTableForInit is generic on ExternalDatabase and dispatches to the catalog's own table
-            // type (HMSExternalTable for a legacy catalog, PluginDrivenMvccExternalTable/PluginDrivenExternalTable
-            // for a flipped one), so the event path builds+registers the right table on both without an HMS cast.
-            ExternalDatabase<?> externalDb = (ExternalDatabase<?>) db;
-            ExternalTable namedTable = externalDb.buildTableForInit(tableName, tableName, tblId,
-                    (ExternalCatalog) catalog, externalDb, false);
+            // buildTableForInit dispatches to the catalog's own table type, so connector events do not depend
+            // on a connector-specific ExternalDatabase subtype.
+            ExternalTable namedTable = externalDatabase.buildTableForInit(tableName, localTableName, tblId,
+                    (ExternalCatalog) catalog, externalDatabase, false);
             namedTable.setUpdateTime(updateTime);
             db.registerTable(namedTable);
         } finally {
