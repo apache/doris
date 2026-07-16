@@ -31,8 +31,6 @@ import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.Closeable;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -93,8 +91,21 @@ public class AuthenticationPluginManager {
 
         ServiceLoader.load(AuthenticationPluginFactory.class)
                 .forEach(factory -> {
-                    factories.put(factory.name(), factory);
-                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+                    try {
+                        // Snapshot self-reported metadata before publishing the factory so
+                        // one throwing implementation is rejected cleanly. The registry is
+                        // first-wins on (family, name), so re-registration from another
+                        // manager instance is a quiet no-op. First registration also wins
+                        // here, keeping the executable factory and the inventory row the
+                        // same plugin.
+                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+                        if (factories.putIfAbsent(factory.name(), factory) != null) {
+                            LOG.warn("Skip duplicated built-in authentication plugin name: {}", factory.name());
+                        }
+                    } catch (RuntimeException e) {
+                        LOG.warn("Skip built-in authentication plugin factory {}: self-reported metadata failed",
+                                factory.getClass().getName(), e);
+                    }
                 });
     }
 
@@ -143,7 +154,9 @@ public class AuthenticationPluginManager {
             String pluginName = handle.getPluginName();
             AuthenticationPluginFactory existing = factories.putIfAbsent(pluginName, handle.getFactory());
             if (existing != null) {
-                closeClassLoaderQuietly(handle.getClassLoader());
+                // Remove the rejected handle from the runtime manager too, so its
+                // classloader is not retained for the FE lifetime.
+                runtimeManager.discard(pluginName);
                 LOG.warn("Skip duplicated plugin name: {} from directory {}", pluginName, handle.getPluginDir());
                 continue;
             }
@@ -171,17 +184,6 @@ public class AuthenticationPluginManager {
             }
         }
         return null;
-    }
-
-    private static void closeClassLoaderQuietly(ClassLoader classLoader) {
-        if (!(classLoader instanceof Closeable)) {
-            return;
-        }
-        try {
-            ((Closeable) classLoader).close();
-        } catch (IOException ignored) {
-            // Best effort close.
-        }
     }
 
     /**

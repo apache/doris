@@ -133,11 +133,19 @@ public class LineageEventProcessor {
                             factory == null ? "null" : factory.getClass().getName());
                     continue;
                 }
+                try {
+                    // Snapshot self-reported metadata before publishing the factory so one
+                    // throwing implementation is rejected cleanly instead of aborting the
+                    // whole built-in discovery or being active without an inventory row.
+                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+                } catch (RuntimeException e) {
+                    LOG.warn("Skip built-in lineage plugin factory {}: self-reported metadata failed",
+                            factory.getClass().getName(), e);
+                    continue;
+                }
                 LineagePluginFactory existing = factories.putIfAbsent(pluginName, factory);
                 if (existing != null) {
                     LOG.warn("Skip duplicated built-in lineage plugin name: {}", pluginName);
-                } else {
-                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
                 }
             }
         } catch (Exception e) {
@@ -164,6 +172,9 @@ public class LineageEventProcessor {
                 String pluginName = handle.getPluginName();
                 LineagePluginFactory existing = factories.putIfAbsent(pluginName, handle.getFactory());
                 if (existing != null) {
+                    // Remove the rejected handle from the runtime manager too, so its
+                    // classloader is not retained for the FE lifetime.
+                    runtimeManager.discard(pluginName);
                     LOG.warn("Skip duplicated lineage plugin name: {} from directory {}", pluginName,
                             handle.getPluginDir());
                 } else {

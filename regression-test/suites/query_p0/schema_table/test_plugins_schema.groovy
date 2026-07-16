@@ -24,18 +24,22 @@ suite("test_plugins_schema", "p0") {
     Assert.assertEquals(
             ["PLUGIN_NAME", "PLUGIN_TYPE", "PLUGIN_VERSION", "SOURCE", "DESCRIPTION"], columnNames)
 
-    // As an admin user: built-in plugins (e.g. filesystem providers) must be listed.
+    // As an admin user: loaded plugins must be listed. Do not require BUILTIN
+    // rows: the packaged cluster deploys filesystem/connector providers as
+    // directory plugins (source = EXTERNAL), so a correct inventory may contain
+    // no BUILTIN row at all.
     def rows = sql """
-        SELECT PLUGIN_NAME, PLUGIN_TYPE, SOURCE
+        SELECT PLUGIN_NAME, PLUGIN_TYPE, SOURCE, PLUGIN_VERSION
         FROM information_schema.plugins
         ORDER BY PLUGIN_TYPE, PLUGIN_NAME
     """
-    Assert.assertTrue("expect at least one built-in plugin row", rows.size() > 0)
+    Assert.assertTrue("expect at least one plugin row", rows.size() > 0)
     rows.each { row ->
         Assert.assertTrue(row[2] == "BUILTIN" || row[2] == "EXTERNAL")
+        // Unknown versions must surface as SQL NULL, never as an empty string.
+        Assert.assertTrue("PLUGIN_VERSION must be NULL or non-empty, got ''",
+                row[3] == null || row[3].toString().length() > 0)
     }
-    def builtinRows = rows.findAll { it[2] == "BUILTIN" }
-    Assert.assertTrue("expect built-in plugins registered", builtinRows.size() > 0)
 
     // (type, name) is the primary key: no duplicates may appear.
     def keys = rows.collect { "${it[1]}|${it[0]}".toString() }

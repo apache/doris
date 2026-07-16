@@ -78,9 +78,17 @@ public class ConnectorPluginManager {
     public void loadBuiltins() {
         ServiceLoader.load(ConnectorProvider.class)
                 .forEach(p -> {
-                    providers.add(p);
-                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
-                    LOG.info("Registered built-in connector provider: {}", p.getType());
+                    try {
+                        // Snapshot self-reported metadata before publishing the provider
+                        // so one throwing implementation is rejected cleanly instead of
+                        // aborting startup or being active without an inventory row.
+                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
+                        providers.add(p);
+                        LOG.info("Registered built-in connector provider: {}", p.getType());
+                    } catch (RuntimeException e) {
+                        LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
+                                p.getClass().getName(), e);
+                    }
                 });
     }
 
@@ -114,6 +122,7 @@ public class ConnectorPluginManager {
             if (hasProviderNamed(handle.getPluginName())) {
                 LOG.warn("Skip connector plugin '{}' from {}: name conflicts with an already "
                         + "registered provider", handle.getPluginName(), handle.getPluginDir());
+                runtimeManager.discard(handle.getPluginName());
                 continue;
             }
             providers.add(handle.getFactory());

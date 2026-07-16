@@ -22,9 +22,12 @@ import org.apache.doris.extension.spi.PluginFactory;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.CodeSource;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -152,6 +155,21 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
 
     public Optional<PluginHandle<F>> get(String pluginName) {
         return Optional.ofNullable(handlesByName.get(pluginName));
+    }
+
+    /**
+     * Removes a loaded handle and closes its classloader. For callers that reject
+     * a successfully loaded plugin after the fact (e.g. a family-level name
+     * conflict with an already registered provider); without this the factory and
+     * its classloader would stay strongly retained for the FE lifetime.
+     */
+    public void discard(String pluginName) {
+        synchronized (lifecycleLock) {
+            PluginHandle<F> handle = handlesByName.remove(pluginName);
+            if (handle != null) {
+                closeClassLoader(handle.getClassLoader());
+            }
+        }
     }
 
     public List<PluginHandle<F>> list() {
@@ -292,8 +310,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     e);
         }
 
-        String implementationVersion = readImplementationVersion(
-                factory.getClass().getName(), rootJars.isEmpty() ? allJars : rootJars);
+        String implementationVersion = readImplementationVersion(factory.getClass(), allJars);
 
         return new PluginHandle<>(
                 pluginName.trim(),
@@ -307,25 +324,54 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
     }
 
     /**
-     * Reads Implementation-Version from the MANIFEST of the jar that contains the
-     * factory class. Version is display-only metadata: failures degrade to null
-     * instead of failing the load.
+     * Reads Implementation-Version from the MANIFEST of the jar that defined the
+     * factory class: the class's code source when available (covers layouts where
+     * the service descriptor sits in a root jar but the implementation lives in
+     * lib/), otherwise the first candidate jar containing the class entry.
+     * Version is display-only metadata: failures degrade to null instead of
+     * failing the load.
      */
-    private String readImplementationVersion(String factoryClassName, List<Path> candidateJars) {
-        String classEntry = factoryClassName.replace('.', '/') + ".class";
+    private String readImplementationVersion(Class<?> factoryClass, List<Path> candidateJars) {
+        Path definingJar = jarOf(factoryClass);
+        if (definingJar != null) {
+            try (JarFile jarFile = new JarFile(definingJar.toFile())) {
+                return manifestImplementationVersion(jarFile);
+            } catch (IOException ignored) {
+                // Fall through to scanning the candidate jars.
+            }
+        }
+        String classEntry = factoryClass.getName().replace('.', '/') + ".class";
         for (Path jar : candidateJars) {
             try (JarFile jarFile = new JarFile(jar.toFile())) {
                 if (jarFile.getEntry(classEntry) == null) {
                     continue;
                 }
-                Manifest manifest = jarFile.getManifest();
-                return manifest == null ? null
-                        : manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+                return manifestImplementationVersion(jarFile);
             } catch (IOException ignored) {
                 // Display-only metadata; fall through to the next candidate jar.
             }
         }
         return null;
+    }
+
+    private static String manifestImplementationVersion(JarFile jarFile) throws IOException {
+        Manifest manifest = jarFile.getManifest();
+        return manifest == null ? null
+                : manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+    }
+
+    /** Jar file that defined the class per its protection domain, or null. */
+    private static Path jarOf(Class<?> clazz) {
+        try {
+            CodeSource codeSource = clazz.getProtectionDomain().getCodeSource();
+            if (codeSource == null || codeSource.getLocation() == null) {
+                return null;
+            }
+            Path path = Paths.get(codeSource.getLocation().toURI());
+            return Files.isRegularFile(path) ? path : null;
+        } catch (URISyntaxException | RuntimeException e) {
+            return null;
+        }
     }
 
     /**

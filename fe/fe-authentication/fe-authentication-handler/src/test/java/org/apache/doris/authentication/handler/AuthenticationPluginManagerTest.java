@@ -522,6 +522,22 @@ public class AuthenticationPluginManagerTest {
         }
 
         @Override
+        public void discard(String pluginName) {
+            // This stub bypasses the real loadAll bookkeeping, so honor the
+            // contract that discarding a reported success closes its classloader.
+            for (PluginHandle<AuthenticationPluginFactory> handle : report.getSuccesses()) {
+                if (handle.getPluginName().equals(pluginName)
+                        && handle.getClassLoader() instanceof Closeable) {
+                    try {
+                        ((Closeable) handle.getClassLoader()).close();
+                    } catch (IOException ignored) {
+                        // test stub: never expected
+                    }
+                }
+            }
+        }
+
+        @Override
         public List<PluginHandle<AuthenticationPluginFactory>> list() {
             return Collections.emptyList();
         }

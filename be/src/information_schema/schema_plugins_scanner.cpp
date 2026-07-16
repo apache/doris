@@ -19,7 +19,9 @@
 
 #include <utility>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
 #include "runtime/exec_env.h"
@@ -99,8 +101,18 @@ Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
     for (int i = 0; i < result_data.size(); i++) {
         const TRow& row = result_data[i];
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _plugins_block.get(),
-                                                _s_tbls_columns[j].type));
+            const TCell& cell = row.column_value[j];
+            // An unset string cell means SQL NULL (e.g. unknown PLUGIN_VERSION);
+            // insert_block_column would materialize it as an empty string.
+            if (!cell.__isset.stringVal) {
+                MutableColumnPtr mutable_col_ptr =
+                        IColumn::mutate(std::move(_plugins_block->get_by_position(j).column));
+                assert_cast<ColumnNullable*>(mutable_col_ptr.get())->insert_data(nullptr, 0);
+                _plugins_block->replace_by_position(j, std::move(mutable_col_ptr));
+                continue;
+            }
+            RETURN_IF_ERROR(
+                    insert_block_column(cell, j, _plugins_block.get(), _s_tbls_columns[j].type));
         }
     }
     return Status::OK();

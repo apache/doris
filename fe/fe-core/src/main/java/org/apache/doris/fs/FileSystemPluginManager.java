@@ -84,10 +84,18 @@ public class FileSystemPluginManager {
     public void loadBuiltins() {
         ServiceLoader.load(FileSystemProvider.class)
                 .forEach(p -> {
-                    providers.add(p);
-                    DatasourcePrintableMap.registerSensitiveKeys(p.sensitivePropertyKeys());
-                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
-                    LOG.info("Registered built-in filesystem provider: {}", p.name());
+                    try {
+                        // Snapshot self-reported metadata before publishing the provider
+                        // so one throwing implementation is rejected cleanly instead of
+                        // aborting startup or being active without an inventory row.
+                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
+                        DatasourcePrintableMap.registerSensitiveKeys(p.sensitivePropertyKeys());
+                        providers.add(p);
+                        LOG.info("Registered built-in filesystem provider: {}", p.name());
+                    } catch (RuntimeException e) {
+                        LOG.warn("Skip built-in filesystem provider {}: self-reported metadata failed",
+                                p.getClass().getName(), e);
+                    }
                 });
     }
 
@@ -121,6 +129,7 @@ public class FileSystemPluginManager {
             if (hasProviderNamed(handle.getPluginName())) {
                 LOG.warn("Skip filesystem plugin '{}' from {}: name conflicts with an already "
                         + "registered provider", handle.getPluginName(), handle.getPluginDir());
+                runtimeManager.discard(handle.getPluginName());
                 continue;
             }
             FileSystemProvider provider = handle.getFactory();
