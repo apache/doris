@@ -46,6 +46,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 1; }
     bool use_default_implementation_for_nulls() const override { return false; }
+    bool skip_return_type_check() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         auto result = std::make_shared<DataTypeVariant>();
@@ -73,11 +74,12 @@ public:
         DORIS_CHECK_EQ(result_is_nullable, ERROR_TO_NULL || input_nulls != nullptr);
         auto result_nulls = ColumnUInt8::create(input_rows_count, uint8_t {0});
 
-        if (!config::enable_variant_v2) {
-            const auto& variant_type = assert_cast<const DataTypeVariant&>(
-                    *remove_nullable(block.get_by_position(result).type));
-            const int32_t max_subcolumns_count = variant_type.variant_max_subcolumns_count();
-            const bool enable_doc_mode = variant_type.enable_doc_mode();
+        const auto* variant_type = dynamic_cast<const DataTypeVariant*>(
+                remove_nullable(block.get_by_position(result).type).get());
+        DORIS_CHECK(variant_type != nullptr);
+        if (!variant_type->is_variant_v2()) {
+            const int32_t max_subcolumns_count = variant_type->variant_max_subcolumns_count();
+            const bool enable_doc_mode = variant_type->enable_doc_mode();
             auto values = ColumnVariant::create(max_subcolumns_count, enable_doc_mode);
             ParseConfig parse_config;
             parse_config.check_duplicate_json_path =

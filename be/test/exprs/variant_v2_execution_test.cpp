@@ -17,23 +17,18 @@
 
 #include <gtest/gtest.h>
 
-#include "common/config.h"
 #include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_variant.h"
 
 namespace doris {
 
-TEST(VariantV2ExecutionTest, BeConfigSelectsPhysicalColumn) {
-    const bool previous = config::enable_variant_v2;
-    DataTypeVariant type;
+TEST(VariantV2ExecutionTest, ExecutionTypeSelectsPhysicalColumn) {
+    DataTypeVariant legacy;
+    DataTypeVariantV2 compute_v2;
 
-    config::enable_variant_v2 = false;
-    EXPECT_NE(check_and_get_column<ColumnVariant>(*type.create_column()), nullptr);
-
-    config::enable_variant_v2 = true;
-    EXPECT_NE(check_and_get_column<ColumnVariantV2>(*type.create_column()), nullptr);
-    config::enable_variant_v2 = previous;
+    EXPECT_NE(check_and_get_column<ColumnVariant>(*legacy.create_column()), nullptr);
+    EXPECT_NE(check_and_get_column<ColumnVariantV2>(*compute_v2.create_column()), nullptr);
 }
 
 } // namespace doris

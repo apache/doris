@@ -18,8 +18,7 @@
 suite("variant_compute_v2", "p0,nonConcurrent") {
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
-
-    setBeConfigTemporary([enable_variant_v2: true]) {
+    sql "SET enable_variant_v2 = true"
 
     qt_constant_fold """
         SELECT CAST(parse_to_variant('{"folded":[1,true,null]}') AS STRING)
@@ -706,5 +705,4 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
         LATERAL VIEW explode_outer(v) exploded AS element
         ORDER BY id, element IS NULL, CAST(element AS STRING)
     """
-    }
 }

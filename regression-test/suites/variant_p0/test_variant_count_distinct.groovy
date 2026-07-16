@@ -16,16 +16,15 @@
 // under the License.
 
 suite("test_variant_count_distinct", "p0,nonConcurrent") {
-    setBeConfigTemporary([enable_variant_v2: true]) {
-        qt_count_distinct_array_subcolumn """
-            SELECT COUNT(DISTINCT v['arr']), multi_distinct_count(v['arr'])
-            FROM (
-                SELECT parse_to_variant('{"arr":[1,2,3]}') v
-                UNION ALL
-                SELECT parse_to_variant('{"arr":[4,5]}')
-                UNION ALL
-                SELECT parse_to_variant('{"arr":[1,2,3]}')
-            ) t
-        """
-    }
+    sql "SET enable_variant_v2 = true"
+    qt_count_distinct_array_subcolumn """
+        SELECT COUNT(DISTINCT v['arr']), multi_distinct_count(v['arr'])
+        FROM (
+            SELECT parse_to_variant('{"arr":[1,2,3]}') v
+            UNION ALL
+            SELECT parse_to_variant('{"arr":[4,5]}')
+            UNION ALL
+            SELECT parse_to_variant('{"arr":[1,2,3]}')
+        ) t
+    """
 }
