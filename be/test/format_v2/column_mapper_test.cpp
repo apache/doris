@@ -3147,7 +3147,10 @@ TEST_F(ColumnMapperCastTest,
 
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request, &state).ok());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
+    ASSERT_EQ(request.predicate_columns.size() + request.non_predicate_columns.size(), 1);
+    const auto& scan_column = request.predicate_columns.empty() ? request.non_predicate_columns[0]
+                                                                : request.predicate_columns[0];
+    EXPECT_EQ(scan_column.column_id(), LocalColumnId(5));
     EXPECT_TRUE(request.conjuncts.empty());
 }
 
@@ -3176,7 +3179,10 @@ TEST_F(ColumnMapperCastTest, NestedElementAtConjunctStaysTableLevelForNonLossles
 
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request, &state).ok());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
+    ASSERT_EQ(request.predicate_columns.size() + request.non_predicate_columns.size(), 1);
+    const auto& scan_column = request.predicate_columns.empty() ? request.non_predicate_columns[0]
+                                                                : request.predicate_columns[0];
+    EXPECT_EQ(scan_column.column_id(), LocalColumnId(5));
     EXPECT_TRUE(request.conjuncts.empty());
 }
 
