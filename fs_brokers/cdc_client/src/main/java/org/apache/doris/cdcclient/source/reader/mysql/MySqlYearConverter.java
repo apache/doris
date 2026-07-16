@@ -38,10 +38,13 @@ public class MySqlYearConverter implements CustomConverter<SchemaBuilder, Relati
         if (!"YEAR".equalsIgnoreCase(field.typeName())) {
             return;
         }
-        registration.register(io.debezium.time.Year.builder(), MySqlYearConverter::convertYear);
+        String qualifiedColumnName = field.dataCollection() + "." + field.name();
+        registration.register(
+                io.debezium.time.Year.builder(),
+                value -> MySqlYearConverter.convertYear(value, qualifiedColumnName));
     }
 
-    static Integer convertYear(Object value) {
+    static Integer convertYear(Object value, String qualifiedColumnName) {
         if (value == null) {
             return null;
         }
@@ -58,6 +61,10 @@ public class MySqlYearConverter implements CustomConverter<SchemaBuilder, Relati
         if (value instanceof String) {
             return Integer.valueOf((String) value);
         }
-        throw new IllegalArgumentException("Unsupported MySQL YEAR value: " + value.getClass());
+        throw new IllegalArgumentException(
+                "Unsupported value type for MySQL YEAR column "
+                        + qualifiedColumnName
+                        + ": "
+                        + value.getClass().getName());
     }
 }
