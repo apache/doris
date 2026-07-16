@@ -460,6 +460,23 @@ under the License.
             <groupId>com.google.flatbuffers</groupId>
             <artifactId>flatbuffers-java</artifactId>
         </dependency>
+        <!-- Runtime-only: the FE half of the Hive-UDF-compat shipping contract, and the mirror of
+             be-java-extensions/java-udf, which bundles the same base classes so BE can execute such
+             UDFs. CreateFunctionCommand validates a user JAVA_UDF jar by loading its symbol class in
+             a throwaway URLClassLoader parented to the FE app classloader; deriving a class resolves
+             its supertypes, so a symbol extending org.apache.hadoop.hive.ql.exec.UDF fails CREATE
+             FUNCTION unless fe/lib carries that base class. Nothing in fe source references hive:
+             scope=runtime keeps it off the compile classpath, so fe-core source stays hive-free.
+             This is a UDF-engine dependency, not a catalog one. It is declared here because it was
+             previously satisfied only by accident, as a passenger inside the hive-catalog-shade
+             uber-jar; no compile-time reference reveals it, so removing that jar compiled green and
+             broke CREATE FUNCTION for every hive-derived UDF at runtime. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <classifier>core</classifier>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>

@@ -848,6 +848,28 @@ under the License.
                 <artifactId>hive-catalog-shade</artifactId>
                 <version>${doris.hive.catalog.shade.version}</version>
             </dependency>
+            <!-- Hive-UDF compatibility. User JAVA_UDF jars may declare a symbol class extending
+                 org.apache.hadoop.hive.ql.exec.UDF; regression-test/java-udf-src/pom.xml compiles
+                 against this exact artifact at scope=provided, i.e. the base classes are deliberately
+                 NOT bundled in the user jar and the host must supply them.
+                 The `core` classifier is the unshaded jar: it carries only org/apache/hadoop and
+                 org/apache/hive, no caffeine/fastutil/guava, so it shadows nothing on the classpath.
+                 The wildcard exclusion is load-bearing, not tidiness: a classifier shares its
+                 artifact's pom, so without it hive-exec's 29 non-optional dependencies follow it
+                 onto the consumer's classpath, including a second SLF4J binding. A consumer that
+                 genuinely needs those must re-declare them deliberately. -->
+            <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-exec</artifactId>
+                <classifier>core</classifier>
+                <version>${hive.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>*</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
                 <artifactId>kerb-simplekdc</artifactId>
