@@ -73,10 +73,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                     parquet_profile, 1);
     reader_select_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ReaderSelectRows", TUnit::UNIT,
                                                       parquet_profile, 1);
-    arrow_read_records_time =
-            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowReadRecordsTime", parquet_profile, 1);
-    arrow_skip_records_time =
-            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowSkipRecordsTime", parquet_profile, 1);
+    level_only_read_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "LevelOnlyReadTime", parquet_profile, 1);
+    level_only_skip_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "LevelOnlySkipTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
     native_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NativeReadCalls", TUnit::UNIT,
@@ -211,8 +211,8 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .reader_read_rows = reader_read_rows,
             .reader_skip_rows = reader_skip_rows,
             .reader_select_rows = reader_select_rows,
-            .arrow_read_records_time = arrow_read_records_time,
-            .arrow_skip_records_time = arrow_skip_records_time,
+            .level_only_read_time = level_only_read_time,
+            .level_only_skip_time = level_only_skip_time,
             .materialization_time = materialization_time,
             .decompress_time = decompress_time,
             .decompress_count = decompress_cnt,

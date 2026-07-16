@@ -55,10 +55,10 @@ public:
                           int64_t batch_rows, MutableColumnPtr& column);
 
     virtual Status select_with_dictionary_filter(const SelectionVector& selection,
-                                                  uint16_t selected_rows, int64_t batch_rows,
-                                                  const IColumn::Filter& dictionary_filter,
-                                                  MutableColumnPtr& column,
-                                                  IColumn::Filter* row_filter, bool* used_filter);
+                                                 uint16_t selected_rows, int64_t batch_rows,
+                                                 const IColumn::Filter& dictionary_filter,
+                                                 MutableColumnPtr& column,
+                                                 IColumn::Filter* row_filter, bool* used_filter);
 
 protected:
     ParquetColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,

@@ -1272,6 +1272,10 @@ TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
     EXPECT_EQ(result.count, 4);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
+    ASSERT_NE(profile.get_counter("PageReadCount"), nullptr);
+    EXPECT_GT(profile.get_counter("PageReadCount")->value(), 0);
+    ASSERT_NE(profile.get_counter("ParsePageHeaderNum"), nullptr);
+    EXPECT_GT(profile.get_counter("ParsePageHeaderNum")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, CountArrayColumnUsesLevelsOnlyPath) {
@@ -1426,8 +1430,8 @@ TEST_F(NewParquetReaderTest, NativeComplexColumnsMaterializeDirectlyAcrossBatchC
     EXPECT_EQ(id_values.get_element(0), 1);
     EXPECT_EQ(id_values.get_element(4), 4);
 
-    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
-    EXPECT_EQ(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
+    ASSERT_NE(profile.get_counter("LevelOnlyReadTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LevelOnlyReadTime")->value(), 0);
     ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
     EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
     ASSERT_NE(profile.get_counter("NestedBatches"), nullptr);
@@ -1479,8 +1483,8 @@ TEST_F(NewParquetReaderTest, NativeDecimalAndFixedBinaryMaterializeDirectly) {
     EXPECT_EQ(fixed_values.get_data_at(1).to_string(), std::string("\0x\0y", 4));
     EXPECT_EQ(fixed_values.get_data_at(4).to_string(), std::string("\xff\x00\x7f\x80", 4));
 
-    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
-    EXPECT_EQ(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
+    ASSERT_NE(profile.get_counter("LevelOnlyReadTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LevelOnlyReadTime")->value(), 0);
     ASSERT_NE(profile.get_counter("ConvertTime"), nullptr);
     ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
     EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
@@ -1866,7 +1870,7 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     ASSERT_NE(profile.get_counter("ReaderReadRows"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderSelectRows"), nullptr);
-    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
+    ASSERT_NE(profile.get_counter("LevelOnlyReadTime"), nullptr);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
     ASSERT_NE(profile.get_counter("FileFooterReadCalls"), nullptr);
@@ -1883,7 +1887,7 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     EXPECT_EQ(profile.get_counter("ReaderReadRows")->value(), ROW_COUNT + 3);
     EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 2);
     EXPECT_EQ(profile.get_counter("ReaderSelectRows")->value(), 3);
-    EXPECT_EQ(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
+    EXPECT_EQ(profile.get_counter("LevelOnlyReadTime")->value(), 0);
     EXPECT_GT(profile.get_counter("MaterializationTime")->value(), 0);
     EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
     EXPECT_EQ(profile.get_counter("FileFooterReadCalls")->value() +
@@ -2829,7 +2833,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredGapFlushesPendingOutputSkipOnce) {
     ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
     ASSERT_NE(profile.get_counter("RangeGapSkippedRows"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
-    ASSERT_NE(profile.get_counter("ArrowSkipRecordsTime"), nullptr);
+    ASSERT_NE(profile.get_counter("LevelOnlySkipTime"), nullptr);
     ASSERT_NE(profile.get_counter("RowGroupFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexReadTime"), nullptr);
@@ -2839,7 +2843,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredGapFlushesPendingOutputSkipOnce) {
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 64);
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
     EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 0);
-    EXPECT_EQ(profile.get_counter("ArrowSkipRecordsTime")->value(), 0);
+    EXPECT_EQ(profile.get_counter("LevelOnlySkipTime")->value(), 0);
     EXPECT_GT(profile.get_counter("RowGroupFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexReadTime")->value(), 0);

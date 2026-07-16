@@ -22,10 +22,12 @@
 
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/function/cast/cast_parameters.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/cast/cast_to_timestamptz.h"
+#include "util/unaligned.h"
 namespace doris {
 
 namespace {
@@ -73,6 +75,46 @@ int64_t decoded_timestamp_micros(const DecodedColumnView& view, int64_t value) {
     }
     return value;
 }
+
+class TimestampTzParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    TimestampTzParquetConsumer(IColumn& column, const ParquetDecodeContext& context)
+            : _data(assert_cast<ColumnTimeStampTz&>(column).get_data()), _context(context) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            int64_t timestamp_micros;
+            if (_context.physical_type == ParquetPhysicalType::INT96) {
+                DORIS_CHECK_EQ(value_width, sizeof(DecodedInt96Timestamp));
+                timestamp_micros = unaligned_load<DecodedInt96Timestamp>(
+                                           values + row * sizeof(DecodedInt96Timestamp))
+                                           .to_timestamp_micros();
+            } else {
+                DORIS_CHECK(_context.physical_type == ParquetPhysicalType::INT64);
+                DORIS_CHECK_EQ(value_width, sizeof(int64_t));
+                timestamp_micros = unaligned_load<int64_t>(values + row * sizeof(int64_t));
+                if (_context.time_unit == ParquetTimeUnit::MILLIS) {
+                    timestamp_micros *= 1000;
+                } else if (_context.time_unit == ParquetTimeUnit::NANOS) {
+                    timestamp_micros /= 1000;
+                }
+            }
+            append_timestamptz_from_utc_epoch_micros(_data, timestamp_micros);
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnTimeStampTz::Container& _data;
+    const ParquetDecodeContext& _context;
+};
+
+class RejectTimestampTzBinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as TIMESTAMPTZ");
+    }
+};
 
 } // namespace
 
@@ -328,6 +370,37 @@ Status DataTypeTimeStampTzSerDe::read_column_from_decoded_values(
         }
         append_timestamptz_from_utc_epoch_micros(data, decoded_timestamp_micros(view, values[row]));
     }
+    return Status::OK();
+}
+
+Status DataTypeTimeStampTzSerDe::read_parquet_dictionary(
+        IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context) const {
+    TimestampTzParquetConsumer consumer(column, context);
+    RejectTimestampTzBinaryConsumer binary_consumer;
+    return source.decode_dictionary(consumer, binary_consumer);
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_parquet(
+        IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context,
+        size_t num_values, ParquetMaterializationState& state) const {
+    if (context.physical_type != ParquetPhysicalType::INT64 &&
+        context.physical_type != ParquetPhysicalType::INT96) {
+        return Status::NotSupported("TIMESTAMPTZ expects Parquet INT64 or INT96");
+    }
+    TimestampTzParquetConsumer consumer(column, context);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
+                               state.dictionary_indices.data() + num_values);
     return Status::OK();
 }
 

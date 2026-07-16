@@ -1238,8 +1238,8 @@ TEST_F(ParquetScanTest, FullyFilteredRowGroupsDropPendingLazyReaders) {
     EXPECT_EQ(total_rows, 0);
     EXPECT_EQ(counter_value(profile, "EmptySelectionBatches"), 6);
     EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 0);
-    ASSERT_NE(profile.get_counter("ArrowSkipRecordsTime"), nullptr);
-    EXPECT_EQ(profile.get_counter("ArrowSkipRecordsTime")->value(), 0);
+    ASSERT_NE(profile.get_counter("LevelOnlySkipTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LevelOnlySkipTime")->value(), 0);
 }
 
 // Scenario: row group 0 is fully filtered and leaves two pending lazy rows. Reset must discard that

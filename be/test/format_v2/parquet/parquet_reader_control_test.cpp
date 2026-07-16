@@ -49,7 +49,7 @@ public:
     CursorColumnReader() : ParquetColumnReader(int64_schema(), std::make_shared<DataTypeInt64>()) {}
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override {
-        DORIS_CHECK(column != nullptr);
+        DORIS_CHECK(column);
         DORIS_CHECK(rows_read != nullptr);
         auto& values = assert_cast<ColumnInt64&>(*column);
         for (int64_t row = 0; row < rows; ++row) {

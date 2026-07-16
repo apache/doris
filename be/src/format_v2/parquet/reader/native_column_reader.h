@@ -27,10 +27,10 @@
 #include <vector>
 
 #include "format/parquet/parquet_common.h"
-#include "format/parquet/vparquet_column_reader.h"
 #include "format/table/table_schema_change_helper.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "format_v2/parquet/reader/native/column_reader.h"
 
 namespace doris {
 class FileMetaData;
@@ -104,7 +104,7 @@ private:
     std::set<uint64_t> _filter_column_ids;
     std::unordered_map<int, tparquet::OffsetIndex> _offset_indexes;
     std::shared_ptr<TableSchemaChangeHelper::Node> _schema_node;
-    std::unique_ptr<::doris::ParquetColumnReader> _native_reader;
+    std::unique_ptr<native::ColumnReader> _native_reader;
     std::unique_ptr<RuntimeState> _page_cache_runtime_state;
     std::vector<RowRange> _selected_ranges;
     size_t _selected_range_idx = 0;
@@ -113,12 +113,9 @@ private:
 
     bool _dictionary_filter_enabled = false;
     bool _nested = false;
-    // Most native statistics are ordinary cumulative values. Page/cache statistics are special:
-    // v1 folds the PageReader's cumulative snapshot into ColumnChunkReader on every query. Keep the
-    // previous raw query so sync_native_profile() can reconstruct the real cumulative page value
-    // instead of reporting the same pages once per FileScannerV2 batch.
-    ::doris::ParquetColumnReader::ColumnStatistics _last_native_query_stats;
-    ::doris::ParquetColumnReader::ColumnStatistics _reported_native_stats;
+    // The native tree exposes cumulative statistics. Keep the last reported snapshot so each
+    // FileScannerV2 batch contributes only its delta to RuntimeProfile.
+    native::ColumnReader::ColumnStatistics _reported_native_stats;
     std::vector<uint8_t> _filter_scratch;
     MutableColumnPtr _skip_column;
     MutableColumnPtr _dictionary_id_column;

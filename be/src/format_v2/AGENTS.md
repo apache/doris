@@ -111,10 +111,10 @@ instructions as well; this file adds format-v2-specific review expectations.
 ### Parquet Native Decode Kernel
 
 - Keep new production integration under `be/src/format_v2/parquet/`. Doris v1 is the behavior and
-  performance baseline. A v2 adapter may reuse the unchanged native kernel while its semantics are
-  identical; do not modify `be/src/format/parquet/` for a v2 decoder change. When v2 requires a
-  decoder change, reimplement that decoder under the v2 tree and keep v1 unchanged so differential
-  correctness and performance results remain meaningful.
+  performance baseline, but v2 owns an independent page/encoding reader and must not call the v1
+  `ParquetColumnReader`. Do not modify `be/src/format/parquet/` for a v2 decoder change. Reimplement
+  the required behavior under the v2 tree and keep v1 unchanged so differential correctness and
+  performance results remain meaningful.
 - Keep the native decode boundary independent of both Arrow descriptors/builders and table-schema
   objects. A Column Chunk schema contract should contain only immutable physical type, fixed width,
   and Dremel-level thresholds. Review constructor arguments and stored references for ownership and
@@ -128,24 +128,29 @@ instructions as well; this file adds format-v2-specific review expectations.
   selected and filtered non-null runs both consume payload. Every page transition, skip, error, and
   end-of-batch path must leave all three cursors aligned for the next call.
 - A flat scalar fast path may run only when `max_repetition_level == 0`. Repeated leaves require a
-  shared definition/repetition-level plan that identifies parent-row boundaries, empty and null
-  collections, null ancestors, and rows spanning pages. Sibling readers in a STRUCT, ARRAY, or MAP
-  must consume the same parent-row plan rather than independently inferring offsets or null maps.
+  definition/repetition-level plan that identifies parent-row boundaries, empty and null
+  collections, null ancestors, and rows spanning pages. Choose one physical leaf as the parent
+  shape owner; sibling leaf streams advance over the same parent-row range and validate their
+  payload counts instead of independently redefining the parent shape.
 - The old Arrow value-reader hierarchy (`ParquetLeafBatch`, scalar/list/map/struct readers, and the
   nested load/build/consume protocol) has been removed. Do not reintroduce an intermediate decoded
   batch or a stateful load-before-build phase. Ordinary predicate/output scans construct
   `NativeColumnReader`, consume compressed page data through the native decoder, and append directly
   into the final Doris column.
-- `CountColumnReader` is the sole Arrow data-page exception. It is an isolated shape-only adapter
-  for the existing `COUNT(nullable_col)` pushdown because Arrow exposes no independent public level
-  decoder. It selects one representative leaf (the key for MAP), copies only definition/repetition
-  levels, immediately releases binary builder chunks, and exposes no value API. It must not be
+- Keep logical schema changes distinct from physical decoding. Identical types, integer changes,
+  FLOAT-to-DOUBLE widening, decimal precision/scale changes, and string-family changes should
+  materialize through the target SerDe directly. A less common logical cast may use the generic
+  `ColumnTypeConverter` with a reusable source Doris column, but must not revive
+  `PhysicalToLogicalConverter` or expose a decoder-owned value batch.
+- `CountColumnReader` uses the v2 native `LevelReader`; it selects one representative leaf (the key
+  for MAP) and advances only definition/repetition levels. It exposes no value API and must not be
   reused as a scan reader or expanded into a fallback path.
-- Build ARRAY/MAP/STRUCT parent boundaries, offsets, nulls, and child payload spans in one level
-  traversal and share the result. For example, `[[1, 2], NULL, []]` must yield entry counts
-  `[2, 0, 0]` and parent nulls `[0, 1, 0]` without rescanning the same levels per child. MAP key
-  levels own entry existence; value levels validate against that plan. STRUCT siblings validate
-  alignment but do not independently reconstruct the parent shape.
+- Build ARRAY/MAP/STRUCT parent boundaries, offsets, nulls, and child payload spans in one traversal
+  of the owning leaf's levels. For example, `[[1, 2], NULL, []]` must yield entry counts
+  `[2, 0, 0]` and parent nulls `[0, 1, 0]` without rescanning that leaf. MAP key levels own entry
+  existence; value levels validate against that shape. STRUCT siblings validate parent-row
+  alignment. If every projected STRUCT child is missing, consume only a retained physical leaf's
+  levels and never materialize its payload into a temporary Doris column.
 - Do not size level or selection scratch from a 16-bit batch-row assumption. A repeated parent row
   can contain more level entries than the requested parent-row batch. Split large runs without
   changing alternation or row-boundary semantics, and check overflow before narrowing counts.
@@ -165,15 +170,15 @@ instructions as well; this file adds format-v2-specific review expectations.
   indexes retain candidates; structurally inconsistent indexes or out-of-range IDs return an
   explicit corruption error. A mixed dictionary/plain Column Chunk must leave dictionary-ID
   filtering before any cursor is consumed.
-- Materialize directly into Doris columns when the physical and target layouts allow it. Decimal
-  and FIXED_LEN_BYTE_ARRAY paths must validate byte width, endianness, sign extension, precision,
-  and scale. Date/time and INT96 conversion must preserve timezone and overflow semantics. A direct
-  path may not bypass the conversion rules used by the general conversion path.
+- Decoder owns encoded-stream parsing and cursor movement only. `DataTypeSerDe` owns Parquet
+  physical/logical interpretation and writes directly into Doris columns. Dictionary pages are
+  materialized once through the same SerDe and data pages expose only validated dictionary indices.
+  Decimal and FIXED_LEN_BYTE_ARRAY paths must validate byte width, endianness, sign extension,
+  precision, and scale. Date/time and INT96 conversion must preserve timezone and overflow semantics.
 - Do not add an Arrow runtime fallback. Once an ordinary v2 scan selects its native Parquet reader,
   unsupported physical types, encodings, page layouts, or malformed inputs return an explicit
-  status. Arrow may be used by metadata planning, the isolated COUNT shape adapter, and as a test
-  oracle; no Arrow array, builder, RecordReader, or metadata lifetime belongs in ordinary
-  value materialization.
+  status. Arrow may be used by metadata planning and as a test oracle; no Arrow array, builder,
+  RecordReader, or metadata lifetime belongs in data-page value or level materialization.
 - Reuse decoder, SerDe, null-map, selection-range, binary-value, level, and builder scratch across
   batches. String-like decoders should gather selected `StringRef` values and append once per batch,
   rather than allocate or grow the destination once per run. Scratch capacity may grow to a bounded

@@ -19,6 +19,8 @@
 
 #include <arrow/builder.h>
 
+#include <bit>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
@@ -33,6 +35,7 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/packed_int128.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
@@ -50,6 +53,23 @@
 
 namespace doris {
 namespace {
+
+float parquet_half_to_float(uint16_t half) {
+    const uint32_t sign = (half & 0x8000U) << 16;
+    const uint32_t exponent = (half & 0x7C00U) >> 10;
+    const uint32_t mantissa = half & 0x03FFU;
+    if (exponent == 0) {
+        if (mantissa == 0) {
+            return std::bit_cast<float>(sign);
+        }
+        const float value = std::ldexp(static_cast<float>(mantissa), -24);
+        return sign == 0 ? value : -value;
+    }
+    if (exponent == 0x1FU) {
+        return std::bit_cast<float>(sign | 0x7F800000U | (mantissa << 13));
+    }
+    return std::bit_cast<float>(sign | ((exponent + 112U) << 23) | (mantissa << 13));
+}
 
 template <typename NativeType>
 const NativeType* decoded_values_as(const DecodedColumnView& view) {
@@ -178,6 +198,148 @@ Status read_integer_decoded_values(IColumn& column, const DecodedColumnView& vie
                                     view.logical_integer_bit_width, column.get_name());
     }
 }
+
+template <typename DorisCppType, typename SourceType>
+Status append_parquet_number(PaddedPODArray<DorisCppType>& data, const uint8_t* values,
+                             size_t num_values, const ParquetDecodeContext& context) {
+    const size_t old_size = data.size();
+    data.resize(old_size + num_values);
+    for (size_t row = 0; row < num_values; ++row) {
+        const auto value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
+        if (!decoded_number_value_fits<DorisCppType>(value)) {
+            data.resize(old_size);
+            return Status::DataQualityError("Parquet value is out of range at row {}", row);
+        }
+        data[old_size + row] = static_cast<DorisCppType>(value);
+    }
+    return Status::OK();
+}
+
+template <typename DorisCppType, typename SourceType, typename LogicalType>
+Status append_parquet_logical_integers(PaddedPODArray<DorisCppType>& data, const uint8_t* values,
+                                       size_t num_values) {
+    const size_t old_size = data.size();
+    data.resize(old_size + num_values);
+    for (size_t row = 0; row < num_values; ++row) {
+        const auto physical_value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
+        const auto logical_value = static_cast<LogicalType>(physical_value);
+        if (!decoded_number_value_fits<DorisCppType>(logical_value)) {
+            data.resize(old_size);
+            return Status::DataQualityError("Parquet logical integer is out of range at row {}",
+                                            row);
+        }
+        data[old_size + row] = static_cast<DorisCppType>(logical_value);
+    }
+    return Status::OK();
+}
+
+template <typename DorisCppType, typename SourceType>
+Status append_parquet_integers(PaddedPODArray<DorisCppType>& data, const uint8_t* values,
+                               size_t num_values, const ParquetDecodeContext& context) {
+    if (context.logical_integer_bit_width <= 0) {
+        return append_parquet_number<DorisCppType, SourceType>(data, values, num_values, context);
+    }
+    if (context.logical_integer_is_signed) {
+        switch (context.logical_integer_bit_width) {
+        case 8:
+            return append_parquet_logical_integers<DorisCppType, SourceType, Int8>(data, values,
+                                                                                   num_values);
+        case 16:
+            return append_parquet_logical_integers<DorisCppType, SourceType, Int16>(data, values,
+                                                                                    num_values);
+        case 32:
+            return append_parquet_logical_integers<DorisCppType, SourceType, Int32>(data, values,
+                                                                                    num_values);
+        case 64:
+            return append_parquet_logical_integers<DorisCppType, SourceType, Int64>(data, values,
+                                                                                    num_values);
+        default:
+            return Status::NotSupported("Unsupported Parquet integer bit width {}",
+                                        context.logical_integer_bit_width);
+        }
+    }
+    switch (context.logical_integer_bit_width) {
+    case 8:
+        return append_parquet_logical_integers<DorisCppType, SourceType, UInt8>(data, values,
+                                                                                num_values);
+    case 16:
+        return append_parquet_logical_integers<DorisCppType, SourceType, UInt16>(data, values,
+                                                                                 num_values);
+    case 32:
+        return append_parquet_logical_integers<DorisCppType, SourceType, UInt32>(data, values,
+                                                                                 num_values);
+    case 64:
+        return append_parquet_logical_integers<DorisCppType, SourceType, UInt64>(data, values,
+                                                                                 num_values);
+    default:
+        return Status::NotSupported("Unsupported Parquet integer bit width {}",
+                                    context.logical_integer_bit_width);
+    }
+}
+
+template <PrimitiveType DorisType>
+class NumberParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+    using ColumnType = typename PrimitiveTypeTraits<DorisType>::ColumnType;
+
+    NumberParquetConsumer(IColumn& column, const ParquetDecodeContext& context)
+            : _data(assert_cast<ColumnType&>(column).get_data()), _context(context) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        if (_context.logical_float16) {
+            DORIS_CHECK(_context.physical_type == ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY);
+            DORIS_CHECK_EQ(value_width, sizeof(uint16_t));
+            const size_t old_size = _data.size();
+            _data.resize(old_size + num_values);
+            for (size_t row = 0; row < num_values; ++row) {
+                const float value = parquet_half_to_float(
+                        unaligned_load<uint16_t>(values + row * sizeof(uint16_t)));
+                if (!decoded_number_value_fits<DorisCppType>(value)) {
+                    _data.resize(old_size);
+                    return Status::DataQualityError(
+                            "Parquet FLOAT16 value is out of range at row {}", row);
+                }
+                _data[old_size + row] = static_cast<DorisCppType>(value);
+            }
+            return Status::OK();
+        }
+        switch (_context.physical_type) {
+        case ParquetPhysicalType::BOOLEAN:
+            DORIS_CHECK_EQ(value_width, sizeof(uint8_t));
+            return append_parquet_number<DorisCppType, uint8_t>(_data, values, num_values,
+                                                                _context);
+        case ParquetPhysicalType::INT32:
+            DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+            return append_parquet_integers<DorisCppType, int32_t>(_data, values, num_values,
+                                                                  _context);
+        case ParquetPhysicalType::INT64:
+            DORIS_CHECK_EQ(value_width, sizeof(int64_t));
+            return append_parquet_integers<DorisCppType, int64_t>(_data, values, num_values,
+                                                                  _context);
+        case ParquetPhysicalType::FLOAT:
+            DORIS_CHECK_EQ(value_width, sizeof(float));
+            return append_parquet_number<DorisCppType, float>(_data, values, num_values, _context);
+        case ParquetPhysicalType::DOUBLE:
+            DORIS_CHECK_EQ(value_width, sizeof(double));
+            return append_parquet_number<DorisCppType, double>(_data, values, num_values, _context);
+        default:
+            return Status::NotSupported("Unsupported Parquet physical type {} for numeric SerDe",
+                                        static_cast<int>(_context.physical_type));
+        }
+    }
+
+private:
+    PaddedPODArray<DorisCppType>& _data;
+    const ParquetDecodeContext& _context;
+};
+
+class RejectParquetBinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as a number");
+    }
+};
 
 } // namespace
 // Basic structure of the type map.
@@ -328,6 +490,50 @@ Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
             column, view,
             Status::NotSupported("Unsupported decoded values for {} from source kind {}",
                                  get_name(), static_cast<int>(view.value_kind)));
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                                       const ParquetDecodeContext& context) const {
+    if constexpr (!(T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                    T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT ||
+                    T == TYPE_DOUBLE)) {
+        return DataTypeSerDe::read_parquet_dictionary(column, source, context);
+    } else {
+        NumberParquetConsumer<T> consumer(column, context);
+        RejectParquetBinaryConsumer binary_consumer;
+        return source.decode_dictionary(consumer, binary_consumer);
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_column_from_parquet(IColumn& column,
+                                                        ParquetDecodeSource& source,
+                                                        const ParquetDecodeContext& context,
+                                                        size_t num_values,
+                                                        ParquetMaterializationState& state) const {
+    if constexpr (!(T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                    T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT ||
+                    T == TYPE_DOUBLE)) {
+        return DataTypeSerDe::read_column_from_parquet(column, source, context, num_values, state);
+    } else {
+        NumberParquetConsumer<T> consumer(column, context);
+        if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+            return source.decode_fixed_values(num_values, consumer);
+        }
+
+        if (state.dictionary_generation != source.dictionary_generation()) {
+            state.typed_dictionary = column.clone_empty();
+            RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+            DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+            state.dictionary_generation = source.dictionary_generation();
+        }
+        RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+        DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+        column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
+                                   state.dictionary_indices.data() + num_values);
+        return Status::OK();
+    }
 }
 
 template <PrimitiveType T>

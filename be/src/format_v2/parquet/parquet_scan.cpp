@@ -823,17 +823,15 @@ Status ParquetScanScheduler::open_next_row_group(
             continue;
         }
         if (local_id == format::ROW_POSITION_COLUMN_ID) {
-            _current_non_predicate_columns[local_id] =
-                    std::make_unique<RowPositionColumnReader>(
-                            _current_row_group_first_row, _scan_profile.column_reader_profile);
+            _current_non_predicate_columns[local_id] = std::make_unique<RowPositionColumnReader>(
+                    _current_row_group_first_row, _scan_profile.column_reader_profile);
             continue;
         }
         if (local_id == format::GLOBAL_ROWID_COLUMN_ID) {
             DORIS_CHECK(_global_rowid_context.has_value());
-            _current_non_predicate_columns[local_id] =
-                    std::make_unique<GlobalRowIdColumnReader>(
-                            *_global_rowid_context, _current_row_group_first_row,
-                            _scan_profile.column_reader_profile);
+            _current_non_predicate_columns[local_id] = std::make_unique<GlobalRowIdColumnReader>(
+                    *_global_rowid_context, _current_row_group_first_row,
+                    _scan_profile.column_reader_profile);
             continue;
         }
         DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));

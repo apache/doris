@@ -31,13 +31,13 @@ struct ParquetPageSkipProfile {
 // ============================================================================
 // ============================================================================
 struct ParquetColumnReaderProfile {
-    RuntimeProfile::Counter* reader_read_rows = nullptr;        // rows read by read()
-    RuntimeProfile::Counter* reader_skip_rows = nullptr;        // rows skipped by skip()
-    RuntimeProfile::Counter* reader_select_rows = nullptr;      // rows selected by select()
-    // COUNT(nullable_col) shape-only compatibility path; ordinary scans keep both counters zero.
-    RuntimeProfile::Counter* arrow_read_records_time = nullptr;
-    RuntimeProfile::Counter* arrow_skip_records_time = nullptr;
-    RuntimeProfile::Counter* materialization_time = nullptr;    // value materialization time (ns)
+    RuntimeProfile::Counter* reader_read_rows = nullptr;   // rows read by read()
+    RuntimeProfile::Counter* reader_skip_rows = nullptr;   // rows skipped by skip()
+    RuntimeProfile::Counter* reader_select_rows = nullptr; // rows selected by select()
+    // COUNT(nullable_col) shape-only path; ordinary scans keep both counters zero.
+    RuntimeProfile::Counter* level_only_read_time = nullptr;
+    RuntimeProfile::Counter* level_only_skip_time = nullptr;
+    RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
     // Native page/encoding reader internals. These counters intentionally mirror v1 so a v1/v2
     // profile comparison attributes page IO, decompression, levels, value decode and conversion to
     // the same stages.
@@ -136,9 +136,9 @@ struct ParquetProfile {
     RuntimeProfile::Counter* reader_read_rows = nullptr;
     RuntimeProfile::Counter* reader_skip_rows = nullptr;
     RuntimeProfile::Counter* reader_select_rows = nullptr;
-    // COUNT(nullable_col) shape-only compatibility path; ordinary scans keep these zero.
-    RuntimeProfile::Counter* arrow_read_records_time = nullptr;
-    RuntimeProfile::Counter* arrow_skip_records_time = nullptr;
+    // COUNT(nullable_col) shape-only path; ordinary scans keep these zero.
+    RuntimeProfile::Counter* level_only_read_time = nullptr;
+    RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
     RuntimeProfile::Counter* native_read_calls = nullptr;
     RuntimeProfile::Counter* native_page_fragments = nullptr;

@@ -213,8 +213,7 @@ const ParquetColumnSchema& projected_root_schema(
 }
 
 int64_t count_loaded_non_null_values(const ParquetColumnSchema& root_schema,
-                                     const CountColumnReader& shape_reader,
-                                     int64_t expected_rows) {
+                                     const CountColumnReader& shape_reader, int64_t expected_rows) {
     const auto& def_levels = shape_reader.definition_levels();
     const auto& rep_levels = shape_reader.repetition_levels();
     const int64_t levels_written = shape_reader.levels_written();
@@ -711,26 +710,12 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         }
         result->count = 0;
         for (const auto& row_group_plan : _state->scan_plan.row_groups) {
-            std::shared_ptr<::parquet::RowGroupReader> row_group;
-            try {
-                row_group = _state->file_context.file_reader->RowGroup(row_group_plan.row_group_id);
-            } catch (const ::parquet::ParquetException& e) {
-                if (_should_stop()) {
-                    return Status::EndOfFile("stop");
-                }
-                return Status::Corruption("Failed to open parquet row group {}: {}",
-                                          row_group_plan.row_group_id, e.what());
-            } catch (const std::exception& e) {
-                if (_should_stop()) {
-                    return Status::EndOfFile("stop");
-                }
-                return Status::InternalError("Failed to open parquet row group {}: {}",
-                                             row_group_plan.row_group_id, e.what());
-            }
-
             std::unique_ptr<CountColumnReader> shape_reader;
             RETURN_IF_ERROR(CountColumnReader::create(
-                    row_group, root_schema, &count_projection,
+                    _state->file_context.native_data_file(), _state->file_context.native_metadata,
+                    row_group_plan.row_group_id, root_schema, &count_projection,
+                    _state->file_context.native_io_ctx,
+                    _state->file_context.native_page_cache_enabled,
                     _parquet_profile.scan_profile().column_reader_profile, &shape_reader));
             DORIS_CHECK(shape_reader != nullptr);
 

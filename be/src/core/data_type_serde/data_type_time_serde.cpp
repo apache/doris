@@ -21,9 +21,11 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/value/time_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_time_impl.hpp"
+#include "util/unaligned.h"
 
 namespace doris {
 namespace {
@@ -50,6 +52,56 @@ TimeValue::TimeType read_time_decoded_value(const DecodedColumnView& view, int64
             (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) / TimeValue::ONE_SECOND_MICROSECONDS,
             abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
 }
+
+class TimeV2ParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    TimeV2ParquetConsumer(IColumn& column, const ParquetDecodeContext& context)
+            : _data(assert_cast<ColumnTimeV2&>(column).get_data()), _context(context) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            int64_t micros;
+            if (_context.physical_type == ParquetPhysicalType::INT32) {
+                DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+                micros = static_cast<int64_t>(
+                                 unaligned_load<int32_t>(values + row * sizeof(int32_t))) *
+                         1000;
+            } else {
+                DORIS_CHECK(_context.physical_type == ParquetPhysicalType::INT64);
+                DORIS_CHECK_EQ(value_width, sizeof(int64_t));
+                micros = unaligned_load<int64_t>(values + row * sizeof(int64_t));
+                if (_context.time_unit == ParquetTimeUnit::MILLIS) {
+                    micros *= 1000;
+                } else if (_context.time_unit == ParquetTimeUnit::NANOS) {
+                    micros /= 1000;
+                }
+            }
+            const bool negative = micros < 0;
+            const uint64_t abs_micros = negative ? uint64_t(-(micros + 1)) + 1 : uint64_t(micros);
+            _data[old_size + row] =
+                    TimeValue::make_time(abs_micros / TimeValue::ONE_HOUR_MICROSECONDS,
+                                         (abs_micros % TimeValue::ONE_HOUR_MICROSECONDS) /
+                                                 TimeValue::ONE_MINUTE_MICROSECONDS,
+                                         (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) /
+                                                 TimeValue::ONE_SECOND_MICROSECONDS,
+                                         abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnTimeV2::Container& _data;
+    const ParquetDecodeContext& _context;
+};
+
+class RejectTimeV2BinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as TIMEV2");
+    }
+};
 
 } // namespace
 
@@ -190,6 +242,39 @@ Status DataTypeTimeV2SerDe::read_column_from_decoded_values(IColumn& column,
         }
         data.push_back(read_time_decoded_value(view, row));
     }
+    return Status::OK();
+}
+
+Status DataTypeTimeV2SerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                                    const ParquetDecodeContext& context) const {
+    TimeV2ParquetConsumer consumer(column, context);
+    RejectTimeV2BinaryConsumer binary_consumer;
+    return source.decode_dictionary(consumer, binary_consumer);
+}
+
+Status DataTypeTimeV2SerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                                     const ParquetDecodeContext& context,
+                                                     size_t num_values,
+                                                     ParquetMaterializationState& state) const {
+    if ((context.physical_type != ParquetPhysicalType::INT32 &&
+         context.physical_type != ParquetPhysicalType::INT64) ||
+        context.logical_type != ParquetLogicalType::TIME) {
+        return Status::NotSupported("TIMEV2 expects Parquet TIME stored as INT32 or INT64");
+    }
+    TimeV2ParquetConsumer consumer(column, context);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
+                               state.dictionary_indices.data() + num_values);
     return Status::OK();
 }
 

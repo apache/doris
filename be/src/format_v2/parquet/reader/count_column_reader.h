@@ -23,31 +23,28 @@
 #include "common/status.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_profile.h"
+#include "format_v2/parquet/reader/native/level_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 
-namespace parquet {
-class RowGroupReader;
-namespace internal {
-class RecordReader;
-} // namespace internal
-} // namespace parquet
+namespace doris {
+class FileMetaData;
+namespace io {
+struct IOContext;
+}
+} // namespace doris
 
 namespace doris::format::parquet {
 struct ParquetColumnSchema;
-
-// Isolated compatibility reader for the existing COUNT(nullable_col) pushdown.
-//
-// Ordinary scans never instantiate this class. COUNT needs only Dremel definition/repetition
-// levels, so this reader exposes exactly one shape operation and no value-materialization API.
-// Arrow currently has no public levels-only page decoder; ReadRecords therefore advances its
-// private RecordReader, after which binary builder chunks are immediately released and only the
-// copied level vectors survive. Keeping this exception isolated prevents Arrow arrays/builders,
-// ParquetLeafBatch, and decoded-value views from leaking back into the scan reader contract.
+// Shape-only COUNT(nullable_col) reader. It uses v2's native LevelReader, so BYTE_ARRAY payloads
+// are skipped in the encoding stream and never copied into Arrow builders or Doris strings.
 class CountColumnReader {
 public:
-    static Status create(std::shared_ptr<::parquet::RowGroupReader> row_group,
+    ~CountColumnReader();
+
+    static Status create(io::FileReaderSPtr file, const FileMetaData* metadata, int row_group_id,
                          const ParquetColumnSchema& root_schema,
-                         const format::LocalColumnIndex* projection,
-                         ParquetColumnReaderProfile profile,
+                         const format::LocalColumnIndex* projection, io::IOContext* io_ctx,
+                         bool enable_page_cache, ParquetColumnReaderProfile profile,
                          std::unique_ptr<CountColumnReader>* reader);
 
     Status skip(int64_t rows);
@@ -58,18 +55,16 @@ public:
     int64_t levels_written() const { return _levels_written; }
 
 private:
-    CountColumnReader(const ParquetColumnSchema& leaf_schema,
-                      std::shared_ptr<::parquet::internal::RecordReader> record_reader,
+    CountColumnReader(std::string name, std::unique_ptr<native::LevelReader> level_reader,
                       ParquetColumnReaderProfile profile);
+    void sync_profile();
 
-    Status release_binary_builder();
-
-    const ParquetColumnSchema& _leaf_schema;
-    std::shared_ptr<::parquet::internal::RecordReader> _record_reader;
+    std::unique_ptr<native::LevelReader> _level_reader;
     ParquetColumnReaderProfile _profile;
     std::string _name;
     std::vector<int16_t> _definition_levels;
     std::vector<int16_t> _repetition_levels;
+    native::ColumnChunkReaderStatistics _reported_native_stats;
     int64_t _levels_written = 0;
 };
 

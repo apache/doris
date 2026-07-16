@@ -30,6 +30,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
@@ -37,8 +38,41 @@
 
 namespace doris {
 
-// This number represents the number of days from 0000-01-01 to 1970-01-01
-static const int32_t date_threshold = 719528;
+// This number represents the number of days from 0000-01-01 to 1970-01-01.
+static constexpr int32_t date_threshold = 719528;
+
+namespace {
+
+class DateV2ParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    explicit DateV2ParquetConsumer(IColumn& column)
+            : _data(assert_cast<ColumnDateV2&>(column).get_data()) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            DateV2Value<DateV2ValueType> value;
+            value.get_date_from_daynr(unaligned_load<int32_t>(values + row * sizeof(int32_t)) +
+                                      date_threshold);
+            _data[old_size + row] = value;
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnDateV2::Container& _data;
+};
+
+class RejectDateV2BinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as DATEV2");
+    }
+};
+
+} // namespace
 
 Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,
@@ -150,6 +184,38 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
         date_v2.get_date_from_daynr(values[row] + date_threshold);
         data.push_back(date_v2);
     }
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                                    const ParquetDecodeContext& context) const {
+    DateV2ParquetConsumer consumer(column);
+    RejectDateV2BinaryConsumer binary_consumer;
+    return source.decode_dictionary(consumer, binary_consumer);
+}
+
+Status DataTypeDateV2SerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                                     const ParquetDecodeContext& context,
+                                                     size_t num_values,
+                                                     ParquetMaterializationState& state) const {
+    if (context.physical_type != ParquetPhysicalType::INT32 ||
+        context.logical_type != ParquetLogicalType::DATE) {
+        return Status::NotSupported("DATEV2 expects Parquet DATE stored as INT32");
+    }
+    DateV2ParquetConsumer consumer(column);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
+                               state.dictionary_indices.data() + num_values);
     return Status::OK();
 }
 

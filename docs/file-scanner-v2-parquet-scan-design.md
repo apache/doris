@@ -68,29 +68,28 @@ writes directly into Doris columns. This follows the same broad separation used 
 planning is distinct from a persistent per-column reader, and page/encoding decoders expose narrow
 cursor-based contracts rather than an Arrow array as an intermediate result.
 
-The migration is deliberately incremental because the existing v1 native kernel already contains
-mature Parquet page and encoding support. The first production step reuses that kernel behind a
-v2-owned adapter; decoder logic is copied into the v2 tree only when v2 must diverge from it:
+V1 remains the differential baseline, but v2 owns an independent reader implementation. Its page
+and encoding algorithms started from proven Doris behavior and are maintained under the v2 tree;
+the production v2 path never instantiates the v1 `ParquetColumnReader`:
 
 | Stage | State and boundary |
 | --- | --- |
-| Native encoding kernel | The current adapter calls the unchanged Doris native kernel used by v1, preserving its complete type/encoding matrix and page-cache behavior. Any decoder change is reimplemented under `be/src/format_v2/parquet/`; v1 remains unchanged. |
+| Native encoding kernel | V2 owns the Column Chunk, page, level, and encoding decoders under `be/src/format_v2/parquet/reader/native/`. Decoders expose raw fixed/binary spans, validated dictionary indices, and skip operations; they never write Doris columns. |
+| Logical materialization | `DataTypeSerDe` interprets Parquet physical/logical metadata and writes decoded spans directly into the final Doris column. Typed dictionaries and scratch are persistent per leaf reader. |
 | Native column reader | `NativeColumnReader` is persistent for one top-level column and Row Group. It owns selection/filter/dictionary scratch and drives the native decoder directly into the final Doris column. |
-| Complex reconstruction | Build one shared Dremel level plan per requested parent-row range and use it for STRUCT/ARRAY/MAP siblings, offsets, and null maps. |
+| Complex reconstruction | Choose a Dremel shape-owning leaf per requested parent-row range; derive parent offsets/nulls once from it and keep sibling leaf streams aligned to the same parent rows. |
 | Metadata and planning | Replace Arrow footer/schema/Row Group metadata dependencies with native Thrift-derived objects while preserving the existing planner, index, cache, and split contracts. |
 | Compatibility removal | Remove Arrow data-read adapters after type/encoding/page/writer compatibility and performance gates pass. Production v2 never falls back from a selected native reader to Arrow; an unsupported combination returns an explicit error. |
 
-At the current migration boundary, ordinary value scans no longer use Arrow `RecordReader`, arrays,
-or builders. Arrow remains in footer/schema planning, dictionary probing, and the existing
-levels-only aggregate path. It is not a runtime fallback: after an ordinary column selects the
-native reader, decode errors are returned directly. The production target eventually removes the
-remaining Arrow metadata/aggregate objects; tests may also use Arrow as a fixture writer or oracle.
+Data-page value scans and levels-only aggregate scans no longer use Arrow `RecordReader`, arrays, or
+builders. Arrow remains in footer/schema planning and dictionary/statistics probing. It is not a
+runtime fallback: after a column selects the native reader, decode errors are returned directly.
+The production target eventually removes the remaining Arrow metadata objects; tests may also use
+Arrow as a fixture writer or oracle.
 
 All new integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the correctness
-and performance control. Reusing its stable native kernel gives v2 the same physical/logical type,
-encoding, malformed-input, conversion, and page-cache behavior without duplicating thousands of
-lines before an actual semantic change is required. When such a change is required, the affected
-decoder is reimplemented in the v2 tree instead of modifying v1.
+and performance control. Compatibility is demonstrated through differential tests and the explicit
+type/encoding matrix, not through a runtime dependency on v1 code.
 
 ### 2.2 Native Interface Ownership
 
@@ -116,9 +115,9 @@ flowchart LR
 - **Decoder contract:** Consume a known number of logical level entries and encoded payload values,
   then materialize only selected rows. Decoders do not decide table projection, predicate meaning,
   or parent complex offsets.
-- **Complex plan contract:** Definition/repetition levels are parsed once into parent-row boundaries
-  and child-presence/null decisions. All children consume the same plan so their offsets and null
-  maps cannot drift.
+- **Complex plan contract:** The shape-owning leaf's definition/repetition levels are parsed once
+  into parent-row boundaries and child-presence/null decisions. Sibling physical streams consume
+  the same parent-row range and validate their counts so offsets and null maps cannot drift.
 
 ## 3. From File Open to Scan Plan
 
@@ -370,10 +369,10 @@ selection, an empty selection, and an arbitrary fragmented selection use the sam
 Selection inputs are borrowed only for the duration of the decode call.
 
 For a flat leaf, the fast path is valid only when the maximum repetition level is zero. It decodes
-definition-level runs, builds the four-way selection plan without an O(batch rows) action array,
-and dispatches the plan to the active encoding decoder. A filtered non-null value must still advance
-the encoding state even when it is not copied. This is the central invariant that prevents the next
-batch from decoding shifted values.
+definition-level runs, builds the four-way selection plan in a persistent action buffer whose
+capacity survives adaptive batch changes, and dispatches its runs to the active encoding decoder. A
+filtered non-null value must still advance the encoding state even when it is not copied. This is
+the central invariant that prevents the next batch from decoding shifted values.
 
 ### 7.2 Page and Encoding Kernel
 
@@ -399,17 +398,25 @@ payloads, integer overflow, and invalid lengths/IDs are part of the unit-test ma
 
 ### 7.3 Direct Materialization and Scratch Reuse
 
-Decoders write directly into Doris mutable columns whenever physical and target layouts are
-compatible. Fixed-width primitives reserve destination capacity once and append contiguous selected
-runs. String-like decoders gather selected `StringRef` values into persistent scratch and perform
-one batched append, so fragmented predicates do not cause one destination growth or copy call per
-run. Scratch stores references only while the backing page/dictionary buffer is stable.
+Encoding decoders expose contiguous physical spans and advance encoded-stream cursors. The selected
+`DataTypeSerDe` consumes those spans and writes directly into the Doris mutable column. Fixed-width
+types append contiguous runs; string-like paths gather `StringRef` values in persistent decoder
+scratch before a batched append. References remain valid only while the page or dictionary buffer
+is pinned by the persistent leaf reader.
+
+The direct path covers identical logical types, string-family compatibility, decimal
+precision/scale changes, integer changes, and FLOAT-to-DOUBLE widening. Less common table-schema
+changes such as STRING-to-DATE or DECIMAL-to-STRING keep the generic `ColumnTypeConverter`: the
+file logical SerDe first fills a reusable source Doris column, then the generic cast appends to the
+requested column.
+This compatibility path is deliberately separate from the decoder ABI and does not reintroduce a
+physical-value batch or `PhysicalToLogicalConverter` into ordinary Parquet reads.
 
 `DecodedColumnView` is not the native Parquet decoder output ABI. It describes already decoded
 physical values and is useful to generic format conversion code, but routing every Parquet value
-through it would recreate an intermediate materialization layer. A native encoding decoder consumes
-encoded page bytes plus levels/selection and appends to the Doris physical column. Only a genuine
-physical-to-logical mismatch invokes the reusable conversion layer after decode.
+through it would recreate an intermediate materialization layer. The v2 native path does not use it:
+ColumnReader handles levels/selection, Decoder parses encoding streams, and DataTypeSerDe performs
+physical/logical conversion while appending to the final column.
 
 Decimal and FIXED_LEN_BYTE_ARRAY direct paths validate the physical byte width, decode big-endian
 two's-complement values with correct sign extension, and apply precision/scale conversion exactly
@@ -422,11 +429,11 @@ definition/repetition levels, binary references, dictionary state, decompression
 column capacity. Logical sizes are reset at batch boundaries while capacity is retained. The native
 path does not create an Arrow builder or Arrow array.
 
-### 7.4 Complex Types and Shared Level Plans
+### 7.4 Complex Types and Parent Shape Plans
 
 Repeated Parquet leaves cannot interpret a requested parent-row count as a leaf-value count. One
 parent row may contain zero, one, or many level entries, and its final entry can reside on the next
-page. The complex reader therefore builds a shared level plan with:
+page. The complex reader therefore builds a parent shape plan from one owning leaf with:
 
 - parent-row start/end boundaries derived from repetition levels;
 - ancestor-null, collection-null, empty-collection, element-null, and present-value decisions from
@@ -434,10 +441,12 @@ page. The complex reader therefore builds a shared level plan with:
 - child payload positions and selected parent rows;
 - cross-page continuation state for an unfinished parent row.
 
-ARRAY and MAP offsets and null maps are derived from that plan. STRUCT children reuse the plan from
-a representative present leaf and advance in parent-row lockstep; a missing or fully projected-out
-child is materialized from the same parent count. MAP key/value readers must produce identical
-entry counts, and Parquet's non-null key requirement is validated rather than repaired.
+ARRAY and MAP offsets and null maps are derived from that plan. Parquet stores separate level
+streams for separate physical leaves, so sibling readers still consume their own streams; they must
+advance over the same parent-row range and validate their payload counts instead of redefining the
+parent shape. STRUCT uses a representative present leaf for its null map and parent count. MAP uses
+the key leaf as the entry-shape owner, requires the value leaf to produce the same entry count, and
+validates Parquet's non-null key requirement rather than repairing it.
 
 Level scratch is sized by decoded level entries, not by the 16-bit parent batch cap. Long repeated
 rows and long null/non-null runs are split into representable internal runs without introducing a
@@ -458,19 +467,22 @@ conversion, and complex-column state and materializes the complete result direct
 Doris column. No Arrow value reader, intermediate decoded leaf container, temporary nested Doris
 column, or public load-before-build protocol participates in predicate or output scans.
 
-Internally, complex decoding still has to solve the shared-level-plan problem. For example, levels
+Internally, complex decoding still has to solve the parent-shape problem. For example, levels
 representing `[["a", "b"], NULL, []]` produce entry counts `[2, 0, 0]`, parent nulls `[0, 1, 0]`,
 and string payload ordinals `[0, 1]`. MAP uses the key leaf as the entry-shape owner and validates
 the value leaf against it; STRUCT children advance in parent-row lockstep. This state belongs behind
 the native reader boundary rather than in caller-visible phases.
 
-`CountColumnReader` is the only data-page compatibility exception. Existing
-`COUNT(nullable_col)` pushdown needs definition/repetition levels but Arrow does not expose its
-level decoder independently of `RecordReader`. The adapter therefore selects one representative
-leaf (the key for MAP), calls `ReadRecords`, copies only levels, and immediately releases any binary
-builder chunks. It exposes neither decoded values nor the ordinary scan-reader API, so it cannot
-become an Arrow fallback. This preserves the existing pushdown semantics while keeping large complex
-values out of the retained aggregate state.
+When schema evolution makes every projected STRUCT child missing, the native reader retains one
+physical reference leaf solely for shape. Its levels-only interface advances definition,
+repetition, and encoded payload cursors (including dictionary-index validation), counts STRUCT
+instances from the parent thresholds, and discards the payload without allocating a temporary
+string or nested Doris column.
+
+`CountColumnReader` selects one representative leaf (the key for MAP) and uses the v2 native
+`LevelReader` to consume definition/repetition levels without decoding payload values. It exposes
+neither decoded values nor the ordinary scan-reader API, so COUNT pushdown cannot become a value
+fallback and large complex payloads never enter aggregate state.
 
 Doris v1 remains the behavior/performance baseline: `read_column_data()` owns physical decode and
 the collection reader consumes persistent level buffers. DuckDB provides the same useful design
@@ -607,9 +619,10 @@ Chunks from surviving Row Groups are registered, limiting pollution and key coun
 
 - When the base reader is CachedRemoteFileReader, predicate/output ranges for the current Row Group
   may be prefetched into FileCache.
-- The remaining Arrow metadata/index path may use MergeRangeFileReader. The current native
-  BufferedFileStreamReader is not routed through that Arrow wrapper; it uses v1's stream/page cache
-  path while background prefetch warms the same Doris FileCache blocks.
+- After dictionary probing, small projected chunks share one Row-Group-scoped
+  MergeRangeFileReader on the native data-page path. Large chunks and in-memory files keep the base
+  reader. The remaining Arrow metadata/index adapter has an independent wrapper and never owns the
+  native decoder's stream cursor.
 - With row-level filters, prefetch predicate columns first. Prefetch non-predicate columns only after
   at least one row survives, avoiding unnecessary bandwidth.
 

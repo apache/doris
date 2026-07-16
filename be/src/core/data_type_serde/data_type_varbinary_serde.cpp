@@ -18,8 +18,71 @@
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
 #include "core/column/column_varbinary.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 
 namespace doris {
+namespace {
+
+class VarbinaryParquetConsumer final : public ParquetFixedValueConsumer,
+                                       public ParquetBinaryValueConsumer {
+public:
+    explicit VarbinaryParquetConsumer(IColumn& column)
+            : _column(assert_cast<ColumnVarbinary&>(column)) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            _column.insert_data(reinterpret_cast<const char*>(values + row * value_width),
+                                value_width);
+        }
+        return Status::OK();
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            _column.insert_data(values[row].data, values[row].size);
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnVarbinary& _column;
+};
+
+} // namespace
+
+Status DataTypeVarbinarySerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                                       const ParquetDecodeContext& context) const {
+    VarbinaryParquetConsumer consumer(column);
+    return source.decode_dictionary(consumer, consumer);
+}
+
+Status DataTypeVarbinarySerDe::read_column_from_parquet(IColumn& column,
+                                                        ParquetDecodeSource& source,
+                                                        const ParquetDecodeContext& context,
+                                                        size_t num_values,
+                                                        ParquetMaterializationState& state) const {
+    VarbinaryParquetConsumer consumer(column);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
+            return source.decode_binary_values(num_values, consumer);
+        }
+        if (context.physical_type == ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY) {
+            return source.decode_fixed_values(num_values, consumer);
+        }
+        return Status::NotSupported("Unsupported Parquet physical type for VARBINARY");
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
+                               state.dictionary_indices.data() + num_values);
+    return Status::OK();
+}
 
 void DataTypeVarbinarySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                      Arena& arena, int32_t col_id, int64_t row_num,

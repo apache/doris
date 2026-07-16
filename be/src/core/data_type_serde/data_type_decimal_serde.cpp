@@ -36,6 +36,7 @@
 #include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
 #include "exprs/function/cast/cast_to_decimal.h"
@@ -75,8 +76,13 @@ NativeType decode_big_endian_signed_integer(const uint8_t* data, int length) {
 template <PrimitiveType T>
 bool decoded_decimal_value_fits(const typename PrimitiveTypeTraits<T>::CppType::NativeType& value,
                                 UInt32 precision) {
-    return value >= min_decimal_value<T>(precision).value &&
-           value <= max_decimal_value<T>(precision).value;
+    if constexpr (T == TYPE_DECIMALV2) {
+        const auto limit = DataTypeDecimal<T>::get_max_digits_number(precision);
+        return value >= -limit && value <= limit;
+    } else {
+        return value >= min_decimal_value<T>(precision).value &&
+               value <= max_decimal_value<T>(precision).value;
+    }
 }
 
 template <PrimitiveType T>
@@ -85,6 +91,9 @@ bool decoded_decimal_int_value_fits(Int128 value, UInt32 precision) {
     if constexpr (std::is_same_v<NativeType, wide::Int256>) {
         const auto wide_value = wide::Int256(value);
         return decoded_decimal_value_fits<T>(wide_value, precision);
+    } else if constexpr (T == TYPE_DECIMALV2) {
+        const auto limit = DataTypeDecimal<T>::get_max_digits_number(precision);
+        return value >= -limit && value <= limit;
     } else {
         return value >= static_cast<Int128>(min_decimal_value<T>(precision).value) &&
                value <= static_cast<Int128>(max_decimal_value<T>(precision).value);
@@ -178,6 +187,125 @@ Status read_decimal_decoded_values(IColumn& column, const DecodedColumnView& vie
     }
     return Status::OK();
 }
+
+template <PrimitiveType T>
+Status scale_parquet_decimal(typename PrimitiveTypeTraits<T>::CppType::NativeType value,
+                             int32_t source_scale, int32_t target_scale,
+                             typename PrimitiveTypeTraits<T>::CppType::NativeType* result) {
+    using NativeType = typename PrimitiveTypeTraits<T>::CppType::NativeType;
+    DORIS_CHECK(result != nullptr);
+    if (source_scale == target_scale) {
+        *result = value;
+        return Status::OK();
+    }
+    if (source_scale > target_scale) {
+        *result = value / decimal_scale_multiplier<NativeType>(source_scale - target_scale);
+        return Status::OK();
+    }
+    const auto multiplier = decimal_scale_multiplier<NativeType>(target_scale - source_scale);
+    if (common::mul_overflow(value, multiplier, *result)) {
+        return Status::DataQualityError("Parquet decimal overflows while scaling from {} to {}",
+                                        source_scale, target_scale);
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+class DecimalParquetConsumer final : public ParquetFixedValueConsumer,
+                                     public ParquetBinaryValueConsumer {
+public:
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
+    using NativeType = typename FieldType::NativeType;
+
+    DecimalParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
+                           UInt32 target_precision, int32_t target_scale)
+            : _data(assert_cast<ColumnDecimal<T>&>(column).get_data()),
+              _context(context),
+              _target_precision(target_precision),
+              _target_scale(target_scale) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        if (_context.physical_type == ParquetPhysicalType::INT32) {
+            DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+            return append_integers<int32_t>(values, num_values);
+        }
+        if (_context.physical_type == ParquetPhysicalType::INT64) {
+            DORIS_CHECK_EQ(value_width, sizeof(int64_t));
+            return append_integers<int64_t>(values, num_values);
+        }
+        if (_context.physical_type != ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY) {
+            return Status::NotSupported("Unsupported Parquet physical type {} for decimal SerDe",
+                                        static_cast<int>(_context.physical_type));
+        }
+        DORIS_CHECK_EQ(value_width, static_cast<size_t>(_context.type_length));
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            auto status =
+                    append_binary_value(values + row * value_width, value_width, old_size + row);
+            if (!status.ok()) {
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            auto status = append_binary_value(reinterpret_cast<const uint8_t*>(values[row].data),
+                                              values[row].size, old_size + row);
+            if (!status.ok()) {
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    template <typename SourceType>
+    Status append_integers(const uint8_t* values, size_t num_values) {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            const auto source_value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
+            auto status = append_native_value(NativeType(source_value), old_size + row);
+            if (!status.ok()) {
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    Status append_binary_value(const uint8_t* value, size_t length, size_t output_row) {
+        if (UNLIKELY(length > sizeof(NativeType))) {
+            return Status::DataQualityError("Parquet decimal binary value is too wide: {}", length);
+        }
+        return append_native_value(
+                decode_big_endian_signed_integer<NativeType>(value, cast_set<int>(length)),
+                output_row);
+    }
+
+    Status append_native_value(NativeType value, size_t output_row) {
+        NativeType scaled_value;
+        RETURN_IF_ERROR(scale_parquet_decimal<T>(value, _context.decimal_scale, _target_scale,
+                                                 &scaled_value));
+        if (!decoded_decimal_value_fits<T>(scaled_value, _target_precision)) {
+            return Status::DataQualityError("Parquet decimal value is out of range");
+        }
+        _data[output_row] = FieldType {scaled_value};
+        return Status::OK();
+    }
+
+    typename ColumnDecimal<T>::Container& _data;
+    const ParquetDecodeContext& _context;
+    UInt32 _target_precision;
+    int32_t _target_scale;
+};
 
 } // namespace
 
@@ -527,6 +655,48 @@ Status DataTypeDecimalSerDe<T>::read_column_from_decoded_values(
             column, view,
             Status::NotSupported("Unsupported decoded values for {} from source kind {}",
                                  get_name(), static_cast<int>(view.value_kind)));
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_parquet_dictionary(IColumn& column,
+                                                        ParquetDecodeSource& source,
+                                                        const ParquetDecodeContext& context) const {
+    if (context.logical_type != ParquetLogicalType::DECIMAL || context.decimal_scale < 0) {
+        return Status::NotSupported("Decimal SerDe requires Parquet DECIMAL metadata");
+    }
+    DecimalParquetConsumer<T> consumer(column, context, cast_set<UInt32>(precision), scale);
+    return source.decode_dictionary(consumer, consumer);
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_column_from_parquet(IColumn& column,
+                                                         ParquetDecodeSource& source,
+                                                         const ParquetDecodeContext& context,
+                                                         size_t num_values,
+                                                         ParquetMaterializationState& state) const {
+    if (context.logical_type != ParquetLogicalType::DECIMAL || context.decimal_scale < 0) {
+        return Status::NotSupported("Decimal SerDe requires Parquet DECIMAL metadata");
+    }
+    DecimalParquetConsumer<T> consumer(column, context, cast_set<UInt32>(precision), scale);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
+            return source.decode_binary_values(num_values, consumer);
+        }
+        return source.decode_fixed_values(num_values, consumer);
+    }
+
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
+                               state.dictionary_indices.data() + num_values);
+    return Status::OK();
 }
 
 template <PrimitiveType T>

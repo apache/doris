@@ -119,8 +119,8 @@ void collect_projected_ids(const ParquetColumnSchema& schema,
     if (schema.kind == ParquetColumnSchemaKind::MAP) {
         DORIS_CHECK(!native_field.children.empty());
         // MAP entry existence and offsets are owned by the key stream even for value-only
-        // projections. Keep the key reader live and validate key/value entry alignment in v1's
-        // native complex-column reader.
+        // projections. Keep the key reader live so the native complex reader can validate
+        // key/value entry alignment while constructing offsets.
         ids->insert(native_field.children[0].get_column_id());
     }
 }
@@ -241,10 +241,10 @@ Status NativeColumnReader::init(
         _page_cache_runtime_state = RuntimeState::create_unique(query_options, TQueryGlobals());
         native_runtime_state = _page_cache_runtime_state.get();
     }
-    RETURN_IF_ERROR(::doris::ParquetColumnReader::create(
-            std::move(file), field, row_group, _row_ranges, timezone, io_ctx, _native_reader,
-            max_buffer_size, _offset_indexes, native_runtime_state, false, _projected_column_ids,
-            _filter_column_ids));
+    RETURN_IF_ERROR(native::ColumnReader::create(std::move(file), field, row_group, _row_ranges,
+                                                 timezone, io_ctx, _native_reader, max_buffer_size,
+                                                 _offset_indexes, native_runtime_state, false,
+                                                 _projected_column_ids, _filter_column_ids));
     DORIS_CHECK(_native_reader != nullptr);
     _skip_column = _type->create_column();
     return Status::OK();
@@ -521,7 +521,6 @@ int64_t NativeColumnReader::sync_native_profile() {
     }
     const auto stats = _native_reader->column_statistics();
     const auto& reported = _reported_native_stats;
-    const auto& last_query = _last_native_query_stats;
     if (_profile.decompress_time != nullptr) {
         COUNTER_UPDATE(_profile.decompress_time, stats.decompress_time - reported.decompress_time);
     }
@@ -552,7 +551,8 @@ int64_t NativeColumnReader::sync_native_profile() {
         COUNTER_UPDATE(_profile.convert_time, stats.convert_time - reported.convert_time);
     }
     if (_profile.materialization_time != nullptr) {
-        COUNTER_UPDATE(_profile.materialization_time, stats.convert_time - reported.convert_time);
+        COUNTER_UPDATE(_profile.materialization_time,
+                       stats.materialization_time - reported.materialization_time);
     }
     if (_profile.page_index_read_calls != nullptr) {
         COUNTER_UPDATE(_profile.page_index_read_calls,
@@ -570,12 +570,7 @@ int64_t NativeColumnReader::sync_native_profile() {
         COUNTER_UPDATE(_profile.read_page_header_time,
                        stats.read_page_header_time - reported.read_page_header_time);
     }
-    // chunk_statistics() adds the PageReader's cumulative counters into its own accumulator on
-    // every query. The difference between two raw query results is therefore the PageReader's
-    // current cumulative value, not the increment since the previous query.
-#define RECONSTRUCT_PAGE_STAT(field) (stats.field - last_query.field)
-    const int64_t page_read_count = RECONSTRUCT_PAGE_STAT(page_read_counter);
-    const int64_t page_read_delta = page_read_count - reported.page_read_counter;
+    const int64_t page_read_delta = stats.page_read_counter - reported.page_read_counter;
     if (_profile.page_read_count != nullptr) {
         COUNTER_UPDATE(_profile.page_read_count, page_read_delta);
     }
@@ -594,38 +589,24 @@ int64_t NativeColumnReader::sync_native_profile() {
                                reported.page_cache_decompressed_write_counter);
     }
     if (_profile.page_cache_hit_count != nullptr) {
-        COUNTER_UPDATE(
-                _profile.page_cache_hit_count,
-                RECONSTRUCT_PAGE_STAT(page_cache_hit_counter) - reported.page_cache_hit_counter);
+        COUNTER_UPDATE(_profile.page_cache_hit_count,
+                       stats.page_cache_hit_counter - reported.page_cache_hit_counter);
     }
     if (_profile.page_cache_miss_count != nullptr) {
         COUNTER_UPDATE(_profile.page_cache_miss_count,
-                       RECONSTRUCT_PAGE_STAT(page_cache_missing_counter) -
-                               reported.page_cache_missing_counter);
+                       stats.page_cache_missing_counter - reported.page_cache_missing_counter);
     }
     if (_profile.page_cache_compressed_hit_count != nullptr) {
         COUNTER_UPDATE(_profile.page_cache_compressed_hit_count,
-                       RECONSTRUCT_PAGE_STAT(page_cache_compressed_hit_counter) -
+                       stats.page_cache_compressed_hit_counter -
                                reported.page_cache_compressed_hit_counter);
     }
     if (_profile.page_cache_decompressed_hit_count != nullptr) {
         COUNTER_UPDATE(_profile.page_cache_decompressed_hit_count,
-                       RECONSTRUCT_PAGE_STAT(page_cache_decompressed_hit_counter) -
+                       stats.page_cache_decompressed_hit_counter -
                                reported.page_cache_decompressed_hit_counter);
     }
-#undef RECONSTRUCT_PAGE_STAT
     _reported_native_stats = stats;
-    _reported_native_stats.page_read_counter = page_read_count;
-    _reported_native_stats.page_cache_hit_counter =
-            stats.page_cache_hit_counter - last_query.page_cache_hit_counter;
-    _reported_native_stats.page_cache_missing_counter =
-            stats.page_cache_missing_counter - last_query.page_cache_missing_counter;
-    _reported_native_stats.page_cache_compressed_hit_counter =
-            stats.page_cache_compressed_hit_counter - last_query.page_cache_compressed_hit_counter;
-    _reported_native_stats.page_cache_decompressed_hit_counter =
-            stats.page_cache_decompressed_hit_counter -
-            last_query.page_cache_decompressed_hit_counter;
-    _last_native_query_stats = stats;
     return page_read_delta;
 }
 

@@ -107,6 +107,36 @@ format-specific checklist when reviewing Parquet or ORC.
   selectivity, nested width, remote storage, batch sizes, and warm/cold caches. Report both the
   optimization overhead and the avoided work; a low pruning ratio alone is not a defect.
 
+## Parquet Native Decode Boundary
+
+- V2 must instantiate only readers and decoders under `be/src/format_v2/parquet/`; calls into the
+  v1 `ParquetColumnReader` or edits under `be/src/format/parquet/` are review blockers.
+- Trace the hot path as `ColumnReader -> Decoder span/cursor API -> DataTypeSerDe -> Doris Column`.
+  Decoder must not accept a Doris column or target type, and the path must not create Arrow arrays,
+  builders, `DecodedColumnView`, or another decoded leaf batch.
+- Verify physical/logical metadata is immutable per leaf reader and complete for signed integers,
+  decimal precision/scale, date/time/timestamp units and UTC adjustment, INT96, UUID, FLOAT16, and
+  fixed-width binary. Unsupported combinations return explicit errors before plausible output.
+- Verify schema-change routing separately from physical decode. Integer, FLOAT-to-DOUBLE, decimal,
+  and string-family changes should use the direct target-SerDe path. Other supported logical casts
+  may use one persistent generic `ColumnTypeConverter` source column; its value/null-map sizes must
+  reset per batch while capacity is retained, and it must never become a decoder-facing ABI.
+- Dictionary review must separate dictionary-entry IDs from logical rows and non-null payload
+  ordinals. Materialize the typed dictionary once per generation through the same SerDe, validate
+  every index before access, and invalidate cached dictionary state at Row Group/file/type changes.
+- Check direct materialization for PLAIN, RLE/dictionary, DELTA_BINARY_PACKED,
+  DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, and BYTE_STREAM_SPLIT. Filtering must advance encoded
+  values without allocating output; null runs must append defaults without advancing payload.
+- Review complex types as a level/shape problem around scalar leaf materialization. Parent offsets,
+  null maps, sibling alignment, page-spanning rows, and child payload counts must remain correct
+  without materializing an intermediate complex column.
+- For a STRUCT whose projected children are all missing after schema evolution, require a
+  levels-only physical reference leaf. It must advance and validate encoded payload cursors while
+  deriving the synthetic child count, without constructing a discarded string/complex column.
+- `CountColumnReader` must use the native levels-only reader and must not decode payload or call
+  Arrow `ReadRecords`. Require profiles that distinguish page I/O, decompression, level decode,
+  value decode, SerDe materialization, filtered-value skips, and page fragmentation.
+
 ## Parquet Multi-Level Filtering
 
 - Use [FileScannerV2 Parquet Scan Design](file-scanner-v2-parquet-scan-design.md) as the detailed

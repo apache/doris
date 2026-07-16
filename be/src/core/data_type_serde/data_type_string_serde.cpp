@@ -17,14 +17,18 @@
 
 #include "core/data_type_serde/data_type_string_serde.h"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
 
 #include "common/config.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -56,6 +60,38 @@ Status read_string_decoded_values(IColumn& column, const DecodedColumnView& view
     }
     return Status::OK();
 }
+
+template <typename ColumnType>
+class StringParquetConsumer final : public ParquetFixedValueConsumer,
+                                    public ParquetBinaryValueConsumer {
+public:
+    explicit StringParquetConsumer(IColumn& column) : _column(assert_cast<ColumnType&>(column)) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        static constexpr size_t BATCH_SIZE = 256;
+        std::array<StringRef, BATCH_SIZE> refs;
+        size_t offset = 0;
+        while (offset < num_values) {
+            const size_t batch_size = std::min(BATCH_SIZE, num_values - offset);
+            for (size_t row = 0; row < batch_size; ++row) {
+                refs[row] = StringRef(
+                        reinterpret_cast<const char*>(values + (offset + row) * value_width),
+                        value_width);
+            }
+            _column.insert_many_strings(refs.data(), batch_size);
+            offset += batch_size;
+        }
+        return Status::OK();
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        _column.insert_many_strings(values, num_values);
+        return Status::OK();
+    }
+
+private:
+    ColumnType& _column;
+};
 
 } // namespace
 
@@ -494,6 +530,61 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_decoded_values(
                                      get_name(), static_cast<int>(view.value_kind)));
     }
     return read_string_decoded_values<ColumnType>(column, view);
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::read_parquet_dictionary(
+        IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context) const {
+    StringParquetConsumer<ColumnType> consumer(column);
+    return source.decode_dictionary(consumer, consumer);
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_parquet(
+        IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context,
+        size_t num_values, ParquetMaterializationState& state) const {
+    if (context.dictionary_index_only) {
+        if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+            return Status::IOError("Dictionary filter requested for a non-dictionary page");
+        }
+        RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+        auto& indices = assert_cast<ColumnInt32&>(column).get_data();
+        const size_t old_size = indices.size();
+        indices.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            if (UNLIKELY(state.dictionary_indices[row] >
+                         static_cast<uint32_t>(std::numeric_limits<int32_t>::max()))) {
+                indices.resize(old_size);
+                return Status::Corruption("Parquet dictionary index {} exceeds INT32",
+                                          state.dictionary_indices[row]);
+            }
+            indices[old_size + row] = static_cast<int32_t>(state.dictionary_indices[row]);
+        }
+        return Status::OK();
+    }
+    StringParquetConsumer<ColumnType> consumer(column);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
+            return source.decode_binary_values(num_values, consumer);
+        }
+        if (context.physical_type == ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY) {
+            return source.decode_fixed_values(num_values, consumer);
+        }
+        return Status::NotSupported("Unsupported Parquet physical type {} for string SerDe",
+                                    static_cast<int>(context.physical_type));
+    }
+
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
+                               state.dictionary_indices.data() + num_values);
+    return Status::OK();
 }
 
 template <typename ColumnType>
