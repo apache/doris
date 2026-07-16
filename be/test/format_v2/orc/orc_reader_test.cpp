@@ -688,6 +688,27 @@ public:
 
     VExprSPtr get_impl() const override { return _impl; }
 
+    const VExprSPtrs& children() const override { return _impl->children(); }
+
+    TExprNodeType::type node_type() const override { return _impl->node_type(); }
+
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
+        RETURN_IF_ERROR(_impl->prepare(state, desc, context));
+        _prepare_finished = true;
+        return Status::OK();
+    }
+
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        RETURN_IF_ERROR(_impl->open(state, context, scope));
+        _open_finished = true;
+        return Status::OK();
+    }
+
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {
+        _impl->close(context, scope);
+    }
+
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
         return _impl->execute_column_impl(context, block, selector, count, result_column);
@@ -4568,7 +4589,7 @@ protected:
         auto node = make_filter_in_node(TExprNodeType::IN_PRED);
         auto direct_in = VDirectInPredicate::create_shared(node, filter, true);
         direct_in->add_child(TableSlotRef::create_shared(0, 0, -1, schema[0].type, "id"));
-        VExprSPtr predicate = VRuntimeFilterWrapper::create_shared(node, direct_in, 0.0, false, 7);
+        VExprSPtr predicate = std::make_shared<RuntimeFilterWrapperExpr>(direct_in);
         if (shape == DirectInPredicateShape::AND) {
             predicate = std::make_shared<CompoundPredicateExpr>(
                     TExprOpcode::COMPOUND_AND,
