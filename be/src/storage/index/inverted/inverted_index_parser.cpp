@@ -101,6 +101,10 @@ std::string get_parser_mode_string_from_properties(
             return INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
         }
     }
+    if (auto analyzer_it = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        analyzer_it != properties.end() && analyzer_it->second == INVERTED_INDEX_PARSER_KUROMOJI) {
+        return INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
+    }
     return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
 }
 
