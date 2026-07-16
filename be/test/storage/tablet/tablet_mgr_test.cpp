@@ -346,7 +346,7 @@ TEST_F(TabletMgrTest, DeleteShutdownTabletsRoundStopsAtExactQueueEnd) {
     auto round_result = _tablet_mgr->_delete_shutdown_tablets_one_round(
             last_it, failed_tablets, [](const TabletSharedPtr&) { return true; }, 2, 2, 200);
 
-    EXPECT_EQ(round_result.moved_count, 2);
+    EXPECT_EQ(round_result.resolved_count, 2);
     EXPECT_EQ(round_result.failed_count, 0);
     EXPECT_FALSE(round_result.need_continue);
     EXPECT_TRUE(failed_tablets.empty());
@@ -415,7 +415,7 @@ TEST_F(TabletMgrTest, DeleteShutdownTabletsRoundDoesNotChargeBudgetForFailures) 
             2, 2, 200);
 
     EXPECT_EQ(move_attempts, 3);
-    EXPECT_EQ(round_result.moved_count, 2);
+    EXPECT_EQ(round_result.resolved_count, 2);
     EXPECT_EQ(round_result.failed_count, 1);
     EXPECT_TRUE(round_result.need_continue);
     ASSERT_EQ(failed_tablets.size(), 1);

@@ -196,7 +196,7 @@ private:
     };
 
     struct RoundResult {
-        int moved_count = 0;
+        int resolved_count = 0;
         int failed_count = 0;
         int64_t elapsed_ms = 0;
         bool need_continue = false;

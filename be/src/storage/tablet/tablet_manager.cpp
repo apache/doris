@@ -118,15 +118,16 @@ int get_effective_shutdown_tablet_sweep_interval_ms() {
 } // namespace
 
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
-// These metrics expose shutdown tablet sweep backlog, outcomes, and timing.
+// These metrics expose shutdown tablet sweep backlog, resolved outcomes, and timing.
 bvar::Adder<int64_t> g_shutdown_tablet_cleanup_backlog("shutdown_tablet_cleanup_backlog");
-bvar::Status<int64_t> g_shutdown_tablet_last_round_moved("shutdown_tablet_last_round_moved", 0);
+bvar::Status<int64_t> g_shutdown_tablet_last_round_resolved("shutdown_tablet_last_round_resolved",
+                                                            0);
 bvar::Status<int64_t> g_shutdown_tablet_last_round_move_failed_attempts(
         "shutdown_tablet_last_round_move_failed_attempts", 0);
 bvar::Status<int64_t> g_shutdown_tablet_last_round_ms("shutdown_tablet_last_round_ms", 0);
 bvar::Status<int64_t> g_trash_sweep_stale_rowset_phase_ms("trash_sweep_stale_rowset_phase_ms", 0);
 bvar::Status<int64_t> g_shutdown_tablet_last_sweep_ms("shutdown_tablet_last_sweep_ms", 0);
-bvar::Adder<int64_t> g_shutdown_tablet_sweep_moved_total("shutdown_tablet_sweep_moved_total");
+bvar::Adder<int64_t> g_shutdown_tablet_sweep_resolved_total("shutdown_tablet_sweep_resolved_total");
 bvar::Adder<int64_t> g_shutdown_tablet_sweep_move_failed_attempts_total(
         "shutdown_tablet_sweep_move_failed_attempts_total");
 
@@ -1299,7 +1300,7 @@ TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
         for (const auto& tablet : fetch_result.tablets) {
             if (move_tablet(tablet)) {
                 --budget;
-                ++result.moved_count;
+                ++result.resolved_count;
                 // Decrement the pending backlog after the shutdown entry is fully resolved.
                 _adjust_shutdown_tablet_backlog(-1);
             } else {
@@ -1342,10 +1343,10 @@ Status TabletManager::_sweep_shutdown_tablets(
                 last_it, failed_tablets, move_tablet,
                 get_effective_shutdown_tablet_sweep_round_budget(), kShutdownTabletFetchChunk,
                 kShutdownTabletScanChunk);
-        g_shutdown_tablet_last_round_moved.set_value(round_result.moved_count);
+        g_shutdown_tablet_last_round_resolved.set_value(round_result.resolved_count);
         g_shutdown_tablet_last_round_move_failed_attempts.set_value(round_result.failed_count);
         g_shutdown_tablet_last_round_ms.set_value(round_result.elapsed_ms);
-        g_shutdown_tablet_sweep_moved_total << round_result.moved_count;
+        g_shutdown_tablet_sweep_resolved_total << round_result.resolved_count;
         g_shutdown_tablet_sweep_move_failed_attempts_total << round_result.failed_count;
         if (!round_result.need_continue) {
             break;
