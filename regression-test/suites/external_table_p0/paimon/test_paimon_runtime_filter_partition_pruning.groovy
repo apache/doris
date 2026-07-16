@@ -231,7 +231,6 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
 
         try {
             sql """ set time_zone = 'Asia/Shanghai'; """
-            sql """ set enable_file_scanner_v2 = false; """
             sql """ set enable_runtime_filter_partition_prune = false; """
             test_runtime_filter_partition_pruning()
             sql """ set enable_runtime_filter_partition_prune = true; """
@@ -239,7 +238,6 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
 
         } finally {
             sql """ unset variable time_zone; """
-            sql """ unset variable enable_file_scanner_v2; """
             sql """ set enable_runtime_filter_partition_prune = true; """
         }
     }
