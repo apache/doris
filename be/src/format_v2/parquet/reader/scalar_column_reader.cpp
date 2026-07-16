@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "util/defer_op.h"
 #include "util/simd/bits.h"
 
 namespace doris::format::parquet {
@@ -147,6 +148,10 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     }
     auto& reader = leaf_reader();
     RETURN_IF_ERROR(reader.read_batch(rows, &_leaf_batch, rows_read));
+
+    // Every path below consumes the Arrow payload synchronously. Keep reusable vector capacity but
+    // release the shared_ptr ownership before this call returns, including validation failures.
+    Defer release_binary_chunks([this] { _leaf_batch.release_binary_chunks(); });
 
     _null_map.clear();
     RETURN_IF_ERROR(reader.build_null_map(_leaf_batch, *rows_read, &_null_map));
@@ -323,6 +328,7 @@ Status ScalarColumnReader::read_range_with_dictionary_filter(
     }
 
     RETURN_IF_ERROR(leaf_reader().read_batch(rows, &_leaf_batch, rows_read));
+    Defer release_binary_chunks([this] { _leaf_batch.release_binary_chunks(); });
     int64_t matched_rows = 0;
     RETURN_IF_ERROR(append_dictionary_filtered_values(_leaf_batch.binary_chunks(),
                                                       dictionary_filter, column, row_filter,
@@ -353,6 +359,11 @@ Status ScalarColumnReader::append_dictionary_filtered_values(
     *used_filter = false;
 
     _dictionary_binary_values.clear();
+    Defer clear_dictionary_binary_values([this] {
+        // StringRef entries borrow Arrow dictionary bytes. Clear them on every return path before
+        // read_range_with_dictionary_filter() releases the owning chunks.
+        _dictionary_binary_values.clear();
+    });
     for (const auto& chunk : chunks) {
         DORIS_CHECK(chunk != nullptr);
         const auto* dict_array = dynamic_cast<const ::arrow::DictionaryArray*>(chunk.get());
@@ -398,11 +409,7 @@ Status ScalarColumnReader::append_dictionary_filtered_values(
     if (!*used_filter) {
         return Status::OK();
     }
-    auto status = append_decoded_binary_values(_dictionary_binary_values, column);
-    // StringRef does not own the Arrow dictionary bytes. Drop the logical references immediately
-    // after synchronous materialization while keeping vector capacity for the next batch.
-    _dictionary_binary_values.clear();
-    return status;
+    return append_decoded_binary_values(_dictionary_binary_values, column);
 }
 
 Status ScalarColumnReader::append_decoded_binary_values(const std::vector<StringRef>& values,

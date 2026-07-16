@@ -73,22 +73,23 @@ mature Parquet page and encoding support:
 
 | Stage | State and boundary |
 | --- | --- |
-| Native encoding kernel | Reuse and extract the Doris v1 decoders behind a schema-independent physical Column Chunk contract. Selection-aware scalar decoding and reusable string scratch are the first vertical slice. |
+| Native encoding kernel | Reimplement the proven Doris v1 decoder algorithms under `be/src/format_v2/parquet/` behind a schema-independent physical Column Chunk contract. Selection-aware scalar decoding and reusable string scratch are the first vertical slice. |
 | Native column reader | Make the leaf reader and its SerDe, null map, selection ranges, binary values, level buffers, and conversion scratch persistent for a Row Group. Add direct Doris materialization paths. |
 | Complex reconstruction | Build one shared Dremel level plan per requested parent-row range and use it for STRUCT/ARRAY/MAP siblings, offsets, and null maps. |
 | Metadata and planning | Replace Arrow footer/schema/Row Group metadata dependencies with native Thrift-derived objects while preserving the existing planner, index, cache, and split contracts. |
-| Compatibility removal | Remove Arrow data-read adapters only after type/encoding/page/writer compatibility and performance gates pass. Keep an explicit fallback during migration; never silently select a partially supported native path. |
+| Compatibility removal | Remove Arrow data-read adapters after type/encoding/page/writer compatibility and performance gates pass. Production v2 never falls back from a selected native reader to Arrow; an unsupported combination returns an explicit error. |
 
-At the current migration boundary, Arrow may still be present in the v2 footer/schema, planning, or
-I/O adapter path. That does not make Arrow arrays part of the native decoder contract. Documentation
-and Profile names must distinguish the native data-page path from remaining metadata/adaptation
-work so an intermediate patch is not mistaken for complete Arrow removal.
+At the current migration boundary, Arrow is still present in the v2 footer/schema, planning, and
+data path. Such a patch is transitional and must not be described as a completed native decoder.
+The production target contains no Arrow object in the v2 runtime call chain. Arrow may be used only
+as a test oracle while differential tests are being developed, never as a runtime compatibility
+fallback.
 
 All production integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the
-correctness and performance control. Extracting a narrow shared decoder primitive is permitted when
-it preserves the legacy API and behavior, but the migration does not route v1 reads through a new
-v2 path. This separation makes differential testing meaningful and prevents a v2 performance
-experiment from regressing the established reader.
+correctness and performance control. Decoder code required by v2 is reimplemented in the v2 tree;
+the migration does not change v1 or route v1 reads through a new v2 path. This separation makes
+differential testing meaningful and prevents a v2 experiment from regressing the established
+reader.
 
 ### 2.2 Native Interface Ownership
 
@@ -383,9 +384,9 @@ that parsing step both feed the same level and value-decoder contracts.
 | DELTA_BYTE_ARRAY | Reconstruct prefix/suffix values with persistent previous-value and binary scratch state |
 | BYTE_STREAM_SPLIT | Reassemble primitive lanes and apply selection without an Arrow intermediate |
 
-Unsupported physical-type/encoding combinations return an explicit error or use a declared
-compatibility fallback. They never produce a plausible result through a decoder selected only by
-logical Doris type. Dictionary-to-plain transitions, multiple data pages, Page V1/V2, truncated
+Unsupported physical-type/encoding combinations return an explicit error. They never fall back to
+Arrow and never produce a plausible result through a decoder selected only by logical Doris type.
+Dictionary-to-plain transitions, multiple data pages, Page V1/V2, truncated
 payloads, integer overflow, and invalid lengths/IDs are part of the unit-test matrix.
 
 ### 7.3 Direct Materialization and Scratch Reuse
@@ -396,17 +397,22 @@ runs. String-like decoders gather selected `StringRef` values into persistent sc
 one batched append, so fragmented predicates do not cause one destination growth or copy call per
 run. Scratch stores references only while the backing page/dictionary buffer is stable.
 
+`DecodedColumnView` is not the native Parquet decoder output ABI. It describes already decoded
+physical values and is useful to generic format conversion code, but routing every Parquet value
+through it would recreate an intermediate materialization layer. A native encoding decoder consumes
+encoded page bytes plus levels/selection and appends to the Doris physical column. Only a genuine
+physical-to-logical mismatch invokes the reusable conversion layer after decode.
+
 Decimal and FIXED_LEN_BYTE_ARRAY direct paths validate the physical byte width, decode big-endian
 two's-complement values with correct sign extension, and apply precision/scale conversion exactly
 once. Date, timestamp, INT96, unsigned annotations, CHAR/VARCHAR, and timezone conversions retain
 the same semantic checks as the general conversion path. A fast path is enabled only when those
 checks prove the result is equivalent.
 
-The persistent leaf reader owns reusable SerDe/conversion objects, null map, selection ranges,
+The persistent leaf reader owns reusable conversion objects, null map, selection ranges,
 definition/repetition levels, binary references, dictionary state, decompression buffers, and Doris
-column/builder capacity. Logical sizes are reset at batch boundaries while capacity is retained.
-During migration, any remaining Arrow builder fallback follows the same lifetime and capacity-reuse
-rule; it must not be constructed once per `ReadRecords` call.
+column capacity. Logical sizes are reset at batch boundaries while capacity is retained. The native
+path does not create an Arrow builder or Arrow array.
 
 ### 7.4 Complex Types and Shared Level Plans
 
@@ -472,7 +478,8 @@ leaf as the entry-shape owner and validates the value leaf against the same entr
 one representative leaf for parent validity and only checks sibling alignment while decoding each
 child.
 
-During migration, the four Arrow-facing methods remain a compatibility facade. Their leaf reader,
+During migration, the four Arrow-facing methods are temporary scaffolding, not a runtime fallback.
+Their leaf reader,
 SerDe, binary/null/level scratch, selection ranges, nested batches, parent nulls, entry counts, and
 child-column handles must be persistent so the facade does not add per-batch allocation churn.
 New native decoder code must not depend on this phase ordering or reproduce the temporary

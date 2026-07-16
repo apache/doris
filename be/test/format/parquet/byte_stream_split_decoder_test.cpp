@@ -168,38 +168,6 @@ TEST_F(ByteStreamSplitDecoderTest, test_basic_decode_fixed_length_object) {
     EXPECT_EQ(fixed_length_value(*result_column, 2), "ghi");
 }
 
-TEST_F(ByteStreamSplitDecoderTest, test_fragmented_index_selection_with_nulls) {
-    const std::vector<float> values = {1.0F, 2.0F, 3.0F, 4.0F};
-    std::vector<uint8_t> encoded(values.size() * sizeof(float));
-    for (size_t value_index = 0; value_index < values.size(); ++value_index) {
-        const auto* bytes = reinterpret_cast<const uint8_t*>(&values[value_index]);
-        for (size_t byte_index = 0; byte_index < sizeof(float); ++byte_index) {
-            encoded[byte_index * values.size() + value_index] = bytes[byte_index];
-        }
-    }
-    Slice data_slice(encoded.data(), encoded.size());
-    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
-    _decoder.set_type_length(sizeof(float));
-
-    MutableColumnPtr column = ColumnFloat32::create();
-    DataTypePtr data_type = std::make_shared<DataTypeFloat32>();
-    const std::vector<uint16_t> null_runs = {2, 1, 2, 1};
-    const std::vector<uint16_t> selection = {1, 2, 4, 5};
-    NullMap null_map;
-    ColumnSelectVector select_vector;
-    ASSERT_TRUE(select_vector
-                        .init_from_selection(null_runs, 6, &null_map, selection.data(),
-                                             selection.size())
-                        .ok());
-
-    ASSERT_TRUE(_decoder.decode_values(column, data_type, select_vector, false).ok());
-    ASSERT_EQ(column->size(), 4);
-    EXPECT_EQ(null_map, (NullMap {0, 1, 0, 1}));
-    const auto& decoded = assert_cast<const ColumnFloat32&>(*column).get_data();
-    EXPECT_FLOAT_EQ(decoded[0], 2.0F);
-    EXPECT_FLOAT_EQ(decoded[2], 4.0F);
-}
-
 // Test decoding with filter for FLOAT type
 TEST_F(ByteStreamSplitDecoderTest, test_decode_with_filter_float) {
     // Prepare test data for FLOAT type

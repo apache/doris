@@ -35,6 +35,7 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/string_ref.h"
 #include "runtime/runtime_profile.h"
+#include "util/defer_op.h"
 #include "util/simd/bits.h"
 
 namespace doris::format::parquet {
@@ -354,7 +355,12 @@ Status ParquetLeafReader::collect_levels_batch(::parquet::internal::RecordReader
     // materialization.
     if (batch->is_binary_value()) {
         _discarded_binary_chunks.clear();
-        RETURN_IF_ERROR(get_binary_chunks(_name, record_reader, &_discarded_binary_chunks));
+        auto status = get_binary_chunks(_name, record_reader, &_discarded_binary_chunks);
+        // GetBuilderChunks()/GetResult() transfers the Arrow builder result into shared_ptrs.
+        // Retaining those shared_ptrs in persistent scratch would keep the whole payload alive
+        // until the next levels-only batch and overlap it with the next builder allocation.
+        _discarded_binary_chunks.clear();
+        RETURN_IF_ERROR(status);
     }
 
     // COUNT(col) and nested skip only need top-level shape. Fixed-width values remain owned by the
@@ -381,6 +387,14 @@ Status ParquetLeafReader::append_values_with_type(const ParquetLeafBatch& batch,
     _compact_binary_values.clear();
     _spaced_values.clear();
     _float_values.clear();
+    Defer clear_logical_scratch([this] {
+        // StringRef entries borrow Arrow buffers owned by ParquetLeafBatch. Drop every borrowed
+        // pointer before the owner releases those chunks; clear() retains all reusable capacity.
+        _binary_values.clear();
+        _compact_binary_values.clear();
+        _spaced_values.clear();
+        _float_values.clear();
+    });
     DecodedColumnView view;
     view.value_kind = batch._value_kind;
     view.time_unit = decoded_time_unit(_type_descriptor.time_unit);
@@ -511,6 +525,11 @@ Status ParquetLeafReader::read_batch(int64_t batch_rows, ParquetLeafBatch* batch
                                      _name);
     }
 
+    // A caller normally releases chunks immediately after consuming the batch. Clear once more at
+    // the producer boundary so an error in an earlier consumer can never overlap the previous
+    // Arrow payload with Reserve()/ReadRecords() for this batch.
+    batch->release_binary_chunks();
+
     try {
         _record_reader->Reset();
         _record_reader->Reserve(batch_rows);
@@ -529,7 +548,13 @@ Status ParquetLeafReader::read_batch(int64_t batch_rows, ParquetLeafBatch* batch
         return Status::Corruption("Invalid parquet record read result for column {}: {}", _name,
                                   *rows_read);
     }
-    return collect_batch(*_record_reader, batch);
+    auto status = collect_batch(*_record_reader, batch);
+    if (!status.ok()) {
+        // collect_batch() may already have acquired Arrow builder chunks before detecting a
+        // malformed chunk. No consumer will run on an error, so release that ownership here.
+        batch->release_binary_chunks();
+    }
+    return status;
 }
 
 Status ParquetLeafReader::build_null_map(const ParquetLeafBatch& batch, int64_t records_read,
@@ -558,9 +583,11 @@ Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_sl
                                             int16_t value_slot_repetition_level) const {
     int64_t records_read = 0;
     RETURN_IF_ERROR(read_batch(batch_rows, &_nested_leaf_batch, &records_read));
-    return build_nested_batch_from_leaf_batch(_nested_leaf_batch, records_read,
-                                              value_slot_definition_level, batch,
-                                              value_slot_repetition_level);
+    Defer release_binary_chunks([this] { _nested_leaf_batch.release_binary_chunks(); });
+    auto status = build_nested_batch_from_leaf_batch(_nested_leaf_batch, records_read,
+                                                     value_slot_definition_level, batch,
+                                                     value_slot_repetition_level);
+    return status;
 }
 
 Status ParquetLeafReader::read_nested_levels_batch(int64_t batch_rows,

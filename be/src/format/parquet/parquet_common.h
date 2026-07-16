@@ -93,29 +93,6 @@ public:
                 NullMap* null_map, FilterMap* filter_map, size_t filter_map_index,
                 const std::unordered_set<size_t>* skipped_indices = nullptr);
 
-    /**
-     * Build a decoder plan from sorted logical-row indices.
-     *
-     * This is the native late-materialization contract used by the new Parquet reader. The
-     * selection indices address the logical rows described by `run_length_null_map`, including
-     * null rows. They must be strictly increasing and smaller than `num_values`. A null pointer is
-     * the dense identity selection and therefore requires `selected_count == num_values`; it is
-     * also accepted for an empty selection.
-     *
-     * `run_length_null_map` alternates non-null and null run lengths, starting with a non-null run.
-     * Zero-length runs are valid because they preserve the alternation. An empty vector means that
-     * all logical rows are non-null. When `null_map` is non-null, this method appends exactly
-     * `selected_count` entries in output order.
-     *
-     * The plan does not copy `selected_indices` or `run_length_null_map`. Both must remain alive
-     * and unchanged until the decoder has consumed all runs through get_next_run(). The plan owns
-     * no per-row action array: it merges the two sorted streams while the decoder advances, so a
-     * fragmented selection does not allocate O(num_values) scratch memory.
-     */
-    Status init_from_selection(const std::vector<uint16_t>& run_length_null_map, size_t num_values,
-                               NullMap* null_map, const uint16_t* selected_indices,
-                               size_t selected_count);
-
     size_t num_values() const { return _num_values; }
 
     size_t num_nulls() const { return _num_nulls; }
@@ -128,9 +105,6 @@ public:
     size_t get_next_run(DataReadType* data_read_type) {
         DCHECK_EQ(_has_filter, has_filter);
         if constexpr (has_filter) {
-            if (_uses_index_selection) {
-                return _get_next_selection_run(data_read_type);
-            }
             if (_read_index == _num_values) {
                 return 0;
             }
@@ -147,14 +121,6 @@ public:
             *data_read_type = type;
             return run_length;
         } else {
-            if (_run_length_null_map->empty()) {
-                if (_read_index != 0) {
-                    return 0;
-                }
-                ++_read_index;
-                *data_read_type = CONTENT;
-                return _num_values;
-            }
             size_t run_length = 0;
             while (run_length == 0) {
                 if (_read_index == (*_run_length_null_map).size()) {
@@ -168,33 +134,14 @@ public:
     }
 
 private:
-    Status _validate_null_runs(const std::vector<uint16_t>& run_length_null_map,
-                               size_t num_values) const;
-    void _reset_selection_cursor();
-    DataReadType _current_selection_type() const;
-    void _advance_selection_cursor(size_t run_length);
-    size_t _get_next_selection_run(DataReadType* data_read_type);
-
     std::vector<DataReadType> _data_map;
     // the length of non-null values and null values are arranged in turn.
-    const std::vector<uint16_t>* _run_length_null_map = nullptr;
-    bool _has_filter = false;
-    size_t _num_values = 0;
-    size_t _num_nulls = 0;
-    size_t _num_filtered = 0;
-    size_t _read_index = 0;
-
-    // INDEX selection mode. The input arrays are borrowed for the duration of one decode call.
-    // `_selection_row_index` is the logical row (nulls included); decoder payload cursors advance
-    // only for CONTENT and FILTERED_CONTENT runs.
-    const uint16_t* _selection_indices = nullptr;
-    bool _uses_index_selection = false;
-    size_t _selected_count = 0;
-    size_t _selected_index = 0;
-    size_t _selection_row_index = 0;
-    size_t _selection_null_run_index = 0;
-    size_t _selection_null_run_remaining = 0;
-    bool _selection_row_is_null = false;
+    const std::vector<uint16_t>* _run_length_null_map;
+    bool _has_filter;
+    size_t _num_values;
+    size_t _num_nulls;
+    size_t _num_filtered;
+    size_t _read_index;
 };
 
 enum class ColumnOrderName { UNDEFINED, TYPE_DEFINED_ORDER };

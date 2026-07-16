@@ -111,10 +111,9 @@ instructions as well; this file adds format-v2-specific review expectations.
 ### Parquet Native Decode Kernel
 
 - Keep the production integration under `be/src/format_v2/parquet/`. Doris v1 is the behavior and
-  performance baseline, not the migration target. Do not change the v1 reader call path merely to
-  exercise v2 code. A shared-kernel change under `be/src/format/parquet/` is acceptable only when
-  extraction cannot reasonably avoid it, the legacy API and behavior remain unchanged, and focused
-  v1 compatibility tests accompany the v2 tests.
+  performance baseline, not the migration target. Do not modify `be/src/format/parquet/` for a v2
+  decoder change. Reimplement the required decoder under the v2 tree and keep v1 unchanged so
+  differential correctness and performance results remain meaningful.
 - Keep the native decode boundary independent of both Arrow descriptors/builders and table-schema
   objects. A Column Chunk schema contract should contain only immutable physical type, fixed width,
   and Dremel-level thresholds. Review constructor arguments and stored references for ownership and
@@ -164,7 +163,11 @@ instructions as well; this file adds format-v2-specific review expectations.
 - Materialize directly into Doris columns when the physical and target layouts allow it. Decimal
   and FIXED_LEN_BYTE_ARRAY paths must validate byte width, endianness, sign extension, precision,
   and scale. Date/time and INT96 conversion must preserve timezone and overflow semantics. A direct
-  path may not bypass the conversion rules used by the fallback path.
+  path may not bypass the conversion rules used by the general conversion path.
+- Do not add an Arrow runtime fallback. Once v2 selects its native Parquet reader, unsupported
+  physical types, encodings, page layouts, or malformed inputs return an explicit status. Arrow may
+  be used as a test oracle only; no Arrow array, builder, RecordReader, or metadata lifetime belongs
+  in the completed v2 runtime path.
 - Reuse decoder, SerDe, null-map, selection-range, binary-value, level, and builder scratch across
   batches. String-like decoders should gather selected `StringRef` values and append once per batch,
   rather than allocate or grow the destination once per run. Scratch capacity may grow to a bounded

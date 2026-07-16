@@ -504,6 +504,7 @@ TEST(ParquetScalarColumnReaderTest, DictionaryIndexOutsideFilterIsCorruption) {
             reader, chunks, IColumn::Filter {1}, column, &row_filter, &matched_rows, &used_filter);
     EXPECT_EQ(ErrorCode::CORRUPTION, status.code()) << status;
     EXPECT_NE(status.to_string().find("Invalid parquet dictionary index 1"), std::string::npos);
+    EXPECT_EQ(ScalarColumnReaderTestAccess::dictionary_binary_size(reader), 0);
 }
 
 TEST(ParquetScalarColumnReaderTest, LeafReaderAndDictionaryScratchArePersistent) {

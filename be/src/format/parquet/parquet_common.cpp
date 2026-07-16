@@ -19,8 +19,6 @@
 
 #include <glog/logging.h>
 
-#include <algorithm>
-
 #include "common/cast_set.h"
 #include "core/types.h"
 #include "util/simd/bits.h"
@@ -122,10 +120,6 @@ Status FilterMap::generate_nested_filter_map(const std::vector<level_t>& rep_lev
 Status ColumnSelectVector::init(const std::vector<uint16_t>& run_length_null_map, size_t num_values,
                                 NullMap* null_map, FilterMap* filter_map, size_t filter_map_index,
                                 const std::unordered_set<size_t>* skipped_indices) {
-    _uses_index_selection = false;
-    _selection_indices = nullptr;
-    _selected_count = 0;
-    _run_length_null_map = &run_length_null_map;
     _num_values = num_values;
     _num_nulls = 0;
     _read_index = 0;
@@ -222,178 +216,6 @@ Status ColumnSelectVector::init(const std::vector<uint16_t>& run_length_null_map
         }
     }
     return Status::OK();
-}
-
-Status ColumnSelectVector::_validate_null_runs(const std::vector<uint16_t>& run_length_null_map,
-                                               size_t num_values) const {
-    if (run_length_null_map.empty()) {
-        return Status::OK();
-    }
-
-    size_t run_length_sum = 0;
-    for (const auto run_length : run_length_null_map) {
-        run_length_sum += run_length;
-        if (run_length_sum > num_values) {
-            return Status::InvalidArgument(
-                    fmt::format("Parquet null runs describe {} rows, which exceeds num_values {}",
-                                run_length_sum, num_values));
-        }
-    }
-    if (run_length_sum != num_values) {
-        return Status::InvalidArgument(fmt::format(
-                "Parquet null runs describe {} rows, expected {}", run_length_sum, num_values));
-    }
-    return Status::OK();
-}
-
-Status ColumnSelectVector::init_from_selection(const std::vector<uint16_t>& run_length_null_map,
-                                               size_t num_values, NullMap* const null_map,
-                                               const uint16_t* selected_indices,
-                                               size_t selected_count) {
-    RETURN_IF_ERROR(_validate_null_runs(run_length_null_map, num_values));
-    if (selected_count > num_values) {
-        return Status::InvalidArgument(
-                fmt::format("Parquet selection contains {} rows, which exceeds num_values {}",
-                            selected_count, num_values));
-    }
-    if (selected_indices == nullptr && selected_count != 0 && selected_count != num_values) {
-        return Status::InvalidArgument(
-                "A partial Parquet selection must provide explicit row indices");
-    }
-    if (selected_indices != nullptr) {
-        for (size_t i = 0; i < selected_count; ++i) {
-            if (selected_indices[i] >= num_values) {
-                return Status::InvalidArgument(
-                        fmt::format("Parquet selection index {} is outside [0, {})",
-                                    selected_indices[i], num_values));
-            }
-            if (i != 0 && selected_indices[i - 1] >= selected_indices[i]) {
-                return Status::InvalidArgument(
-                        "Parquet selection indices must be strictly increasing");
-            }
-        }
-    }
-
-    _data_map.clear();
-    _run_length_null_map = &run_length_null_map;
-    _selection_indices = selected_indices;
-    _selected_count = selected_count;
-    _num_values = num_values;
-    _num_filtered = num_values - selected_count;
-    _has_filter = selected_count != num_values;
-    _uses_index_selection = _has_filter;
-    _read_index = 0;
-    _num_nulls = 0;
-
-    bool is_null = false;
-    for (const auto run_length : run_length_null_map) {
-        if (is_null) {
-            _num_nulls += run_length;
-        }
-        is_null = !is_null;
-    }
-
-    if (null_map != nullptr && selected_count != 0) {
-        const size_t null_map_offset = null_map->size();
-        null_map->resize(null_map_offset + selected_count);
-        if (run_length_null_map.empty() || _num_nulls == 0) {
-            memset(null_map->data() + null_map_offset, 0, selected_count);
-        } else if (_num_nulls == num_values) {
-            memset(null_map->data() + null_map_offset, 1, selected_count);
-        } else {
-            size_t run_index = 0;
-            size_t run_end = run_length_null_map[0];
-            bool selected_row_is_null = false;
-            for (size_t i = 0; i < selected_count; ++i) {
-                const size_t selected_row = selected_indices == nullptr ? i : selected_indices[i];
-                while (selected_row >= run_end) {
-                    ++run_index;
-                    selected_row_is_null = !selected_row_is_null;
-                    run_end += run_length_null_map[run_index];
-                }
-                (*null_map)[null_map_offset + i] = selected_row_is_null;
-            }
-        }
-    }
-
-    _reset_selection_cursor();
-    return Status::OK();
-}
-
-void ColumnSelectVector::_reset_selection_cursor() {
-    _selected_index = 0;
-    _selection_row_index = 0;
-    _selection_null_run_index = 0;
-    _selection_row_is_null = false;
-
-    if (_run_length_null_map->empty()) {
-        _selection_null_run_remaining = _num_values;
-        return;
-    }
-
-    _selection_null_run_remaining = (*_run_length_null_map)[0];
-    while (_selection_null_run_remaining == 0 &&
-           _selection_null_run_index + 1 < _run_length_null_map->size()) {
-        ++_selection_null_run_index;
-        _selection_row_is_null = !_selection_row_is_null;
-        _selection_null_run_remaining = (*_run_length_null_map)[_selection_null_run_index];
-    }
-}
-
-ColumnSelectVector::DataReadType ColumnSelectVector::_current_selection_type() const {
-    const bool selected = _selected_index < _selected_count &&
-                          _selection_indices[_selected_index] == _selection_row_index;
-    if (selected) {
-        return _selection_row_is_null ? NULL_DATA : CONTENT;
-    }
-    return _selection_row_is_null ? FILTERED_NULL : FILTERED_CONTENT;
-}
-
-void ColumnSelectVector::_advance_selection_cursor(size_t run_length) {
-    DCHECK_GT(run_length, 0);
-    DCHECK_LE(run_length, _selection_null_run_remaining);
-    const size_t next_row_index = _selection_row_index + run_length;
-    while (_selected_index < _selected_count &&
-           _selection_indices[_selected_index] < next_row_index) {
-        ++_selected_index;
-    }
-    _selection_row_index = next_row_index;
-    _selection_null_run_remaining -= run_length;
-
-    while (_selection_row_index < _num_values && _selection_null_run_remaining == 0) {
-        ++_selection_null_run_index;
-        _selection_row_is_null = !_selection_row_is_null;
-        _selection_null_run_remaining = (*_run_length_null_map)[_selection_null_run_index];
-    }
-}
-
-size_t ColumnSelectVector::_get_next_selection_run(DataReadType* data_read_type) {
-    if (_selection_row_index == _num_values) {
-        return 0;
-    }
-
-    *data_read_type = _current_selection_type();
-    size_t run_length = 0;
-    if (*data_read_type == CONTENT || *data_read_type == NULL_DATA) {
-        const size_t null_run_end = _selection_row_index + _selection_null_run_remaining;
-        size_t selected_index = _selected_index;
-        size_t expected_row = _selection_row_index;
-        while (selected_index < _selected_count &&
-               _selection_indices[selected_index] == expected_row && expected_row < null_run_end) {
-            ++selected_index;
-            ++expected_row;
-        }
-        run_length = selected_index - _selected_index;
-    } else {
-        const size_t next_selected_row = _selected_index == _selected_count
-                                                 ? _num_values
-                                                 : _selection_indices[_selected_index];
-        run_length =
-                std::min(_selection_null_run_remaining, next_selected_row - _selection_row_index);
-    }
-    DCHECK_GT(run_length, 0);
-    _advance_selection_cursor(run_length);
-    return run_length;
 }
 
 ParsedVersion::ParsedVersion(std::string application, std::optional<std::string> version,

@@ -244,45 +244,6 @@ TEST_F(ByteArrayPlainDecoderTest, test_skip_value) {
     EXPECT_EQ(result_column->get_data_at(0).to_string(), "cherry");
 }
 
-TEST_F(ByteArrayPlainDecoderTest, test_fragmented_index_selection_with_nulls) {
-    const char* values[] = {"zero", "two", "three", "five"};
-    size_t data_size = 0;
-    for (const auto* value : values) {
-        data_size += sizeof(uint32_t) + strlen(value);
-    }
-    _data = std::make_unique<uint8_t[]>(data_size);
-    size_t offset = 0;
-    for (const auto* value : values) {
-        const auto length = static_cast<uint32_t>(strlen(value));
-        encode_fixed32_le(_data.get() + offset, length);
-        offset += sizeof(uint32_t);
-        memcpy(_data.get() + offset, value, length);
-        offset += length;
-    }
-    _data_slice = Slice(_data.get(), data_size);
-
-    ByteArrayPlainDecoder decoder;
-    ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
-    MutableColumnPtr column = ColumnString::create();
-    DataTypePtr data_type = std::make_shared<DataTypeString>();
-    const std::vector<uint16_t> null_runs = {1, 1, 2, 1, 1};
-    const std::vector<uint16_t> selection = {1, 2, 4, 5};
-    NullMap null_map;
-    ColumnSelectVector select_vector;
-    ASSERT_TRUE(select_vector
-                        .init_from_selection(null_runs, 6, &null_map, selection.data(),
-                                             selection.size())
-                        .ok());
-
-    ASSERT_TRUE(decoder.decode_values(column, data_type, select_vector, false).ok());
-    ASSERT_EQ(column->size(), 4);
-    EXPECT_EQ(null_map, (NullMap {1, 0, 1, 0}));
-    EXPECT_EQ(column->get_data_at(0).to_string(), "");
-    EXPECT_EQ(column->get_data_at(1).to_string(), "two");
-    EXPECT_EQ(column->get_data_at(2).to_string(), "");
-    EXPECT_EQ(column->get_data_at(3).to_string(), "five");
-}
-
 TEST_F(ByteArrayPlainDecoderTest, test_decode_truncated_length_prefix) {
     uint8_t data[] = {0x01, 0x00};
     _data_slice = Slice(data, sizeof(data));

@@ -145,20 +145,22 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     }
 
     size_t dict_index = 0;
-    _selected_values.clear();
-    _selected_values.reserve(select_vector.num_values() - select_vector.num_filtered());
 
     ColumnSelectVector::DataReadType read_type;
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
+            DorisVector<StringRef> string_values;
+            string_values.reserve(run_length);
             for (size_t i = 0; i < run_length; ++i) {
-                _selected_values.emplace_back(_dict_items[_indexes[dict_index++]]);
+                string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
             }
+            doris_column->insert_many_strings_overflow(string_values.data(), run_length,
+                                                       _max_value_length);
             break;
         }
         case ColumnSelectVector::NULL_DATA: {
-            _selected_values.insert(_selected_values.end(), run_length, StringRef("", 0));
+            doris_column->insert_many_defaults(run_length);
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
@@ -170,11 +172,6 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
             break;
         }
         }
-    }
-    DCHECK_EQ(_selected_values.size(), select_vector.num_values() - select_vector.num_filtered());
-    if (!_selected_values.empty()) {
-        doris_column->insert_many_strings_overflow(_selected_values.data(), _selected_values.size(),
-                                                   _max_value_length);
     }
     return Status::OK();
 }

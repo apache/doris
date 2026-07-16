@@ -240,35 +240,6 @@ TEST_F(FixLengthPlainDecoderTest, test_decode_with_filter_and_null) {
     }
 }
 
-TEST_F(FixLengthPlainDecoderTest, test_fragmented_index_selection_with_nulls) {
-    int32_t values[] = {123, 456, 789, 1011};
-    _data = std::make_unique<uint8_t[]>(sizeof(values));
-    memcpy(_data.get(), values, sizeof(values));
-    _data_slice = Slice(_data.get(), sizeof(values));
-
-    FixLengthPlainDecoder decoder;
-    decoder.set_type_length(sizeof(int32_t));
-    ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
-
-    MutableColumnPtr column = ColumnInt32::create();
-    DataTypePtr data_type = std::make_shared<DataTypeInt32>();
-    const std::vector<uint16_t> null_runs = {1, 1, 2, 1, 1};
-    const std::vector<uint16_t> selection = {1, 2, 4, 5};
-    NullMap null_map;
-    ColumnSelectVector select_vector;
-    ASSERT_TRUE(select_vector
-                        .init_from_selection(null_runs, 6, &null_map, selection.data(),
-                                             selection.size())
-                        .ok());
-
-    ASSERT_TRUE(decoder.decode_values(column, data_type, select_vector, false).ok());
-    ASSERT_EQ(column->size(), 4);
-    EXPECT_EQ(null_map, (NullMap {1, 0, 1, 0}));
-    const auto& decoded = assert_cast<const ColumnInt32&>(*column).get_data();
-    EXPECT_EQ(decoded[1], 456);
-    EXPECT_EQ(decoded[3], 1011);
-}
-
 // Test skipping values
 TEST_F(FixLengthPlainDecoderTest, test_skip_value) {
     // Prepare test data: create fixed-length integer values

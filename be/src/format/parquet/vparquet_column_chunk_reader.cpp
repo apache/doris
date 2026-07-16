@@ -21,9 +21,7 @@
 #include <glog/logging.h>
 #include <string.h>
 
-#include <algorithm>
 #include <cstdint>
-#include <limits>
 #include <memory>
 #include <utility>
 
@@ -51,33 +49,14 @@ struct IOContext;
 } // namespace doris
 
 namespace doris {
-ParquetColumnChunkSchema ParquetColumnChunkSchema::from_field_schema(
-        const FieldSchema& field_schema) {
-    return ParquetColumnChunkSchema(field_schema.physical_type,
-                                    field_schema.parquet_schema.__isset.type_length
-                                            ? field_schema.parquet_schema.type_length
-                                            : -1,
-                                    field_schema.definition_level, field_schema.repetition_level,
-                                    field_schema.repeated_parent_def_level);
-}
-
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
         io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
         FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index, size_t total_rows,
         io::IOContext* io_ctx, const ParquetPageReadContext& page_read_ctx)
-        : ColumnChunkReader(reader, column_chunk,
-                            ParquetColumnChunkSchema::from_field_schema(*field_schema),
-                            offset_index, total_rows, io_ctx, page_read_ctx) {}
-
-template <bool IN_COLLECTION, bool OFFSET_INDEX>
-ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
-        io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-        ParquetColumnChunkSchema chunk_schema, const tparquet::OffsetIndex* offset_index,
-        size_t total_rows, io::IOContext* io_ctx, const ParquetPageReadContext& page_read_ctx)
-        : _chunk_schema(chunk_schema),
-          _max_rep_level(chunk_schema.max_repetition_level),
-          _max_def_level(chunk_schema.max_definition_level),
+        : _field_schema(field_schema),
+          _max_rep_level(field_schema->repetition_level),
+          _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
           _metadata(column_chunk->meta_data),
           _offset_index(offset_index),
@@ -109,9 +88,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_nested_values(
 
     for (size_t idx = 0; idx < def_levels.size(); idx++) {
         level_t def_level = def_levels[idx];
-        if (IN_COLLECTION && def_level < _chunk_schema.repeated_parent_definition_level) {
+        if (IN_COLLECTION && def_level < _field_schema->repeated_parent_def_level) {
             no_value_cnt++;
-        } else if (def_level < _chunk_schema.max_definition_level) {
+        } else if (def_level < _field_schema->definition_level) {
             no_value_cnt++;
         } else {
             value_cnt++;
@@ -121,58 +100,6 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_nested_values(
     RETURN_IF_ERROR(skip_values(value_cnt, true));
     RETURN_IF_ERROR(skip_values(no_value_cnt, false));
     return Status::OK();
-}
-
-template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::decode_flat_values(
-        MutableColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values,
-        const uint16_t* selected_indices, size_t selected_count, NullMap* const null_map,
-        bool is_dict_filter) {
-    DCHECK(!IN_COLLECTION);
-    DCHECK_EQ(_max_rep_level, 0);
-
-    _definition_runs.clear();
-    if (_max_def_level != 0) {
-        // The first run is always non-null. A leading zero preserves parity when the first decoded
-        // level is null. Two zero runs preserve parity when one logical run exceeds uint16_t.
-        _definition_runs.emplace_back(0);
-        bool current_run_is_null = false;
-        size_t levels_read = 0;
-        while (levels_read < num_values) {
-            level_t definition_level = -1;
-            const size_t run_length =
-                    _def_level_decoder.get_next_run(&definition_level, num_values - levels_read);
-            if (run_length == 0) {
-                return Status::Corruption(
-                        "Parquet definition-level stream ended after {} of {} flat values",
-                        levels_read, num_values);
-            }
-
-            const bool run_is_null = definition_level < _max_def_level;
-            if (run_is_null != current_run_is_null) {
-                _definition_runs.emplace_back(0);
-                current_run_is_null = run_is_null;
-            }
-            size_t remaining = run_length;
-            while (remaining != 0) {
-                const size_t available =
-                        std::numeric_limits<uint16_t>::max() - _definition_runs.back();
-                const size_t appended = std::min(remaining, available);
-                _definition_runs.back() += static_cast<uint16_t>(appended);
-                remaining -= appended;
-                if (remaining != 0) {
-                    _definition_runs.emplace_back(0);
-                    _definition_runs.emplace_back(0);
-                }
-            }
-            levels_read += run_length;
-        }
-    }
-
-    ColumnSelectVector select_vector;
-    RETURN_IF_ERROR(select_vector.init_from_selection(_definition_runs, num_values, null_map,
-                                                      selected_indices, selected_count));
-    return decode_values(doris_column, data_type, select_vector, is_dict_filter);
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -784,7 +711,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_cross_page_nested_ro
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 int32_t ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_get_type_length() {
-    switch (_chunk_schema.physical_type) {
+    switch (_field_schema->physical_type) {
     case tparquet::Type::INT32:
         [[fallthrough]];
     case tparquet::Type::FLOAT:
@@ -796,7 +723,7 @@ int32_t ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_get_type_length() {
     case tparquet::Type::INT96:
         return 12;
     case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-        return _chunk_schema.type_length;
+        return _field_schema->parquet_schema.type_length;
     default:
         return -1;
     }

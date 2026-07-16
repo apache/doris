@@ -178,33 +178,6 @@ TEST_F(ByteArrayDictDecoderTest, test_decode_with_filter_and_null) {
     }
 }
 
-TEST_F(ByteArrayDictDecoderTest, test_fragmented_index_selection_with_nulls) {
-    MutableColumnPtr column = ColumnString::create();
-    DataTypePtr data_type = std::make_shared<DataTypeString>();
-
-    // Four dictionary zeroes followed by dictionary index 2. Null logical rows consume no index.
-    std::vector<uint8_t> rle_data = {2, 8, 0, 3, 0b00000010, 0};
-    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
-    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
-
-    const std::vector<uint16_t> null_runs = {4, 1, 1, 1};
-    const std::vector<uint16_t> selection = {1, 4, 5, 6};
-    NullMap null_map;
-    ColumnSelectVector select_vector;
-    ASSERT_TRUE(select_vector
-                        .init_from_selection(null_runs, 7, &null_map, selection.data(),
-                                             selection.size())
-                        .ok());
-
-    ASSERT_TRUE(_decoder.decode_values(column, data_type, select_vector, false).ok());
-    ASSERT_EQ(column->size(), 4);
-    EXPECT_EQ(null_map, (NullMap {0, 1, 0, 1}));
-    EXPECT_EQ(column->get_data_at(0).to_string(), "apple");
-    EXPECT_EQ(column->get_data_at(1).to_string(), "");
-    EXPECT_EQ(column->get_data_at(2).to_string(), "cherry");
-    EXPECT_EQ(column->get_data_at(3).to_string(), "");
-}
-
 // Test empty dictionary case
 TEST_F(ByteArrayDictDecoderTest, test_empty_dict) {
     ByteArrayDictDecoder empty_decoder;

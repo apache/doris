@@ -96,6 +96,11 @@ public:
         return _binary_chunks;
     }
 
+    // Release Arrow payload ownership as soon as the synchronous Doris materialization finishes.
+    // clear() keeps vector capacity, so the batch remains allocation-reusable without extending
+    // the lifetime of what can be a very large BinaryArray/DictionaryArray payload.
+    void release_binary_chunks() { _binary_chunks.clear(); }
+
 private:
     friend class ParquetLeafReader;
 

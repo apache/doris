@@ -148,6 +148,14 @@ struct ParquetLeafReaderTestAccess {
                                                          value_slot_definition_level, nested_batch,
                                                          value_slot_repetition_level);
     }
+
+    static size_t binary_value_size(const ParquetLeafReader& reader) {
+        return reader._binary_values.size();
+    }
+
+    static size_t binary_value_capacity(const ParquetLeafReader& reader) {
+        return reader._binary_values.capacity();
+    }
 };
 
 std::shared_ptr<::parquet::ColumnDescriptor> int32_column_descriptor(int16_t max_definition_level,
@@ -275,6 +283,9 @@ TEST(ParquetLeafReaderTest, BinaryDenseNullableValuesAreSpacedWithNullRefs) {
     auto status = reader.append_values(batch, 5, &null_map, column);
     ASSERT_TRUE(status.ok()) << status;
 
+    EXPECT_EQ(ParquetLeafReaderTestAccess::binary_value_size(reader), 0);
+    EXPECT_GE(ParquetLeafReaderTestAccess::binary_value_capacity(reader), 5);
+
     const auto& nullable = assert_cast<const ColumnNullable&>(*column);
     const auto& strings = assert_cast<const ColumnString&>(nullable.get_nested_column());
     ASSERT_EQ(nullable.size(), 5);
@@ -283,6 +294,23 @@ TEST(ParquetLeafReaderTest, BinaryDenseNullableValuesAreSpacedWithNullRefs) {
     EXPECT_EQ(strings.get_data_at(2).to_string(), "cc");
     EXPECT_TRUE(nullable.is_null_at(3));
     EXPECT_EQ(strings.get_data_at(4).to_string(), "ee");
+}
+
+TEST(ParquetLeafReaderTest, ReleaseBinaryChunksDropsPayloadAndRetainsVectorCapacity) {
+    ParquetLeafBatch batch;
+    batch._binary_chunks.reserve(4);
+    auto array = fixed_binary_array({"payload"}, 7);
+    std::weak_ptr<arrow::Array> payload = array;
+    batch._binary_chunks.push_back(array);
+    array.reset();
+
+    const auto capacity = batch.binary_chunks().capacity();
+    ASSERT_FALSE(payload.expired());
+    batch.release_binary_chunks();
+
+    EXPECT_TRUE(payload.expired());
+    EXPECT_TRUE(batch.binary_chunks().empty());
+    EXPECT_EQ(batch.binary_chunks().capacity(), capacity);
 }
 
 TEST(ParquetLeafReaderTest, BinaryDenseNullableRejectsCountMismatch) {
@@ -308,6 +336,7 @@ TEST(ParquetLeafReaderTest, BinaryDenseNullableRejectsCountMismatch) {
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("Invalid dense nullable parquet binary values"),
               std::string::npos);
+    EXPECT_EQ(ParquetLeafReaderTestAccess::binary_value_size(reader), 0);
 }
 
 TEST(ParquetLeafReaderTest, DecodedColumnViewCarriesDescriptorSessionAndNullMapFields) {
