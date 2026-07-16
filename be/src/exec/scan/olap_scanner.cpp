@@ -757,12 +757,26 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.cache_aware_lazy_read_readahead_ns);
     COUNTER_UPDATE(local_state->_cache_aware_lazy_read_sampled_pages,
                    stats.cache_aware_lazy_read_sampled_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_sample_batches,
+                   stats.cache_aware_lazy_read_sample_batches);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_sample_doris_cache_hit_pages,
+                   stats.cache_aware_lazy_read_sample_doris_cache_hit_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_sample_os_only_resident_pages,
+                   stats.cache_aware_lazy_read_sample_os_only_resident_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_sample_cold_pages,
+                   stats.cache_aware_lazy_read_sample_cold_pages);
     COUNTER_UPDATE(local_state->_cache_aware_lazy_read_enabled_segments,
                    stats.cache_aware_lazy_read_enabled_segments);
-    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_skipped_low_io_segments,
-                   stats.cache_aware_lazy_read_skipped_low_io_segments);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_skipped_insufficient_sample_segments,
+                   stats.cache_aware_lazy_read_skipped_insufficient_sample_segments);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_skipped_low_os_resident_segments,
+                   stats.cache_aware_lazy_read_skipped_low_os_resident_segments);
     COUNTER_UPDATE(local_state->_cache_aware_lazy_read_skipped_cold_ratio_segments,
                    stats.cache_aware_lazy_read_skipped_cold_ratio_segments);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_cooldown_events,
+                   stats.cache_aware_lazy_read_cooldown_events);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_resample_attempts,
+                   stats.cache_aware_lazy_read_resample_attempts);
     COUNTER_UPDATE(local_state->_cache_aware_lazy_read_budget_limit_events,
                    stats.cache_aware_lazy_read_budget_limit_events);
     COUNTER_UPDATE(local_state->_cache_aware_lazy_read_skipped_prefetch_ranges,

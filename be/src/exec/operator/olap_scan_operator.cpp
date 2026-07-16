@@ -245,12 +245,26 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_segment_profile, "CacheAwareLazyReadReadaheadTime");
     _cache_aware_lazy_read_sampled_pages =
             ADD_COUNTER(_segment_profile, "CacheAwareLazyReadSampledPages", TUnit::UNIT);
+    _cache_aware_lazy_read_sample_batches =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadSampleBatches", TUnit::UNIT);
+    _cache_aware_lazy_read_sample_doris_cache_hit_pages = ADD_COUNTER(
+            _segment_profile, "CacheAwareLazyReadSampleDorisCacheHitPages", TUnit::UNIT);
+    _cache_aware_lazy_read_sample_os_only_resident_pages = ADD_COUNTER(
+            _segment_profile, "CacheAwareLazyReadSampleOsOnlyResidentPages", TUnit::UNIT);
+    _cache_aware_lazy_read_sample_cold_pages =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadSampleColdPages", TUnit::UNIT);
     _cache_aware_lazy_read_enabled_segments =
             ADD_COUNTER(_segment_profile, "CacheAwareLazyReadEnabledSegments", TUnit::UNIT);
-    _cache_aware_lazy_read_skipped_low_io_segments =
-            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadSkippedLowIoSegments", TUnit::UNIT);
+    _cache_aware_lazy_read_skipped_insufficient_sample_segments = ADD_COUNTER(
+            _segment_profile, "CacheAwareLazyReadSkippedInsufficientSampleSegments", TUnit::UNIT);
+    _cache_aware_lazy_read_skipped_low_os_resident_segments = ADD_COUNTER(
+            _segment_profile, "CacheAwareLazyReadSkippedLowOsResidentSegments", TUnit::UNIT);
     _cache_aware_lazy_read_skipped_cold_ratio_segments = ADD_COUNTER(
             _segment_profile, "CacheAwareLazyReadSkippedColdRatioSegments", TUnit::UNIT);
+    _cache_aware_lazy_read_cooldown_events =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadCooldownEvents", TUnit::UNIT);
+    _cache_aware_lazy_read_resample_attempts =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadResampleAttempts", TUnit::UNIT);
     _cache_aware_lazy_read_budget_limit_events =
             ADD_COUNTER(_segment_profile, "CacheAwareLazyReadBudgetLimitEvents", TUnit::UNIT);
     _cache_aware_lazy_read_skipped_prefetch_ranges =

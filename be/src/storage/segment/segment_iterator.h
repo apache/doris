@@ -230,8 +230,8 @@ private:
     Status _prepare_cache_aware_lazy_read(const std::vector<ColumnId>& read_column_ids,
                                           const std::vector<rowid_t>& rowids,
                                           std::vector<PageHandle>* pinned_pages);
-    void _update_cache_aware_lazy_read_baseline(int64_t io_ns_before, int64_t pages_before,
-                                                int64_t cached_pages_before);
+    void _reset_cache_aware_lazy_read_sample();
+    void _enter_cache_aware_lazy_read_cooldown();
 
     Status copy_column_data_by_selector(IColumn* input_col_ptr, MutableColumnPtr& output_col,
                                         uint16_t* sel_rowid_idx, uint16_t select_size,
@@ -429,12 +429,18 @@ private:
 
     io::FileReaderSPtr _file_reader;
 
-    enum class CacheAwareLazyReadState : uint8_t { OBSERVING, SAMPLING, ENABLED, DISABLED };
-    CacheAwareLazyReadState _cache_aware_lazy_read_state = CacheAwareLazyReadState::OBSERVING;
-    int64_t _cache_aware_lazy_read_baseline_io_ns = 0;
-    int64_t _cache_aware_lazy_read_baseline_pages = 0;
-    int64_t _cache_aware_lazy_read_baseline_miss_pages = 0;
-    int _cache_aware_lazy_read_baseline_batches = 0;
+    enum class CacheAwareLazyReadState : uint8_t { SAMPLING, ENABLED, COOLDOWN, DISABLED };
+    CacheAwareLazyReadState _cache_aware_lazy_read_state = CacheAwareLazyReadState::SAMPLING;
+    size_t _cache_aware_lazy_read_sample_pages = 0;
+    size_t _cache_aware_lazy_read_sample_doris_cache_hit_pages = 0;
+    size_t _cache_aware_lazy_read_sample_os_only_resident_pages = 0;
+    size_t _cache_aware_lazy_read_sample_cold_pages = 0;
+    int _cache_aware_lazy_read_sample_batches = 0;
+    int _cache_aware_lazy_read_cooldown_batches = 0;
+    bool _cache_aware_lazy_read_ever_enabled = false;
+    bool _cache_aware_lazy_read_counted_insufficient_sample = false;
+    bool _cache_aware_lazy_read_counted_low_os_resident = false;
+    bool _cache_aware_lazy_read_counted_cold_ratio = false;
 
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
