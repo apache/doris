@@ -184,6 +184,11 @@ public:
     virtual ColumnStatistics column_statistics() = 0;
     virtual void close() = 0;
 
+    // A repeated parent can expand one logical-row batch into millions of leaf values. Keep
+    // ordinary batch scratch for reuse, but let the top-level adapter release exceptional
+    // high-water allocations after every parent offset/null-map consumer has finished.
+    virtual void release_batch_scratch(size_t max_retained_bytes) = 0;
+
     virtual void reset_filter_map_index() = 0;
 
     FieldSchema* get_field_schema() const { return _field_schema; }
@@ -237,6 +242,13 @@ public:
                                 _convert_time);
     }
     void close() override {}
+
+    void release_batch_scratch(size_t max_retained_bytes) override;
+
+#ifdef BE_TEST
+    void reserve_batch_scratch_for_test(size_t elements);
+    size_t retained_batch_scratch_bytes_for_test() const;
+#endif
 
     void reset_filter_map_index() override {
         _filter_map_index = 0; // nested
@@ -321,14 +333,15 @@ private:
     ParquetDecodeContext _decode_context;
     ParquetMaterializationState _materialization_state;
     bool _dictionary_index_only = false;
-    // Batch scratch is retained by the persistent leaf reader. Only logical sizes are reset, so
-    // adaptive batch-size changes and repeated complex reads do not allocate fresh level plans.
+    // Normal-size batch scratch is retained by the persistent leaf reader. Oversized allocations
+    // are released only after the top-level parent has consumed this leaf's level plan.
     std::vector<uint16_t> _null_run_lengths;
     std::unordered_set<size_t> _ancestor_null_indices;
     std::vector<uint8_t> _nested_filter_map_data;
     FilterMap _nested_filter_map;
     ColumnSelectVector _select_vector;
     int64_t _convert_time = 0;
+    size_t _logical_conversion_scratch_bytes = 0;
 
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, const DataTypePtr& type,
@@ -363,6 +376,10 @@ public:
     }
     ColumnStatistics column_statistics() override { return _element_reader->column_statistics(); }
     void close() override {}
+
+    void release_batch_scratch(size_t max_retained_bytes) override {
+        _element_reader->release_batch_scratch(max_retained_bytes);
+    }
 
     void reset_filter_map_index() override { _element_reader->reset_filter_map_index(); }
 
@@ -402,6 +419,11 @@ public:
     }
 
     void close() override {}
+
+    void release_batch_scratch(size_t max_retained_bytes) override {
+        _key_reader->release_batch_scratch(max_retained_bytes);
+        _value_reader->release_batch_scratch(max_retained_bytes);
+    }
 
     void reset_filter_map_index() override {
         _key_reader->reset_filter_map_index();
@@ -465,6 +487,12 @@ public:
     }
 
     void close() override {}
+
+    void release_batch_scratch(size_t max_retained_bytes) override {
+        for (const auto& reader : _child_readers) {
+            reader.second->release_batch_scratch(max_retained_bytes);
+        }
+    }
 
     void reset_filter_map_index() override {
         for (const auto& reader : _child_readers) {
@@ -563,6 +591,8 @@ public:
     void close() override {
         // Nothing to close for skip reading
     }
+
+    void release_batch_scratch(size_t) override {}
 
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };

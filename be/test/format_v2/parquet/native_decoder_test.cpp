@@ -27,6 +27,7 @@
 
 #include "core/custom_allocator.h"
 #include "format_v2/parquet/reader/native/byte_array_dict_decoder.h"
+#include "format_v2/parquet/reader/native/column_reader.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "util/coding.h"
 
@@ -247,6 +248,22 @@ TEST(ParquetV2NativeDecoderTest, ByteStreamSplitRestoresFixedWidthRows) {
     CaptureFixedConsumer consumer;
     ASSERT_TRUE(decoder->decode_fixed_values(2, consumer).ok());
     EXPECT_EQ(consumer.values<float>(), std::vector<float>({-2.5F, 3.25F}));
+}
+
+TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchIsReleased) {
+    ::doris::RowRanges row_ranges;
+    tparquet::ColumnChunk chunk;
+    ScalarColumnReader<true, false> reader(row_ranges, 1, chunk, nullptr, nullptr, nullptr);
+
+    constexpr size_t max_retained_bytes = 64UL << 10;
+    reader.reserve_batch_scratch_for_test(1UL << 16);
+    const size_t oversized_bytes = reader.retained_batch_scratch_bytes_for_test();
+    ASSERT_GT(oversized_bytes, max_retained_bytes);
+
+    reader.release_batch_scratch(max_retained_bytes);
+    const size_t released_bytes = reader.retained_batch_scratch_bytes_for_test();
+    EXPECT_LT(released_bytes, oversized_bytes);
+    EXPECT_LE(released_bytes, max_retained_bytes + sizeof(void*));
 }
 
 } // namespace

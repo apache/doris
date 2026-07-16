@@ -426,8 +426,11 @@ checks prove the result is equivalent.
 
 The persistent leaf reader owns reusable conversion objects, null map, selection ranges,
 definition/repetition levels, binary references, dictionary state, decompression buffers, and Doris
-column capacity. Logical sizes are reset at batch boundaries while capacity is retained. The native
-path does not create an Arrow builder or Arrow array.
+column capacity. Logical sizes are reset at batch boundaries and normal-size capacity is retained.
+After the top-level complex reader has consumed the level plan, any individual batch scratch buffer
+above the 4 MiB high-water limit is released; this prevents staggered repeated-value outliers from
+accumulating one retained allocation per leaf for the rest of the Row Group. The native path does
+not create an Arrow builder or Arrow array.
 
 ### 7.4 Complex Types and Parent Shape Plans
 

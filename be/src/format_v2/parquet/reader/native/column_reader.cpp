@@ -83,6 +83,20 @@ bool is_direct_decimal_type(PrimitiveType type) {
     }
 }
 
+template <typename T>
+bool release_vector_if_oversized(std::vector<T>* values, size_t max_retained_bytes) {
+    DORIS_CHECK(values != nullptr);
+    if (values->capacity() * sizeof(T) <= max_retained_bytes) {
+        return false;
+    }
+    std::vector<T>().swap(*values);
+    return true;
+}
+
+size_t retained_set_bytes(const std::unordered_set<size_t>& values) {
+    return values.bucket_count() * sizeof(void*) + values.size() * sizeof(size_t);
+}
+
 // The target SerDe can fuse physical decode with these logical type changes. Less common schema
 // changes retain the generic file-format converter as a compatibility path: the decoder still
 // exposes raw spans, but the source SerDe first materializes a reusable source column before the
@@ -473,6 +487,54 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(io::FileReaderSPtr 
     RETURN_IF_ERROR(init_decode_context(*field, _ctz, &_decode_context));
     return Status::OK();
 }
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
+        size_t max_retained_bytes) {
+    bool release_selection = false;
+    release_selection |= release_vector_if_oversized(&_rep_levels, max_retained_bytes);
+    release_selection |= release_vector_if_oversized(&_def_levels, max_retained_bytes);
+    release_selection |= release_vector_if_oversized(&_null_run_lengths, max_retained_bytes);
+    release_selection |= release_vector_if_oversized(&_nested_filter_map_data, max_retained_bytes);
+    release_selection |= release_vector_if_oversized(&_materialization_state.dictionary_indices,
+                                                     max_retained_bytes);
+    if (retained_set_bytes(_ancestor_null_indices) > max_retained_bytes) {
+        std::unordered_set<size_t>().swap(_ancestor_null_indices);
+        release_selection = true;
+    }
+    if (release_selection) {
+        _select_vector = ColumnSelectVector();
+    }
+    if (_logical_conversion_scratch_bytes > max_retained_bytes) {
+        _logical_converter.reset();
+        _converter_source_type = nullptr;
+        _converter_target_type = nullptr;
+        _logical_conversion_scratch_bytes = 0;
+    }
+}
+
+#ifdef BE_TEST
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_batch_scratch_for_test(
+        size_t elements) {
+    _rep_levels.reserve(elements);
+    _def_levels.reserve(elements);
+    _null_run_lengths.reserve(elements);
+    _nested_filter_map_data.reserve(elements);
+    _materialization_state.dictionary_indices.reserve(elements);
+    _ancestor_null_indices.reserve(elements);
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::retained_batch_scratch_bytes_for_test()
+        const {
+    return _rep_levels.capacity() * sizeof(level_t) + _def_levels.capacity() * sizeof(level_t) +
+           _null_run_lengths.capacity() * sizeof(uint16_t) +
+           _nested_filter_map_data.capacity() * sizeof(uint8_t) +
+           _materialization_state.dictionary_indices.capacity() * sizeof(uint32_t) +
+           retained_set_bytes(_ancestor_null_indices);
+}
+#endif
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_skip_values(size_t num_values) {
@@ -889,6 +951,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         }
         SCOPED_RAW_TIMER(&_convert_time);
         RETURN_IF_ERROR(_logical_converter->convert(converted_source_column, converted_column));
+        _logical_conversion_scratch_bytes = converted_source_column->allocated_bytes();
         doris_column = std::move(converted_column);
         return Status::OK();
     };

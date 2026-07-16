@@ -120,7 +120,8 @@ format-specific checklist when reviewing Parquet or ORC.
 - Verify schema-change routing separately from physical decode. Integer, FLOAT-to-DOUBLE, decimal,
   and string-family changes should use the direct target-SerDe path. Other supported logical casts
   may use one persistent generic `ColumnTypeConverter` source column; its value/null-map sizes must
-  reset per batch while capacity is retained, and it must never become a decoder-facing ABI.
+  reset per batch while normal-size capacity is retained, oversized capacity must be released after
+  the top-level parent consumes the batch, and it must never become a decoder-facing ABI.
 - Dictionary review must separate dictionary-entry IDs from logical rows and non-null payload
   ordinals. Materialize the typed dictionary once per generation through the same SerDe, validate
   every index before access, and invalidate cached dictionary state at Row Group/file/type changes.
@@ -130,6 +131,9 @@ format-specific checklist when reviewing Parquet or ORC.
 - Review complex types as a level/shape problem around scalar leaf materialization. Parent offsets,
   null maps, sibling alignment, page-spanning rows, and child payload counts must remain correct
   without materializing an intermediate complex column.
+- Require a bounded high-water policy for persistent definition/repetition, null, selection,
+  conversion, and dictionary-index scratch. Test that an oversized repeated-value batch releases
+  retained capacity without discarding ordinary reusable capacity.
 - For a STRUCT whose projected children are all missing after schema evolution, require a
   levels-only physical reference leaf. It must advance and validate encoded payload cursors while
   deriving the synthetic child count, without constructing a discarded string/complex column.

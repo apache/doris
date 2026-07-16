@@ -43,6 +43,8 @@
 namespace doris::format::parquet {
 namespace {
 
+constexpr size_t MAX_RETAINED_BATCH_SCRATCH_BYTES = 4UL << 20;
+
 DataTypePtr projected_type(const ParquetColumnSchema& schema,
                            const format::LocalColumnIndex* projection) {
     if (!format::is_partial_projection(projection)) {
@@ -298,6 +300,7 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     if (_nested && _profile.nested_batches != nullptr) {
         COUNTER_UPDATE(_profile.nested_batches, 1);
     }
+    _native_reader->release_batch_scratch(MAX_RETAINED_BATCH_SCRATCH_BYTES);
     if (*rows_read != rows) {
         return Status::Corruption("Native parquet reader returned {} rows, expected {} for {}",
                                   *rows_read, rows, _name);
