@@ -28,42 +28,10 @@ Suite.metaClass.snapshot_build_index_job_ids = { table_name ->
     return alter_res.collect { it[0].toString() }.toSet()
 }
 
-// Compatibility helper for legacy callers where a build-index job is optional.
-// New explicit build/delete paths must snapshot job ids before the operation and
-// use wait_for_new_build_index_jobs_finish instead.
-Suite.metaClass.wait_for_last_build_index_finish = { table_name, OpTimeout ->
-    def finished = false
-    def alter_res = []
-    for (int t = 0; t <= OpTimeout; t += delta_time) {
-        alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}"
-                ORDER BY CreateTime DESC LIMIT 1;"""
-        if (alter_res.isEmpty()) {
-            logger.info(table_name + " has no build index job")
-            finished = true
-            break
-        }
-        if (alter_res.any { it[7] == "CANCELLED" }) {
-            logger.info(table_name + " latest build index job failed, detail: " + alter_res)
-            assertTrue(false)
-        }
-        if (alter_res.every { it[7] == "FINISHED" }) {
-            logger.info(table_name + " latest build index job finished, detail: " + alter_res)
-            finished = true
-            break
-        }
-        if (t >= OpTimeout) {
-            break
-        }
-        sleep(delta_time)
-    }
-    assertTrue(finished, "wait for latest build index finish timeout, latest result: ${alter_res}")
-}
-
 Suite.metaClass.wait_for_new_build_index_jobs_finish = { table_name, OpTimeout, previous_job_ids ->
     assertTrue(previous_job_ids != null, "previous build index job ids must be snapshotted before the operation")
     def finished = false
     def alter_res = []
-    def confirmed_finished_job_ids = null
     for (int t = 0; t <= OpTimeout; t += delta_time) {
         def all_jobs = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}"
                 ORDER BY CreateTime DESC;"""
@@ -71,18 +39,12 @@ Suite.metaClass.wait_for_new_build_index_jobs_finish = { table_name, OpTimeout, 
 
         if (!alter_res.isEmpty() && alter_res.any { it[7] == "CANCELLED" }) {
             logger.info(table_name + " build index job failed, detail: " + alter_res)
-            assertTrue(false)
+            assertTrue(false, "build index job cancelled, result: ${alter_res}")
         }
         if (!alter_res.isEmpty() && alter_res.every { it[7] == "FINISHED" }) {
-            def finished_job_ids = alter_res.collect { it[0].toString() }.toSet()
-            if (finished_job_ids == confirmed_finished_job_ids) {
-                logger.info(table_name + " build index jobs finished, detail: " + alter_res)
-                finished = true
-                break
-            }
-            confirmed_finished_job_ids = finished_job_ids
-        } else {
-            confirmed_finished_job_ids = null
+            logger.info(table_name + " build index jobs finished, detail: " + alter_res)
+            finished = true
+            break
         }
         if (t >= OpTimeout) {
             break
@@ -90,6 +52,15 @@ Suite.metaClass.wait_for_new_build_index_jobs_finish = { table_name, OpTimeout, 
         sleep(delta_time)
     }
     assertTrue(finished, "wait for build index finish timeout, latest result: ${alter_res}")
+}
+
+// Run an operation that must create one or more IndexChangeJobs and wait for
+// every job created by that operation. SHOW BUILD INDEX history is retained, so
+// the pre-operation snapshot is required to isolate the current operation.
+Suite.metaClass.run_index_change_job_and_wait = { table_name, OpTimeout, Closure operation ->
+    def previous_job_ids = snapshot_build_index_job_ids(table_name)
+    operation.call()
+    wait_for_new_build_index_jobs_finish(table_name, OpTimeout, previous_job_ids)
 }
 
 Suite.metaClass.build_index_on_table = {index_name, table_name ->

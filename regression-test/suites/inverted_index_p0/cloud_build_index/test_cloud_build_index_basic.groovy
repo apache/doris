@@ -57,12 +57,14 @@ suite("test_cloud_build_index_basic"){
     sql """create index idx1 on test_cloud_build_index_basic_table(address) using inverted;"""
     check_inverted_index_filter_rows("select * from test_cloud_build_index_basic_table where address='dddd'", 0)
 
-    build_index_on_table("idx1", tabName1)
-    wait_for_last_build_index_finish(tabName1, timeout)
+    run_index_change_job_and_wait(tabName1, timeout) {
+        build_index_on_table("idx1", tabName1)
+    }
     check_inverted_index_filter_rows("select * from test_cloud_build_index_basic_table where address='dddd'", 4)
 
-    sql "drop index idx1 on test_cloud_build_index_basic_table"
-    wait_for_last_build_index_finish(tabName1, timeout)
+    run_index_change_job_and_wait(tabName1, timeout) {
+        sql "drop index idx1 on test_cloud_build_index_basic_table"
+    }
     check_inverted_index_filter_rows("select * from test_cloud_build_index_basic_table where address='dddd'", 0)
 
     // 2 string type, ngram index
@@ -70,12 +72,14 @@ suite("test_cloud_build_index_basic"){
     sql """create index idx2 on test_cloud_build_index_basic_table(address) using ngram_bf properties("gram_size"="3", "bf_size"="256");"""
     check_bf_index_filter_rows("select * from test_cloud_build_index_basic_table where address like '%sdf%'", 0)
 
-    build_index_on_table("idx2", tabName1)
-    wait_for_last_build_index_finish(tabName1, timeout)
+    run_index_change_job_and_wait(tabName1, timeout) {
+        build_index_on_table("idx2", tabName1)
+    }
     check_bf_index_filter_rows("select * from test_cloud_build_index_basic_table where address like '%sdf%'", 5)
 
-    sql "drop index idx2 on test_cloud_build_index_basic_table"
-    wait_for_last_build_index_finish(tabName1, timeout)
+    run_index_change_job_and_wait(tabName1, timeout) {
+        sql "drop index idx2 on test_cloud_build_index_basic_table"
+    }
     check_bf_index_filter_rows("select * from test_cloud_build_index_basic_table where address like '%sdf%'", 0)
 
     // test add column/reset varchar len
@@ -121,16 +125,19 @@ suite("test_cloud_build_index_basic"){
     check_inverted_index_filter_rows("select * from test_cloud_light_sc_table where content='jj1'", 0)
 
     sql """alter table test_cloud_light_sc_table modify column address varchar(400);"""
-    sql """build index on test_cloud_light_sc_table;"""
-    wait_for_last_build_index_finish("test_cloud_light_sc_table", timeout)
+    run_index_change_job_and_wait("test_cloud_light_sc_table", timeout) {
+        sql """build index on test_cloud_light_sc_table;"""
+    }
     check_inverted_index_filter_rows("select * from test_cloud_light_sc_table where address='eeeee'", 4)
     check_inverted_index_filter_rows("select * from test_cloud_light_sc_table where content='jj1'", 4)
 
-    sql """drop index idx1 on test_cloud_light_sc_table;"""
-    wait_for_last_build_index_finish("test_cloud_light_sc_table", timeout)
+    run_index_change_job_and_wait("test_cloud_light_sc_table", timeout) {
+        sql """drop index idx1 on test_cloud_light_sc_table;"""
+    }
     check_inverted_index_filter_rows("select * from test_cloud_light_sc_table where address='eeeee'", 0)
-    sql """drop index idx2 on test_cloud_light_sc_table;"""
-    wait_for_last_build_index_finish("test_cloud_light_sc_table", timeout)
+    run_index_change_job_and_wait("test_cloud_light_sc_table", timeout) {
+        sql """drop index idx2 on test_cloud_light_sc_table;"""
+    }
     check_inverted_index_filter_rows("select * from test_cloud_light_sc_table where content='jj1'", 0)
 
     qt_select_sc_output "select * from test_cloud_light_sc_table order by user_id,username,age,address,content"

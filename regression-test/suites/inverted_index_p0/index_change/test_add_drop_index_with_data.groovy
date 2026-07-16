@@ -19,32 +19,8 @@
 suite("test_add_drop_index_with_data", "inverted_index"){
     // prepare test table
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
     sql "set enable_add_index_for_new_data = true"
-
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
-            def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num;
-                }
-            }
-            if (finished_num == expected_finished_num) {
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
-    }
 
     def indexTbName1 = "test_add_drop_inverted_index2"
 
@@ -114,8 +90,9 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     wait_for_last_col_change_finish(indexTbName1, timeout)
 
     if(!isCloudMode()) {
-        build_index_on_table("idx_desc", indexTbName1)
-        wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+        run_index_change_job_and_wait(indexTbName1, timeout) {
+            build_index_on_table("idx_desc", indexTbName1)
+        }
     }
 
     // show index after add index
@@ -151,8 +128,9 @@ suite("test_add_drop_index_with_data", "inverted_index"){
 
     // drop index
     // add index on column description
-    sql "drop index idx_desc on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index idx_desc on ${indexTbName1}"
+    }
 
     // query rows where description match 'desc', should fail without index
     select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
@@ -179,8 +157,9 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     assertEquals(select_result[0][2], "desc 2")
 
     // drop idx_id index
-    sql "drop index idx_id on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index idx_id on ${indexTbName1}"
+    }
 
     // show index of create table
     show_result = sql "show index from ${indexTbName1}"
@@ -203,8 +182,9 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     assertEquals(select_result[0][2], "desc 2")
 
     // drop idx_name index
-    sql "drop index idx_name on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index idx_name on ${indexTbName1}"
+    }
 
     // query rows where name match 'name1' without index
     select_result = sql "select * from ${indexTbName1} where name match 'name1'"
@@ -222,8 +202,9 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_last_col_change_finish(indexTbName1, timeout)
     if (!isCloudMode()) {
-        build_index_on_table("idx_desc", indexTbName1)
-        wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+        run_index_change_job_and_wait(indexTbName1, timeout) {
+            build_index_on_table("idx_desc", indexTbName1)
+        }
     }
 
     // query rows where description match 'desc'
@@ -261,8 +242,9 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result.size(), 3)
 
-    build_index_on_table("idx_name", indexTbName1)
-    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        build_index_on_table("idx_name", indexTbName1)
+    }
 
     // query rows where name match 'name1'
     select_result = sql "select * from ${indexTbName1} where name match 'name1'"

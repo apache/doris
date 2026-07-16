@@ -19,32 +19,8 @@
 suite("test_add_drop_index_with_delete_data", "inverted_index"){
     // prepare test table
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
     sql "set enable_add_index_for_new_data = true"
-
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
-            def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num;
-                }
-            }
-            if (finished_num == expected_finished_num) {
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
-    }
 
     def indexTbName1 = "test_add_drop_inverted_index3"
 
@@ -121,8 +97,9 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     wait_for_last_col_change_finish(indexTbName1, timeout)
 
     if (!isCloudMode()) {
-        sql "build index idx_desc on ${indexTbName1}"
-        wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+        run_index_change_job_and_wait(indexTbName1, timeout) {
+            sql "build index idx_desc on ${indexTbName1}"
+        }
     }
 
     // show index after add index
@@ -185,8 +162,9 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     assertEquals(select_result[1][2], "desc ok world test")
 
     // drop index
-    sql "drop index idx_desc on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index idx_desc on ${indexTbName1}"
+    }
     // query rows where description match 'desc' without index
     select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
     assertEquals(select_result.size(), 4)
@@ -230,8 +208,9 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     wait_for_last_col_change_finish(indexTbName1, timeout)
 
     if (!isCloudMode()) {
-        sql "build index idx_desc on ${indexTbName1}"
-        wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+        run_index_change_job_and_wait(indexTbName1, timeout) {
+            sql "build index idx_desc on ${indexTbName1}"
+        }
     }
 
     // show index after add index

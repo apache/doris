@@ -88,13 +88,15 @@ suite("test_cloud_build_index_update") {
     check_inverted_index_filter_rows("select * from test_cloud_build_idx_uq_table where address='hhhhh'" +
             " order by user_id,username,age,address", 0)
 
-    sql """build index on test_cloud_build_idx_uq_table"""
-    wait_for_last_build_index_finish("test_cloud_build_idx_uq_table", timeout)
+    run_index_change_job_and_wait("test_cloud_build_idx_uq_table", timeout) {
+        sql """build index on test_cloud_build_idx_uq_table"""
+    }
     check_inverted_index_filter_rows("select * from test_cloud_build_idx_uq_table where address='hhhhh'" +
             " order by user_id,username,age,address", 12)
 
-    sql """drop index idx1 on test_cloud_build_idx_uq_table"""
-    wait_for_last_build_index_finish("test_cloud_build_idx_uq_table", timeout)
+    run_index_change_job_and_wait("test_cloud_build_idx_uq_table", timeout) {
+        sql """drop index idx1 on test_cloud_build_idx_uq_table"""
+    }
 
     check_inverted_index_filter_rows("select * from test_cloud_build_idx_uq_table where address='hhhhh'" +
             " order by user_id,username,age,address", 0)
@@ -135,8 +137,9 @@ suite("test_cloud_build_index_update") {
 
     sql """create index idx1 on test_cloud_build_idx_del_tab(address) using inverted;"""
 
-    build_index_on_table("idx1", "test_cloud_build_idx_del_tab")
-    wait_for_last_build_index_finish("test_cloud_build_idx_del_tab", timeout)
+    run_index_change_job_and_wait("test_cloud_build_idx_del_tab", timeout) {
+        build_index_on_table("idx1", "test_cloud_build_idx_del_tab")
+    }
 
     check_inverted_index_filter_rows("select * from test_cloud_build_idx_del_tab" +
             " where address='eeeee' order by user_id,username,age,address", 12)
@@ -144,8 +147,9 @@ suite("test_cloud_build_index_update") {
     qt_select_del_tab_ret3 """select count(1) from test_cloud_build_idx_del_tab where age=23;"""
     qt_select_del_tab_ret4 """select count(1) from test_cloud_build_idx_del_tab where age!=23;"""
 
-    sql """drop index idx1 on test_cloud_build_idx_del_tab;"""
-    wait_for_last_build_index_finish("test_cloud_build_idx_del_tab", timeout)
+    run_index_change_job_and_wait("test_cloud_build_idx_del_tab", timeout) {
+        sql """drop index idx1 on test_cloud_build_idx_del_tab;"""
+    }
 
     check_inverted_index_filter_rows("select * from test_cloud_build_idx_del_tab" +
             " where address='eeeee' order by user_id,username,age,address", 0)

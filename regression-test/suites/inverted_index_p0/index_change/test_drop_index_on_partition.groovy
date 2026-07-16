@@ -45,6 +45,9 @@ suite("test_drop_index_on_partition", "inverted_index") {
     // create inverted index
     sql "CREATE INDEX idx_v2 ON ${tableName1}(v2) USING INVERTED"
     wait_for_last_col_change_finish(tableName1, timeout)
+    run_index_change_job_and_wait(tableName1, timeout) {
+        build_index_on_table("idx_v2", tableName1)
+    }
 
     // verify index exists
     def show_idx = sql "SHOW INDEX FROM ${tableName1}"
@@ -103,6 +106,9 @@ suite("test_drop_index_on_partition", "inverted_index") {
 
     sql "CREATE INDEX idx_v1 ON ${tableName2}(v1) USING INVERTED"
     wait_for_last_col_change_finish(tableName2, timeout)
+    run_index_change_job_and_wait(tableName2, timeout) {
+        build_index_on_table("idx_v1", tableName2)
+    }
 
     previous_job_ids = snapshot_build_index_job_ids(tableName2)
 
@@ -218,6 +224,9 @@ suite("test_drop_index_on_partition", "inverted_index") {
 
     sql "CREATE INDEX idx_v1 ON ${tableName5}(v1) USING INVERTED"
     wait_for_last_col_change_finish(tableName5, timeout)
+    run_index_change_job_and_wait(tableName5, timeout) {
+        build_index_on_table("idx_v1", tableName5)
+    }
 
     previous_job_ids = snapshot_build_index_job_ids(tableName5)
 
