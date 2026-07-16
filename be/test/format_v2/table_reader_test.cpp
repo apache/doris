@@ -1765,6 +1765,7 @@ TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     EXPECT_EQ(block.rows(), 3);
     EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(fake_state->close_count, 1);
+    EXPECT_TRUE(reader.current_split_uses_metadata_count());
     ASSERT_TRUE(fake_state->last_request != nullptr);
     EXPECT_TRUE(fake_state->last_request->count_star_placeholder_columns.empty());
     ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
@@ -1859,6 +1860,51 @@ TEST(TableReaderTest, PushDownCountFallsBackWhenSemanticArgumentsAreAbsent) {
     EXPECT_EQ(block.rows(), 2);
     // The explicit aggregate_count=3 would be returned if absence were confused with COUNT(*).
     EXPECT_FALSE(fake_state->last_aggregate_request.has_value());
+    EXPECT_FALSE(reader.current_split_uses_metadata_count());
+}
+
+TEST(TableReaderTest, PushDownCountFallsBackForMultipleArguments) {
+    const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto nullable_string_type = make_nullable(std::make_shared<DataTypeString>());
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", nullable_int_type));
+    file_schema.push_back(make_file_column(1, "name", nullable_string_type));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", nullable_int_type));
+    projected_columns.push_back(make_table_column(1, "name", nullable_string_type));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = 3;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(
+            reader.init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = {},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .push_down_agg_type = TPushAggOp::type::COUNT,
+                                .push_down_count_columns =
+                                        std::vector<GlobalIndex> {GlobalIndex(0), GlobalIndex(1)},
+                        })
+                    .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(block.rows(), 2);
+    EXPECT_FALSE(fake_state->last_aggregate_request.has_value());
+    EXPECT_FALSE(reader.current_split_uses_metadata_count());
 }
 
 TEST(TableReaderTest, PushDownCountFallsBackForNullableToRequiredMapping) {

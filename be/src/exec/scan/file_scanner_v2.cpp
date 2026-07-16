@@ -443,9 +443,12 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
 
         const auto format_type = get_range_format_type(*_params, _current_range);
         _init_adaptive_batch_size_state(format_type);
-        if (_should_run_adaptive_batch_size()) {
-            // JNI readers open eagerly in prepare_split(). Seed the probe size first so readers
-            // such as Paimon also use it for their first physical read batch.
+        if (_block_size_predictor != nullptr) {
+            // JNI readers open eagerly in prepare_split(). Always seed the probe before preparing
+            // the next split: its metadata-COUNT decision is not available yet, and the state
+            // exposed by TableReader can still describe the preceding split. Metadata shortcuts
+            // ignore this batch size, while row-scan fallbacks need it for their first physical
+            // read batch.
             _table_reader->set_batch_size(_predict_reader_batch_rows());
         }
         std::map<std::string, Field> partition_values;
@@ -863,10 +866,17 @@ bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type for
 }
 
 bool FileScannerV2::_should_run_adaptive_batch_size() const {
-    // COUNT pushdown emits synthetic rows from file metadata and does not materialize file columns,
-    // so there is no useful row-width sample to learn from.
-    return _block_size_predictor != nullptr &&
-           _local_state->get_push_down_agg_type() != TPushAggOp::type::COUNT;
+    DORIS_CHECK(_table_reader != nullptr);
+    return _should_run_adaptive_batch_size(_block_size_predictor != nullptr,
+                                           _table_reader->current_split_uses_metadata_count());
+}
+
+bool FileScannerV2::_should_run_adaptive_batch_size(bool predictor_initialized,
+                                                    bool current_split_uses_metadata_count) {
+    // Metadata COUNT emits synthetic rows and has no physical row width to learn from. A raw COUNT
+    // opcode is not sufficient here: unsupported argument counts, mappings, filters, or deletes
+    // make TableReader fall back to materializing normal rows, which still need adaptive batching.
+    return predictor_initialized && !current_split_uses_metadata_count;
 }
 
 size_t FileScannerV2::_predict_reader_batch_rows() {

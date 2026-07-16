@@ -88,6 +88,11 @@ public:
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
+    static bool TEST_should_run_adaptive_batch_size(bool predictor_initialized,
+                                                    bool current_split_uses_metadata_count) {
+        return _should_run_adaptive_batch_size(predictor_initialized,
+                                               current_split_uses_metadata_count);
+    }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -140,6 +145,8 @@ private:
     void _init_adaptive_batch_size_state(TFileFormatType::type format_type);
     bool _should_enable_adaptive_batch_size(TFileFormatType::type format_type) const;
     bool _should_run_adaptive_batch_size() const;
+    static bool _should_run_adaptive_batch_size(bool predictor_initialized,
+                                                bool current_split_uses_metadata_count);
     size_t _predict_reader_batch_rows();
     void _update_adaptive_batch_size(const Block& block);
     static RealtimeCounterDeltas _collect_realtime_counter_deltas(

@@ -116,6 +116,12 @@ TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
                                                 TPushAggOp::type::MINMAX, std::nullopt));
 }
 
+TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
+}
+
 struct RetryableCloseState {
     int close_calls = 0;
 };

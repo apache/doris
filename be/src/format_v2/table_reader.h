@@ -211,6 +211,7 @@ public:
     virtual Status prepare_split(const SplitReadOptions& options);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
+    bool current_split_uses_metadata_count() const { return _current_split_uses_metadata_count; }
 
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
@@ -224,6 +225,7 @@ public:
         }
         _delete_rows = nullptr;
         _remaining_table_level_count = -1;
+        _current_split_uses_metadata_count = false;
         _current_split_pruned = false;
         return Status::OK();
     }
@@ -319,6 +321,7 @@ public:
         _current_task.reset();
         _current_file_description.reset();
         _remaining_table_level_count = -1;
+        _current_split_uses_metadata_count = false;
         return Status::OK();
     }
 
@@ -962,6 +965,9 @@ protected:
         RETURN_IF_ERROR(status);
         RETURN_IF_ERROR(
                 _materialize_aggregate_pushdown_rows(_push_down_agg_type, file_result, block));
+        if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+            _current_split_uses_metadata_count = true;
+        }
         *pushed_down = true;
         RETURN_IF_ERROR(close_current_reader());
         return Status::OK();
@@ -1663,6 +1669,10 @@ protected:
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
+    // True only after the active split selects a table-level row-count shortcut or successfully
+    // materializes COUNT rows from file metadata. FileScannerV2 uses this result, rather than the
+    // raw aggregate opcode, to keep adaptive batching enabled for normal row-scan fallbacks.
+    bool _current_split_uses_metadata_count = false;
     // Snapshot supplied by FileScannerV2 for the active split. It gates every shortcut that emits
     // irreversible aggregate rows, not only the table-level row-count shortcut in prepare_split().
     bool _all_runtime_filters_applied_for_split = true;
