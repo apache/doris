@@ -55,8 +55,10 @@ class IvmAggSumProcessor extends IvmAggSumLikeProcessor {
         Expression newCount = applyContext.buildNewHiddenCount(target);
         applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.COUNT).getName(), newCount);
         Expression visibleValue = TypeCoercionUtils.castIfNotMatchType(newSum, target.getVisibleSlot().getDataType());
+        Expression emptyValue = target.getVisibleSlot().nullable()
+                ? new NullLiteral(target.getVisibleSlot().getDataType())
+                : ctx.zeroOf(target.getVisibleSlot().getDataType());
         applyContext.putFinalExpression(target.getVisibleSlot().getName(),
-                new If(ctx.isPositive(newCount), visibleValue,
-                        new NullLiteral(target.getVisibleSlot().getDataType())));
+                new If(ctx.isPositive(newCount), visibleValue, emptyValue));
     }
 }
