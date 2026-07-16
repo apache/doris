@@ -738,9 +738,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        long tblId;
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-        tblId = Util.genIdByName(catalogName, dbName, tableName);
+        ExternalDatabase<?> externalDatabase = (ExternalDatabase<?>) db;
+        String localTableName = externalDatabase.canonicalLocalTableNameFromRemote(tableName);
+        HMSExternalDatabase hmsDatabase = (HMSExternalDatabase) externalDatabase;
+        long tblId = Util.genIdByName(catalogName, db.getFullName(), localTableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
@@ -748,8 +750,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            HMSExternalTable namedTable = ((HMSExternalDatabase) db)
-                    .buildTableForInit(tableName, tableName, tblId, hmsCatalog, (HMSExternalDatabase) db, false);
+            HMSExternalTable namedTable = hmsDatabase
+                    .buildTableForInit(tableName, localTableName, tblId, hmsCatalog, hmsDatabase, false);
             namedTable.setUpdateTime(updateTime);
             db.registerTable(namedTable);
         } finally {

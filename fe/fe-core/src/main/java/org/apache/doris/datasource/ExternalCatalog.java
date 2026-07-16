@@ -595,7 +595,7 @@ public abstract class ExternalCatalog
             // Apply lower_case_database_names mode to local name
             int dbNameMode = getLowerCaseDatabaseNames();
             if (dbNameMode == 1) {
-                localDbName = localDbName.toLowerCase();
+                localDbName = localDbName.toLowerCase(Locale.ROOT);
             } else if (dbNameMode == 2) {
                 // Mode 2: preserve original remote case for display
                 localDbName = remoteDbName;
@@ -610,7 +610,7 @@ public abstract class ExternalCatalog
 
             // Collect lowercased local names and their remote counterparts
             for (Pair<String, String> pair : remoteToLocalPairs) {
-                String lowerCaseLocalName = pair.second.toLowerCase();
+                String lowerCaseLocalName = pair.second.toLowerCase(Locale.ROOT);
                 lowerCaseToRemoteNames.computeIfAbsent(lowerCaseLocalName, k -> Lists.newArrayList()).add(pair.first);
             }
 
@@ -973,7 +973,9 @@ public abstract class ExternalCatalog
 
         // Step 3: Resolve remote database name when local/remote mapping is active.
         if (remoteDbName == null) {
-            if (Boolean.parseBoolean(getLowerCaseMetaNames()) || !Strings.isNullOrEmpty(getMetaNamesMapping())) {
+            if (Boolean.parseBoolean(getLowerCaseMetaNames())
+                    || !Strings.isNullOrEmpty(getMetaNamesMapping())
+                    || getLowerCaseDatabaseNames() == 1) {
                 remoteDbName = getRemoteDatabaseName(localDbName, false);
                 if (remoteDbName == null) {
                     LOG.warn("Could not resolve remote database name for local database: {}", localDbName);
@@ -1307,7 +1309,7 @@ public abstract class ExternalCatalog
 
         if (mode == 1) {
             // Mode 1: Store as lowercase
-            finalName = dbName.toLowerCase();
+            finalName = dbName.toLowerCase(Locale.ROOT);
         } else if (mode == 2) {
             // Route mode-2 lookups through the shared helper so hot-snapshot misses respect the mutable config.
             finalName = resolveDatabaseNameFromSnapshot(dbName, isReplay,
@@ -1362,7 +1364,7 @@ public abstract class ExternalCatalog
     private String resolveDatabaseNameForInvalidation(String dbName) {
         int mode = getLowerCaseDatabaseNames();
         if (mode == 1) {
-            return dbName.toLowerCase();
+            return dbName.toLowerCase(Locale.ROOT);
         }
         if (mode != 2 || !isInitialized()) {
             return dbName;

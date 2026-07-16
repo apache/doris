@@ -727,6 +727,24 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testBuildDbForInitResolvesRemoteNameInLowerCaseModeOne() {
+        NameMissCatalogProvider.reset();
+        try {
+            NameMissCatalogProvider.putDatabase("MixedDb");
+            NameMissCatalog catalog = new NameMissCatalog(1);
+            catalog.setInitializedForTest(true);
+
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("mixeddb");
+
+            Assertions.assertNotNull(db);
+            Assertions.assertEquals("mixeddb", db.getFullName());
+            Assertions.assertEquals("MixedDb", db.getRemoteName());
+        } finally {
+            NameMissCatalogProvider.reset();
+        }
+    }
+
+    @Test
     public void testBuildDbForInitHotMissHonorsMutableRefreshConfigForModeZeroAndOne() {
         boolean original = Config.enable_external_meta_cache_name_miss_refresh;
         try {

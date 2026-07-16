@@ -53,6 +53,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -229,7 +230,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 }
             }
             tableNames = extCatalog.listTableNames(ctx, remoteName).stream()
-                    .map(tableName -> Pair.of(tableName, toLocalTableName(tableName)))
+                    .map(tableName -> Pair.of(tableName, canonicalLocalTableNameFromRemote(tableName)))
                     .collect(Collectors.toList());
         }
         // Check for conflicts when stored table names or meta names are case-insensitive
@@ -241,7 +242,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
             // Collect lowercased local names and their remote counterparts
             for (Pair<String, String> pair : tableNames) {
-                String lowerCaseLocalName = pair.value().toLowerCase();
+                String lowerCaseLocalName = pair.value().toLowerCase(Locale.ROOT);
                 lowerCaseToRemoteNames.computeIfAbsent(lowerCaseLocalName, k -> Lists.newArrayList()).add(pair.key());
             }
 
@@ -560,7 +561,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     private String getLocalTableName(String tableName, boolean isReplay) {
         String finalName = tableName;
         if (this.isStoredTableNamesLowerCase()) {
-            finalName = tableName.toLowerCase();
+            finalName = tableName.toLowerCase(Locale.ROOT);
         }
         if (this.isTableNamesCaseInsensitive()) {
             // Route mode-2 lookups through the shared helper so hot-snapshot misses respect the mutable config.
@@ -646,7 +647,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     private boolean matchesLocalTableName(String localTableName, String requestedTableName) {
         if (isStoredTableNamesLowerCase()) {
-            return localTableName.equals(requestedTableName.toLowerCase());
+            return localTableName.equals(requestedTableName.toLowerCase(Locale.ROOT));
         }
         if (isTableNamesCaseInsensitive()) {
             return localTableName.equalsIgnoreCase(requestedTableName);
@@ -655,8 +656,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     private String resolveTableNameForInvalidation(String tableName) {
+        if (isStoredTableNamesLowerCase()) {
+            return tableName.toLowerCase(Locale.ROOT);
+        }
         if (!isTableNamesCaseInsensitive()) {
-            return toLocalTableName(tableName);
+            return tableName;
         }
 
         String localTableName = getLocalTableName(tableName, true);
@@ -769,13 +773,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public boolean registerTable(TableIf tableIf) {
         makeSureInitialized();
-        String tableName = tableIf.getName();
+        T table = (T) tableIf;
         if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
+            LOG.debug("create table [{}]", table.getName());
         }
         if (isInitialized()) {
-            String localName = toLocalTableName(tableName);
-            updateTableCache((T) tableIf, tableName, localName);
+            updateTableCache(table, table.getRemoteName(), table.getName());
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;
@@ -789,10 +792,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return extCatalog.getLowerCaseTableNames() == 2;
     }
 
-    private String toLocalTableName(String remoteTableName) {
+    String canonicalLocalTableNameFromRemote(String remoteTableName) {
         String localTableName = extCatalog.fromRemoteTableName(remoteName, remoteTableName);
         if (isStoredTableNamesLowerCase()) {
-            return localTableName.toLowerCase();
+            return localTableName.toLowerCase(Locale.ROOT);
         }
         if (isTableNamesCaseInsensitive()) {
             // Mode 2 preserves the original remote case for display and object-cache keys.

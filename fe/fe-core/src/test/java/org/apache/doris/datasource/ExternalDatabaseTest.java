@@ -222,6 +222,39 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testRegisterTableUsesCanonicalObjectNameForMappedNames() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "RemoteTable");
+            MappingCatalog catalog = new MappingCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 550L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            String localTableName = ((ExternalDatabase<?>) db)
+                    .canonicalLocalTableNameFromRemote("RemoteTable");
+            Assertions.assertEquals("local_RemoteTable", localTableName);
+            Assertions.assertTrue(db.getTableNamesWithLock().contains(localTableName));
+
+            long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), localTableName);
+            TestExternalTable cachedTable = new TestExternalTable(
+                    tableId, localTableName, "RemoteTable", catalog, db);
+            db.addTableForTest(cachedTable);
+            TestExternalTable eventTable = new TestExternalTable(
+                    tableId, localTableName, "RemoteTable", catalog, db);
+
+            db.registerTable(eventTable);
+
+            Assertions.assertEquals("RemoteTable",
+                    db.getCachedTableNamesForTest().remoteNameOfLocalName(localTableName));
+            Assertions.assertSame(eventTable, db.getCachedTableForTest(localTableName));
+            Assertions.assertNull(db.getCachedTableForTest("local_" + localTableName));
+            Assertions.assertEquals(localTableName, db.getCachedTableNameByIdForTest(tableId));
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
+    }
+
+    @Test
     public void testSystemDatabasesUseBuiltInTableNames() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase infoSchemaDb = new InspectableDatabase(
@@ -470,6 +503,24 @@ public class ExternalDatabaseTest extends TestWithFeService {
             Map<String, String> props = Maps.newHashMap();
             props.put("catalog_provider.class", NameMissTableCatalogProvider.class.getName());
             props.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, "2");
+            return props;
+        }
+    }
+
+    private static class MappingCatalog extends TestExternalCatalog {
+        MappingCatalog() {
+            super(1002L, "table_mapping_catalog", "", buildMappingProps(), "");
+        }
+
+        @Override
+        public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
+            return "local_" + remoteTableName;
+        }
+
+        private static Map<String, String> buildMappingProps() {
+            Map<String, String> props = Maps.newHashMap();
+            props.put("catalog_provider.class", NameMissTableCatalogProvider.class.getName());
+            props.put(ExternalCatalog.META_NAMES_MAPPING, "test_mapping");
             return props;
         }
     }
