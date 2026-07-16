@@ -273,6 +273,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HumanReadableSeconds;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
@@ -1302,6 +1303,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitHoursSub(HoursSub hoursSub, C context) {
         return visitScalarFunction(hoursSub, context);
+    }
+
+    default R visitHumanReadableSeconds(HumanReadableSeconds humanReadableSeconds, C context) {
+        return visitScalarFunction(humanReadableSeconds, context);
     }
 
     default R visitHourMinute(HourMinute hourMinute, C context) {

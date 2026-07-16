@@ -1411,6 +1411,61 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * human_readable_seconds function for constant folding
+     */
+    @ExecFunction(name = "human_readable_seconds")
+    public static Expression humanReadableSeconds(DoubleLiteral sec) {
+        return new VarcharLiteral(formatHumanReadableSeconds(sec.getValue()));
+    }
+
+    private static String formatHumanReadableSeconds(double seconds) {
+        if (Double.isNaN(seconds) || Double.isInfinite(seconds)) {
+            throw new AnalysisException("Invalid argument value " + seconds
+                    + " for function human_readable_seconds");
+        }
+
+        long remain = Math.round(Math.abs(seconds));
+        final long week = 7L * 24 * 60 * 60;
+        final long day = 24L * 60 * 60;
+        final long hour = 60L * 60;
+        final long minute = 60L;
+
+        long weeks = remain / week;
+        remain %= week;
+        long days = remain / day;
+        remain %= day;
+        long hours = remain / hour;
+        remain %= hour;
+        long minutes = remain / minute;
+        long secs = remain % minute;
+
+        StringBuilder result = new StringBuilder();
+        if (weeks > 0) {
+            appendUnit(result, weeks, "week", "weeks");
+        }
+        if (days > 0) {
+            appendUnit(result, days, "day", "days");
+        }
+        if (hours > 0) {
+            appendUnit(result, hours, "hour", "hours");
+        }
+        if (minutes > 0) {
+            appendUnit(result, minutes, "minute", "minutes");
+        }
+        if (secs > 0 || result.length() == 0) {
+            appendUnit(result, secs, "second", "seconds");
+        }
+        return result.toString();
+    }
+
+    private static void appendUnit(StringBuilder out, long value, String singular, String plural) {
+        if (out.length() > 0) {
+            out.append(", ");
+        }
+        out.append(value).append(' ').append(value == 1 ? singular : plural);
+    }
+
+    /**
      * get_format function for constant folding
      */
     @ExecFunction(name = "get_format")
