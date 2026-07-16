@@ -822,25 +822,22 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     RETURN_IF_ERROR(_resolve_equality_delete_fields(delete_file, schema, &delete_fields, result));
 
     auto request = std::make_shared<format::FileScanRequest>();
-    auto build_block = [](const std::vector<format::ColumnDefinition>& fields) -> Block {
-        Block block;
-        for (const auto& field : fields) {
-            block.insert({field.type->create_column(), field.type, field.name});
-        }
-        return block;
-    };
+    Block delete_block_template;
     for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
-        const auto local_column_id = format::LocalColumnId(delete_fields[idx].file_local_id());
+        const auto& delete_field = delete_fields[idx];
+        const auto local_column_id = format::LocalColumnId(delete_field.file_local_id());
         request->non_predicate_columns.push_back(
                 format::LocalColumnIndex::top_level(local_column_id));
         request->local_positions.emplace(local_column_id, format::LocalIndex(idx));
+        delete_block_template.insert(
+                {delete_field.type->create_column(), delete_field.type, delete_field.name});
     }
     RETURN_IF_ERROR(reader->open(request));
 
-    MutableBlock mutable_delete_block(build_block(delete_fields));
+    MutableBlock mutable_delete_block(delete_block_template.clone_empty());
     bool eof = false;
     while (!eof) {
-        Block block = build_block(delete_fields);
+        Block block = delete_block_template.clone_empty();
         size_t read_rows = 0;
         RETURN_IF_ERROR(reader->get_block(&block, &read_rows, &eof));
         if (read_rows > 0) {

@@ -3681,14 +3681,13 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
 
     std::vector<TableFilter> table_filters;
     table_filters.push_back({
-            // This test only needs the referenced global indices to drive predicate-column
-            // placement. Keep the conjunct empty so the assertion focuses on scan-column
-            // de-duplication rather than expression rewrite/prepare behavior.
-            .conjunct = nullptr,
+            .conjunct =
+                    VExprContext::create_shared(table_int32_sum_greater_than_expr(0, 0, 1, 1, 1)),
             .global_indices = {GlobalIndex(0), GlobalIndex(1)},
     });
     table_filters.push_back({
-            .conjunct = nullptr,
+            .conjunct =
+                    VExprContext::create_shared(table_int32_sum_greater_than_expr(0, 0, 2, 2, 1)),
             .global_indices = {GlobalIndex(0), GlobalIndex(2)},
     });
 

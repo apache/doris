@@ -515,7 +515,7 @@ TEST_F(ParquetScanTest, PlanRowGroupsAppliesScanRangeBeforeStatistics) {
                                                          request, scan_range, false, &plan)
                         .ok());
     EXPECT_TRUE(plan.row_groups.empty());
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 3);
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 0);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 2);

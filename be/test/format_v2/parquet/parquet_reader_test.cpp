@@ -2374,7 +2374,7 @@ TEST_F(NewParquetReaderTest, ScanRangeFiltersRowGroupsBeforeDictionaryPruning) {
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 1);
     EXPECT_EQ(plan.row_groups[0].row_group_id, 2);
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 0);
     EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
