@@ -122,8 +122,7 @@ CacheWriteMode CachedRemoteFileReader::_resolve_cache_write_mode(const IOContext
 
 // Build a deliberately small plan. The inflight index is checked first so a fully covered read
 // avoids BlockFileCache::probe and its cache mutex. Only an incomplete inflight lookup performs one
-// whole-range cache probe; the per-block scans favor readability because read_at normally spans
-// very few cache blocks.
+// whole-range probe whose result entries map directly to the logical plan blocks.
 CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_plan(
         size_t remaining_offset, size_t remaining_size, uint64_t write_epoch,
         const IOContext* io_ctx, ReadStatistics& stats) {
@@ -140,7 +139,8 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
          block_offset += cache_block_size) {
         const size_t block_size = std::min(cache_block_size, size() - block_offset);
         DORIS_CHECK(block_size > 0);
-        plan.blocks.emplace_back(FileBlock::Range(block_offset, block_offset + block_size - 1));
+        const FileBlock::Range block_range(block_offset, block_offset + block_size - 1);
+        plan.blocks.emplace_back(block_range);
         block_offsets.emplace_back(block_offset);
     }
     DORIS_CHECK(!plan.blocks.empty());
@@ -180,42 +180,42 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
     plan.probe_result.emplace(_cache->probe(_cache_hash, align_left, align_size, cache_context));
     g_cached_remote_reader_probe_total << 1;
     const auto& probe_result = *plan.probe_result;
+    DORIS_CHECK(probe_result.file_blocks.size() == plan.blocks.size());
 
-    const auto overlaps = [](const FileBlock::Range& lhs, const FileBlock::Range& rhs) {
-        return lhs.left <= rhs.right && rhs.left <= lhs.right;
-    };
     for (size_t index = 0; index < plan.blocks.size(); ++index) {
         auto& read_block = plan.blocks[index];
         if (read_block.source == AsyncReadBlock::Source::INFLIGHT) {
             continue;
         }
 
-        bool has_miss = std::any_of(
-                probe_result.gaps.begin(), probe_result.gaps.end(),
-                [&](const FileBlock::Range& gap) { return overlaps(gap, read_block.range); });
-        bool has_downloading = false;
-        bool has_cache_block = false;
-        for (const auto& block : probe_result.holder.file_blocks) {
-            if (!overlaps(block->range(), read_block.range)) {
-                continue;
-            }
-            has_cache_block = true;
-            if (_cache->is_block_deleting(block)) {
-                has_miss = true;
+        const auto& file_block = probe_result.file_blocks[index];
+        bool is_miss = file_block == nullptr;
+        bool is_downloading = false;
+        if (file_block != nullptr) {
+            DORIS_CHECK(file_block->range().left == read_block.range.left);
+            DORIS_CHECK(file_block->range().right == read_block.range.right);
+            if (_cache->is_block_deleting(file_block)) {
+                is_miss = true;
             } else {
-                const FileBlock::State state = block->state();
-                has_miss = has_miss || state == FileBlock::State::EMPTY ||
-                           state == FileBlock::State::SKIP_CACHE;
-                has_downloading = has_downloading || state == FileBlock::State::DOWNLOADING;
+                switch (file_block->state()) {
+                case FileBlock::State::DOWNLOADED:
+                    break;
+                case FileBlock::State::DOWNLOADING:
+                    is_downloading = true;
+                    break;
+                case FileBlock::State::EMPTY:
+                case FileBlock::State::SKIP_CACHE:
+                    is_miss = true;
+                    break;
+                }
             }
         }
-        DORIS_CHECK(has_miss || has_cache_block);
 
-        if (has_miss) {
+        if (is_miss) {
             read_block.submit_write = true;
             ++stats.probe_miss;
             g_cached_remote_reader_probe_miss << 1;
-        } else if (has_downloading) {
+        } else if (is_downloading) {
             read_block.source = AsyncReadBlock::Source::DOWNLOADING;
             ++stats.probe_downloading_hit;
             g_cached_remote_reader_probe_downloading << 1;
@@ -238,10 +238,14 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
 // Copy one block available from inflight memory or cache. DOWNLOADING blocks outside the remote
 // span retain the existing wait semantics. Any race or read failure asks the caller to replace the
 // whole planned request with one remote read instead of incrementally repairing the range.
-bool CachedRemoteFileReader::_materialize_async_block(
-        const AsyncReadPlan& plan, const AsyncReadBlock& read_block, size_t user_offset,
-        Slice result, const CacheContext& cache_context, ReadStatistics& stats,
-        size_t* materialized_bytes, bool* need_self_heal) {
+bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan, size_t block_index,
+                                                      size_t user_offset, Slice result,
+                                                      const CacheContext& cache_context,
+                                                      ReadStatistics& stats,
+                                                      size_t* materialized_bytes,
+                                                      bool* need_self_heal) {
+    DORIS_CHECK(block_index < plan.blocks.size());
+    const auto& read_block = plan.blocks[block_index];
     DORIS_CHECK(read_block.source != AsyncReadBlock::Source::REMOTE);
     DORIS_CHECK(materialized_bytes != nullptr);
     DORIS_CHECK(need_self_heal != nullptr);
@@ -265,64 +269,54 @@ bool CachedRemoteFileReader::_materialize_async_block(
     }
 
     DORIS_CHECK(plan.probe_result.has_value());
-    size_t local_read_bytes = 0;
-    std::vector<FileBlockSPtr> consumed_blocks;
-    for (const auto& block : plan.probe_result->holder.file_blocks) {
-        if (block->range().right < copy_left || block->range().left > copy_right) {
-            continue;
-        }
-        if (_cache->is_block_deleting(block)) {
-            return false;
-        }
+    DORIS_CHECK(block_index < plan.probe_result->file_blocks.size());
+    const auto& file_block = plan.probe_result->file_blocks[block_index];
+    DORIS_CHECK(file_block != nullptr);
+    DORIS_CHECK(file_block->range().left == read_block.range.left);
+    DORIS_CHECK(file_block->range().right == read_block.range.right);
+    if (_cache->is_block_deleting(file_block)) {
+        return false;
+    }
 
-        FileBlock::State state = block->state();
-        if (state == FileBlock::State::DOWNLOADING) {
-            DORIS_CHECK(read_block.source == AsyncReadBlock::Source::DOWNLOADING);
-            {
-                SCOPED_RAW_TIMER(&stats.remote_wait_timer);
-                state = block->wait();
-            }
-            if (state != FileBlock::State::DOWNLOADED) {
-                ++stats.block_wait_timeout;
-                g_cached_remote_reader_block_wait_timeout << 1;
-                return false;
-            }
-            ++stats.block_wait_success;
-            g_cached_remote_reader_block_wait << 1;
+    FileBlock::State state = file_block->state();
+    if (state == FileBlock::State::DOWNLOADING) {
+        DORIS_CHECK(read_block.source == AsyncReadBlock::Source::DOWNLOADING);
+        {
+            SCOPED_RAW_TIMER(&stats.remote_wait_timer);
+            state = file_block->wait();
         }
         if (state != FileBlock::State::DOWNLOADED) {
+            ++stats.block_wait_timeout;
+            g_cached_remote_reader_block_wait_timeout << 1;
             return false;
         }
-
-        const size_t read_left = std::max(block->range().left, copy_left);
-        const size_t read_right = std::min(block->range().right, copy_right);
-        const size_t read_size = read_right - read_left + 1;
-        Status status;
-        {
-            SCOPED_RAW_TIMER(&stats.local_read_timer);
-            status = block->read(Slice(result.data + (read_left - user_offset), read_size),
-                                 read_left - block->range().left);
-        }
-        if (!status.ok()) {
-            if (status.is<ErrorCode::NOT_FOUND>()) {
-                *need_self_heal = true;
-                g_read_cache_self_heal_on_not_found << 1;
-            }
-            LOG_EVERY_N(WARNING, 100)
-                    << "Read probed file cache block failed, falling back to remote. path="
-                    << path().native() << ", hash=" << _cache_hash.to_string()
-                    << ", offset=" << block->offset() << ", status=" << status;
-            return false;
-        }
-        local_read_bytes += read_size;
-        consumed_blocks.emplace_back(block);
+        ++stats.block_wait_success;
+        g_cached_remote_reader_block_wait << 1;
     }
-    DORIS_CHECK(local_read_bytes == copy_size);
-
-    for (const auto& block : consumed_blocks) {
-        _cache->touch_probe_block_if_cached(block, cache_context);
+    if (state != FileBlock::State::DOWNLOADED) {
+        return false;
     }
-    *materialized_bytes += local_read_bytes;
+
+    Status status;
+    {
+        SCOPED_RAW_TIMER(&stats.local_read_timer);
+        status = file_block->read(Slice(result.data + (copy_left - user_offset), copy_size),
+                                  copy_left - file_block->range().left);
+    }
+    if (!status.ok()) {
+        if (status.is<ErrorCode::NOT_FOUND>()) {
+            *need_self_heal = true;
+            g_read_cache_self_heal_on_not_found << 1;
+        }
+        LOG_EVERY_N(WARNING, 100)
+                << "Read probed file cache block failed, falling back to remote. path="
+                << path().native() << ", hash=" << _cache_hash.to_string()
+                << ", offset=" << file_block->offset() << ", status=" << status;
+        return false;
+    }
+
+    _cache->touch_probe_block_if_cached(file_block, cache_context);
+    *materialized_bytes += copy_size;
     return true;
 }
 
@@ -339,9 +333,8 @@ bool CachedRemoteFileReader::_materialize_async_cached_sides(
     size_t materialized_bytes = 0;
     const auto materialize_range = [&](size_t begin, size_t end) {
         for (size_t index = begin; index < end; ++index) {
-            if (!_materialize_async_block(plan, plan.blocks[index], user_offset, result,
-                                          cache_context, stats, &materialized_bytes,
-                                          need_self_heal)) {
+            if (!_materialize_async_block(plan, index, user_offset, result, cache_context, stats,
+                                          &materialized_bytes, need_self_heal)) {
                 return false;
             }
         }

@@ -56,11 +56,9 @@ TEST_F(BlockFileCacheTest, ProbeMissDoesNotCreateCacheCell) {
         context.stats = &stats;
         const size_t cache_size_before = cache._cur_cache_size;
 
-        auto result = cache.probe(hash, 1024, 4096, context);
-        EXPECT_TRUE(result.holder.file_blocks.empty());
-        ASSERT_EQ(result.gaps.size(), 1);
-        EXPECT_EQ(result.gaps.front().left, 1024);
-        EXPECT_EQ(result.gaps.front().right, 5119);
+        auto result = cache.probe(hash, 0, 4096, context);
+        ASSERT_EQ(result.file_blocks.size(), 1);
+        EXPECT_EQ(result.file_blocks[0], nullptr);
         EXPECT_EQ(cache._cur_cache_size, cache_size_before);
         std::lock_guard cache_lock(cache._mutex);
         EXPECT_EQ(cache._files.find(hash), cache._files.end());
@@ -68,7 +66,7 @@ TEST_F(BlockFileCacheTest, ProbeMissDoesNotCreateCacheCell) {
     fs::remove_all(path, error);
 }
 
-TEST_F(BlockFileCacheTest, ProbeReturnsDownloadedBlockAndIndependentGap) {
+TEST_F(BlockFileCacheTest, ProbeReturnsDownloadedBlockAndNullMissSlot) {
     const auto path = caches_dir / "block_file_cache_probe_mixed";
     std::error_code error;
     fs::remove_all(path, error);
@@ -97,13 +95,12 @@ TEST_F(BlockFileCacheTest, ProbeReturnsDownloadedBlockAndIndependentGap) {
         }
 
         auto result = cache.probe(hash, 0, 8192, context);
-        ASSERT_EQ(result.holder.file_blocks.size(), 1);
-        EXPECT_EQ(result.holder.file_blocks.front()->state(), FileBlock::State::DOWNLOADED);
-        EXPECT_EQ(result.holder.file_blocks.front()->range().left, 0);
-        EXPECT_EQ(result.holder.file_blocks.front()->range().right, 4095);
-        ASSERT_EQ(result.gaps.size(), 1);
-        EXPECT_EQ(result.gaps.front().left, 4096);
-        EXPECT_EQ(result.gaps.front().right, 8191);
+        ASSERT_EQ(result.file_blocks.size(), 2);
+        ASSERT_NE(result.file_blocks[0], nullptr);
+        EXPECT_EQ(result.file_blocks[0]->state(), FileBlock::State::DOWNLOADED);
+        EXPECT_EQ(result.file_blocks[0]->range().left, 0);
+        EXPECT_EQ(result.file_blocks[0]->range().right, 4095);
+        EXPECT_EQ(result.file_blocks[1], nullptr);
         EXPECT_EQ(cache._cur_cache_size, cache_size_before);
         {
             std::lock_guard cache_lock(cache._mutex);
@@ -148,8 +145,9 @@ TEST_F(BlockFileCacheTest, ProbeTouchAndRemovalRevalidateTheRetainedBlock) {
         const uint64_t old_epoch = cache.async_write_service()->current_write_epoch();
         {
             auto probe_result = cache.probe(hash, 0, 4096, context);
-            ASSERT_EQ(probe_result.holder.file_blocks.size(), 1);
-            const auto& block = probe_result.holder.file_blocks.front();
+            ASSERT_EQ(probe_result.file_blocks.size(), 1);
+            const auto& block = probe_result.file_blocks[0];
+            ASSERT_NE(block, nullptr);
             cache_file = block->get_cache_file();
             {
                 std::lock_guard cache_lock(cache._mutex);
@@ -174,8 +172,8 @@ TEST_F(BlockFileCacheTest, ProbeTouchAndRemovalRevalidateTheRetainedBlock) {
             bool metadata_removed = false;
             {
                 auto probe_result = cache.probe(hash, 0, 4096, context);
-                metadata_removed =
-                        probe_result.holder.file_blocks.empty() && probe_result.gaps.size() == 1;
+                metadata_removed = probe_result.file_blocks.size() == 1 &&
+                                   probe_result.file_blocks[0] == nullptr;
             }
             if (metadata_removed && !fs::exists(cache_file)) {
                 removed = true;
@@ -210,7 +208,7 @@ TEST_F(BlockFileCacheTest, ProbeObservesDownloadingAndEmptyBlocksWithoutTakingDo
             ReadStatistics downloader_stats;
             CacheContext downloader_context;
             downloader_context.stats = &downloader_stats;
-            auto holder = cache.get_or_set(hash, 0, 8192, downloader_context);
+            auto holder = cache.get_or_set(hash, 0, 6144, downloader_context);
             DORIS_CHECK(holder.file_blocks.size() == 2);
             DORIS_CHECK(holder.file_blocks.front()->get_or_set_downloader() ==
                         FileBlock::get_caller_id());
@@ -242,13 +240,16 @@ TEST_F(BlockFileCacheTest, ProbeObservesDownloadingAndEmptyBlocksWithoutTakingDo
         }
 
         {
-            auto result = cache.probe(hash, 0, 8192, context);
-            ASSERT_EQ(result.holder.file_blocks.size(), 2);
-            auto iterator = result.holder.file_blocks.begin();
-            EXPECT_EQ((*iterator)->state(), FileBlock::State::DOWNLOADING);
-            ++iterator;
-            EXPECT_EQ((*iterator)->state(), FileBlock::State::EMPTY);
-            EXPECT_TRUE(result.gaps.empty());
+            auto result = cache.probe(hash, 0, 6144, context);
+            ASSERT_EQ(result.file_blocks.size(), 2);
+            ASSERT_NE(result.file_blocks[0], nullptr);
+            ASSERT_NE(result.file_blocks[1], nullptr);
+            EXPECT_EQ(result.file_blocks[0]->state(), FileBlock::State::DOWNLOADING);
+            EXPECT_EQ(result.file_blocks[0]->range().left, 0);
+            EXPECT_EQ(result.file_blocks[0]->range().right, 4095);
+            EXPECT_EQ(result.file_blocks[1]->state(), FileBlock::State::EMPTY);
+            EXPECT_EQ(result.file_blocks[1]->range().left, 4096);
+            EXPECT_EQ(result.file_blocks[1]->range().right, 6143);
         }
     }
     fs::remove_all(path, error);

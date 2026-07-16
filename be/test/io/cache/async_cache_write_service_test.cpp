@@ -268,10 +268,8 @@ TEST_F(AsyncCacheWriteServiceTest, WatchdogDropsExpiredTaskAndCleansInflightEntr
     CacheContext context;
     context.stats = &read_stats;
     auto probe_result = cache->probe(hash, 0, 4096, context);
-    EXPECT_TRUE(probe_result.holder.file_blocks.empty());
-    ASSERT_EQ(probe_result.gaps.size(), 1);
-    EXPECT_EQ(probe_result.gaps.front().left, 0);
-    EXPECT_EQ(probe_result.gaps.front().right, 4095);
+    ASSERT_EQ(probe_result.file_blocks.size(), 1);
+    EXPECT_EQ(probe_result.file_blocks[0], nullptr);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, ShutdownDrainsAcceptedTask) {
@@ -478,9 +476,10 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCach
         CacheContext probe_context;
         probe_context.stats = &probe_stats;
         auto probe_result = cache->probe(hash, 0, 4096, probe_context);
-        ASSERT_EQ(probe_result.holder.file_blocks.size(), 1);
-        EXPECT_EQ(probe_result.holder.file_blocks.front()->state(), FileBlock::State::DOWNLOADING);
-        cache_file = probe_result.holder.file_blocks.front()->get_cache_file();
+        ASSERT_EQ(probe_result.file_blocks.size(), 1);
+        ASSERT_NE(probe_result.file_blocks[0], nullptr);
+        EXPECT_EQ(probe_result.file_blocks[0]->state(), FileBlock::State::DOWNLOADING);
+        cache_file = probe_result.file_blocks[0]->get_cache_file();
     }
     const uint64_t old_epoch = service->current_write_epoch();
     cache->remove_if_cached_async(hash);
@@ -502,7 +501,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCach
         {
             auto probe_result = cache->probe(hash, 0, 4096, probe_context);
             metadata_removed =
-                    probe_result.holder.file_blocks.empty() && probe_result.gaps.size() == 1;
+                    probe_result.file_blocks.size() == 1 && probe_result.file_blocks[0] == nullptr;
         }
         if (metadata_removed && !fs::exists(cache_file)) {
             removed = true;
@@ -666,10 +665,8 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
     context.stats = &read_stats;
     const auto expect_cache_gap = [&](const UInt128Wrapper& hash) {
         auto probe_result = cache->probe(hash, 0, 4096, context);
-        EXPECT_TRUE(probe_result.holder.file_blocks.empty());
-        ASSERT_EQ(probe_result.gaps.size(), 1);
-        EXPECT_EQ(probe_result.gaps.front().left, 0);
-        EXPECT_EQ(probe_result.gaps.front().right, 4095);
+        ASSERT_EQ(probe_result.file_blocks.size(), 1);
+        EXPECT_EQ(probe_result.file_blocks[0], nullptr);
     };
     expect_cache_gap(active_hash);
     expect_cache_gap(queued_hash);
