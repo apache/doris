@@ -45,8 +45,9 @@ import java.util.Optional;
  * {@code Optional.empty()}, so every iceberg base table reported row count -1 to the FE optimizer
  * (cardinality collapses to 1, join reorder disabled, SHOW TABLE STATUS = -1). The fix mirrors
  * {@code PaimonConnectorMetadata.getTableStatistics} in structure but uses the legacy iceberg FORMULA
- * ({@code IcebergUtils.getIcebergRowCount}: currentSnapshot summary {@code total-records -
- * total-position-deletes}). Tests run against a real {@link InMemoryCatalog} table (no Mockito), the
+ * ({@code IcebergUtils.getIcebergRowCount} -> {@code getCountFromSummary(summary, true)}: currentSnapshot
+ * summary {@code total-records - total-position-deletes}, gated to UNKNOWN when equality deletes are present,
+ * per upstream #64648). Tests run against a real {@link InMemoryCatalog} table (no Mockito), the
  * {@link RecordingIcebergCatalogOps} fake serving it through the seam.
  */
 public class IcebergConnectorMetadataStatisticsTest {
@@ -193,7 +194,7 @@ public class IcebergConnectorMetadataStatisticsTest {
     }
 
     @Test
-    public void equalityDeletesDoNotGateTableStatistics() {
+    public void equalityDeletesGateTableStatisticsToUnknown() {
         Table table = newTable();
         table.newAppend().appendFile(dataFile("/data/f1.parquet", 100)).commit();
         table.newRowDelta().addDeletes(equalityDeletes("/data/ed1.parquet", 5)).commit();
@@ -201,11 +202,13 @@ public class IcebergConnectorMetadataStatisticsTest {
         Optional<ConnectorTableStatistics> stats =
                 metadataFor(table, new RecordingIcebergCatalogOps()).getTableStatistics(null, handle());
 
-        // WHY: table statistics use total-records - total-position-deletes ONLY. The COUNT(*)-pushdown formula
-        // (IcebergScanPlanProvider.getCountFromSnapshot) returns -1 when equality deletes exist; misusing THAT
-        // here would report UNKNOWN for any table with equality deletes. MUTATION: routing through the equality
-        // gate -> empty; this asserts present(100) (equality deletes are NOT subtracted by the legacy stat).
-        Assertions.assertTrue(stats.isPresent(), "equality deletes must not blank out table statistics");
-        Assertions.assertEquals(100L, stats.get().getRowCount());
+        // WHY: with equality deletes present the snapshot summary cannot net out the deleted rows, so
+        // total-records (100) overstates the real count. Legacy getIcebergRowCount -> getCountFromSummary(
+        // summary, true) (upstream #64648) gates such tables to UNKNOWN, and this connector's own COUNT(*)
+        // pushdown (IcebergScanPlanProvider.getCountFromSummary) does the same; the table-stats path must match
+        // or the two disagree and the CBO is fed an inflated count. MUTATION: dropping the
+        // `!equalityDeletes.equals("0")` gate surfaces present(100) and this assertion fails.
+        Assertions.assertFalse(stats.isPresent(),
+                "equality deletes must gate table statistics to UNKNOWN (summary cannot net them out)");
     }
 }

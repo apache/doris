@@ -159,4 +159,89 @@ public class HmsTypeMappingTest {
         // No top-level comma -> returns the length.
         Assertions.assertEquals(3, HmsTypeMapping.findNextNestedField("int"));
     }
+
+    // ==================== reverse mapping: ConnectorType -> Hive type string ====================
+    //
+    // WHY: toHiveTypeString is the CREATE TABLE direction, the SPI-clean equivalent of fe-core
+    // HiveMetaStoreClientHelper.dorisTypeToHiveType. Its input type names are Doris PrimitiveType
+    // names (what ConnectorColumnConverter.toConnectorType emits via PrimitiveType.toString()). A
+    // wrong reverse mapping silently mistypes every column of a table Doris creates in Hive, so
+    // these pin the exact Hive string per Doris type — especially the ones that intentionally
+    // collapse (VARCHAR->string) or drop parameters (timestamp), and the unsupported ones that
+    // must throw rather than emit a bogus type.
+
+    private static String hive(ConnectorType type) {
+        return HmsTypeMapping.toHiveTypeString(type);
+    }
+
+    @Test
+    public void testToHiveTypeStringPrimitives() {
+        Assertions.assertEquals("boolean", hive(ConnectorType.of("BOOLEAN")));
+        Assertions.assertEquals("tinyint", hive(ConnectorType.of("TINYINT")));
+        Assertions.assertEquals("smallint", hive(ConnectorType.of("SMALLINT")));
+        Assertions.assertEquals("int", hive(ConnectorType.of("INT")));
+        Assertions.assertEquals("bigint", hive(ConnectorType.of("BIGINT")));
+        Assertions.assertEquals("float", hive(ConnectorType.of("FLOAT")));
+        Assertions.assertEquals("double", hive(ConnectorType.of("DOUBLE")));
+        Assertions.assertEquals("string", hive(ConnectorType.of("STRING")));
+    }
+
+    @Test
+    public void testToHiveTypeStringDateAndTimestampVariants() {
+        // Both the legacy and V2 date/datetime primitives collapse to Hive date/timestamp.
+        Assertions.assertEquals("date", hive(ConnectorType.of("DATE")));
+        Assertions.assertEquals("date", hive(ConnectorType.of("DATEV2")));
+        Assertions.assertEquals("timestamp", hive(ConnectorType.of("DATETIME")));
+        // The datetime scale carried on the ConnectorType is intentionally dropped (Hive timestamp has none).
+        Assertions.assertEquals("timestamp", hive(ConnectorType.of("DATETIMEV2", 6, -1)));
+    }
+
+    @Test
+    public void testToHiveTypeStringCharVarcharString() {
+        // CHAR carries its length in the precision field (create-request encoding).
+        Assertions.assertEquals("char(10)", hive(ConnectorType.of("CHAR", 10, 0)));
+        // VARCHAR intentionally maps to Hive string (parity with legacy dorisTypeToHiveType).
+        Assertions.assertEquals("string", hive(ConnectorType.of("VARCHAR", 255, 0)));
+        Assertions.assertEquals("string", hive(ConnectorType.of("STRING")));
+    }
+
+    @Test
+    public void testToHiveTypeStringDecimalVariantsAndDefault() {
+        // Every Doris decimal storage width maps to Hive decimal(p,s).
+        Assertions.assertEquals("decimal(10,2)", hive(ConnectorType.of("DECIMAL64", 10, 2)));
+        Assertions.assertEquals("decimal(38,10)", hive(ConnectorType.of("DECIMAL128", 38, 10)));
+        Assertions.assertEquals("decimal(9,0)", hive(ConnectorType.of("DECIMALV2", 9, 0)));
+        Assertions.assertEquals("decimal(76,0)", hive(ConnectorType.of("DECIMAL256", 76, 0)));
+        // A read-origin DECIMALV3 name is accepted too.
+        Assertions.assertEquals("decimal(5,3)", hive(ConnectorType.of("DECIMALV3", 5, 3)));
+        // Precision 0 falls back to the default precision 9 (parity with legacy).
+        Assertions.assertEquals("decimal(9,0)", hive(ConnectorType.of("DECIMAL32", 0, 0)));
+    }
+
+    @Test
+    public void testToHiveTypeStringComplexIncludingNested() {
+        Assertions.assertEquals("array<int>", hive(ConnectorType.arrayOf(ConnectorType.of("INT"))));
+        Assertions.assertEquals("map<string,bigint>",
+                hive(ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("BIGINT"))));
+        Assertions.assertEquals("struct<a:int,b:string>",
+                hive(ConnectorType.structOf(Arrays.asList("a", "b"),
+                        Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")))));
+        // Nested: an array of structs of a map.
+        ConnectorType nested = ConnectorType.arrayOf(
+                ConnectorType.structOf(Arrays.asList("m"),
+                        Arrays.asList(ConnectorType.mapOf(ConnectorType.of("STRING"),
+                                ConnectorType.of("INT")))));
+        Assertions.assertEquals("array<struct<m:map<string,int>>>", hive(nested));
+    }
+
+    @Test
+    public void testToHiveTypeStringUnsupportedThrows() {
+        // Types Hive tables cannot represent must throw, not emit a bogus type string.
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> hive(ConnectorType.of("LARGEINT")));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> hive(ConnectorType.of("IPV4")));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> hive(ConnectorType.of("JSONB")));
+    }
 }

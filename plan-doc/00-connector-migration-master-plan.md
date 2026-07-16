@@ -54,7 +54,7 @@
 - 散落在 `nereids/`、`planner/`、`alter/`、`tablefunction/`、`catalog/RefreshManager` 的 `instanceof XExternal*` —— 全部走 SPI 接口
 - `SPI_READY_TYPES` 白名单本身
 
-**fe-connector/ 终态**：每个连接器是一个**独立可装卸的 plugin zip**，部署到 `${doris_home}/plugins/connectors/<name>/`，FE 启动通过 `connector_plugin_root` 加载。运行时 `fe-core` 对具体连接器名一无所知；用户安装/卸载连接器无需重启 FE（决策点 D8）。
+**fe-connector/ 终态**：每个连接器是一个**独立可装卸的 plugin zip**，部署到 `${doris_home}/plugins/connector/<name>/`（**单数**，`build.sh:1073`；勿与 trino-connector 自带插件的投放点 `plugins/trino_plugins/` 混淆），FE 启动通过 `connector_plugin_root` 加载。运行时 `fe-core` 对具体连接器名一无所知；用户安装/卸载连接器无需重启 FE（决策点 D8）。
 
 ### 1.2 三个不可妥协的不变量
 

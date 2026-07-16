@@ -18,7 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 
 import com.google.common.collect.Lists;
 
@@ -140,7 +140,7 @@ public final class FilePartitionUtils {
             if (index == -1) {
                 continue;
             }
-            boolean isNull = HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(pair[1]);
+            boolean isNull = ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(pair[1]);
             columns[index] = isNull ? "" : pair[1];
             columnValueIsNull[index] = isNull;
             size++;
@@ -162,7 +162,11 @@ public final class FilePartitionUtils {
         List<String> values = new ArrayList<>(columnsFromPath.size());
         List<Boolean> isNull = new ArrayList<>(columnsFromPath.size());
         for (String value : columnsFromPath) {
-            boolean nullValue = value == null || HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(value);
+            // Only a genuine null maps to SQL NULL here. Source-specific null sentinels (the Hive
+            // default-partition directory name) are the connector's responsibility: each connector
+            // rewrites columns-from-path in its own ConnectorScanRange.populateRangeParams, overwriting
+            // this pre-fill. fe-core keeps no source-specific string matching.
+            boolean nullValue = value == null;
             values.add(nullValue ? "" : value);
             isNull.add(nullValue);
         }

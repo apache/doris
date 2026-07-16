@@ -10,9 +10,9 @@
 | **fe-connector 模块** | `fe/fe-connector/fe-connector-hive/` + `fe/fe-connector/fe-connector-hms/`（共享库）|
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/hive/` |
 | **共享依赖** | 自身 `fe-connector-hms`；被 hudi/iceberg-HMS/paimon-HMS 依赖 |
-| **计划迁移阶段** | **P7**（最复杂，6 周）|
-| **当前状态** | ⏸ 未启动 |
-| **完成度** | 10%（hive 20% + hms 共享库已立） |
+| **计划迁移阶段** | **P7**（最复杂，6 周；**当前活跃阶段**，phase-split spec 已立，起步 P7.1）|
+| **当前状态** | 🚧 P7 进行中：**code-grounded recon（10-agent）+ 阶段拆分 spec `tasks/P7-hive-migration.md` 已完成**；下一 = **P7.1 HiveMetadataOps 全功能搬迁（实现）** |
+| **完成度** | 12%（recon+spec 立 + hive scan 只读已立 + hms 共享读库已立；DDL/txn/event/stats 端 0） |
 | **主 owner** | TBD |
 
 ---
@@ -21,9 +21,9 @@
 
 | 步骤 | 状态 | 备注 |
 |---|---|---|
-| 1 | 🟥 | fe-core 30 个顶层 + `event/`（21 个）+ `source/`（HiveScanNode 等） |
-| 2 | 🟥 | fe-connector-hive 12 个文件（scan path + handles）；fe-connector-hms 9 个文件 |
-| 3 | ⏳ | 反向 instanceof：**31 处**（最高）|
+| 1 | 🟥 | fe-core **52** 文件（29 顶层 + `event/` 21 + `source/` 2）|
+| 2 | 🟨 | fe-connector-hive 12 文件（**只读 scan 已立**，DDL/txn/stats override=0）；fe-connector-hms 9 文件（**共享读库**，无写/txn/lock/col-stats）|
+| 3 | ⏳ | 反向 instanceof/cast：**85 occurrence / 33 文件**（最高；plan 旧记 31 已校正）+ ~7 处 type-level 耦合（CatalogFactory/GsonUtils/HudiUtils/IcebergHMSSource…）|
 | 4 | ⏳ | `HiveMetadataOps` 全功能未迁；P7.1 重头 |
 | 5 | ⏳ | |
 | 6 | ✅ | META-INF/services 已注册（HiveConnectorProvider）；hms 共享库无 service 注册 |
@@ -89,6 +89,16 @@
 ---
 
 ## 进度日志
+
+### 2026-07-05（下午 · P7 recon + 阶段拆分 spec 完成）
+- **10-agent code-grounded recon**（`wf-p7-hive-recon` + 补充 type-coupling recon，~1.3M token）核清 52 文件分类、ACID 写路径、event pipeline、DLA 三分流、85 处反向 instanceof、跨连接器耦合 + 翻闸机制（CatalogFactory:50/133 + GsonUtils:366/447/471 兼容 + 6 文件写路径 retype 链 + 删除排序）。校正过时数字（instanceof 31→85、HMSTransaction 1866→1895、HMSExternalTable 1293→1332）。
+- **关键澄清**：recon 标"最大未知"= iceberg/hudi-on-HMS 归属，实为**已定** —— D-020（per-table SPI provider，hive 网关委派 -iceberg/-hudi）+ D-019（hudi live cutover 并入 P7）。故本阶段目标含删 `datasource/hudi/` + 23 HMS-iceberg 类。
+- **产出** `tasks/P7-hive-migration.md`（阶段拆分 spec，P7.1–P7.5 + old→new 映射 + SPI 缺口 + 8 条开放决策待各子阶段签字）。**下一 = P7.1 实现**（HiveMetadataOps → HiveConnectorMetadata + HmsClient 写方法）。
+
+### 2026-07-05（P7 启动 = 当前活跃迁移目标）
+- **iceberg P6 已 squash-合入 `branch-catalog-spi`（#64688 `8b391c7459d`）→ hive 成为下一个活跃迁移目标**。工作分支 `catalog-spi-11-hive`。
+- **下个 session 起步**：建 `tasks/P7-hive-migration.md` 阶段拆分 spec + code-grounded recon；起步 P7.1 HiveMetadataOps 全功能搬迁。权威计划 master plan §3.8 + 本文 §子阶段。**R-002 ACID 写路径（P7.3）= 项目最大风险，须专门集成测试作 gate。**
+- **P7 连带清理**：删 fe-core `datasource/hive/`（P7.5）+ 23 个 HMS-iceberg 支撑类 + `datasource/hudi/`（阶段四）；hudi 批 E（live cutover）并入 P7。
 
 ### 2026-05-24
 - 跟踪文件建立。当前最复杂的连接器；R-002（ACID 数据不一致）是项目最大风险。

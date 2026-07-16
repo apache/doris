@@ -34,7 +34,6 @@ public final class IcebergConnectorProperties {
     public static final String TYPE_REST = "rest";
     public static final String TYPE_HMS = "hms";
     public static final String TYPE_GLUE = "glue";
-    public static final String TYPE_DLF = "dlf";
     public static final String TYPE_JDBC = "jdbc";
     public static final String TYPE_HADOOP = "hadoop";
     public static final String TYPE_S3_TABLES = "s3tables";
@@ -139,14 +138,11 @@ public final class IcebergConnectorProperties {
     // -- GLUE emitted literal keys / values / defaults (non-SDK) --
     public static final String GLUE_CREDENTIALS_PROVIDER_KEY = "client.credentials-provider";
     public static final String GLUE_CREDENTIALS_PROVIDER_2X =
-            "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x";
+            "org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x";
     public static final String GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY = "client.credentials-provider.glue.access_key";
     public static final String GLUE_CREDENTIALS_PROVIDER_SECRET_KEY = "client.credentials-provider.glue.secret_key";
     public static final String GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN =
             "client.credentials-provider.glue.session_token";
-    public static final String GLUE_CREDENTIALS_PROVIDER_FACTORY_KEY = "aws.catalog.credentials.provider.factory.class";
-    public static final String GLUE_CREDENTIALS_PROVIDER_FACTORY =
-            "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory";
     public static final String AWS_REGION_KEY = "aws.region";
     public static final String GLUE_CHECKED_WAREHOUSE = "s3://doris";
     public static final String GLUE_DEFAULT_REGION = "us-east-1";

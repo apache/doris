@@ -27,11 +27,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.insertoverwrite.AbstractInsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.insertoverwrite.RemoteInsertOverwriteManager;
@@ -41,7 +39,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -318,9 +315,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (targetTable instanceof OlapTable || targetTable instanceof RemoteDorisExternalTable) {
             return true;
         } else {
-            return targetTable instanceof HMSExternalTable
-                    || (targetTable instanceof PluginDrivenExternalTable
-                            && pluginConnectorSupportsInsertOverwrite((PluginDrivenExternalTable) targetTable));
+            return targetTable instanceof PluginDrivenExternalTable
+                    && pluginConnectorSupportsInsertOverwrite((PluginDrivenExternalTable) targetTable);
         }
     }
 
@@ -332,8 +328,9 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
      * {@code PhysicalPlanTranslator}.
      */
     private static boolean pluginConnectorSupportsInsertOverwrite(PluginDrivenExternalTable table) {
-        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
-        return catalog.getConnector().supportedWriteOperations().contains(WriteOperation.OVERWRITE);
+        // Per-handle write-op probe (a heterogeneous gateway answers per-table; OVERWRITE happens to be admitted
+        // by both hive and iceberg, but the probe is resolved uniformly with the other write-op admission gates).
+        return table.connectorSupportedWriteOperations().contains(WriteOperation.OVERWRITE);
     }
 
     /**
@@ -346,9 +343,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (!(targetTable instanceof PluginDrivenExternalTable)) {
             return false;
         }
-        PluginDrivenExternalCatalog catalog =
-                (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) targetTable).getCatalog();
-        return catalog.getConnector().supportsWriteBranch();
+        // Per-handle: a heterogeneous gateway supports write-to-branch for its iceberg tables but not its hive.
+        return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
     }
 
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
@@ -394,20 +390,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             // 2. we save and pass overwrite auto detect by insertCtx
             boolean allowAutoPartition = wholeTable && ctx.getSessionVariable().isEnableAutoCreateWhenOverwrite();
             insertCtx = new OlapInsertCommandContext(allowAutoPartition, true);
-        } else if (logicalQuery instanceof UnboundHiveTableSink) {
-            UnboundHiveTableSink<?> sink = (UnboundHiveTableSink<?>) logicalQuery;
-            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
-                    sink.getNameParts(),
-                    sink.getColNames(),
-                    sink.getHints(),
-                    false,
-                    sink.getPartitions(),
-                    false,
-                    TPartialUpdateNewRowPolicy.APPEND,
-                    sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)));
-            insertCtx = new HiveInsertCommandContext();
-            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else if (logicalQuery instanceof UnboundIcebergTableSink) {
             UnboundIcebergTableSink<?> sink = (UnboundIcebergTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
@@ -471,9 +453,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             boolean allowAutoPartition = ctx.getSessionVariable().isEnableAutoCreateWhenOverwrite();
             insertCtx = new OlapInsertCommandContext(allowAutoPartition,
                     ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId, true);
-        } else if (logicalQuery instanceof UnboundHiveTableSink) {
-            insertCtx = new HiveInsertCommandContext();
-            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else {
             throw new UserException("Current catalog does not support insert overwrite with auto-detect partition.");
         }

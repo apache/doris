@@ -18,7 +18,6 @@
 package org.apache.doris.connector.metastore.paimon;
 
 import org.apache.doris.connector.metastore.MetaStoreProperties;
-import org.apache.doris.connector.metastore.paimon.dlf.PaimonDlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.fs.PaimonFileSystemMetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.fs.PaimonFileSystemMetaStoreProvider;
 import org.apache.doris.connector.metastore.paimon.hms.PaimonHmsMetaStoreProperties;
@@ -35,7 +34,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Verifies the ServiceLoader-based discovery on the paimon classpath: all 5 paimon providers register, and
+ * Verifies the ServiceLoader-based discovery on the paimon classpath: all 4 paimon providers register, and
  * the first-hit dispatcher selects the right backend by {@code paimon.catalog.type} (no central switch, no
  * enum). After the metastore module split, the providers live in fe-connector-metastore-paimon, so this
  * dispatch test lives here too (the -spi test classpath has no providers).
@@ -58,7 +57,6 @@ public class MetaStoreProvidersDispatchTest {
     @Test
     public void dispatchesEachFlavorToItsBackend() {
         Assertions.assertEquals("HMS", providerOf("hms"));
-        Assertions.assertEquals("DLF", providerOf("dlf"));
         Assertions.assertEquals("REST", providerOf("rest"));
         Assertions.assertEquals("JDBC", providerOf("jdbc"));
         Assertions.assertEquals("FILESYSTEM", providerOf("filesystem"));
@@ -80,10 +78,23 @@ public class MetaStoreProvidersDispatchTest {
     }
 
     @Test
-    public void allFiveProvidersAreRegistered() {
+    public void removedDlfTypeNoLongerDispatches() {
+        // WHY: paimon.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed, so it
+        // must now behave exactly like any unknown flavor — fail loud at bind. MUTATION: leaving the provider
+        // registered (or its services entry) would silently route to a backend whose client no longer ships.
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> MetaStoreProviders.bind(typed("dlf"), Collections.emptyMap()));
+    }
+
+    @Test
+    public void allFourProvidersAreRegistered() {
         Assertions.assertTrue(MetaStoreProviders.registeredNames()
-                .containsAll(java.util.Arrays.asList("HMS", "DLF", "REST", "JDBC", "FILESYSTEM")),
+                .containsAll(java.util.Arrays.asList("HMS", "REST", "JDBC", "FILESYSTEM")),
                 "registered=" + MetaStoreProviders.registeredNames());
+        // WHY: dlf 1.0 was removed. Its provider must be gone from the ServiceLoader, not merely unreachable —
+        // a stale services entry would resurrect a backend whose client no longer exists.
+        Assertions.assertFalse(MetaStoreProviders.registeredNames().contains("DLF"),
+                "the removed DLF 1.0 provider must not be registered: " + MetaStoreProviders.registeredNames());
     }
 
     @Test
@@ -97,8 +108,6 @@ public class MetaStoreProvidersDispatchTest {
         // providerName() is a hardcoded literal; assert the actual bound type to catch a mis-wired bind().
         Assertions.assertTrue(MetaStoreProviders.bind(typed("hms"), Collections.emptyMap())
                 instanceof PaimonHmsMetaStoreProperties);
-        Assertions.assertTrue(MetaStoreProviders.bind(typed("dlf"), Collections.emptyMap())
-                instanceof PaimonDlfMetaStoreProperties);
         Assertions.assertTrue(MetaStoreProviders.bind(typed("rest"), Collections.emptyMap())
                 instanceof PaimonRestMetaStoreProperties);
         Assertions.assertTrue(MetaStoreProviders.bind(typed("jdbc"), Collections.emptyMap())

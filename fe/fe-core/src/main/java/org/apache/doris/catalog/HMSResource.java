@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -63,8 +62,8 @@ public class HMSResource extends Resource {
 
     @Override
     protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
-        if (!properties.containsKey(HMSBaseProperties.HIVE_METASTORE_URIS)) {
-            throw new DdlException("Missing [" + HMSBaseProperties.HIVE_METASTORE_URIS + "] in properties.");
+        if (!properties.containsKey("hive.metastore.uris")) {
+            throw new DdlException("Missing [hive.metastore.uris] in properties.");
         }
         this.properties.putAll(properties);
     }

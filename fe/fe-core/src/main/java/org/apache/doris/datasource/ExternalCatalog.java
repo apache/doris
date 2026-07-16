@@ -40,15 +40,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
@@ -131,7 +129,6 @@ public abstract class ExternalCatalog
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
     public static final String TEST_CONNECTION = "test_connection";
-    public static final boolean DEFAULT_TEST_CONNECTION = false;
 
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
@@ -321,18 +318,11 @@ public abstract class ExternalCatalog
 
     // Will be called when creating catalog(not replaying).
     // Subclass can override this method to do some check when creating catalog.
+    // Connectivity testing (test_connection=true) is connector-specific and therefore lives behind the
+    // connector SPI: PluginDrivenExternalCatalog overrides this and delegates to Connector#testConnection.
+    // The built-in catalogs that still inherit this method (type=doris, type=test) carry neither metastore
+    // nor storage properties, so there is nothing generic left to check here.
     public void checkWhenCreating() throws DdlException {
-        boolean testConnection = Boolean.parseBoolean(
-                catalogProperty.getOrDefault(TEST_CONNECTION, String.valueOf(DEFAULT_TEST_CONNECTION)));
-
-        if (testConnection) {
-            CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
-                    name,
-                    catalogProperty.getMetastoreProperties(),
-                    catalogProperty.getStoragePropertiesMap()
-            );
-            testCoordinator.runTests();
-        }
     }
 
     /**
@@ -1067,7 +1057,14 @@ public abstract class ExternalCatalog
         }
         switch (logType) {
             case HMS:
-                return new HMSExternalDatabase(this, dbId, localDbName, remoteDbName);
+                // Hive (hms) is flipped to the plugin path (PluginDrivenExternalCatalog); the HMSExternalDatabase
+                // entity class is dead-for-hms (deleted with the legacy subsystem in the deletion phase). This
+                // case only fires when replaying an old InitCatalogLog persisted with Type.HMS (a base
+                // ExternalCatalog whose logType was serialized as HMS) — build the post-flip runtime type so the
+                // db (and the PluginDrivenMvccExternalTable it builds) matches the GSON remap. Keep the case
+                // label: deleting it would fall through to `return null` and break db init on replay. The
+                // Type.HMS enum is retained for old-image deserialization.
+                return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case JDBC:
                 return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case ICEBERG:
@@ -1419,7 +1416,7 @@ public abstract class ExternalCatalog
     }
 
     public String bindBrokerName() {
-        return catalogProperty.getProperties().get(HMSExternalCatalog.BIND_BROKER_NAME);
+        return catalogProperty.getProperties().get(BrokerProperties.BIND_BROKER_NAME_KEY);
     }
 
     // ATTN: this method only return all cached databases.
