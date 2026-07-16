@@ -133,7 +133,7 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
 
     @Override
     protected String[] getTableTypes() {
-        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE"};
+        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE"};
     }
 
     @Override
@@ -145,25 +145,31 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
 
     private boolean isNewClickHouseDriver(Connection conn) throws SQLException {
         if (isNewDriver == null) {
-            String driverVersion = conn.getMetaData().getDriverVersion();
-            isNewDriver = driverVersion != null && !driverVersion.startsWith("0.3")
-                    && !driverVersion.startsWith("0.4");
-            if (!isNewDriver) {
-                // Old driver uses schema mode (not catalog), matching old JdbcClickHouseClient
-                databaseTermIsCatalog = false;
-            } else {
-                // New driver checks the JDBC URL for databaseterm parameter
-                databaseTermIsCatalog = "catalog".equalsIgnoreCase(getDatabaseTermFromUrl());
-            }
+            DatabaseMetaData meta = conn.getMetaData();
+            String driverVersion = meta.getDriverVersion();
+            isNewDriver = isNewClickHouseDriverVersion(driverVersion);
+            databaseTermIsCatalog = isDatabaseTermCatalog(
+                    driverVersion, meta.supportsCatalogsInDataManipulation());
         }
         return isNewDriver;
     }
 
-    private String getDatabaseTermFromUrl() {
-        if (jdbcUrl != null && jdbcUrl.toLowerCase().contains("databaseterm=schema")) {
-            return "schema";
+    static boolean isNewClickHouseDriverVersion(String driverVersion) {
+        if (driverVersion == null) {
+            throw new DorisConnectorException("ClickHouse driver version cannot be null");
         }
-        return "catalog";
+        try {
+            String[] versionParts = driverVersion.split("\\.");
+            int majorVersion = Integer.parseInt(versionParts[0]);
+            int minorVersion = Integer.parseInt(versionParts[1]);
+            return majorVersion > 0 || (majorVersion == 0 && minorVersion >= 5);
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            throw new DorisConnectorException("Invalid ClickHouse driver version: " + driverVersion, e);
+        }
+    }
+
+    static boolean isDatabaseTermCatalog(String driverVersion, boolean supportsCatalogs) {
+        return isNewClickHouseDriverVersion(driverVersion) && supportsCatalogs;
     }
 
     @Override

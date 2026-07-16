@@ -342,6 +342,9 @@ CREATE TABLE doris_test.extreme_test
 ) ENGINE = MergeTree()
 ORDER BY id;
 
+CREATE TABLE doris_test.distributed_type AS doris_test.type
+ENGINE = Distributed(default, doris_test, type, rand());
+
 CREATE TABLE doris_test.extreme_test_multi_block
 (
     id UInt64,
