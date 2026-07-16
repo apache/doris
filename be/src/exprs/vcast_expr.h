@@ -44,7 +44,8 @@ public:
 #ifdef BE_TEST
     VCastExpr() = default;
 #endif
-    VCastExpr(const TExprNode& node) : VExpr(node) {}
+    VCastExpr(const TExprNode& node)
+            : VExpr(node), _lossless_decimal_cast(node.lossless_decimal_cast) {}
     ~VCastExpr() override = default;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
@@ -82,6 +83,7 @@ private:
     std::string _target_data_type_name;
 
     DataTypePtr _cast_param_data_type;
+    bool _lossless_decimal_cast = false;
 
     static const constexpr char* function_name = "CAST";
 };

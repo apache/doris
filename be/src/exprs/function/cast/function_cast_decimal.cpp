@@ -32,7 +32,18 @@ WrapperType create_decimal_wrapper(FunctionContext* context, const DataTypePtr& 
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
         if constexpr (type_allow_cast_to_decimal<FromDataType>) {
-            if (context->enable_strict_mode()) {
+            if constexpr (std::is_same_v<FromDataType, DataTypeString>) {
+                if (context->enable_lossless_decimal_cast()) {
+                    cast_impl = std::make_shared<
+                            CastToImpl<CastModeType::LosslessMode, FromDataType, ToDataType>>();
+                } else if (context->enable_strict_mode()) {
+                    cast_impl = std::make_shared<
+                            CastToImpl<CastModeType::StrictMode, FromDataType, ToDataType>>();
+                } else {
+                    cast_impl = std::make_shared<
+                            CastToImpl<CastModeType::NonStrictMode, FromDataType, ToDataType>>();
+                }
+            } else if (context->enable_strict_mode()) {
                 cast_impl = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, ToDataType>>();
             } else {

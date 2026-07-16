@@ -46,6 +46,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     // CAST can be from SQL Query or Type Coercion. true for explicitly cast from SQL query.
     protected final boolean isExplicitType; //FIXME: now not useful
 
+    // Only used by implicit numeric-string equality comparisons.
+    protected final boolean losslessDecimalCast;
+
     protected final DataType targetType;
 
     public Cast(Expression child, DataType targetType) {
@@ -53,17 +56,27 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     }
 
     public Cast(Expression child, DataType targetType, boolean isExplicitType) {
-        this(ImmutableList.of(child), targetType, isExplicitType);
+        this(child, targetType, isExplicitType, false);
     }
 
-    protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
+    public Cast(Expression child, DataType targetType, boolean isExplicitType, boolean losslessDecimalCast) {
+        this(ImmutableList.of(child), targetType, isExplicitType, losslessDecimalCast);
+    }
+
+    protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType,
+            boolean losslessDecimalCast) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
+        this.losslessDecimalCast = losslessDecimalCast;
     }
 
     public boolean isExplicitType() {
         return isExplicitType;
+    }
+
+    public boolean isLosslessDecimalCast() {
+        return losslessDecimalCast;
     }
 
     @Override
@@ -213,7 +226,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cast(children, targetType, isExplicitType);
+        return new Cast(children, targetType, isExplicitType, losslessDecimalCast);
     }
 
     @Override
@@ -248,12 +261,13 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
         Cast cast = (Cast) o;
-        return Objects.equals(targetType, cast.targetType);
+        return Objects.equals(targetType, cast.targetType)
+                && losslessDecimalCast == cast.losslessDecimalCast;
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), targetType);
+        return Objects.hash(super.computeHashCode(), targetType, losslessDecimalCast);
     }
 
     @Override

@@ -23,8 +23,10 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -69,6 +71,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -248,6 +251,61 @@ public class TypeCoercionUtilsTest {
         );
         datetimeDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(datetimeDowngrade);
         Assertions.assertEquals(DateTimeType.INSTANCE, datetimeDowngrade.left().getDataType());
+    }
+
+    @Test
+    public void testLosslessDecimalStringComparisonCoercion() {
+        boolean originalNewTypeCoercionBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            for (boolean newTypeCoercionBehavior : new boolean[] {true, false}) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newTypeCoercionBehavior;
+                DecimalV3Type decimal380 = DecimalV3Type.createDecimalV3Type(38, 0);
+                EqualTo decimalString = new EqualTo(
+                        new SlotReference("decimal_col", decimal380),
+                        new SlotReference("string_col", StringType.INSTANCE));
+                decimalString = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalString);
+                Assertions.assertEquals(decimal380, decimalString.left().getDataType());
+                Cast decimalStringCast = (Cast) decimalString.right();
+                Assertions.assertEquals(decimal380, decimalStringCast.getDataType());
+                Assertions.assertTrue(decimalStringCast.isLosslessDecimalCast());
+
+                NullSafeEqual nullSafeDecimalString = new NullSafeEqual(
+                        new SlotReference("decimal_col", decimal380),
+                        new SlotReference("string_col", StringType.INSTANCE));
+                nullSafeDecimalString = (NullSafeEqual) TypeCoercionUtils
+                        .processComparisonPredicate(nullSafeDecimalString);
+                Assertions.assertTrue(((Cast) nullSafeDecimalString.right()).isLosslessDecimalCast());
+
+                EqualTo bigintString = new EqualTo(
+                        new SlotReference("bigint_col", BigIntType.INSTANCE),
+                        new SlotReference("string_col", StringType.INSTANCE));
+                bigintString = (EqualTo) TypeCoercionUtils.processComparisonPredicate(bigintString);
+                Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(26, 6),
+                        bigintString.left().getDataType());
+                Assertions.assertTrue(((Cast) bigintString.right()).isLosslessDecimalCast());
+
+                EqualTo floatString = new EqualTo(
+                        new SlotReference("float_col", FloatType.INSTANCE),
+                        new SlotReference("string_col", StringType.INSTANCE));
+                floatString = (EqualTo) TypeCoercionUtils.processComparisonPredicate(floatString);
+                Assertions.assertEquals(DoubleType.INSTANCE, floatString.left().getDataType());
+                Assertions.assertFalse(((Cast) floatString.right()).isLosslessDecimalCast());
+
+                GreaterThan rangeComparison = new GreaterThan(
+                        new SlotReference("decimal_col", decimal380),
+                        new SlotReference("string_col", StringType.INSTANCE));
+                rangeComparison = (GreaterThan) TypeCoercionUtils.processComparisonPredicate(rangeComparison);
+                Assertions.assertFalse(((Cast) rangeComparison.right()).isLosslessDecimalCast());
+
+                InPredicate inPredicate = new InPredicate(
+                        new SlotReference("decimal_col", decimal380),
+                        ImmutableList.of(new SlotReference("string_col", StringType.INSTANCE)));
+                inPredicate = (InPredicate) TypeCoercionUtils.processInPredicate(inPredicate);
+                Assertions.assertTrue(((Cast) inPredicate.getOptions().get(0)).isLosslessDecimalCast());
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = originalNewTypeCoercionBehavior;
+        }
     }
 
     @Test

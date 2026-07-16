@@ -157,7 +157,7 @@ WrapperType create_identity_wrapper(const DataTypePtr&);
 
 } // namespace CastWrapper
 
-enum class CastModeType { StrictMode, NonStrictMode };
+enum class CastModeType { StrictMode, NonStrictMode, LosslessMode };
 
 inline std::string cast_mode_type_to_string(CastModeType cast_mode) {
     switch (cast_mode) {
@@ -165,6 +165,8 @@ inline std::string cast_mode_type_to_string(CastModeType cast_mode) {
         return "StrictMode";
     case CastModeType::NonStrictMode:
         return "NonStrictMode";
+    case CastModeType::LosslessMode:
+        return "LosslessMode";
     default:
         return "Unknown";
     }

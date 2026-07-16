@@ -474,6 +474,16 @@ public class TypeCoercionUtils {
         }
     }
 
+    private static Expression castComparisonOperand(
+            Expression input, DataType targetType, boolean losslessDecimalCast) {
+        if (losslessDecimalCast && input.getDataType().isStringLikeType()
+                && targetType.isDecimalV3Type()) {
+            checkCanCastTo(input.getDataType(), targetType);
+            return new Cast(input, targetType, false, true);
+        }
+        return castIfNotSameType(input, targetType);
+    }
+
     /**
      * Wrap {@code expression} in a cast to {@code targetType} when the source type can
      * already be resolved (Literal, or any expression whose {@code getDataType()} does
@@ -1070,7 +1080,9 @@ public class TypeCoercionUtils {
                         DecimalV3Type.forType(leftType), DecimalV3Type.forType(rightType), overflowToDouble));
             }
         }
-        if (rightType instanceof JsonType || rightType.isStringLikeType()) {
+        if (rightType.isStringLikeType()) {
+            return Optional.of(getNumericStringComparisonType(leftType));
+        } else if (rightType instanceof JsonType) {
             if (SessionVariable.getEnableDecimal256()) {
                 return Optional.of(DecimalV3Type.createDecimalV3Type(DecimalV3Type.MAX_DECIMAL256_PRECISION,
                         SessionVariable.getDecimalOverFlowScale()));
@@ -1090,6 +1102,19 @@ public class TypeCoercionUtils {
                     DecimalV3Type.forType(leftType), DecimalV3Type.forType(rightType), overflowToDouble));
         }
         return Optional.empty();
+    }
+
+    private static DecimalV3Type getNumericStringComparisonType(NumericType numericType) {
+        DecimalV3Type decimalType = DecimalV3Type.forType(numericType);
+        int maxPrecision = SessionVariable.getEnableDecimal256()
+                ? DecimalV3Type.MAX_DECIMAL256_PRECISION : DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        int integerPart = Math.max(decimalType.getPrecision() - decimalType.getScale(), 0);
+        int maxScale = Math.max(maxPrecision - integerPart, 0);
+        int targetScale = Math.max(decimalType.getScale(),
+                Math.min(SessionVariable.getDecimalOverFlowScale(), maxScale));
+        targetScale = Math.min(targetScale, maxScale);
+        return DecimalV3Type.createDecimalV3Type(
+                Math.min(integerPart + targetScale, maxPrecision), targetScale);
     }
 
     /**
@@ -1322,8 +1347,9 @@ public class TypeCoercionUtils {
                 throw new AnalysisException("data type " + commonType.get()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
-            left = castIfNotSameType(left, commonType.get());
-            right = castIfNotSameType(right, commonType.get());
+            boolean losslessDecimalCast = comparisonPredicate instanceof EqualPredicate;
+            left = castComparisonOperand(left, commonType.get(), losslessDecimalCast);
+            right = castComparisonOperand(right, commonType.get(), losslessDecimalCast);
         } else {
             throw new AnalysisException("unsupported comparison predicate " + comparisonPredicate.toSql());
         }
@@ -1398,7 +1424,7 @@ public class TypeCoercionUtils {
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = fmtInPredicate.children().stream()
-                            .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
+                            .map(e -> TypeCoercionUtils.castComparisonOperand(e, commonType, true))
                             .collect(ImmutableList.toImmutableList());
                     return fmtInPredicate.withChildren(newChildren);
                 })
@@ -1753,6 +1779,16 @@ public class TypeCoercionUtils {
         if ((maybeCastToVarchar(leftType) && rightType instanceof StringType)
                 || (maybeCastToVarchar(rightType) && leftType instanceof StringType)) {
             return Optional.of(StringType.INSTANCE);
+        }
+
+        if ((leftType.isNumericType() && rightType.isStringLikeType())
+                || (rightType.isNumericType() && leftType.isStringLikeType())) {
+            if (leftType.isFloatType() || leftType.isDoubleType()
+                    || rightType.isFloatType() || rightType.isDoubleType()) {
+                return Optional.of(DoubleType.INSTANCE);
+            }
+            NumericType numericType = (NumericType) (leftType.isNumericType() ? leftType : rightType);
+            return Optional.of(getNumericStringComparisonType(numericType));
         }
 
         // in legacy planner, comparison predicate convert int vs string to double.

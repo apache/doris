@@ -495,6 +495,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = rewriteChildren(cast, context);
+        if (cast.isLosslessDecimalCast()) {
+            return cast;
+        }
         Optional<Expression> checkedExpr = preProcess(cast);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();

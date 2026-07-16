@@ -333,6 +333,8 @@ struct TExprNode {
   // distinguish current-scope lambda arguments from captured outer lambda
   // arguments when nested lambda expressions contain duplicated column ids.
   42: optional list<string> lambda_argument_names
+  // Use lossless parsing for implicit string-to-decimal equality comparisons.
+  43: optional bool lossless_decimal_cast
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

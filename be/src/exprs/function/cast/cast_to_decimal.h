@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <type_traits>
 
@@ -35,45 +37,172 @@ namespace doris {
                    value, from_type_name, precision, scale))
 
 struct CastToDecimal {
+    static bool is_lossless_decimal_string(const char* data, size_t size, UInt32 precision,
+                                           UInt32 target_scale) {
+        size_t begin = 0;
+        size_t end = size;
+        while (begin < end && std::isspace(static_cast<unsigned char>(data[begin]))) {
+            ++begin;
+        }
+        while (begin < end && std::isspace(static_cast<unsigned char>(data[end - 1]))) {
+            --end;
+        }
+        if (begin == end) {
+            return false;
+        }
+
+        size_t pos = begin;
+        if (data[pos] == '+' || data[pos] == '-') {
+            ++pos;
+        }
+
+        bool seen_dot = false;
+        bool seen_digit = false;
+        size_t digits_before_dot = 0;
+        size_t digits = 0;
+        size_t first_non_zero = 0;
+        size_t last_non_zero = 0;
+        while (pos < end && data[pos] != 'e' && data[pos] != 'E') {
+            unsigned char ch = static_cast<unsigned char>(data[pos]);
+            if (std::isdigit(ch)) {
+                seen_digit = true;
+                ++digits;
+                if (!seen_dot) {
+                    ++digits_before_dot;
+                }
+                if (ch != '0') {
+                    if (first_non_zero == 0) {
+                        first_non_zero = digits;
+                    }
+                    last_non_zero = digits;
+                }
+            } else if (data[pos] == '.' && !seen_dot) {
+                seen_dot = true;
+            } else {
+                return false;
+            }
+            ++pos;
+        }
+        if (!seen_digit) {
+            return false;
+        }
+
+        int exponent = 0;
+        if (pos < end) {
+            ++pos;
+            bool negative_exponent = false;
+            if (pos < end && (data[pos] == '+' || data[pos] == '-')) {
+                negative_exponent = data[pos] == '-';
+                ++pos;
+            }
+            if (pos == end) {
+                return false;
+            }
+
+            constexpr int max_relevant_exponent = 1024;
+            int exponent_magnitude = 0;
+            while (pos < end) {
+                unsigned char ch = static_cast<unsigned char>(data[pos]);
+                if (!std::isdigit(ch)) {
+                    return false;
+                }
+                if (exponent_magnitude <= max_relevant_exponent) {
+                    exponent_magnitude = exponent_magnitude * 10 + (ch - '0');
+                    if (exponent_magnitude > max_relevant_exponent) {
+                        exponent_magnitude = max_relevant_exponent + 1;
+                    }
+                }
+                ++pos;
+            }
+            if (exponent_magnitude > max_relevant_exponent) {
+                return first_non_zero == 0;
+            }
+            exponent = negative_exponent ? -exponent_magnitude : exponent_magnitude;
+        }
+
+        // Zero is exactly representable at every decimal precision and scale.
+        if (first_non_zero == 0) {
+            return true;
+        }
+
+        size_t first_non_zero_offset = first_non_zero - 1;
+        constexpr size_t max_relevant_digits = 1024;
+        int base_decimal_point;
+        if (digits_before_dot >= first_non_zero_offset) {
+            size_t difference = digits_before_dot - first_non_zero_offset;
+            if (difference > max_relevant_digits) {
+                return false;
+            }
+            base_decimal_point = static_cast<int>(difference);
+        } else {
+            size_t difference = first_non_zero_offset - digits_before_dot;
+            if (difference > max_relevant_digits) {
+                return false;
+            }
+            base_decimal_point = -static_cast<int>(difference);
+        }
+
+        size_t significant_digits = last_non_zero - first_non_zero + 1;
+        if (significant_digits > precision) {
+            return false;
+        }
+
+        int decimal_point = base_decimal_point + exponent;
+        int required_integer_digits = std::max(decimal_point, 0);
+        int required_scale = std::max(static_cast<int>(significant_digits) - decimal_point, 0);
+        return required_integer_digits <= static_cast<int>(precision - target_scale)
+                && required_scale <= static_cast<int>(target_scale);
+    }
+
+    template <typename ToCppT>
+        requires(IsDecimalNumber<ToCppT>)
+    static inline StringParser::ParseResult parse_string(const StringRef& from, ToCppT& to,
+                                                          UInt32 precision, UInt32 scale) {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        if constexpr (IsDecimalV2<ToCppT>) {
+            to = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
+                    from.data, from.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE, &result));
+        }
+
+        if constexpr (IsDecimal32<ToCppT>) {
+            to.value = StringParser::string_to_decimal<TYPE_DECIMAL32>(from.data, from.size,
+                                                                        precision, scale, &result);
+        }
+
+        if constexpr (IsDecimal64<ToCppT>) {
+            to.value = StringParser::string_to_decimal<TYPE_DECIMAL64>(from.data, from.size,
+                                                                        precision, scale, &result);
+        }
+
+        if constexpr (IsDecimal128V3<ToCppT>) {
+            to.value = StringParser::string_to_decimal<TYPE_DECIMAL128I>(from.data, from.size,
+                                                                          precision, scale, &result);
+        }
+
+        if constexpr (IsDecimal256<ToCppT>) {
+            to.value = StringParser::string_to_decimal<TYPE_DECIMAL256>(from.data, from.size,
+                                                                         precision, scale, &result);
+        }
+        return result;
+    }
+
     template <typename ToCppT>
         requires(IsDecimalNumber<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, UInt32 precision,
                                    UInt32 scale, CastParameters& params) {
-        if constexpr (IsDecimalV2<ToCppT>) {
-            StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-            to = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
-                    from.data, (int)from.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
-                    &result));
-            return result == StringParser::PARSE_SUCCESS;
-        }
+        return parse_string(from, to, precision, scale) == StringParser::PARSE_SUCCESS;
+    }
 
-        if constexpr (IsDecimal32<ToCppT>) {
-            StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-            to.value = StringParser::string_to_decimal<TYPE_DECIMAL32>(from.data, (int)from.size,
-                                                                       precision, scale, &result);
-            return result == StringParser::PARSE_SUCCESS;
+    template <typename ToCppT>
+        requires(IsDecimalNumber<ToCppT>)
+    static inline bool from_string_lossless(const StringRef& from, ToCppT& to, UInt32 precision,
+                                            UInt32 scale, CastParameters& params) {
+        if (!is_lossless_decimal_string(from.data, from.size, precision, scale)) {
+            return false;
         }
-
-        if constexpr (IsDecimal64<ToCppT>) {
-            StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-            to.value = StringParser::string_to_decimal<TYPE_DECIMAL64>(from.data, (int)from.size,
-                                                                       precision, scale, &result);
-            return result == StringParser::PARSE_SUCCESS;
-        }
-
-        if constexpr (IsDecimal128V3<ToCppT>) {
-            StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-            to.value = StringParser::string_to_decimal<TYPE_DECIMAL128I>(from.data, (int)from.size,
-                                                                         precision, scale, &result);
-            return result == StringParser::PARSE_SUCCESS;
-        }
-
-        if constexpr (IsDecimal256<ToCppT>) {
-            StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-            to.value = StringParser::string_to_decimal<TYPE_DECIMAL256>(from.data, (int)from.size,
-                                                                        precision, scale, &result);
-            return result == StringParser::PARSE_SUCCESS;
-        }
+        StringParser::ParseResult result = parse_string(from, to, precision, scale);
+        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_OVERFLOW
+                || result == StringParser::PARSE_UNDERFLOW;
     }
 
     // cast int to decimal
@@ -704,6 +833,33 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
             RETURN_IF_ERROR(
                     serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
             block.get_by_position(result).column = std::move(column_to);
+        } else if constexpr (Mode == CastModeType::LosslessMode) {
+            auto nullable_col_to = create_empty_nullable_column(nested_to_type);
+            auto& nullable_to = assert_cast<ColumnNullable&>(*nullable_col_to);
+            nullable_to.resize(col_from->size());
+            auto& column_to = assert_cast<typename ToDataType::ColumnType&>(
+                    nullable_to.get_nested_column());
+            auto& values_to = column_to.get_data();
+            auto& null_map_to = nullable_to.get_null_map_data();
+            auto* decimal_to_type = assert_cast<const ToDataType*>(nested_to_type.get());
+            const auto& chars = col_from->get_chars();
+            const auto& offsets = col_from->get_offsets();
+            size_t current_offset = 0;
+            UInt32 precision = decimal_to_type->get_precision();
+            UInt32 scale = decimal_to_type->get_scale();
+            CastParameters params;
+            params.is_strict = false;
+            for (size_t i = 0; i < col_from->size(); ++i) {
+                size_t next_offset = offsets[i];
+                size_t string_size = next_offset - current_offset;
+                bool source_is_null = null_map != nullptr && null_map[i];
+                null_map_to[i] = source_is_null
+                        || !CastToDecimal::from_string_lossless(
+                                StringRef(reinterpret_cast<const char*>(&chars[current_offset]), string_size),
+                                values_to[i], precision, scale, params);
+                current_offset = next_offset;
+            }
+            block.get_by_position(result).column = std::move(nullable_col_to);
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
