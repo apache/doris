@@ -445,7 +445,7 @@ Status VOrcTransformer::_collect_iceberg_metrics(
         }
 
         int32_t field_id = std::stoi(orc_type->getAttributeValue(ORC_ICEBERG_ID_KEY));
-        const iceberg::Type* field_type = _iceberg_schema->find_type(field_id);
+        iceberg::Type* field_type = _iceberg_schema->find_type(field_id);
         if (field_type == nullptr) {
             return Status::InternalError("Can not find Iceberg field for ORC metrics: {}",
                                          field_id);
