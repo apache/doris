@@ -128,6 +128,14 @@ format-specific checklist when reviewing Parquet or ORC.
 - Check direct materialization for PLAIN, RLE/dictionary, DELTA_BINARY_PACKED,
   DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, and BYTE_STREAM_SPLIT. Filtering must advance encoded
   values without allocating output; null runs must append defaults without advancing payload.
+- For a filtered page fragment without definition-level NULLs, require one SerDe entry and one
+  batch-level selected-decode dispatch. Selection ranges belong to persistent reader scratch;
+  per-range virtual SerDe/decoder calls in the hot path are a review blocker. Fixed PLAIN should
+  bulk-gather spans, BYTE_ARRAY PLAIN should scan lengths once, dictionary decode should validate
+  every ID before gathering selected IDs, and stateful encodings should batch-decode/reconstruct and
+  compact. A NULL-interleaving fallback is acceptable only when it preserves logical output order
+  without a decoded intermediate column and is counted by
+  `HybridSelectionNullFallbackBatches`.
 - Review complex types as a level/shape problem around scalar leaf materialization. Parent offsets,
   null maps, sibling alignment, page-spanning rows, and child payload counts must remain correct
   without materializing an intermediate complex column.
@@ -139,7 +147,8 @@ format-specific checklist when reviewing Parquet or ORC.
   deriving the synthetic child count, without constructing a discarded string/complex column.
 - `CountColumnReader` must use the native levels-only reader and must not decode payload or call
   Arrow `ReadRecords`. Require profiles that distinguish page I/O, decompression, level decode,
-  value decode, SerDe materialization, filtered-value skips, and page fragmentation.
+  value decode, SerDe materialization, hybrid selection batches/ranges/NULL fallback,
+  filtered-value skips, and page fragmentation.
 
 ## Parquet Multi-Level Filtering
 

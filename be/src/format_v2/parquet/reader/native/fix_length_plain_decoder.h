@@ -19,6 +19,8 @@
 
 #include <gen_cpp/parquet_types.h>
 
+#include <vector>
+
 #include "common/status.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/data_type/data_type.h"
@@ -38,7 +40,13 @@ public:
 
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override;
 
+    Status decode_selected_fixed_values(const ParquetSelection& selection,
+                                        ParquetFixedValueConsumer& consumer) override;
+
     Status skip_values(size_t num_values) override;
+
+private:
+    std::vector<uint8_t> _selected_values;
 };
 
 } // namespace doris::format::parquet::native

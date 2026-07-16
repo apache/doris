@@ -29,6 +29,9 @@ public:
 
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override;
 
+    Status decode_selected_fixed_values(const ParquetSelection& selection,
+                                        ParquetFixedValueConsumer& consumer) override;
+
     Status skip_values(size_t num_values) override;
 
 private:

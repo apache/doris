@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "common/status.h"
@@ -41,6 +40,9 @@ public:
     Status set_data(Slice* slice) override;
 
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override;
+
+    Status decode_selected_fixed_values(const ParquetSelection& selection,
+                                        ParquetFixedValueConsumer& consumer) override;
 
     Status skip_values(size_t num_values) override;
 

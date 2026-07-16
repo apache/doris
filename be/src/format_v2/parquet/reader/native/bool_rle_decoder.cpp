@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cstring>
 #include <ostream>
 #include <string>
 
@@ -62,6 +63,22 @@ Status BoolRLEDecoder::decode_fixed_values(size_t num_values, ParquetFixedValueC
         return Status::IOError("Can't read enough booleans in Parquet RLE decoder");
     }
     return consumer.consume(_values.data(), _values.size(), sizeof(uint8_t));
+}
+
+Status BoolRLEDecoder::decode_selected_fixed_values(const ParquetSelection& selection,
+                                                    ParquetFixedValueConsumer& consumer) {
+    _values.resize(selection.total_values);
+    if (!_decoder.get_values(_values.data(), selection.total_values)) {
+        return Status::IOError("Can't read enough booleans in Parquet RLE selection decoder");
+    }
+    size_t output = 0;
+    for (const auto& range : selection.ranges) {
+        memmove(_values.data() + output, _values.data() + range.first,
+                range.count * sizeof(uint8_t));
+        output += range.count;
+    }
+    DORIS_CHECK_EQ(output, selection.selected_values);
+    return consumer.consume(_values.data(), output, sizeof(uint8_t));
 }
 
 } // namespace doris::format::parquet::native

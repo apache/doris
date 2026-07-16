@@ -557,6 +557,19 @@ int64_t NativeColumnReader::sync_native_profile() {
         COUNTER_UPDATE(_profile.materialization_time,
                        stats.materialization_time - reported.materialization_time);
     }
+    if (_profile.hybrid_selection_batches != nullptr) {
+        COUNTER_UPDATE(_profile.hybrid_selection_batches,
+                       stats.hybrid_selection_batches - reported.hybrid_selection_batches);
+    }
+    if (_profile.hybrid_selection_ranges != nullptr) {
+        COUNTER_UPDATE(_profile.hybrid_selection_ranges,
+                       stats.hybrid_selection_ranges - reported.hybrid_selection_ranges);
+    }
+    if (_profile.hybrid_selection_null_fallback_batches != nullptr) {
+        COUNTER_UPDATE(_profile.hybrid_selection_null_fallback_batches,
+                       stats.hybrid_selection_null_fallback_batches -
+                               reported.hybrid_selection_null_fallback_batches);
+    }
     if (_profile.page_index_read_calls != nullptr) {
         COUNTER_UPDATE(_profile.page_index_read_calls,
                        stats.page_index_read_calls - reported.page_index_read_calls);

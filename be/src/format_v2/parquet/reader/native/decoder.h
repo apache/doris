@@ -22,6 +22,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <ostream>
 #include <vector>
@@ -111,6 +112,34 @@ public:
                         (*indices)[row], row, num_dictionary_values);
             }
         }
+        return Status::OK();
+    }
+
+    Status decode_selected_dictionary_indices(const ParquetSelection& selection,
+                                              std::vector<uint32_t>* indices) override {
+        DORIS_CHECK(indices != nullptr);
+        _skip_indices.resize(selection.total_values);
+        const auto decoded = _index_batch_decoder->GetBatch(
+                _skip_indices.data(), cast_set<uint32_t>(selection.total_values));
+        if (UNLIKELY(decoded != selection.total_values)) {
+            return Status::IOError("Can't read enough Parquet dictionary indices");
+        }
+        const size_t num_dictionary_values = dictionary_size();
+        for (size_t row = 0; row < selection.total_values; ++row) {
+            if (UNLIKELY(_skip_indices[row] >= num_dictionary_values)) {
+                return Status::Corruption(
+                        "Parquet dictionary index {} at row {} exceeds dictionary size {}",
+                        _skip_indices[row], row, num_dictionary_values);
+            }
+        }
+        indices->resize(selection.selected_values);
+        size_t output = 0;
+        for (const auto& range : selection.ranges) {
+            memcpy(indices->data() + output, _skip_indices.data() + range.first,
+                   range.count * sizeof(uint32_t));
+            output += range.count;
+        }
+        DORIS_CHECK_EQ(output, selection.selected_values);
         return Status::OK();
     }
 

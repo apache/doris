@@ -47,6 +47,9 @@ public:
 
     Status decode_binary_values(size_t num_values, ParquetBinaryValueConsumer& consumer) override;
 
+    Status decode_selected_binary_values(const ParquetSelection& selection,
+                                         ParquetBinaryValueConsumer& consumer) override;
+
     Status skip_values(size_t num_values) override;
 
 private:

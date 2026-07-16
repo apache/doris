@@ -52,6 +52,33 @@ Status ByteArrayPlainDecoder::decode_binary_values(size_t num_values,
     return consumer.consume(_binary_values.data(), _binary_values.size());
 }
 
+Status ByteArrayPlainDecoder::decode_selected_binary_values(const ParquetSelection& selection,
+                                                            ParquetBinaryValueConsumer& consumer) {
+    _binary_values.clear();
+    _binary_values.reserve(selection.selected_values);
+    size_t range_index = 0;
+    for (size_t row = 0; row < selection.total_values; ++row) {
+        uint32_t length = 0;
+        RETURN_IF_ERROR(read_length(_data, &_offset, &length));
+        if (UNLIKELY(_offset > _data->size || length > _data->size - _offset)) {
+            return Status::IOError("Can't read enough bytes in Parquet plain selection decoder");
+        }
+        while (range_index < selection.ranges.size() &&
+               row >= selection.ranges[range_index].first + selection.ranges[range_index].count) {
+            ++range_index;
+        }
+        if (range_index < selection.ranges.size() && row >= selection.ranges[range_index].first) {
+            _binary_values.emplace_back(_data->data + _offset, length);
+        }
+        _offset += length;
+    }
+    DORIS_CHECK_EQ(_binary_values.size(), selection.selected_values);
+    if (_binary_values.empty()) {
+        return Status::OK();
+    }
+    return consumer.consume(_binary_values.data(), _binary_values.size());
+}
+
 Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
     for (int i = 0; i < num_values; ++i) {
         uint32_t length = 0;

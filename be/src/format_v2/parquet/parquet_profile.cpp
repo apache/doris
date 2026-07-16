@@ -79,6 +79,12 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "LevelOnlySkipTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
+    hybrid_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionBatches",
+                                                            TUnit::UNIT, parquet_profile, 1);
+    hybrid_selection_ranges = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionRanges",
+                                                           TUnit::UNIT, parquet_profile, 1);
+    hybrid_selection_null_fallback_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "HybridSelectionNullFallbackBatches", TUnit::UNIT, parquet_profile, 1);
     native_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NativeReadCalls", TUnit::UNIT,
                                                      parquet_profile, 1);
     native_page_fragments = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NativePageFragments",
@@ -214,6 +220,9 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .level_only_read_time = level_only_read_time,
             .level_only_skip_time = level_only_skip_time,
             .materialization_time = materialization_time,
+            .hybrid_selection_batches = hybrid_selection_batches,
+            .hybrid_selection_ranges = hybrid_selection_ranges,
+            .hybrid_selection_null_fallback_batches = hybrid_selection_null_fallback_batches,
             .decompress_time = decompress_time,
             .decompress_count = decompress_cnt,
             .decode_header_time = decode_header_time,

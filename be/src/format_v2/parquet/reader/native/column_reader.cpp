@@ -498,6 +498,8 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     release_selection |= release_vector_if_oversized(&_nested_filter_map_data, max_retained_bytes);
     release_selection |= release_vector_if_oversized(&_materialization_state.dictionary_indices,
                                                      max_retained_bytes);
+    release_selection |= release_vector_if_oversized(&_materialization_state.selection.ranges,
+                                                     max_retained_bytes);
     if (retained_set_bytes(_ancestor_null_indices) > max_retained_bytes) {
         std::unordered_set<size_t>().swap(_ancestor_null_indices);
         release_selection = true;
@@ -522,6 +524,7 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_batch_scratch_for_
     _null_run_lengths.reserve(elements);
     _nested_filter_map_data.reserve(elements);
     _materialization_state.dictionary_indices.reserve(elements);
+    _materialization_state.selection.ranges.reserve(elements);
     _ancestor_null_indices.reserve(elements);
 }
 
@@ -532,6 +535,7 @@ size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::retained_batch_scratch_b
            _null_run_lengths.capacity() * sizeof(uint16_t) +
            _nested_filter_map_data.capacity() * sizeof(uint8_t) +
            _materialization_state.dictionary_indices.capacity() * sizeof(uint32_t) +
+           _materialization_state.selection.ranges.capacity() * sizeof(ParquetSelectionRange) +
            retained_set_bytes(_ancestor_null_indices);
 }
 #endif

@@ -47,6 +47,28 @@ Status BoolPlainDecoder::decode_fixed_values(size_t num_values,
     return Status::OK();
 }
 
+Status BoolPlainDecoder::decode_selected_fixed_values(const ParquetSelection& selection,
+                                                      ParquetFixedValueConsumer& consumer) {
+    selected_values_.resize(selection.selected_values);
+    size_t range_index = 0;
+    size_t output = 0;
+    for (size_t row = 0; row < selection.total_values; ++row) {
+        bool value = false;
+        if (UNLIKELY(!_decode_value(&value))) {
+            return Status::IOError("Can't read enough booleans in plain selection decoder");
+        }
+        while (range_index < selection.ranges.size() &&
+               row >= selection.ranges[range_index].first + selection.ranges[range_index].count) {
+            ++range_index;
+        }
+        if (range_index < selection.ranges.size() && row >= selection.ranges[range_index].first) {
+            selected_values_[output++] = static_cast<uint8_t>(value);
+        }
+    }
+    DORIS_CHECK_EQ(output, selection.selected_values);
+    return consumer.consume(selected_values_.data(), output, sizeof(uint8_t));
+}
+
 Status BoolPlainDecoder::skip_values(size_t num_values) {
     int skip_cached =
             std::min(num_unpacked_values_ - unpacked_value_idx_, cast_set<int>(num_values));

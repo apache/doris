@@ -369,10 +369,25 @@ selection, an empty selection, and an arbitrary fragmented selection use the sam
 Selection inputs are borrowed only for the duration of the decode call.
 
 For a flat leaf, the fast path is valid only when the maximum repetition level is zero. It decodes
-definition-level runs, builds the four-way selection plan in a persistent action buffer whose
-capacity survives adaptive batch changes, and dispatches its runs to the active encoding decoder. A
-filtered non-null value must still advance the encoding state even when it is not copied. This is
-the central invariant that prevents the next batch from decoding shifted values.
+definition-level runs and builds the four-way selection plan in persistent scratch whose capacity
+survives adaptive batch changes. When a filtered page fragment contains no definition-level NULL,
+the plan is normalized to sorted physical ranges and enters `DataTypeSerDe` and the encoding
+decoder once. This is the hybrid selection path: it keeps the dense direct-materialization path,
+but moves sparse range traversal inside the concrete decoder instead of repeatedly constructing a
+SerDe consumer for every selected run.
+
+The encoding chooses the cheapest inner loop. PLAIN fixed-width values gather ranges with bulk
+copies; PLAIN BYTE_ARRAY scans every length once but records only selected references; dictionary
+encoding decodes and validates the complete ID batch before gathering selected IDs; BOOLEAN,
+DELTA, and BYTE_STREAM_SPLIT batch-decode or reconstruct their stateful stream and compact selected
+values. This follows DuckDB's vector-at-a-time principle while preserving Doris's separate
+Decoder/SerDe ownership boundary. A filtered non-null value always advances and validates encoding
+state even when it is not copied, preventing the next batch from decoding shifted values.
+
+If selected NULL slots must be interleaved with values, v2 currently retains the four-run cursor
+path so defaults and null-map bits are appended at the exact logical positions without a decoded
+intermediate column. `HybridSelectionNullFallbackBatches` makes that conservative path visible;
+it is a correctness boundary, not an Arrow fallback.
 
 ### 7.2 Page and Encoding Kernel
 
@@ -383,13 +398,13 @@ that parsing step both feed the same level and value-decoder contracts.
 
 | Encoding family | Native responsibility |
 | --- | --- |
-| PLAIN | Fixed-width little-endian primitives, BOOLEAN bit packing, BYTE_ARRAY lengths, and FIXED_LEN_BYTE_ARRAY widths |
-| RLE_DICTIONARY / PLAIN_DICTIONARY | Persist dictionary values for the Column Chunk, decode/skip IDs by selection, and reject invalid IDs |
+| PLAIN | Fixed-width little-endian primitives, BOOLEAN bit packing, BYTE_ARRAY lengths, and FIXED_LEN_BYTE_ARRAY widths; sparse fixed-width ranges use bulk gather and sparse strings scan lengths once |
+| RLE_DICTIONARY / PLAIN_DICTIONARY | Persist dictionary values for the Column Chunk, decode and validate the complete ID batch, then gather selected IDs |
 | RLE / BIT_PACKED levels | Decode definition/repetition levels and preserve runs across page and batch boundaries |
-| DELTA_BINARY_PACKED | Preserve block/mini-block state while selected and filtered values share one payload cursor |
-| DELTA_LENGTH_BYTE_ARRAY | Decode lengths and byte payload in lockstep, including skipped values |
-| DELTA_BYTE_ARRAY | Reconstruct prefix/suffix values with persistent previous-value and binary scratch state |
-| BYTE_STREAM_SPLIT | Reassemble primitive lanes and apply selection without an Arrow intermediate |
+| DELTA_BINARY_PACKED | Preserve block/mini-block state, decode one page-fragment batch, and compact selected values in-place |
+| DELTA_LENGTH_BYTE_ARRAY | Decode lengths and byte payload in lockstep, then retain selected references only |
+| DELTA_BYTE_ARRAY | Reconstruct prefix/suffix values with persistent previous-value state, then retain selected references only |
+| BYTE_STREAM_SPLIT | Reassemble selected primitive lane ranges directly into one compact batch without an Arrow intermediate |
 
 Unsupported physical-type/encoding combinations return an explicit error. They never fall back to
 Arrow and never produce a plausible result through a decoder selected only by logical Doris type.
@@ -752,7 +767,7 @@ flowchart TD
 | FileCache Profile | How many local/peer/remote bytes, waits, downloads, and hits occurred? |
 | Merge / request I/O | Were small reads merged, and were request count and read amplification reasonable? |
 | Condition Cache | How many rows were skipped early after a cache hit? |
-| Native decode | How much time is spent in page parsing, decompression, levels, encoding, selection, conversion, string/fixed-binary materialization, and scratch growth? |
+| Native decode | How much time is spent in page parsing, decompression, levels, encoding, selection, conversion, string/fixed-binary materialization, and scratch growth? Compare `HybridSelectionBatches`, `HybridSelectionRanges`, and `HybridSelectionNullFallbackBatches` to distinguish batched sparse decode from NULL-interleaving fallback. |
 | Batch fragmentation | How does `TotalBatches` divide into adaptive probes, dense, selected, empty, page-crossing, and nested/fragmented batches? |
 | Index decisions | How often were statistics, dictionary, Bloom, ColumnIndex/OffsetIndex, and page skips attempted, accepted, conservatively rejected, or rejected as corrupt? |
 | Cache lifecycle | For footer/page/file/condition caches, what were request, hit, miss, bypass, admission/write, byte, wait, and underlying-I/O counts using v1-compatible meanings? |

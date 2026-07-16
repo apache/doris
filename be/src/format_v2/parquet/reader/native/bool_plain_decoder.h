@@ -17,8 +17,9 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -53,6 +54,9 @@ public:
 
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override;
 
+    Status decode_selected_fixed_values(const ParquetSelection& selection,
+                                        ParquetFixedValueConsumer& consumer) override;
+
     Status skip_values(size_t num_values) override;
 
 protected:
@@ -86,6 +90,8 @@ protected:
 
     /// Bit packed decoder, used if 'encoding_' is PLAIN.
     BatchedBitReader bool_values_;
+
+    std::vector<uint8_t> selected_values_;
 };
 
 } // namespace doris::format::parquet::native

@@ -57,6 +57,9 @@ struct ColumnChunkReaderStatistics {
     int64_t decode_header_time = 0;
     int64_t decode_value_time = 0;
     int64_t materialization_time = 0;
+    int64_t hybrid_selection_batches = 0;
+    int64_t hybrid_selection_ranges = 0;
+    int64_t hybrid_selection_null_fallback_batches = 0;
     int64_t decode_dict_time = 0;
     int64_t decode_level_time = 0;
     int64_t skip_page_header_num = 0;

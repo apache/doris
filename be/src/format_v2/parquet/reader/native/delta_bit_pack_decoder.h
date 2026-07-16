@@ -19,9 +19,11 @@
 
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -79,6 +81,26 @@ public:
                                    decoded_count);
         }
         return consumer.consume(reinterpret_cast<const uint8_t*>(_values.data()), num_values,
+                                sizeof(T));
+    }
+
+    Status decode_selected_fixed_values(const ParquetSelection& selection,
+                                        ParquetFixedValueConsumer& consumer) override {
+        _values.resize(selection.total_values);
+        uint32_t decoded_count = 0;
+        RETURN_IF_ERROR(_get_internal(_values.data(), cast_set<uint32_t>(selection.total_values),
+                                      &decoded_count));
+        if (UNLIKELY(decoded_count != selection.total_values)) {
+            return Status::IOError("Expected {} Parquet delta values, decoded {}",
+                                   selection.total_values, decoded_count);
+        }
+        size_t output = 0;
+        for (const auto& range : selection.ranges) {
+            memmove(_values.data() + output, _values.data() + range.first, range.count * sizeof(T));
+            output += range.count;
+        }
+        DORIS_CHECK_EQ(output, selection.selected_values);
+        return consumer.consume(reinterpret_cast<const uint8_t*>(_values.data()), output,
                                 sizeof(T));
     }
 
@@ -166,6 +188,28 @@ public:
         return consumer.consume(_string_refs.data(), _string_refs.size());
     }
 
+    Status decode_selected_binary_values(const ParquetSelection& selection,
+                                         ParquetBinaryValueConsumer& consumer) override {
+        _values.resize(selection.total_values);
+        int decoded_count = 0;
+        RETURN_IF_ERROR(_get_internal(_values.data(), cast_set<int32_t>(selection.total_values),
+                                      &decoded_count));
+        if (UNLIKELY(decoded_count != selection.total_values)) {
+            return Status::IOError("Expected {} Parquet delta-length values, decoded {}",
+                                   selection.total_values, decoded_count);
+        }
+        _string_refs.resize(selection.selected_values);
+        size_t output = 0;
+        for (const auto& range : selection.ranges) {
+            for (size_t row = 0; row < range.count; ++row) {
+                const auto& value = _values[range.first + row];
+                _string_refs[output++] = StringRef(value.data, value.size);
+            }
+        }
+        DORIS_CHECK_EQ(output, selection.selected_values);
+        return consumer.consume(_string_refs.data(), _string_refs.size());
+    }
+
     Status decode(Slice* buffer, int num_values, int* out_num_values) {
         return _get_internal(buffer, num_values, out_num_values);
     }
@@ -223,6 +267,21 @@ public:
         return consumer.consume(_string_refs.data(), _string_refs.size());
     }
 
+    Status decode_selected_binary_values(const ParquetSelection& selection,
+                                         ParquetBinaryValueConsumer& consumer) override {
+        RETURN_IF_ERROR(_decode_slices(selection.total_values));
+        _string_refs.resize(selection.selected_values);
+        size_t output = 0;
+        for (const auto& range : selection.ranges) {
+            for (size_t row = 0; row < range.count; ++row) {
+                const auto& value = _values[range.first + row];
+                _string_refs[output++] = StringRef(value.data, value.size);
+            }
+        }
+        DORIS_CHECK_EQ(output, selection.selected_values);
+        return consumer.consume(_string_refs.data(), _string_refs.size());
+    }
+
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override {
         RETURN_IF_ERROR(_decode_slices(num_values));
         const size_t byte_size = num_values * static_cast<size_t>(_type_length);
@@ -236,6 +295,32 @@ public:
         }
         return consumer.consume(_fixed_values.data(), num_values,
                                 static_cast<size_t>(_type_length));
+    }
+
+    Status decode_selected_fixed_values(const ParquetSelection& selection,
+                                        ParquetFixedValueConsumer& consumer) override {
+        RETURN_IF_ERROR(_decode_slices(selection.total_values));
+        DORIS_CHECK(_type_length > 0);
+        const size_t value_width = static_cast<size_t>(_type_length);
+        if (UNLIKELY(selection.selected_values >
+                     std::numeric_limits<size_t>::max() / value_width)) {
+            return Status::IOError("Parquet delta-byte-array selection byte size overflows");
+        }
+        _fixed_values.resize(selection.selected_values * value_width);
+        size_t output = 0;
+        for (const auto& range : selection.ranges) {
+            for (size_t row = 0; row < range.count; ++row) {
+                const auto& value = _values[range.first + row];
+                if (UNLIKELY(value.size != value_width)) {
+                    return Status::Corruption("Parquet fixed value has length {}, expected {}",
+                                              value.size, value_width);
+                }
+                memcpy(_fixed_values.data() + output * value_width, value.data, value_width);
+                ++output;
+            }
+        }
+        DORIS_CHECK_EQ(output, selection.selected_values);
+        return consumer.consume(_fixed_values.data(), output, value_width);
     }
 
     Status set_data(Slice* slice) override {

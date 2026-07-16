@@ -113,6 +113,80 @@ Status decode_selected_values(IColumn& column, const DataTypeSerDe& serde, Decod
     return Status::OK();
 }
 
+// Presents one sparse page request as an ordinary sequential source to DataTypeSerDe. SerDe is
+// entered once per page fragment; the concrete decoder decides whether to gather selected spans,
+// batch-decode and compact, or use the cursor-preserving range fallback.
+class SelectedDecodeSource final : public ParquetDecodeSource {
+public:
+    SelectedDecodeSource(Decoder& decoder, const ParquetSelection& selection)
+            : _decoder(decoder), _selection(selection) {}
+
+    Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override {
+        DORIS_CHECK_EQ(num_values, _selection.selected_values);
+        return _decoder.decode_selected_fixed_values(_selection, consumer);
+    }
+
+    Status decode_binary_values(size_t num_values, ParquetBinaryValueConsumer& consumer) override {
+        DORIS_CHECK_EQ(num_values, _selection.selected_values);
+        return _decoder.decode_selected_binary_values(_selection, consumer);
+    }
+
+    Status skip_values(size_t num_values) override {
+        return Status::NotSupported("Selected Parquet source cannot be skipped, values={}",
+                                    num_values);
+    }
+
+    bool has_dictionary() const override { return _decoder.has_dictionary(); }
+    uint64_t dictionary_generation() const override { return _decoder.dictionary_generation(); }
+    size_t dictionary_size() const override { return _decoder.dictionary_size(); }
+
+    Status decode_dictionary(ParquetFixedValueConsumer& fixed_consumer,
+                             ParquetBinaryValueConsumer& binary_consumer) override {
+        return _decoder.decode_dictionary(fixed_consumer, binary_consumer);
+    }
+
+    Status decode_dictionary_indices(size_t num_values, std::vector<uint32_t>* indices) override {
+        DORIS_CHECK_EQ(num_values, _selection.selected_values);
+        return _decoder.decode_selected_dictionary_indices(_selection, indices);
+    }
+
+private:
+    Decoder& _decoder;
+    const ParquetSelection& _selection;
+};
+
+Status decode_selected_non_null_values(IColumn& column, const DataTypeSerDe& serde,
+                                       Decoder& decoder, const ParquetDecodeContext& context,
+                                       ParquetMaterializationState& state,
+                                       ColumnSelectVector& select_vector,
+                                       int64_t* materialization_time) {
+    auto& selection = state.selection;
+    selection.ranges.clear();
+    selection.total_values = select_vector.num_values();
+    selection.selected_values = 0;
+
+    size_t cursor = 0;
+    ColumnSelectVector::DataReadType read_type;
+    while (const size_t run_length = select_vector.get_next_run<true>(&read_type)) {
+        DORIS_CHECK(read_type == ColumnSelectVector::CONTENT ||
+                    read_type == ColumnSelectVector::FILTERED_CONTENT);
+        if (read_type == ColumnSelectVector::CONTENT) {
+            selection.ranges.push_back({.first = cursor, .count = run_length});
+            selection.selected_values += run_length;
+        }
+        cursor += run_length;
+    }
+    DORIS_CHECK_EQ(cursor, selection.total_values);
+    if (selection.selected_values == 0) {
+        return decoder.skip_values(selection.total_values);
+    }
+
+    SCOPED_RAW_TIMER(materialization_time);
+    SelectedDecodeSource selected_source(decoder, selection);
+    return serde.read_column_from_parquet(column, selected_source, context,
+                                          selection.selected_values, state);
+}
+
 } // namespace
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -662,6 +736,15 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
     _remaining_num_values -= select_vector.num_values();
     RETURN_IF_ERROR(translate_value_encoding(_current_encoding, &context.encoding));
     if (select_vector.has_filter()) {
+        if (select_vector.num_nulls() == 0) {
+            ++_chunk_statistics.hybrid_selection_batches;
+            const Status status = decode_selected_non_null_values(
+                    *doris_column, serde, *_page_decoder, context, state, select_vector,
+                    &_chunk_statistics.materialization_time);
+            _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
+            return status;
+        }
+        ++_chunk_statistics.hybrid_selection_null_fallback_batches;
         return decode_selected_values<true>(*doris_column, serde, *_page_decoder, context, state,
                                             select_vector, &_chunk_statistics.materialization_time);
     }

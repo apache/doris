@@ -22,6 +22,7 @@
 #include <limits>
 #include <vector>
 
+#include "common/check.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/string_ref.h"
@@ -110,6 +111,21 @@ public:
     virtual Status consume(const StringRef* values, size_t num_values) = 0;
 };
 
+// Physical value ranges selected from one page-bounded decode request. Definition-level NULLs are
+// intentionally excluded: the native ColumnReader uses this plan only when the batch has no NULL
+// leaf slots, so selected values can be appended in one pass without a temporary nullable column.
+// Ranges are sorted, disjoint, and expressed in the physical value stream's coordinate space.
+struct ParquetSelectionRange {
+    size_t first = 0;
+    size_t count = 0;
+};
+
+struct ParquetSelection {
+    size_t total_values = 0;
+    size_t selected_values = 0;
+    std::vector<ParquetSelectionRange> ranges;
+};
+
 // Encoding decoders implement this interface. They own encoded-stream cursors and dictionary
 // storage, but they never know the destination Doris column type. DataTypeSerDe owns the consumer
 // and therefore the physical/logical-to-Doris conversion.
@@ -122,6 +138,35 @@ public:
                                         ParquetBinaryValueConsumer& consumer) = 0;
     virtual Status skip_values(size_t num_values) = 0;
 
+    // Batch-level sparse decode. The default implementation preserves every encoding's cursor
+    // semantics while moving SerDe dispatch and consumer construction out of the selection-run
+    // loop. Decoders with cheap random access or batch decode override these methods to remove the
+    // remaining per-range virtual calls as well.
+    virtual Status decode_selected_fixed_values(const ParquetSelection& selection,
+                                                ParquetFixedValueConsumer& consumer) {
+        size_t cursor = 0;
+        for (const auto& range : selection.ranges) {
+            DORIS_CHECK(range.first >= cursor);
+            DORIS_CHECK(range.first + range.count <= selection.total_values);
+            RETURN_IF_ERROR(skip_values(range.first - cursor));
+            RETURN_IF_ERROR(decode_fixed_values(range.count, consumer));
+            cursor = range.first + range.count;
+        }
+        return skip_values(selection.total_values - cursor);
+    }
+    virtual Status decode_selected_binary_values(const ParquetSelection& selection,
+                                                 ParquetBinaryValueConsumer& consumer) {
+        size_t cursor = 0;
+        for (const auto& range : selection.ranges) {
+            DORIS_CHECK(range.first >= cursor);
+            DORIS_CHECK(range.first + range.count <= selection.total_values);
+            RETURN_IF_ERROR(skip_values(range.first - cursor));
+            RETURN_IF_ERROR(decode_binary_values(range.count, consumer));
+            cursor = range.first + range.count;
+        }
+        return skip_values(selection.total_values - cursor);
+    }
+
     virtual bool has_dictionary() const { return false; }
     virtual uint64_t dictionary_generation() const { return 0; }
     virtual size_t dictionary_size() const { return 0; }
@@ -132,6 +177,25 @@ public:
     virtual Status decode_dictionary_indices(size_t num_values, std::vector<uint32_t>* indices) {
         return Status::NotSupported("Parquet dictionary indices are not supported by this decoder");
     }
+    virtual Status decode_selected_dictionary_indices(const ParquetSelection& selection,
+                                                      std::vector<uint32_t>* indices) {
+        DORIS_CHECK(indices != nullptr);
+        indices->clear();
+        indices->reserve(selection.selected_values);
+        std::vector<uint32_t> range_indices;
+        size_t cursor = 0;
+        for (const auto& range : selection.ranges) {
+            DORIS_CHECK(range.first >= cursor);
+            DORIS_CHECK(range.first + range.count <= selection.total_values);
+            RETURN_IF_ERROR(skip_values(range.first - cursor));
+            RETURN_IF_ERROR(decode_dictionary_indices(range.count, &range_indices));
+            indices->insert(indices->end(), range_indices.begin(), range_indices.end());
+            cursor = range.first + range.count;
+        }
+        RETURN_IF_ERROR(skip_values(selection.total_values - cursor));
+        DORIS_CHECK_EQ(indices->size(), selection.selected_values);
+        return Status::OK();
+    }
 };
 
 // Dictionary values are materialized once into the selected Doris type. The state belongs to a
@@ -139,6 +203,7 @@ public:
 struct ParquetMaterializationState {
     MutableColumnPtr typed_dictionary;
     std::vector<uint32_t> dictionary_indices;
+    ParquetSelection selection;
     uint64_t dictionary_generation = std::numeric_limits<uint64_t>::max();
 
     void reset_dictionary() {

@@ -59,6 +59,9 @@ public:
                   decode_header_time(0),
                   decode_value_time(0),
                   materialization_time(0),
+                  hybrid_selection_batches(0),
+                  hybrid_selection_ranges(0),
+                  hybrid_selection_null_fallback_batches(0),
                   decode_dict_time(0),
                   decode_level_time(0),
                   decode_null_map_time(0),
@@ -83,6 +86,9 @@ public:
                   decode_header_time(cs.decode_header_time),
                   decode_value_time(cs.decode_value_time),
                   materialization_time(cs.materialization_time),
+                  hybrid_selection_batches(cs.hybrid_selection_batches),
+                  hybrid_selection_ranges(cs.hybrid_selection_ranges),
+                  hybrid_selection_null_fallback_batches(cs.hybrid_selection_null_fallback_batches),
                   decode_dict_time(cs.decode_dict_time),
                   decode_level_time(cs.decode_level_time),
                   decode_null_map_time(null_map_time),
@@ -105,6 +111,9 @@ public:
         int64_t decode_header_time;
         int64_t decode_value_time;
         int64_t materialization_time;
+        int64_t hybrid_selection_batches;
+        int64_t hybrid_selection_ranges;
+        int64_t hybrid_selection_null_fallback_batches;
         int64_t decode_dict_time;
         int64_t decode_level_time;
         int64_t decode_null_map_time;
@@ -128,6 +137,10 @@ public:
             decode_header_time += col_statistics.decode_header_time;
             decode_value_time += col_statistics.decode_value_time;
             materialization_time += col_statistics.materialization_time;
+            hybrid_selection_batches += col_statistics.hybrid_selection_batches;
+            hybrid_selection_ranges += col_statistics.hybrid_selection_ranges;
+            hybrid_selection_null_fallback_batches +=
+                    col_statistics.hybrid_selection_null_fallback_batches;
             decode_dict_time += col_statistics.decode_dict_time;
             decode_level_time += col_statistics.decode_level_time;
             decode_null_map_time += col_statistics.decode_null_map_time;
