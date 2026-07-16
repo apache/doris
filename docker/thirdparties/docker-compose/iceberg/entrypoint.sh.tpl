@@ -26,7 +26,7 @@ done
 set -ex
 
 mkdir -p /opt/spark/events
-SPARK_THRIFT_EXTENSIONS="org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions"
+SPARK_THRIFT_EXTENSIONS="org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions,org.lance.spark.extensions.LanceSparkSessionExtensions"
 
 for f in /opt/spark/sbin/*; do
   ln -s $f /usr/local/bin/$(basename $f)
@@ -46,6 +46,17 @@ start-history-server.sh
 # To reduce the time spent on creating clients,
 # we group these files together and execute them using a single client.
 # This approach can reduce the time from 150s to 40s.
+
+# Run the small Lance compatibility fixtures first. They must remain available even when an
+# unrelated, large Iceberg/Paimon preload fails because of local object-store capacity.
+START_TIME_LANCE=$(date +%s)
+find /mnt/scripts/create_preinstalled_scripts/lance -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|' > lance_total.sql
+spark-sql --master spark://doris--spark-iceberg:7077 \
+  --conf spark.sql.extensions=org.lance.spark.extensions.LanceSparkSessionExtensions \
+  -f lance_total.sql
+END_TIME_LANCE=$(date +%s)
+EXECUTION_TIME_LANCE=$((END_TIME_LANCE - START_TIME_LANCE))
+echo "Script lance total: {} executed in $EXECUTION_TIME_LANCE seconds"
 
 START_TIME1=$(date +%s)
 find /mnt/scripts/create_preinstalled_scripts/iceberg -name '*.sql' | sed 's|^|source |' | sed 's|$|;|'> iceberg_total.sql
