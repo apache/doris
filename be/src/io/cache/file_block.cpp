@@ -346,6 +346,15 @@ FileBlocksHolder::~FileBlocksHolder() {
                      file_block->state_unlock(block_lock) == FileBlock::State::EMPTY)) {
                     should_remove = true;
                 }
+                // Serialize the holder release with deletion marks. Otherwise RESET can mark the
+                // block after the check above but before the holder drops its cache-external
+                // reference, leaving nobody to remove the block.
+                if (!should_remove && file_block->cell != nullptr) {
+                    TEST_SYNC_POINT_CALLBACK(
+                            "FileBlocksHolder::~FileBlocksHolder::before_cached_block_release");
+                    file_block_it = file_blocks.erase(current_file_block_it);
+                    continue;
+                }
             }
             if (should_remove) {
                 SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);

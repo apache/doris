@@ -467,6 +467,9 @@ private:
     size_t get_used_cache_size_unlocked(FileCacheType type,
                                         std::lock_guard<std::mutex>& cache_lock) const;
 
+    bool is_memory_storage() const;
+    size_t calc_size_percentage_unlocked(std::lock_guard<std::mutex>&) const;
+
     void check_disk_resource_limit();
     void check_need_evict_cache_in_advance();
 
@@ -539,8 +542,8 @@ private:
     std::thread _cache_background_block_lru_update_thread;
     std::atomic_bool _async_open_done {false};
     // disk space or inode is less than the specified value
-    bool _disk_resource_limit_mode {false};
-    bool _need_evict_cache_in_advance {false};
+    std::atomic_bool _disk_resource_limit_mode {false};
+    std::atomic_bool _need_evict_cache_in_advance {false};
     bool _is_initialized {false};
 
     // strategy
