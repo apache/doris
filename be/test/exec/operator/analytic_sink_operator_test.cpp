@@ -394,8 +394,6 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction2) {
     Initialize(batch_size);
     create_operator(true, 1, "row_number", {}, std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
-    sink->_agg_expr_ctxs[0] =
-            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
     TAnalyticWindow temp_window;
     temp_window.type = TAnalyticWindowType::ROWS;
     TAnalyticWindowBoundary window_end;
