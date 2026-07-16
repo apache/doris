@@ -24,29 +24,29 @@
 
 ## Phase 1 — `fe-connector-hms` 局部 shade（承重墙）
 
-- [ ] **FCL-10** 新建模块 `fe/fe-connector/fe-connector-hms-hive-shade/pom.xml`（镜像 paimon-hive-shade）：bundle `hive-metastore`(D2 版本) + `hive-serde` + `hive-common` + `libthrift`；重定位 `org.apache.thrift`→`org.apache.doris.hms.shaded.thrift`；防御性重定位 `it.unimi.dsi.fastutil`；artifactSet 排除 hadoop/guava/protobuf/slf4j/log4j/commons-*/gson/jackson/caffeine；META-INF SF/DSA/RSA/maven 过滤。（D1-A 则此处也 bundle `iceberg-hive-metastore`——见 FCL-20。）
-- [ ] **FCL-11** `fe/fe-connector/pom.xml` `<modules>` 注册**在 `fe-connector-hms` 之前**；`fe/pom.xml` dependencyManagement 补 `libthrift`(0.9.x?按 D2 版本对应) + `hive-metastore`(D2) 版本钉（或 shade 模块内联 pin）。
-- [ ] **FCL-12** 🔴 落地 D4：按 FCL-02 结论处理 vendored `HiveMetaStoreClient.java`（纳入 shade 编译 / 保留 / 改写），确保它与重定位后的基类命名空间一致。
-- [ ] **FCL-13** 改 `fe-connector-hms/pom.xml`：删 `hive-catalog-shade` 依赖，加 `fe-connector-hms-hive-shade`。核对 raw hive-metastore/thrift 若有残留改 `<optional>`/exclude；plugin-zip 保留 `libthrift`/`fe-thrift` exclude。
-- [ ] **FCL-14** Gate：`fe-connector-hms` UT（`-am`，`-Dmaven.build.cache.enabled=false`，跑到 `package`）；连带 `fe-connector-hive` + `fe-connector-hudi` build + UT（它们经 hms 传递）。全绿 + checkstyle 0。
-- [ ] **FCL-15** commit（英文）+ 更新 HANDOFF + progress 追加。
+- [x] **FCL-10** 新建模块 `fe/fe-connector/fe-connector-hms-hive-shade/pom.xml`（镜像 paimon-hive-shade）：bundle `hive-metastore`(D2 版本) + `hive-serde` + `hive-common` + `libthrift`；重定位 `org.apache.thrift`→`org.apache.doris.hms.shaded.thrift`；防御性重定位 `it.unimi.dsi.fastutil`；artifactSet 排除 hadoop/guava/protobuf/slf4j/log4j/commons-*/gson/jackson/caffeine；META-INF SF/DSA/RSA/maven 过滤。（D1-A 则此处也 bundle `iceberg-hive-metastore`——见 FCL-20。）
+- [x] **FCL-11** `fe/fe-connector/pom.xml` `<modules>` 注册**在 `fe-connector-hms` 之前**；`fe/pom.xml` dependencyManagement 补 `libthrift`(0.9.x?按 D2 版本对应) + `hive-metastore`(D2) 版本钉（或 shade 模块内联 pin）。
+- [x] **FCL-12** 🔴 落地 D4：按 FCL-02 结论处理 vendored `HiveMetaStoreClient.java`（纳入 shade 编译 / 保留 / 改写），确保它与重定位后的基类命名空间一致。
+- [x] **FCL-13** 改 `fe-connector-hms/pom.xml`：删 `hive-catalog-shade` 依赖，加 `fe-connector-hms-hive-shade`。核对 raw hive-metastore/thrift 若有残留改 `<optional>`/exclude；plugin-zip 保留 `libthrift`/`fe-thrift` exclude。
+- [x] **FCL-14** Gate：`fe-connector-hms` UT（`-am`，`-Dmaven.build.cache.enabled=false`，跑到 `package`）；连带 `fe-connector-hive` + `fe-connector-hudi` build + UT（它们经 hms 传递）。全绿 + checkstyle 0。
+- [x] **FCL-15** commit（英文）+ 更新 HANDOFF + progress 追加。
 
 ---
 
 ## Phase 2 — `fe-connector-iceberg` 迁移
 
-- [ ] **FCL-20** iceberg-hive-metastore 落位：D1-A 则已在 FCL-10 的共享 shade 里（本步仅核对）；D1-B 则单独 shade 且与 hms 共用同一重定位 thrift 命名空间。
-- [ ] **FCL-21** 改 `fe-connector-iceberg/pom.xml`：删 `hive-catalog-shade`（第 93 行那条）直接依赖，改依赖共享/iceberg shade。核对 `fe-connector-hms`（它已带客户端）+ 新 shade 无重复类；更新 plugin-zip exclude。
-- [ ] **FCL-22** Gate：`fe-connector-iceberg` UT（含 `assembleHiveConf` parity 测试等，`-am`，build-cache off，跑到 `package`）；checkstyle 0。
-- [ ] **FCL-23** commit（英文）+ 更新 HANDOFF + progress 追加。
+- [x] **FCL-20** iceberg-hive-metastore 落位：D1-A 则已在 FCL-10 的共享 shade 里（本步仅核对）；D1-B 则单独 shade 且与 hms 共用同一重定位 thrift 命名空间。
+- [x] **FCL-21** 改 `fe-connector-iceberg/pom.xml`：删 `hive-catalog-shade`（第 93 行那条）直接依赖，改依赖共享/iceberg shade。核对 `fe-connector-hms`（它已带客户端）+ 新 shade 无重复类；更新 plugin-zip exclude。
+- [x] **FCL-22** Gate：`fe-connector-iceberg` UT（含 `assembleHiveConf` parity 测试等，`-am`，build-cache off，跑到 `package`）；checkstyle 0。
+- [x] **FCL-23** commit（英文）+ 更新 HANDOFF + progress 追加。
 
 ---
 
 ## Phase 3 — 证明 `fe/fe-connector` 已脱钩（静态闸门）
 
-- [ ] **FCL-30** 对 `fe/fe-connector/` **每个** pom 跑 `dependency:tree -Dincludes=org.apache.doris:hive-catalog-shade` → **全空**（这是总判据）。命中的只应剩 avro-scanner/java-udf/fe-pom（不在范围）。
-- [ ] **FCL-31** `unzip -l` 三个插件 zip（hive/iceberg/hudi）：断言① 无 `hive-catalog-shade-*.jar`；② 无原包 `org/apache/thrift/`（除 host provide）；③ 有 `org/apache/doris/hms/shaded/thrift/`；④ 无重复 `hive-metastore`/`libthrift`/`HiveConf`；⑤ 记录 zip 体积删前/删后差。
-- [ ] **FCL-32** 确认 `fe/pom.xml` 的 hive-catalog-shade 版本钉**仍在**（avro-scanner/java-udf 还要），并加注释说明为何保留。
+- [x] **FCL-30** 对 `fe/fe-connector/` **每个** pom 跑 `dependency:tree -Dincludes=org.apache.doris:hive-catalog-shade` → **全空**（这是总判据）。命中的只应剩 avro-scanner/java-udf/fe-pom（不在范围）。
+- [x] **FCL-31** `unzip -l` 三个插件 zip（hive/iceberg/hudi）：断言① 无 `hive-catalog-shade-*.jar`；② 无原包 `org/apache/thrift/`（除 host provide）；③ 有 `org/apache/doris/hms/shaded/thrift/`；④ 无重复 `hive-metastore`/`libthrift`/`HiveConf`；⑤ 记录 zip 体积删前/删后差。
+- [x] **FCL-32** 确认 `fe/pom.xml` 的 hive-catalog-shade 版本钉**仍在**（avro-scanner/java-udf 还要），并加注释说明为何保留。
 
 ---
 

@@ -6,46 +6,33 @@
 
 ---
 
-# ✅ Phase 0 完成（设计定案 + 用户签字 + 红队 GO） → 🆕 下一个 session = **Phase 1：建承重墙 shade 模块**
+# ✅ Phase 1+2+3 完成（建精简 shade + 切 hms/iceberg + 静态&打包闸门全绿） → 🆕 下一个 session = **Phase 4：e2e（唯一真闸门）**
 
-> 基线分支 `catalog-spi-hive-shade-12`（== 旧 `catalog-spi-11-hive` 内容）。行号信 HEAD 不信文档。
+> 分支 `catalog-spi-hive-shade-12`。行号信 HEAD 不信文档。代码改动已 commit（见 git log 最新一条）。
+
+## 现状（一句话）
+`fe/fe-connector/` 已整体脱离 122MB 胖 `hive-catalog-shade`，改用自建 15MB 精简 shade 模块 `fe-connector-hms-hive-shade`（只装 Hive 元数据客户端闭包，重定位 thrift→`shade.doris.hive.org.apache.thrift`）。build+UT（197 测试类全绿）、静态闸门（19 模块 dependency:tree 全空）、打包闸门（三插件 zip 无胖 shade、精简 shade 各 1 份、关键类无重复）、多 agent 对抗 review（零 confirmed）**均已过**。**唯一没做的是 e2e。**
 
 ## 第一件事（按顺序）
+1. **读** `progress.md` 末段（2026-07-16 Phase 1+2+3 结论，含闸门证据 + 两处现补的缺类）+ `design.md §4`（决策速查）。
+2. **动码/跑测前探并发**（`pgrep -af maven|grep wt-catalog-spi` + 近 90s mtime）。
+3. **重新构建部署产物**跑 e2e（精简 shade 需重打包插件重部署；旧部署目录可能还是胖 shade）。
 
-1. **读** `progress.md` 末段（Phase 0 结论）+ `design.md §3`（精确 bundle 清单）+ `§4`（决策速查）。
-2. **动码前探并发**（`pgrep -af maven|grep wt-catalog-spi` + 近 90s mtime）；`git add` 白名单严禁 `-A`。
-3. **建 `fe/fe-connector/fe-connector-hms-hive-shade/pom.xml`**（镜像 `fe-connector-paimon-hive-shade/pom.xml`，324 行）。
+## 🎯 Phase 4 要做的（`tasklist.md` FCL-40/41/42）
+- **异构 HMS docker 套件**：① 普通 hive catalog 读+写；② **iceberg-on-HMS** INSERT/DELETE/MERGE/read，断言与独立 iceberg 目录同表同结果；③ hudi-on-HMS 读。
+- **🔴 TCCL 不回归**（memory `catalog-spi-plugin-tccl-classloader-gotcha` / D5）：`test_string_dict_filter` 类用例 + MetaStoreFilterHook/URIResolverHook 按名反射路径 + kerberos HMS（若环境有）；FE 启动 + 缓存（MetaCache/StatisticsCache/FileSystemCache）冒烟。
+- **专项**：storage-api **2.7.0** 的 write/ACID 路径（本轮从胖 shade 的 2.8.1 换回 3.1.3 原生 2.7.0，review 判无回退但要 e2e 兜底）。
+- 结果（含 CI 编号）追加 `progress.md`。
 
-## 🔑 Phase 0 已定的四件事（照做，别再议）
+## ⚠️ 白名单 shade 的运行时缺类（Phase 4 可能再遇，按此法补）
+精简 shade 用 **白名单 `<includes>`**，只装列出的 hive 客户端闭包；运行时其余靠各插件自带 hadoop-common 闭包/宿主 parent-first 提供。**跑到才暴露的缺类**本轮已补两处（老 Jackson `ObjectMapper`、iceberg `bundled-guava`）；e2e 若再报 `NoClassDefFoundError`（尤其 kerberos/filter-hook 路径），**按同法补**：查是哪个 artifact 的类 → 加进 `fe-connector-hms-hive-shade/pom.xml` 的 `<dependency>`(必要时显式 `<scope>compile</scope>` 覆盖 fe/pom.xml 里的 test-scope 管理) + artifactSet `<include>`。**别退回黑名单 excludes**（那会把 122MB junk 又拉回来）。
 
-- **D1=A 共享一个** `fe-connector-hms-hive-shade`：hms 依赖它（compile 传递给 hive/hudi/iceberg），iceberg 复用同一制品。
-- **D2=3.1.3**；**D3=复用前缀 `shade.doris.hive.org.apache.thrift`**（= 补丁客户端现有 import，**零源码改动**，别起新前缀）。
-- **D4=KEEP_IN_HMS**：补丁 `HiveMetaStoreClient.java` 留在 fe-connector-hms 原地，**不搬不改写**（字节码已全是重定位名）。
-
-## 📦 精简 shade 精确 bundle 清单（Phase 0 核实，直接照抄进 pom）
-
-**bundle 进 shade（`<optional>true>` + 重定位 thrift）**：
-- `org.apache.hive:hive-standalone-metastore:3.1.3` ← **⚠️不是 `hive-metastore:3.1.3`（13 类空壳）**
-- `org.apache.thrift:libthrift:0.9.3`（**内联钉**，非 managed 0.16.0）+ `org.apache.thrift:libfb303:0.9.3`
-- `org.apache.hive:hive-common:3.1.3`（带 hive-shims）+ `org.apache.hive:hive-storage-api:2.7.0`
-- `org.apache.hive:hive-serde:3.1.3`（iceberg 用）+ `org.apache.iceberg:iceberg-hive-metastore:1.10.1`（iceberg 用，排除 iceberg-core）
-
-**relocation**：`org.apache.thrift → shade.doris.hive.org.apache.thrift`（**必须此前缀**）；`it.unimi.dsi.fastutil → shade.doris.hive.it.unimi.dsi.fastutil`（防御）。
-**artifactSet exclude**：paimon、完整 hadoop、hive-exec、DLF/aliyun、derby/datanucleus/bonecp/HikariCP/orc、bouncycastle、jersey/jaxb、arrow/parquet/avro、guava/protobuf/jackson/slf4j/log4j/commons、iceberg-core/api/caffeine。
-**META-INF**：过滤 `*.SF/*.DSA/*.RSA`、`META-INF/maven/**`、`META-INF/versions/**`（照 paimon）。
-
-## ⚠️ 两条红队约束（Phase 1/2 必守）
-
-1. **iceberg 摘全局 shade（`fe-connector-iceberg/pom.xml` 现第 ~148 行那条）与接精简 shade 放同一次提交（原子切换）**，别留过渡期两份 `HiveCatalog` 并存（实测 37821B vs 1.10.1 37853B，谁生效随 classpath 序）。顺带订正 iceberg pom:138-145 过期的 "支持 DLF" 注释。
-2. **Phase 1/4 验证**：重部署后类加载冒烟——每插件 `org.apache.hadoop.hive.metastore.api.Table` 与 `shade.doris.hive.org.apache.thrift.TException` **各仅一份**；HMS-on-hive/hudi/iceberg e2e；Kerberos + `MetaStoreFilterHook`/`URIResolverHook` 按名反射路径（D5 TCCL pin 别回归：`ThriftHmsClient.doAs` 钉 plugin loader、`HmsConfHelper.createHiveConf` `setClassLoader`）。
-
-## ⚙️ 构建坑（兄弟任务血泪，全文见 `tasklist.md §构建坑`）
-
-- 测试 **`-Dmaven.build.cache.enabled=false`** + 数 `Running org.apache.doris` 行；**`-am` 必填**；依赖 shade 的模块**跑到 `package`**（`test-compile` 假报 `HiveConf does not exist`）。
-- maven 用**绝对 `-f`** `/mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml`；`-pl fe-connector-XXX`（reactor 相对名）。
-- `hive-serde` 闭包首次需联网（`servlet-api:2.4` 不在本地仓）→ 首次去 `-o`。
-- shade 模块无 src/main → 照 paimon 钉 `maven-jar-plugin` default-jar 到 package + `forceCreation`（并行 reactor 下 shade 早于 jar 会炸）。
+## ⚙️ 构建/验证坑（本轮实证，直接复用）
+- `-pl` 选精简 shade 模块用 **`:fe-connector-hms-hive-shade`**（冒号 artifactId 选择器），裸名 maven 报 "Could not find the selected project"。
+- 后台跑 maven **别** `nohup ... &` 套在 `run_in_background` Bash 里 → 脱离 harness 跟踪、误报秒完成；用 `tail --pid=<mvnpid>` 阻塞等真 `BUILD SUCCESS/FAILURE`。
+- 依赖 shade 的模块**跑到 `package`**（`test-compile` 假报缺类）；`-am` 必填；`-Dmaven.build.cache.enabled=false` 且数 `Running org.apache.doris` 行；`mvn|tail` 后 `$?` 是 tail 的（重定向到文件读 BUILD 行）。
+- maven 用绝对 `-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml`。
+- `git add` 用 path-whitelist，**严禁 `-A`**（工作树大量非本线程 scratch）。
 
 ## ✅ 每个 Phase 收尾
-
 commit（英文）+ 覆盖本 HANDOFF + `progress.md` 追加一行 + 勾 `tasklist.md`。
