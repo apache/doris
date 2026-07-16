@@ -27,6 +27,7 @@
 #include <condition_variable>
 #include <functional>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -84,15 +85,17 @@ private:
 class FSFileCacheStorage;
 
 struct FileBlocksProbeResult {
-    FileBlocksProbeResult(FileBlocks blocks, std::vector<FileBlock::Range> gaps_)
-            : holder(std::move(blocks)), gaps(std::move(gaps_)) {}
+    explicit FileBlocksProbeResult(std::vector<FileBlockSPtr> file_blocks_)
+            : file_blocks(std::move(file_blocks_)) {}
     FileBlocksProbeResult(FileBlocksProbeResult&&) noexcept = default;
     FileBlocksProbeResult& operator=(FileBlocksProbeResult&&) noexcept = delete;
     FileBlocksProbeResult(const FileBlocksProbeResult&) = delete;
     FileBlocksProbeResult& operator=(const FileBlocksProbeResult&) = delete;
+    ~FileBlocksProbeResult();
 
-    FileBlocksHolder holder;
-    std::vector<FileBlock::Range> gaps;
+    /// One entry per cache-block-sized input slot, in offset order. A null entry is a cache miss;
+    /// a non-null entry has the exact slot range, except that the final slot may end at EOF.
+    std::vector<FileBlockSPtr> file_blocks;
 };
 
 // NeedUpdateLRUBlocks keeps FileBlockSPtr entries that require LRU updates in a
@@ -255,8 +258,10 @@ public:
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 CacheContext& context);
 
-    /// Return existing blocks and uncovered gaps for `[offset, offset + size)` without creating
-    /// cache cells or touching LRU state. `context` supplies cache-type visibility rules.
+    /// Probe the block-aligned `[offset, offset + size)` range without creating cache cells or
+    /// touching LRU state. The result contains one ordered slot per cache block; each slot is null
+    /// on miss or owns the exactly aligned existing block. `context` supplies cache metadata when
+    /// lazy loading is required.
     FileBlocksProbeResult probe(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 const CacheContext& context);
 
