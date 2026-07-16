@@ -43,7 +43,7 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
 
     def hasSparkIcebergJdbc = {
         try {
-            spark_iceberg_jdbc """select 1"""
+            spark_iceberg """select 1"""
             return true
         } catch (Exception e) {
             logger.info("Check spark-iceberg JDBC failed: ${e.message}")
@@ -60,7 +60,7 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
     }
 
     def sparkChecksum = { tableName ->
-        def rows = spark_iceberg_jdbc("""
+        def rows = spark_iceberg("""
             select concat_ws(',', cast(count(*) as string),
                 cast(coalesce(sum(id), 0) as string),
                 cast(coalesce(sum(score), 0) as string))
@@ -94,6 +94,11 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
             order by committed_at
         """)
         logger.info("Random cross step ${step} snapshots for ${tableName}: ${snapshots}")
+    }
+
+    def refreshBothEngines = { tableName ->
+        sql """refresh table ${dbName}.${tableName}"""
+        spark_iceberg """refresh table demo.${dbName}.${tableName}"""
     }
 
     def rowValues = { id, prefix, score ->
@@ -183,7 +188,7 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
             """
         }
         logger.info("Random cross step ${step} Spark SQL for ${tableName}: ${sqlText}")
-        spark_iceberg_jdbc sqlText
+        spark_iceberg sqlText
     }
 
     if (!hasSparkIcebergJdbc()) {
@@ -211,13 +216,13 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
     sql """set show_hidden_columns = false"""
 
     try {
-        spark_iceberg_jdbc """create database if not exists demo.${dbName}"""
+        spark_iceberg """create database if not exists demo.${dbName}"""
 
         formats.each { format ->
             String tableName = "random_cross_${format}"
             Random random = new Random(seed + format.hashCode())
             try {
-                spark_iceberg_jdbc_multi """
+                spark_iceberg_multi """
                     drop table if exists demo.${dbName}.${tableName};
                     create table demo.${dbName}.${tableName} (
                         id int,
@@ -240,7 +245,7 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
                     (4, 'base_4', 40, date '2024-10-04'),
                     (5, 'base_5', 50, date '2024-10-05');
                 """
-                sql """refresh table ${dbName}.${tableName}"""
+                refreshBothEngines(tableName)
                 assertDorisSparkBusinessEqual(tableName, "initial")
                 assertLineageReadable(tableName, "initial")
 
@@ -253,7 +258,7 @@ suite("test_iceberg_v3_row_lineage_random_cross_engine", "p2,external,iceberg,ex
                     } else {
                         executeSparkStep(tableName, op, id, step)
                     }
-                    sql """refresh table ${dbName}.${tableName}"""
+                    refreshBothEngines(tableName)
                     assertDorisSparkBusinessEqual(tableName, step)
                     assertLineageReadable(tableName, step)
                     logSnapshots(tableName, step)
