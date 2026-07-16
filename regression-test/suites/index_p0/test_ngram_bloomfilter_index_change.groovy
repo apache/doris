@@ -163,11 +163,11 @@ suite("test_ngram_bloomfilter_index_change") {
     assertTrue(filtered2 != null && filtered2 == 10, "Expected RowsBloomFilterFiltered = 10, but got ${filtered2}")
 
     // Drop index
-    def previousJobIds = isCloudMode() ? get_build_index_job_ids(tableName) : null
+    def previousJobIds = isCloudMode() ? snapshot_build_index_job_ids(tableName) : null
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
     wait_for_last_col_change_finish(tableName, timeout)
     if (isCloudMode()) {
-        wait_for_last_build_index_finish(tableName, timeout, previousJobIds)
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previousJobIds)
     }
 
     // Test after dropping index

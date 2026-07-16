@@ -25,10 +25,10 @@ suite("test_index_change_4") {
     def tableName = "test_index_change_4"
 
     def drop_index_and_wait = { index_name ->
-        def previous_job_ids = get_build_index_job_ids(tableName)
+        def previous_job_ids = snapshot_build_index_job_ids(tableName)
         sql """ DROP INDEX ${index_name} ON ${tableName} """
         wait_for_last_col_change_finish(tableName, timeout)
-        wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previous_job_ids)
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -87,9 +87,9 @@ suite("test_index_change_4") {
     // build index
 
     if (!isCloudMode()) {
-        def previous_job_ids = get_build_index_job_ids(tableName)
+        def previous_job_ids = snapshot_build_index_job_ids(tableName)
         build_index_on_table("idx_note", tableName)
-        wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previous_job_ids)
     }
 
     def show_result = sql "show index from ${tableName}"
@@ -160,9 +160,9 @@ suite("test_index_change_4") {
     wait_for_last_col_change_finish(tableName, timeout)
     // build index
     if (!isCloudMode()) {
-        def previous_job_ids = get_build_index_job_ids(tableName)
+        def previous_job_ids = snapshot_build_index_job_ids(tableName)
         build_index_on_table("idx_note", tableName)
-        wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previous_job_ids)
     }
 
     show_result = sql "show index from ${tableName}"

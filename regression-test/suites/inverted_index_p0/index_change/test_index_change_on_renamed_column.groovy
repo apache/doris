@@ -56,9 +56,9 @@ suite("test_index_change_on_renamed_column") {
 
     // build inverted index on renamed column
     if (!isCloudMode()) {
-        def previous_job_ids = get_build_index_job_ids(tableName)
+        def previous_job_ids = snapshot_build_index_job_ids(tableName)
         build_index_on_table("idx_s", tableName)
-        wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previous_job_ids)
     }
 
     def show_result = sql "show index from ${tableName}"
@@ -77,11 +77,11 @@ suite("test_index_change_on_renamed_column") {
     check_nested_index_file(ip, port, tablet_id, 3, 1, "V3")
 
     // drop inverted index on renamed column
-    def previous_job_ids = !isCloudMode() ? get_build_index_job_ids(tableName) : null
+    def previous_job_ids = !isCloudMode() ? snapshot_build_index_job_ids(tableName) : null
     sql """ alter table ${tableName} drop index idx_s; """
     wait_for_last_col_change_finish(tableName, timeout)
     if (!isCloudMode()) {
-        wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previous_job_ids)
     }
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

@@ -23,24 +23,51 @@ import java.util.regex.Pattern;
 
 def delta_time = 1000
 
-Suite.metaClass.get_build_index_job_ids = { table_name ->
+Suite.metaClass.snapshot_build_index_job_ids = { table_name ->
     def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
     return alter_res.collect { it[0].toString() }.toSet()
 }
 
-Suite.metaClass.wait_for_last_build_index_finish = { table_name, OpTimeout, previous_job_ids = null ->
+// Compatibility helper for legacy callers where a build-index job is optional.
+// New explicit build/delete paths must snapshot job ids before the operation and
+// use wait_for_new_build_index_jobs_finish instead.
+Suite.metaClass.wait_for_last_build_index_finish = { table_name, OpTimeout ->
+    def finished = false
+    def alter_res = []
+    for (int t = 0; t <= OpTimeout; t += delta_time) {
+        alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}"
+                ORDER BY CreateTime DESC LIMIT 1;"""
+        if (alter_res.isEmpty()) {
+            logger.info(table_name + " has no build index job")
+            finished = true
+            break
+        }
+        if (alter_res.any { it[7] == "CANCELLED" }) {
+            logger.info(table_name + " latest build index job failed, detail: " + alter_res)
+            assertTrue(false)
+        }
+        if (alter_res.every { it[7] == "FINISHED" }) {
+            logger.info(table_name + " latest build index job finished, detail: " + alter_res)
+            finished = true
+            break
+        }
+        if (t >= OpTimeout) {
+            break
+        }
+        sleep(delta_time)
+    }
+    assertTrue(finished, "wait for latest build index finish timeout, latest result: ${alter_res}")
+}
+
+Suite.metaClass.wait_for_new_build_index_jobs_finish = { table_name, OpTimeout, previous_job_ids ->
+    assertTrue(previous_job_ids != null, "previous build index job ids must be snapshotted before the operation")
     def finished = false
     def alter_res = []
     def confirmed_finished_job_ids = null
     for (int t = 0; t <= OpTimeout; t += delta_time) {
-        if (previous_job_ids == null) {
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}"
-                    ORDER BY CreateTime DESC LIMIT 1;"""
-        } else {
-            def all_jobs = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}"
-                    ORDER BY CreateTime DESC;"""
-            alter_res = all_jobs.findAll { !previous_job_ids.contains(it[0].toString()) }
-        }
+        def all_jobs = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}"
+                ORDER BY CreateTime DESC;"""
+        alter_res = all_jobs.findAll { !previous_job_ids.contains(it[0].toString()) }
 
         if (!alter_res.isEmpty() && alter_res.any { it[7] == "CANCELLED" }) {
             logger.info(table_name + " build index job failed, detail: " + alter_res)
@@ -48,7 +75,7 @@ Suite.metaClass.wait_for_last_build_index_finish = { table_name, OpTimeout, prev
         }
         if (!alter_res.isEmpty() && alter_res.every { it[7] == "FINISHED" }) {
             def finished_job_ids = alter_res.collect { it[0].toString() }.toSet()
-            if (previous_job_ids == null || finished_job_ids == confirmed_finished_job_ids) {
+            if (finished_job_ids == confirmed_finished_job_ids) {
                 logger.info(table_name + " build index jobs finished, detail: " + alter_res)
                 finished = true
                 break
