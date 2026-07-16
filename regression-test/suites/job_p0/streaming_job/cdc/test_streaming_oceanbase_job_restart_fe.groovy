@@ -118,6 +118,7 @@ suite("test_streaming_oceanbase_job_restart_fe",
 
             cluster.restartFrontends()
             waitForJobAfterRestart()
+            context.reconnectFe()
 
             def afterOffsetRows = sql """SELECT currentOffset FROM jobs("type"="insert")
                                           WHERE Name='${jobName}'"""

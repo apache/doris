@@ -111,6 +111,7 @@ suite("test_streaming_oceanbase_job_sc_restart_fe",
 
             cluster.restartFrontends()
             waitForJobAfterRestart()
+            context.reconnectFe()
 
             connect("root@test", "123456", sourceUrl) {
                 sql """INSERT INTO ${sourceDb}.${table1}
