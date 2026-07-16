@@ -505,7 +505,7 @@ jobs:
           # Codex uses bubblewrap for that mode and uid maps can be unavailable.
           codex exec --goal "$GOAL_PROMPT" \
             --cd "$GITHUB_WORKSPACE" \
-            --model "gpt-5.5" \
+            --model "gpt-5.6-sol" \
             --config "model_reasoning_effort=xhigh" \
             --sandbox danger-full-access \
             --color never \
@@ -606,7 +606,7 @@ jobs:
             --pr-number "$PR_NUMBER" \
             --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" \
-            --model "gpt-5.5" \
+            --model "gpt-5.6-sol" \
             --reasoning-effort "xhigh" \
             --environment "github-actions" \
             --max-payload-bytes 4000000 \
