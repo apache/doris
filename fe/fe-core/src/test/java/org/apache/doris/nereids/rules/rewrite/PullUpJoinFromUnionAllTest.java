@@ -326,6 +326,7 @@ class PullUpJoinFromUnionAllTest {
         Mockito.when(table.getId()).thenReturn(tableId);
         Mockito.when(table.getDatabase()).thenReturn(null);
         Mockito.when(table.getName()).thenReturn(tableName);
+        Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
         Mockito.when(table.getBaseSchema(false)).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
         Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(),
@@ -348,6 +349,7 @@ class PullUpJoinFromUnionAllTest {
         Mockito.when(table.getStreamDbId()).thenReturn(streamDbId);
         Mockito.when(table.getStreamId()).thenReturn(streamId);
         Mockito.when(table.getStreamKeysType()).thenReturn(keysType);
+        Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
         Mockito.when(table.getBaseSchema(false)).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
         Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
         Mockito.when(table.getOutputUpdateMap()).thenReturn(offsets);
