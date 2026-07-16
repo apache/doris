@@ -297,6 +297,46 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void getFullSchemaWithSnapshotAppendsSyntheticColumnsWhenGated() {
+        // The PLAN path (LogicalFileScan.computePluginDrivenOutput) calls the 1-arg overload, NOT the 0-arg
+        // one. It must append the synthetic write columns exactly like the 0-arg form -- when it did not,
+        // iceberg's row-id STRUCT vanished from the scan output: every row-level DML died with "Unknown
+        // column '__DORIS_ICEBERG_ROWID_COL__'" and SELECT * under show-hidden came back one column short
+        // (CI 997422, 9 suites).
+        // MUTATION: deleting the 1-arg override in PluginDrivenExternalTable -> red (ExternalTable's
+        // non-appending overload takes over and this returns BASE_SCHEMA.size()).
+        // NOTE: this MUST run on a CALLS_REAL_METHODS instance. Stubbing getFullSchema(Optional) on a mock
+        // intercepts before the real body, so it can never detect a missing override -- that blind spot is
+        // exactly why the regression shipped green.
+        PluginDrivenExternalTable table = pluginTable(Collections.singletonList(SYNTHETIC), true, true);
+        Mockito.doReturn(true).when(table).needInternalHiddenColumns();
+
+        List<Column> schema = table.getFullSchema(Optional.empty());
+
+        Assertions.assertEquals(BASE_SCHEMA.size() + 1, schema.size(),
+                "the 1-arg (plan-path) form appends the connector's synthetic write column");
+        Assertions.assertEquals("__syn_write_col__", schema.get(2).getName());
+        Assertions.assertEquals(table.getFullSchema(), schema,
+                "0-arg and 1-arg must agree: the synthetic write columns are request-scoped, not "
+                        + "version-scoped, so only the BASE schema read differs between the two forms");
+    }
+
+    @Test
+    public void getFullSchemaWithSnapshotReturnsBaseWhenNotGated() {
+        // The 1-arg form honours the same gate: an ordinary query (no DML, no show-hidden) planned through
+        // LogicalFileScan must see exactly the base schema. MUTATION: routing the 1-arg override around the
+        // gate (always append) -> red.
+        PluginDrivenExternalTable table = pluginTable(Collections.singletonList(SYNTHETIC), true, true);
+        Mockito.doReturn(false).when(table).needInternalHiddenColumns();
+
+        List<Column> schema = table.getFullSchema(Optional.empty());
+
+        Assertions.assertEquals(BASE_SCHEMA.size(), schema.size(),
+                "ungated 1-arg getFullSchema returns the base schema with no synthetic write column");
+        Assertions.assertTrue(schema.stream().noneMatch(c -> "__syn_write_col__".equals(c.getName())));
+    }
+
+    @Test
     public void getFullSchemaReturnsBaseScheamWhenNotGated() {
         // MUTATION: dropping the show-hidden/ctx gate (always append) makes this red — an ordinary query
         // (no DML, no show-hidden) must see exactly the base schema, never the synthetic write column.

@@ -663,7 +663,27 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     @Override
     public List<Column> getFullSchema() {
-        List<Column> schema = super.getFullSchema();
+        return appendSyntheticWriteColumns(super.getFullSchema());
+    }
+
+    /**
+     * Same as {@link #getFullSchema()}, but the BASE schema is resolved AS OF {@code snapshot} (this
+     * reference's own pin). The synthetic write columns are request-scoped, not version-scoped, so they are
+     * appended identically for either form — only the base schema read is version-aware.
+     *
+     * <p><b>Every</b> arity of this method must go through {@link #appendSyntheticWriteColumns}. The plan
+     * path ({@code LogicalFileScan.computePluginDrivenOutput}) calls THIS one, and it must not lose the
+     * append: when it did, iceberg's row-id STRUCT vanished from the scan's output, breaking every
+     * row-level DML with "Unknown column '__DORIS_ICEBERG_ROWID_COL__'" and dropping the column from
+     * {@code SELECT *} under show-hidden. A new overload that reads the schema cache directly silently
+     * bypasses this append — the compiler cannot catch it, since these are overloads, not overrides.</p>
+     */
+    @Override
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        return appendSyntheticWriteColumns(super.getFullSchema(snapshot));
+    }
+
+    private List<Column> appendSyntheticWriteColumns(List<Column> schema) {
         if (schema == null || !(Util.showHiddenColumns() || needInternalHiddenColumns())) {
             return schema;
         }
