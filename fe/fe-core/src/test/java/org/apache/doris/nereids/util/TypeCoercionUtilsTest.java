@@ -274,15 +274,13 @@ public class TypeCoercionUtilsTest {
                         new SlotReference("string_col", StringType.INSTANCE));
                 nullSafeDecimalString = (NullSafeEqual) TypeCoercionUtils
                         .processComparisonPredicate(nullSafeDecimalString);
-                Assertions.assertTrue(((Cast) nullSafeDecimalString.right()).isLosslessDecimalCast());
+                Assertions.assertFalse(((Cast) nullSafeDecimalString.right()).isLosslessDecimalCast());
 
                 EqualTo bigintString = new EqualTo(
                         new SlotReference("bigint_col", BigIntType.INSTANCE),
                         new SlotReference("string_col", StringType.INSTANCE));
                 bigintString = (EqualTo) TypeCoercionUtils.processComparisonPredicate(bigintString);
-                Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(26, 6),
-                        bigintString.left().getDataType());
-                Assertions.assertTrue(((Cast) bigintString.right()).isLosslessDecimalCast());
+                Assertions.assertFalse(((Cast) bigintString.right()).isLosslessDecimalCast());
 
                 EqualTo floatString = new EqualTo(
                         new SlotReference("float_col", FloatType.INSTANCE),
@@ -301,7 +299,7 @@ public class TypeCoercionUtilsTest {
                         new SlotReference("decimal_col", decimal380),
                         ImmutableList.of(new SlotReference("string_col", StringType.INSTANCE)));
                 inPredicate = (InPredicate) TypeCoercionUtils.processInPredicate(inPredicate);
-                Assertions.assertTrue(((Cast) inPredicate.getOptions().get(0)).isLosslessDecimalCast());
+                Assertions.assertFalse(((Cast) inPredicate.getOptions().get(0)).isLosslessDecimalCast());
             }
         } finally {
             GlobalVariable.enableNewTypeCoercionBehavior = originalNewTypeCoercionBehavior;

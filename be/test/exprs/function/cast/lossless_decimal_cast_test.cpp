@@ -15,15 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/cast/cast_to_decimal.h"
-
 #include <cstring>
+#include <string>
+
+#include "exprs/function/cast/cast_to_decimal.h"
 
 namespace doris {
 
 TEST(LosslessDecimalCastTest, StringMustBeExactlyRepresentable) {
     auto lossless = [](const char* value, UInt32 precision, UInt32 scale) {
-        return CastToDecimal::is_lossless_decimal_string(value, std::strlen(value), precision, scale);
+        return CastToDecimal::is_lossless_decimal_string(value, std::strlen(value), precision,
+                                                         scale);
     };
 
     EXPECT_TRUE(lossless("9223372036854775808", 38, 0));
@@ -53,6 +55,20 @@ TEST(LosslessDecimalCastTest, ParseOnlyExactValues) {
 
     EXPECT_FALSE(CastToDecimal::from_string_lossless(StringRef("100.4", 5), value, 38, 0, params));
     EXPECT_FALSE(CastToDecimal::from_string_lossless(StringRef("100abc", 6), value, 38, 0, params));
+}
+
+TEST(LosslessDecimalCastTest, HandlesCancellingExponent) {
+    std::string value = "0.";
+    value.append(1024, '0');
+    value.append("1e1025");
+
+    EXPECT_TRUE(CastToDecimal::is_lossless_decimal_string(value.data(), value.size(), 38, 0));
+
+    CastParameters params;
+    Decimal128V3 decimal;
+    EXPECT_TRUE(CastToDecimal::from_string_lossless(StringRef(value.data(), value.size()), decimal,
+                                                    38, 0, params));
+    EXPECT_EQ(decimal.value, 1);
 }
 
 } // namespace doris

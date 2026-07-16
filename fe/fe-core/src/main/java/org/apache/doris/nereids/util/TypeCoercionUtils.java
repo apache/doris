@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
@@ -482,6 +483,33 @@ public class TypeCoercionUtils {
             return new Cast(input, targetType, false, true);
         }
         return castIfNotSameType(input, targetType);
+    }
+
+    private static Optional<DataType> getLosslessDecimalStringComparisonType(
+            ComparisonPredicate comparisonPredicate, Expression left, Expression right) {
+        if (!(comparisonPredicate instanceof EqualTo)) {
+            return Optional.empty();
+        }
+
+        DataType decimalType;
+        if (left.getDataType().isDecimalLikeType() && right.getDataType().isStringLikeType()) {
+            decimalType = left.getDataType();
+        } else if (right.getDataType().isDecimalLikeType() && left.getDataType().isStringLikeType()) {
+            decimalType = right.getDataType();
+        } else {
+            return Optional.empty();
+        }
+
+        DecimalV3Type decimalV3Type = DecimalV3Type.forType(decimalType);
+        int maxPrecision = SessionVariable.getEnableDecimal256()
+                ? DecimalV3Type.MAX_DECIMAL256_PRECISION : DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        int integerPart = Math.max(decimalV3Type.getPrecision() - decimalV3Type.getScale(), 0);
+        int maxScale = Math.max(maxPrecision - integerPart, 0);
+        int targetScale = Math.max(decimalV3Type.getScale(),
+                Math.min(SessionVariable.getDecimalOverFlowScale(), maxScale));
+        targetScale = Math.min(targetScale, maxScale);
+        return Optional.of(DecimalV3Type.createDecimalV3Type(
+                Math.min(integerPart + targetScale, maxPrecision), targetScale));
     }
 
     /**
@@ -1080,9 +1108,7 @@ public class TypeCoercionUtils {
                         DecimalV3Type.forType(leftType), DecimalV3Type.forType(rightType), overflowToDouble));
             }
         }
-        if (rightType.isStringLikeType()) {
-            return Optional.of(getNumericStringComparisonType(leftType));
-        } else if (rightType instanceof JsonType) {
+        if (rightType instanceof JsonType || rightType.isStringLikeType()) {
             if (SessionVariable.getEnableDecimal256()) {
                 return Optional.of(DecimalV3Type.createDecimalV3Type(DecimalV3Type.MAX_DECIMAL256_PRECISION,
                         SessionVariable.getDecimalOverFlowScale()));
@@ -1102,19 +1128,6 @@ public class TypeCoercionUtils {
                     DecimalV3Type.forType(leftType), DecimalV3Type.forType(rightType), overflowToDouble));
         }
         return Optional.empty();
-    }
-
-    private static DecimalV3Type getNumericStringComparisonType(NumericType numericType) {
-        DecimalV3Type decimalType = DecimalV3Type.forType(numericType);
-        int maxPrecision = SessionVariable.getEnableDecimal256()
-                ? DecimalV3Type.MAX_DECIMAL256_PRECISION : DecimalV3Type.MAX_DECIMAL128_PRECISION;
-        int integerPart = Math.max(decimalType.getPrecision() - decimalType.getScale(), 0);
-        int maxScale = Math.max(maxPrecision - integerPart, 0);
-        int targetScale = Math.max(decimalType.getScale(),
-                Math.min(SessionVariable.getDecimalOverFlowScale(), maxScale));
-        targetScale = Math.min(targetScale, maxScale);
-        return DecimalV3Type.createDecimalV3Type(
-                Math.min(integerPart + targetScale, maxPrecision), targetScale);
     }
 
     /**
@@ -1324,22 +1337,25 @@ public class TypeCoercionUtils {
         left = comparisonPredicate.left();
         right = comparisonPredicate.right();
 
-        Optional<DataType> commonType;
-        if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
-        } else {
-            commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
-        }
+        Optional<DataType> commonType = getLosslessDecimalStringComparisonType(comparisonPredicate, left, right);
+        boolean losslessDecimalCast = commonType.isPresent();
+        if (!losslessDecimalCast) {
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
+            } else {
+                commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
+            }
 
-        if (commonType.isPresent()) {
-            commonType = Optional.of(downgradeDecimalAndDateLikeType(
-                    commonType.get(),
-                    left,
-                    right));
-            commonType = Optional.of(downgradeDecimalAndDateLikeType(
-                    commonType.get(),
-                    right,
-                    left));
+            if (commonType.isPresent()) {
+                commonType = Optional.of(downgradeDecimalAndDateLikeType(
+                        commonType.get(),
+                        left,
+                        right));
+                commonType = Optional.of(downgradeDecimalAndDateLikeType(
+                        commonType.get(),
+                        right,
+                        left));
+            }
         }
 
         if (commonType.isPresent()) {
@@ -1347,7 +1363,6 @@ public class TypeCoercionUtils {
                 throw new AnalysisException("data type " + commonType.get()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
-            boolean losslessDecimalCast = comparisonPredicate instanceof EqualPredicate;
             left = castComparisonOperand(left, commonType.get(), losslessDecimalCast);
             right = castComparisonOperand(right, commonType.get(), losslessDecimalCast);
         } else {
@@ -1424,7 +1439,7 @@ public class TypeCoercionUtils {
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = fmtInPredicate.children().stream()
-                            .map(e -> TypeCoercionUtils.castComparisonOperand(e, commonType, true))
+                            .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
                             .collect(ImmutableList.toImmutableList());
                     return fmtInPredicate.withChildren(newChildren);
                 })
@@ -1779,16 +1794,6 @@ public class TypeCoercionUtils {
         if ((maybeCastToVarchar(leftType) && rightType instanceof StringType)
                 || (maybeCastToVarchar(rightType) && leftType instanceof StringType)) {
             return Optional.of(StringType.INSTANCE);
-        }
-
-        if ((leftType.isNumericType() && rightType.isStringLikeType())
-                || (rightType.isNumericType() && leftType.isStringLikeType())) {
-            if (leftType.isFloatType() || leftType.isDoubleType()
-                    || rightType.isFloatType() || rightType.isDoubleType()) {
-                return Optional.of(DoubleType.INSTANCE);
-            }
-            NumericType numericType = (NumericType) (leftType.isNumericType() ? leftType : rightType);
-            return Optional.of(getNumericStringComparisonType(numericType));
         }
 
         // in legacy planner, comparison predicate convert int vs string to double.

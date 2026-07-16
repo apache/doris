@@ -56,20 +56,30 @@ public:
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     const DataTypePtr& get_target_type() const;
-    bool is_safe_to_execute_on_selected_rows() const override { return false; }
+    bool is_lossless_decimal_cast() const {
+        return _lossless_decimal_cast;
+    }
+    bool is_safe_to_execute_on_selected_rows() const override {
+        return false;
+    }
 
-    virtual std::string cast_name() const { return "CAST"; }
+    virtual std::string cast_name() const {
+        return "CAST";
+    }
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = VCastExpr::create_shared(clone_texpr_node());
+        auto node = clone_texpr_node();
+        node.__set_lossless_decimal_cast(_lossless_decimal_cast);
+        *cloned_expr = VCastExpr::create_shared(node);
         return Status::OK();
     }
 
     uint64_t get_digest(uint64_t seed) const override {
         auto res = VExpr::get_digest(seed);
         if (res) {
-            return HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
-                                    res);
+            res = HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
+                                   res);
+            return HashUtil::hash64(&_lossless_decimal_cast, sizeof(_lossless_decimal_cast), res);
         }
         return 0;
     }
@@ -101,7 +111,9 @@ public:
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
     ~TryCastExpr() override = default;
-    std::string cast_name() const override { return "TRY CAST"; }
+    std::string cast_name() const override {
+        return "TRY CAST";
+    }
     bool is_safe_to_execute_on_selected_rows() const override {
         return VExpr::is_safe_to_execute_on_selected_rows();
     }
