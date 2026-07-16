@@ -78,6 +78,14 @@ Status FileCacheFactory::update_async_write_options(const AsyncCacheWriteService
     return Status::OK();
 }
 
+Status FileCacheFactory::start_async_write_services() {
+    std::lock_guard lock(_mtx);
+    for (const auto& cache : _caches) {
+        RETURN_IF_ERROR(cache->async_write_service()->start());
+    }
+    return Status::OK();
+}
+
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            FileCacheSettings file_cache_settings) {
     if (file_cache_settings.storage == "memory") {
@@ -441,6 +449,20 @@ void update_async_write_options(const char* config_name, T old_value, T new_valu
 }
 
 } // namespace
+
+DEFINE_ON_UPDATE(enable_async_file_cache_write, [](bool old_value, bool new_value) {
+    if (old_value == new_value || !new_value) {
+        return;
+    }
+    auto* factory = io::FileCacheFactory::instance();
+    if (factory == nullptr) {
+        return;
+    }
+    Status status = factory->start_async_write_services();
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to start async file cache write services: " << status.to_string();
+    }
+});
 
 DEFINE_ON_UPDATE(async_file_cache_write_workers_per_disk, [](int32_t old_value, int32_t new_value) {
     update_async_write_options("async_file_cache_write_workers_per_disk", old_value, new_value);

@@ -1262,7 +1262,7 @@ DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_block_lru_update_queue_max_size, "500000");
 DEFINE_mBool(enable_file_cache_async_touch_on_get_or_set, "false");
 DEFINE_mBool(enable_async_file_cache_write, "false");
-DEFINE_mInt32(async_file_cache_write_workers_per_disk, "2");
+DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
 DEFINE_mInt64(async_file_cache_write_max_pending_tasks_per_disk, "256");
 DEFINE_mInt32(async_file_cache_write_batch_size, "16");
 DEFINE_mInt64(async_file_cache_write_watchdog_warn_secs, "30");

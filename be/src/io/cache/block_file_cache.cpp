@@ -562,7 +562,11 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     };
     _async_write_service =
             std::make_unique<AsyncCacheWriteService>(this, std::move(async_write_options));
-    RETURN_IF_ERROR(_async_write_service->start());
+    // Do not create persistent per-disk workers while async writeback is disabled. The config
+    // update adapter starts existing services explicitly when the switch is enabled online.
+    if (config::enable_async_file_cache_write) {
+        RETURN_IF_ERROR(_async_write_service->start());
+    }
 
     if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get())) {
         if (auto* meta_store = fs_storage->get_meta_store()) {
