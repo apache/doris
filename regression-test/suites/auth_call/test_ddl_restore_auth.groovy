@@ -17,7 +17,7 @@
 
 import java.util.UUID
 
-suite("test_ddl_restore_auth", "p0,auth_call,nonConcurrent") {
+suite("test_ddl_restore_auth", "p0,auth_call") {
     String label = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 8)
     def syncer = getSyncer()
 
