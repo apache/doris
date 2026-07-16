@@ -113,6 +113,9 @@ public class FileSplit implements Split {
     }
 
     public long getSelfSplitWeight() {
-        return selfSplitWeight;
+        // selfSplitWeight is null when unset; mirror the ConnectorScanRange SPI "-1 = not provided"
+        // sentinel. Lombok's @Data generates equals()/hashCode() that invoke this getter, so an
+        // unboxing null here would NPE for any FileSplit that never set a size-based weight.
+        return selfSplitWeight == null ? -1 : selfSplitWeight;
     }
 }

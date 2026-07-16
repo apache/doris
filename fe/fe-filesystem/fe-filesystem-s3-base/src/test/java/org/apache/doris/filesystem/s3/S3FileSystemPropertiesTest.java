@@ -50,6 +50,27 @@ class S3FileSystemPropertiesTest {
     }
 
     @Test
+    void glueAliases_carryTheSessionTokenAlongsideAccessAndSecretKey() {
+        // A glue catalog's credentials reach this store only through the glue aliases, and temporary STS
+        // credentials are rejected by AWS unless all three travel together. The token alias used to be missing
+        // while access/secret key had theirs, so a glue catalog on temporary credentials silently degraded to
+        // token-less basic credentials. MUTATION: drop "aws.glue.session-token" from the alias list -> red.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        raw.put("region", "us-east-1");
+        raw.put("aws.glue.access-key", "GAK");
+        raw.put("aws.glue.secret-key", "GSK");
+        raw.put("aws.glue.session-token", "GST");
+
+        S3FileSystemProperties props = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("GAK", props.getAccessKey());
+        Assertions.assertEquals("GSK", props.getSecretKey());
+        Assertions.assertEquals("GST", props.getSessionToken(),
+                "the glue session token must reach the store, not just the access/secret key");
+    }
+
+    @Test
     void of_bindsAliasesAndExposesEffectiveViews() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://minio.local");

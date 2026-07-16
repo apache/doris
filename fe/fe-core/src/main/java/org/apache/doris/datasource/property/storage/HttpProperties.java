@@ -21,7 +21,7 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-import org.apache.hudi.common.util.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.Map;
 import java.util.Set;
@@ -55,7 +55,7 @@ public class HttpProperties extends StorageProperties {
     }
 
     public static boolean guessIsMe(Map<String, String> props) {
-        return !MapUtils.isNullOrEmpty(props)
+        return MapUtils.isNotEmpty(props)
             && HTTP_PROPERTIES.stream().anyMatch(props::containsKey);
     }
 

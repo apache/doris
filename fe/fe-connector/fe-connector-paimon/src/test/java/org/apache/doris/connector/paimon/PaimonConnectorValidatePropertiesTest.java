@@ -147,27 +147,6 @@ public class PaimonConnectorValidatePropertiesTest {
     }
 
     @Test
-    public void dlfRequiresAccessKey() {
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> validate(props(
-                        "paimon.catalog.type", "dlf",
-                        "warehouse", "/wh",
-                        "dlf.secret_key", "sk",
-                        "dlf.endpoint", "dlf.cn.aliyuncs.com")));
-    }
-
-    @Test
-    public void dlfRequiresEndpointOrRegion() {
-        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> validate(props(
-                        "paimon.catalog.type", "dlf",
-                        "warehouse", "/wh",
-                        "dlf.access_key", "ak",
-                        "dlf.secret_key", "sk")));
-        Assertions.assertTrue(ex.getMessage().contains("dlf.endpoint"));
-    }
-
-    @Test
     public void hmsRequiresUri() {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> validate(props(
@@ -185,12 +164,6 @@ public class PaimonConnectorValidatePropertiesTest {
                 "paimon.catalog.type", "rest", "warehouse", "/wh", "paimon.rest.uri", "http://rest:8080")));
         Assertions.assertDoesNotThrow(() -> validate(props(
                 "paimon.catalog.type", "jdbc", "warehouse", "/wh", "uri", "jdbc:mysql://db:3306/meta")));
-        // DLF now requires an OSS storage key at CREATE (see rejectsDlfWithoutOssStorage), so a
-        // well-formed DLF catalog carries one.
-        Assertions.assertDoesNotThrow(() -> validate(props(
-                "paimon.catalog.type", "dlf", "warehouse", "/wh",
-                "dlf.access_key", "ak", "dlf.secret_key", "sk", "dlf.region", "cn-hangzhou",
-                "oss.endpoint", "oss-cn-hangzhou.aliyuncs.com")));
     }
 
     @Test
@@ -231,12 +204,12 @@ public class PaimonConnectorValidatePropertiesTest {
                         "hive.metastore.client.principal", "hive/_HOST@REALM")));
     }
 
+
     @Test
-    public void rejectsDlfWithoutOssStorage() {
-        // Legacy PaimonAliyunDLFMetaStoreProperties selected an OSS/OSS_HDFS StorageProperties; a DLF
-        // catalog backed by non-OSS (or no) object storage is rejected. The hand-copy enforced this only
-        // at catalog BUILD (requireOssStorageForDlf); the shared parser enforces it in validate() so it
-        // now fails at CREATE CATALOG. RED against the old validate (which did not check storage).
+    public void removedDlfCatalogTypeNoLongerValidates() {
+        // WHY: paimon.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed. It
+        // must now fail at CREATE CATALOG like any unknown type — never fall through to a backend whose client
+        // no longer ships. MUTATION: re-registering the dlf provider -> this passes validate -> red.
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> validate(props(
                         "paimon.catalog.type", "dlf",
@@ -244,6 +217,7 @@ public class PaimonConnectorValidatePropertiesTest {
                         "dlf.access_key", "ak",
                         "dlf.secret_key", "sk",
                         "dlf.endpoint", "dlf.cn.aliyuncs.com")));
-        Assertions.assertTrue(ex.getMessage().contains("OSS storage"));
+        Assertions.assertTrue(ex.getMessage().contains("No MetaStoreProvider supports"),
+                "removed dlf must be unsupported, got: " + ex.getMessage());
     }
 }

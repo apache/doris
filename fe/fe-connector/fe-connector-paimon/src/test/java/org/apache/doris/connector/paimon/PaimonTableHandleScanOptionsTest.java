@@ -316,8 +316,8 @@ public class PaimonTableHandleScanOptionsTest {
         // keying it under "partition_keys" left the FE treating paimon as non-partitioned. MUTATION:
         // emitting the old "partition_keys" key -> "partition_columns" absent + "partition_keys"
         // present -> both assertions red.
-        Assertions.assertEquals("dt,region", props.get("partition_columns"),
-                "getTableSchema must emit partition keys under the 'partition_columns' key");
+        Assertions.assertEquals("dt,region", props.get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "getTableSchema must emit partition keys under the reserved partition-columns key");
         Assertions.assertNull(props.get("partition_keys"),
                 "the legacy 'partition_keys' key must no longer be emitted (FE reads partition_columns)");
 

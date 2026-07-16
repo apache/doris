@@ -55,7 +55,9 @@ public class BrokerProperties extends StorageProperties {
         return properties;
     }
 
-    private static final String BIND_BROKER_NAME_KEY = "broker.name";
+    // Broker name for file split and query scan. The single source of truth for the "broker.name" catalog
+    // property key (the generic ExternalCatalog.bindBrokerName() reads it; guessIsMe matches it case-insensitively).
+    public static final String BIND_BROKER_NAME_KEY = "broker.name";
 
     public static boolean guessIsMe(Map<String, String> props) {
         if (props == null || props.isEmpty()) {

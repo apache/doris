@@ -43,7 +43,8 @@ public class MaxComputeConnectorMetadataCapabilityTest {
     @Test
     public void maxComputeDeclaresSupportsCreateDatabase() {
         MaxComputeConnectorMetadata metadata = new MaxComputeConnectorMetadata(
-                null, null, "proj", "ep", "quota", Collections.emptyMap());
+                null, null, "proj", "ep", "quota", Collections.emptyMap(),
+                null); // null: partition cache unused by this test
 
         Assertions.assertTrue(metadata.supportsCreateDatabase(),
                 "MaxCompute must declare supportsCreateDatabase()=true so the FE "
@@ -65,7 +66,8 @@ public class MaxComputeConnectorMetadataCapabilityTest {
     @Test
     public void maxComputeDisablesCastPredicatePushdown() {
         MaxComputeConnectorMetadata metadata = new MaxComputeConnectorMetadata(
-                null, null, "proj", "ep", "quota", Collections.emptyMap());
+                null, null, "proj", "ep", "quota", Collections.emptyMap(),
+                null); // null: partition cache unused by this test
 
         Assertions.assertFalse(metadata.supportsCastPredicatePushdown(null),
                 "MaxCompute must disable CAST-predicate pushdown (F9): the converter unwraps CAST "

@@ -174,7 +174,19 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public List<Column> getFullSchema() {
+        // NOT getFullSchema(Optional.empty()): an empty snapshot means "this reference has no pin" (=>
+        // latest), whereas the no-arg form means "I have no reference, resolve from the ambient context".
+        // Collapsing the two would strip the ambient resolution from every statement-global caller.
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+    }
+
+    /**
+     * The full schema AS OF {@code snapshot}. See {@link #getSchemaCacheValue(Optional)} for why the plan
+     * path must pass the reference's pin rather than relying on the ambient lookup.
+     */
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue(snapshot);
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
@@ -423,6 +435,23 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
         return Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getSchemaCacheValue(this, new SchemaCacheKey(getOrBuildNameMapping()));
+    }
+
+    /**
+     * The schema AS OF {@code snapshot}, for a caller that knows WHICH table reference it is resolving for
+     * (the reference's {@code @branch}/{@code @tag}/FOR-TIME selector already resolved to a pin). A table
+     * whose schema cannot vary by version ignores {@code snapshot} — only an MVCC table overrides this.
+     *
+     * <p>Prefer this over the no-arg {@link #getSchemaCacheValue()} in the PLAN path: the no-arg form
+     * resolves the pin from the ambient {@code ConnectContext} WITHOUT knowing the reference, so a statement
+     * pinning one table at two versions cannot be disambiguated there and degrades to the LATEST schema —
+     * a schema no reference asked for. The no-arg form remains correct for statement-global callers (MTMV
+     * refresh, preload, the write sink) that have no per-reference version to pass.
+     *
+     * @param snapshot the pin resolved for THIS reference, or empty for a caller with no reference
+     */
+    public Optional<SchemaCacheValue> getSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        return getSchemaCacheValue();
     }
 
     @Override

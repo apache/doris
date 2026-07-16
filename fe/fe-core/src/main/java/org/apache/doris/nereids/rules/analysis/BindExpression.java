@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -300,9 +299,17 @@ public class BindExpression implements AnalysisRuleFactory {
         List<Column> visibleColumns = sink.getCols().stream()
                 .filter(Column::isVisible)
                 .collect(ImmutableList.toImmutableList());
+        // The connector-reserved passthrough columns (iceberg v3 row-lineage) are the hidden target columns
+        // marked reservedPassthrough. Derive their names from the sink's target schema so the meta-column
+        // check below stays name-based here (this site sees output-expression names, not Column objects) while
+        // fe-core no longer string-matches the iceberg column names.
+        List<String> reservedPassthroughNames = sink.getCols().stream()
+                .filter(Column::isReservedPassthrough)
+                .map(Column::getName)
+                .collect(ImmutableList.toImmutableList());
         int dataExprCount = 0;
         for (NamedExpression expr : outputExprs) {
-            if (!isIcebergMergeMetaColumn(expr.getName())) {
+            if (!isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
                 dataExprCount++;
             }
         }
@@ -317,7 +324,7 @@ public class BindExpression implements AnalysisRuleFactory {
         int columnIndex = 0;
         List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
         for (NamedExpression expr : outputExprs) {
-            if (isIcebergMergeMetaColumn(expr.getName())) {
+            if (isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
                 castExprs.add(expr);
                 continue;
             }
@@ -348,14 +355,17 @@ public class BindExpression implements AnalysisRuleFactory {
         return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
     }
 
-    private boolean isIcebergMergeMetaColumn(String name) {
+    private boolean isIcebergMergeMetaColumn(String name, List<String> reservedPassthroughNames) {
         if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
             return true;
         }
         if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
             return true;
         }
-        return IcebergUtils.isIcebergRowLineageColumn(name);
+        // Connector-reserved passthrough columns (iceberg v3 row-lineage), matched case-insensitively by name
+        // — the names come from the sink's target Columns marked reservedPassthrough, so fe-core no longer
+        // knows the iceberg column names. The reserved set is tiny (0-2), so a linear scan is fine.
+        return reservedPassthroughNames.stream().anyMatch(n -> n.equalsIgnoreCase(name));
     }
 
     private static boolean hasUnboundPlan(Plan plan) {

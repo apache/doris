@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
@@ -30,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
@@ -42,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -69,10 +66,6 @@ public interface SinkVisitor<R, C> {
     // *******************************
 
     default R visitUnboundTableSink(UnboundTableSink<? extends Plan> unboundTableSink, C context) {
-        return visitLogicalSink(unboundTableSink, context);
-    }
-
-    default R visitUnboundHiveTableSink(UnboundHiveTableSink<? extends Plan> unboundTableSink, C context) {
         return visitLogicalSink(unboundTableSink, context);
     }
 
@@ -114,10 +107,6 @@ public interface SinkVisitor<R, C> {
 
     default R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
         return visitLogicalTableSink(olapTableSink, context);
-    }
-
-    default R visitLogicalHiveTableSink(LogicalHiveTableSink<? extends Plan> hiveTableSink, C context) {
-        return visitLogicalTableSink(hiveTableSink, context);
     }
 
     default R visitLogicalIcebergDeleteSink(LogicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, C context) {
@@ -170,10 +159,6 @@ public interface SinkVisitor<R, C> {
 
     default R visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, C context) {
         return visitPhysicalTableSink(olapTableSink, context);
-    }
-
-    default R visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink, C context) {
-        return visitPhysicalTableSink(hiveTableSink, context);
     }
 
     default R visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, C context) {

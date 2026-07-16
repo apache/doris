@@ -20,11 +20,14 @@ package org.apache.doris.connector;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.common.CatalogConfigFileUtils;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
@@ -39,13 +42,20 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageBackendType;
+import org.apache.doris.thrift.TTestStorageConnectivityRequest;
+import org.apache.doris.thrift.TTestStorageConnectivityResponse;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,7 +74,7 @@ import java.util.stream.Collectors;
  * <p>Provides the minimal catalog-level context that connector providers need
  * during creation. Additional context fields can be added here as the SPI evolves.
  */
-public class DefaultConnectorContext implements ConnectorContext {
+public class DefaultConnectorContext implements ConnectorContext, Closeable {
 
     private static final Logger LOG = LogManager.getLogger(DefaultConnectorContext.class);
 
@@ -83,6 +93,15 @@ public class DefaultConnectorContext implements ConnectorContext {
     // (design S2): no fe-core StorageProperties parse on the connector storage path. Empty for ctors that do
     // not wire it (non-plugin / 2-3-4-arg) — those yield an empty storage list, correct parity.
     private final Supplier<Map<String, String>> rawStoragePropsSupplier;
+
+    // Engine-owned, per-catalog Doris FileSystem (a scheme-routing SpiSwitchingFileSystem over the catalog's
+    // storage properties), lazily built on the first getFileSystem() and closed on catalog teardown (close()).
+    // Connectors BORROW it and must not close it (see ConnectorContext.getFileSystem javadoc); siblings built
+    // via createSiblingConnector share this same context, so there is exactly one cached FS per catalog. Guarded
+    // by fsLock; the field is dropped to null on close so a post-teardown getFileSystem() returns null.
+    private final Object fsLock = new Object();
+    private volatile FileSystem catalogFileSystem;
+    private volatile boolean closed;
 
     private final ConnectorHttpSecurityHook httpSecurityHook = new ConnectorHttpSecurityHook() {
         @Override
@@ -151,6 +170,18 @@ public class DefaultConnectorContext implements ConnectorContext {
     }
 
     @Override
+    public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+        // Build the sibling through the SAME factory the engine uses for a top-level catalog, so the sibling's
+        // concrete class is loaded by that type's own plugin classloader (child-first) — never co-packaged into
+        // the gateway's plugin. Passing `this` lets the sibling reuse this catalog's id/auth/storage suppliers
+        // (correct for e.g. iceberg-on-HMS, which shares the HMS catalog's metastore + storage + credentials).
+        // Returns null when no provider matches the type (or the plugin manager is not initialized); the
+        // gateway caller null-checks and fails loud with its own (connector-specific) message — fe-core stays
+        // connector-agnostic and does no property parsing here.
+        return ConnectorFactory.createConnector(catalogType, properties, this);
+    }
+
+    @Override
     public String sanitizeJdbcUrl(String jdbcUrl) {
         try {
             return SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl);
@@ -162,22 +193,6 @@ public class DefaultConnectorContext implements ConnectorContext {
     @Override
     public <T> T executeAuthenticated(Callable<T> task) throws Exception {
         return authSupplier.get().execute(task);
-    }
-
-    @Override
-    public Map<String, String> loadHiveConfResources(String resources) {
-        if (Strings.isNullOrEmpty(resources)) {
-            return Collections.emptyMap();
-        }
-        // Reuse the EXACT legacy loader (same hadoop_config_dir base, comma-split, fail-if-missing)
-        // so the file-resolution semantics are byte-identical to legacy HMSBaseProperties; only the
-        // resolved key/values cross into the connector (no HiveConf/Configuration identity hazard).
-        HiveConf hc = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(resources);
-        Map<String, String> out = new HashMap<>();
-        for (Map.Entry<String, String> e : hc) {   // HiveConf IS-A Iterable<Map.Entry<String,String>>
-            out.put(e.getKey(), e.getValue());
-        }
-        return out;
     }
 
     @Override
@@ -237,6 +252,63 @@ public class DefaultConnectorContext implements ConnectorContext {
         return CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesSupplier.get());
     }
 
+    /**
+     * Engine side of the BE→storage probe: pick a live backend and ask it to reach the location the
+     * connector resolved. This is the RPC the legacy fe-core {@code StorageConnectivityTester} owned; it
+     * stays engine-side because it needs the backend registry and the client pool. It is payload-agnostic —
+     * the storage type and the property map come from the connector, so no filesystem-specific knowledge
+     * lives here.
+     *
+     * <p>No alive backend means no probe (not a failure), matching the legacy behavior: a catalog must be
+     * creatable on a cluster whose backends are still starting up.
+     */
+    @Override
+    public void testBackendStorageConnectivity(int storageBackendTypeValue,
+            Map<String, String> backendProperties) throws Exception {
+        TStorageBackendType storageType = TStorageBackendType.findByValue(storageBackendTypeValue);
+        if (storageType == null) {
+            throw new IllegalArgumentException(
+                    "Unknown storage backend type value: " + storageBackendTypeValue);
+        }
+        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        if (aliveBeIds.isEmpty()) {
+            LOG.info("Skipping BE storage connectivity test: no alive backend");
+            return;
+        }
+        Collections.shuffle(aliveBeIds);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(aliveBeIds.get(0));
+        if (backend == null) {
+            LOG.info("Skipping BE storage connectivity test: backend vanished between listing and lookup");
+            return;
+        }
+
+        TTestStorageConnectivityRequest request = new TTestStorageConnectivityRequest();
+        request.setType(storageType);
+        request.setProperties(backendProperties);
+
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+        BackendService.Client client = null;
+        boolean ok = false;
+        try {
+            client = ClientPool.backendPool.borrowObject(address);
+            TTestStorageConnectivityResponse response = client.testStorageConnectivity(request);
+            if (response.status.getStatusCode() != TStatusCode.OK) {
+                String errMsg = response.status.isSetErrorMsgs() && !response.status.getErrorMsgs().isEmpty()
+                        ? response.status.getErrorMsgs().get(0) : "Unknown error";
+                throw new Exception(errMsg);
+            }
+            ok = true;
+        } finally {
+            if (client != null) {
+                if (ok) {
+                    ClientPool.backendPool.returnObject(address, client);
+                } else {
+                    ClientPool.backendPool.invalidateObject(address, client);
+                }
+            }
+        }
+    }
+
     @Override
     public List<org.apache.doris.filesystem.properties.StorageProperties> getStorageProperties() {
         // Bind the catalog's raw storage map directly via fe-filesystem (design S2): hand the connector its
@@ -251,6 +323,63 @@ public class DefaultConnectorContext implements ConnectorContext {
             return Collections.emptyList();
         }
         return FileSystemFactory.bindAllStorageProperties(rawCatalogProps);
+    }
+
+    @Override
+    public FileSystem getFileSystem(ConnectorSession session) {
+        // Engine-owned, per-catalog scheme-routing FileSystem, lazily built and cached so repeated scans reuse
+        // one instance (avoids rebuilding/re-authenticating per call, mirroring the legacy per-catalog
+        // FileSystemCache). The session is accepted for the Trino-shaped SPI but not yet used to key a per-user
+        // filesystem — the current build is catalog-level. Returns null when the catalog has no storage
+        // machinery (empty storage map: non-plugin ctor / credential-less warehouse), matching the benign
+        // defaults of getBackendStorageProperties() and cleanupEmptyManagedLocation().
+        FileSystem fs = catalogFileSystem;
+        if (fs != null) {
+            return fs;
+        }
+        synchronized (fsLock) {
+            if (closed) {
+                return null;
+            }
+            if (catalogFileSystem == null) {
+                Map<StorageProperties.Type, StorageProperties> storageProps = storagePropertiesSupplier.get();
+                if (storageProps == null || storageProps.isEmpty()) {
+                    return null;
+                }
+                catalogFileSystem = buildCatalogFileSystem(storageProps);
+            }
+            return catalogFileSystem;
+        }
+    }
+
+    /**
+     * Builds the catalog's scheme-routing filesystem from its storage properties. Extracted so tests can
+     * inject a recording fake without real storage/FS wiring (mirrors the {@code @VisibleForTesting} seams
+     * used elsewhere in this class).
+     */
+    @VisibleForTesting
+    FileSystem buildCatalogFileSystem(Map<StorageProperties.Type, StorageProperties> storageProps) {
+        return new SpiSwitchingFileSystem(storageProps);
+    }
+
+    /**
+     * Closes the cached catalog filesystem, if one was built. Idempotent. Called by the engine when the
+     * catalog/context is torn down (connector replacement or catalog close); connectors must never call it.
+     */
+    @Override
+    public void close() throws IOException {
+        FileSystem fs;
+        synchronized (fsLock) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            fs = catalogFileSystem;
+            catalogFileSystem = null;
+        }
+        if (fs != null) {
+            fs.close();
+        }
     }
 
     @Override
@@ -419,6 +548,15 @@ public class DefaultConnectorContext implements ConnectorContext {
         // applied by HmsMetaStoreProperties.toHiveConfOverrides when the user has not overridden it.
         env.put("hive_metastore_client_timeout_second",
                 String.valueOf(Config.hive_metastore_client_timeout_second));
+        // Hive CREATE TABLE defaults (P7.1): the fe-connector-hive plugin cannot read FE Config, so the two
+        // FE-global CREATE TABLE toggles are threaded through the environment (not persisted into the catalog
+        // property map) and applied by HiveConnectorMetadata.createTable when the user did not override them.
+        // Keys must stay byte-identical to the reads in HiveConnectorProperties.
+        env.put("hive_default_file_format", Config.hive_default_file_format);
+        env.put("enable_create_hive_bucket_table", String.valueOf(Config.enable_create_hive_bucket_table));
+        // Build version stamped into a created Hive table's doris.version parameter (legacy
+        // ExternalCatalog.DORIS_VERSION_VALUE); the plugin cannot import fe-common Version.
+        env.put("doris_version", Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         // The trino-connector plugin runs in an isolated classloader and cannot read FE
         // Config (it would see its own bundled copy with default values). Pass the
         // configured plugin dir through the engine environment instead.

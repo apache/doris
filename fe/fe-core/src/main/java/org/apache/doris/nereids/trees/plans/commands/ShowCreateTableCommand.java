@@ -34,8 +34,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenSysExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -153,11 +151,6 @@ public class ShowCreateTableCommand extends ShowCommand {
 
         table.readLock();
         try {
-            if (table.getType() == Table.TableType.HMS_EXTERNAL_TABLE) {
-                rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
-                return new ShowResultSet(META_DATA, rows);
-            }
             if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
                 // Flipped iceberg view: reproduce the legacy ICEBERG_EXTERNAL_TABLE view arm above on the
                 // neutral plugin path (only iceberg declares SUPPORTS_VIEW). Render the same bytes as
@@ -167,6 +160,18 @@ public class ShowCreateTableCommand extends ShowCommand {
                         String.format("CREATE VIEW `%s` AS ", table.getName())
                                 + ((PluginDrivenExternalTable) table).getViewText()));
                 return new ShowResultSet(META_DATA, rows);
+            }
+            if (table instanceof PluginDrivenExternalTable) {
+                // Native connector-rendered SHOW CREATE (hive: ROW FORMAT SERDE / STORED AS ..., fetched fresh),
+                // reached only for a non-view plugin table (the view arm above returns first). The guard is the
+                // method returning a value — NOT the source name — so iceberg/paimon/es/jdbc (empty SPI default)
+                // fall through to Env.getDdlStmt below and render exactly as today; only a connector that natively
+                // renders its DDL short-circuits here. Delegated iceberg/hudi-on-HMS tables also return empty.
+                Optional<String> nativeDdl = ((PluginDrivenExternalTable) table).getShowCreateTableDdl();
+                if (nativeDdl.isPresent()) {
+                    rows.add(Arrays.asList(table.getName(), nativeDdl.get()));
+                    return new ShowResultSet(META_DATA, rows);
+                }
             }
             List<String> createTableStmt = Lists.newArrayList();
             Env.getDdlStmt(null, null, table, createTableStmt, null, null, false,

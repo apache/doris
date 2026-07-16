@@ -37,6 +37,16 @@ public class BrokerPropertiesTest {
     }
 
     @Test
+    void testBindBrokerNameKeyIsTheSharedBrokerNameLiteral() {
+        // BIND_BROKER_NAME_KEY is now the SINGLE source of truth for the "broker.name" catalog property, read by
+        // BOTH guessIsMe (case-insensitive match, below) and the generic ExternalCatalog.bindBrokerName()
+        // (case-sensitive Map.get). It replaced the former HMSExternalCatalog.BIND_BROKER_NAME copy so the generic
+        // base no longer depends on the HMS subclass. Pin its value: a drift here silently breaks broker
+        // resolution for every catalog (both the guessIsMe probe and the bindBrokerName lookup).
+        Assertions.assertEquals("broker.name", BrokerProperties.BIND_BROKER_NAME_KEY);
+    }
+
+    @Test
     void testGuessIsMe_returnsTrueWhenBrokerNamePresent() {
         Map<String, String> props1 = ImmutableMap.of("broker.name", "test");
         Map<String, String> props2 = ImmutableMap.of("BROKER.NAME", "test");

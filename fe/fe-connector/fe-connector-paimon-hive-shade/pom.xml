@@ -150,6 +150,42 @@ under the License.
             <optional>true</optional>
         </dependency>
 
+        <!-- hive-serde supplies org.apache.hadoop.hive.serde.serdeConstants, which hive-metastore 2.3.7's
+             MetaStoreUtils.<clinit> reads. It is excluded from hive-metastore above (to control its heavy
+             transitive closure) and MUST be re-declared here — exactly the same treatment as hive-common.
+             Pinned at 2.3.7 to restore the precise version the exclusion removed, and bundled HERE (not in
+             the connector) so serdeConstants, HiveConf and HiveMetaStoreClient stay on one hive 2.3.x line
+             inside one artifact, and so its org.apache.thrift refs get the same paimon-private relocation.
+             Until 9a10ece30c8 this class resolved from the parent 'app' loader via fe-core's
+             hive-catalog-shade; once that jar went away it was unsatisfiable from BOTH loaders, so every
+             paimon.catalog.type=hms catalog died with a NoClassDefFoundError that
+             RetryingMetaStoreClientFactory swallows into the generic "Failed to create the desired metastore
+             client" (CI 997422, test_create_paimon_table).
+             Exclusions cover only the transitives that actually reach the jar (measured, not assumed):
+             - parquet-hadoop-bundle: the bulk of hive-serde's closure. Verified absent afterwards
+               (0 entries under org/apache/parquet/; the org/apache/paimon/shade/parquet copy is
+               paimon-format's own and predates this).
+             - servlet-api 2.4 / jsp-api 2.0: hive-serde's web bits, dead weight for a metastore client that
+               serves no HTTP (55 classes, ~64KB). More importantly servlet-api 2.4 publishes the SAME
+               javax/servlet package as the jetty-orbit 3.0.0 / javax.servlet-api 3.1.0 copies that already
+               arrive here via paimon-hive-connector and hadoop-client-api; adding a third, older one to the
+               same package invites a resolution collision. Those pre-existing copies are left alone.
+             Net cost of re-adding hive-serde: 99,235,331 -> 102,356,991 bytes (+~2.98MB), which is hive-serde
+             itself. The hadoop-*/slf4j/commons-codec transitives are already dropped by the artifactSet
+             excludes above, and hive-common/libthrift lose nearest-wins to the explicit pins here. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-serde</artifactId>
+            <version>2.3.7</version>
+            <!-- optional: shaded in; do not propagate to the connector (see paimon-hive-connector above). -->
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>org.apache.parquet</groupId><artifactId>parquet-hadoop-bundle</artifactId></exclusion>
+                <exclusion><groupId>javax.servlet</groupId><artifactId>servlet-api</artifactId></exclusion>
+                <exclusion><groupId>javax.servlet</groupId><artifactId>jsp-api</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- libthrift 0.9.3 — the source of the old-package org.apache.thrift.transport.TFramedTransport
              that hive-metastore 2.3.7 needs. Pinned INLINE at 0.9.3 (NOT the managed 0.16.0) and
              bundled+relocated to org.apache.doris.paimon.shaded.thrift so it does not collide with the

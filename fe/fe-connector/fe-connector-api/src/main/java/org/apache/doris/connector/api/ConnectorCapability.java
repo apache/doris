@@ -137,5 +137,26 @@ public enum ConnectorCapability {
      * authenticate with a single static catalog identity (every non-REST iceberg flavor, JDBC, ES, ...) must
      * NOT declare it. Declared by the iceberg connector only when configured {@code iceberg.rest.session=user}.</p>
      */
-    SUPPORTS_USER_SESSION
+    SUPPORTS_USER_SESSION,
+    /**
+     * Indicates the connector exposes a metadata table (e.g. the hudi commit timeline) whose rows are read via
+     * {@link ConnectorMetadata#getMetadataTableRows}.
+     *
+     * <p>The {@code hudi_meta()} / TIMELINE table-valued function's plugin-driven arm delegates to the connector
+     * only when it declares this; a connector with no metadata table must NOT declare it so the TVF rejects the
+     * table with "not a hudi table". Hudi declares it connector-wide (every hudi table has a commit timeline).</p>
+     */
+    SUPPORTS_METADATA_TABLE,
+    /**
+     * Indicates the connector's file-scan tables support {@code ANALYZE ... WITH SAMPLE} (scale-factor estimation
+     * from raw per-file byte sizes via {@link ConnectorStatisticsOps#listFileSizes}, with fe-core doing the
+     * Doris-type slot-width math).
+     *
+     * <p>fe-core admits sampled analyze for a plugin-driven table only when it declares this. A heterogeneous
+     * connector (hive) emits it as a PER-TABLE marker in getTableSchema for its plain-hive tables only (legacy
+     * gated on {@code dlaType==HIVE}), so iceberg/hudi-on-HMS are excluded. Connectors whose {@code doSample} is
+     * unimplemented (native iceberg/paimon, JDBC, ES) must NOT declare it so sampled analyze stays rejected at
+     * build time.</p>
+     */
+    SUPPORTS_SAMPLE_ANALYZE
 }

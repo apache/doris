@@ -291,6 +291,34 @@ public final class IcebergSchemaBuilder {
     }
 
     /**
+     * The effective iceberg format-version for a CREATE TABLE, applying the full precedence: catalog
+     * {@code table-override.format-version} &gt; table request {@code format-version} &gt; catalog
+     * {@code table-default.format-version} &gt; default {@code 2}. Mirrors legacy fe-core
+     * {@code IcebergUtils.getEffectiveIcebergFormatVersion} — used by {@code IcebergConnectorMetadata.createTable}
+     * to gate the v3 reserved row-lineage column-name rejection (moved off fe-core CreateTableInfo).
+     */
+    public static int getEffectiveFormatVersion(Map<String, String> requestProperties,
+            Map<String, String> catalogProperties) {
+        String formatVersion = catalogProperties.get(
+                CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION);
+        if (formatVersion == null) {
+            formatVersion = requestProperties.get(TableProperties.FORMAT_VERSION);
+            if (formatVersion == null) {
+                formatVersion = catalogProperties.get(
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION);
+            }
+        }
+        if (formatVersion == null) {
+            return 2;
+        }
+        try {
+            return Integer.parseInt(formatVersion);
+        } catch (NumberFormatException ignored) {
+            return 2;
+        }
+    }
+
+    /**
      * Builds the iceberg {@link Type} for a SINGLE column added/modified on an EXISTING table, reusing the
      * same neutral-type conversion as {@link #buildSchema} (scalars via {@link IcebergTypeMapping}, plus
      * ARRAY/MAP/STRUCT recursively). Iceberg's {@code UpdateSchema.addColumn/updateColumn} assigns the field

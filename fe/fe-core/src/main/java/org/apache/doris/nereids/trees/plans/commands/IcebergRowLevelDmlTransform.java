@@ -89,8 +89,8 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
      * the {@code ConnectorWriteOps} default {@code false}).</p>
      */
     private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
-        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
-        Set<WriteOperation> ops = catalog.getConnector().supportedWriteOperations();
+        // Per-handle write-op probe: a heterogeneous gateway admits row-level DML for its iceberg tables only.
+        Set<WriteOperation> ops = table.connectorSupportedWriteOperations();
         return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE);
     }
 

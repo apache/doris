@@ -89,6 +89,14 @@ public final class ConnectorColumnConverter {
         if (cc.getUniqueId() >= 0) {
             column.setUniqueId(cc.getUniqueId());
         }
+        // Re-apply the connector-reserved passthrough marker the connector carried across the SPI boundary
+        // (ConnectorColumn.reservedPassthrough()), so engine consumers (MERGE/UPDATE, sink binding) can
+        // recognize a synthetic passthrough column (iceberg v3 row-lineage) generically via
+        // Column.isReservedPassthrough() instead of string-matching the connector's column names. A Doris
+        // Column defaults to false, so only the true case is re-applied.
+        if (cc.isReservedPassthrough()) {
+            column.setReservedPassthrough(true);
+        }
         // Stamp the nested (STRUCT/ARRAY/MAP) child column tree with the per-field ids the connector carried
         // on the ConnectorType (iceberg), mirroring legacy IcebergUtils.updateIcebergColumnUniqueId's
         // recursive set. The BE field-id scan path matches a pruned nested leaf by id; a -1 leaf is skipped

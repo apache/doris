@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.kerberos.AuthType;
 import org.apache.doris.kerberos.AuthenticationConfig;
@@ -104,19 +103,18 @@ public class HiveTable extends Table {
 
         // check hive properties
         // hive.metastore.uris
-        String hiveMetaStoreUris = copiedProps.get(HMSBaseProperties.HIVE_METASTORE_URIS);
+        String hiveMetaStoreUris = copiedProps.get("hive.metastore.uris");
         if (Strings.isNullOrEmpty(hiveMetaStoreUris)) {
             throw new DdlException(String.format(
-                    PROPERTY_MISSING_MSG, HMSBaseProperties.HIVE_METASTORE_URIS,
-                    HMSBaseProperties.HIVE_METASTORE_URIS));
+                    PROPERTY_MISSING_MSG, "hive.metastore.uris", "hive.metastore.uris"));
         }
-        copiedProps.remove(HMSBaseProperties.HIVE_METASTORE_URIS);
-        hiveProperties.put(HMSBaseProperties.HIVE_METASTORE_URIS, hiveMetaStoreUris);
+        copiedProps.remove("hive.metastore.uris");
+        hiveProperties.put("hive.metastore.uris", hiveMetaStoreUris);
         // support multi hive version
-        String hiveVersion = copiedProps.get(HMSBaseProperties.HIVE_VERSION);
+        String hiveVersion = copiedProps.get("hive.version");
         if (!Strings.isNullOrEmpty(hiveVersion)) {
-            copiedProps.remove(HMSBaseProperties.HIVE_VERSION);
-            hiveProperties.put(HMSBaseProperties.HIVE_VERSION, hiveVersion);
+            copiedProps.remove("hive.version");
+            hiveProperties.put("hive.version", hiveVersion);
         }
 
         // check auth type

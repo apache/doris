@@ -127,7 +127,7 @@ public class ConnectorRewriteDriver {
         ConnectorTransaction connectorTx;
         long txnId;
         try {
-            connectorTx = metadata.beginTransaction(session);
+            connectorTx = metadata.beginTransaction(session, tableHandle);
             txnId = txnManager.begin(connectorTx);
         } catch (DorisConnectorException e) {
             throw new UserException(e.getMessage(), e);

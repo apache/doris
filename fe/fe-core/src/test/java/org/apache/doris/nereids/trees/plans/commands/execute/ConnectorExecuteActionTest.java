@@ -279,13 +279,40 @@ public class ConnectorExecuteActionTest {
     @Test
     public void executeThrowsWhenConnectorExposesNoProcedureOps() {
         Fixture f = new Fixture();
-        Mockito.when(f.connector.getProcedureOps()).thenReturn(null);
+        // The dispatch selects the ops PER-HANDLE, so a connector with no procedures for this table returns null
+        // from the per-handle overload (a plain-hive handle in a flipped hms gateway).
+        Mockito.when(f.connector.getProcedureOps(Mockito.any())).thenReturn(null);
 
         ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
                 f.props, Optional.empty(), Optional.empty(), f.table);
         DdlException e = Assertions.assertThrows(DdlException.class, () -> action.execute(f.table));
         Assertions.assertTrue(e.getMessage().contains("does not support"),
                 "A connector with no procedure ops must fail loud, mirroring the write-path null-provider throw");
+    }
+
+    @Test
+    public void executeSelectsProcedureOpsByResolvedHandleNotNoArg() {
+        // W5 gateway scenario: a flipped hms gateway exposes NO connector-level procedures — getProcedureOps() is
+        // null — but its iceberg-on-HMS table diverts to the sibling's ops via getProcedureOps(handle). Pin that
+        // the dispatch consults the PER-HANDLE overload with the resolved handle: with the no-arg getter null but
+        // the per-handle overload wired to the ops, EXECUTE must still run. MUTATION: reverting the dispatch to
+        // the no-arg getProcedureOps() -> it reads null -> throws "does not support EXECUTE" -> this test red
+        // (that mutation would wrongly reject every iceberg-on-HMS EXECUTE at the flip).
+        Fixture f = new Fixture();
+        Mockito.when(f.connector.getProcedureOps()).thenReturn(null);
+        Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
+                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
+                .thenReturn(twoColumnResult(Arrays.asList("100", "200")));
+
+        ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
+                f.props, Optional.empty(), Optional.empty(), f.table);
+        Assertions.assertDoesNotThrow(() -> action.execute(f.table));
+
+        // The ops were selected by the RESOLVED handle, and the body ran with that same handle threaded through.
+        Mockito.verify(f.connector).getProcedureOps(Mockito.eq(f.handle));
+        Mockito.verify(f.procedureOps).execute(Mockito.eq(f.session), Mockito.eq(f.handle),
+                Mockito.eq("rollback_to_snapshot"), Mockito.eq(f.props),
+                Mockito.isNull(), Mockito.eq(Collections.emptyList()));
     }
 
     @Test
@@ -471,6 +498,9 @@ public class ConnectorExecuteActionTest {
             props.put("snapshot_id", "200");
             Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
             Mockito.when(connector.getProcedureOps()).thenReturn(procedureOps);
+            // execute() selects the ops per-handle (getProcedureOps(handle)); a Mockito mock does NOT run the
+            // default method, so the per-handle overload must be stubbed explicitly or it returns null.
+            Mockito.when(connector.getProcedureOps(Mockito.any())).thenReturn(procedureOps);
             Mockito.when(metadata.getTableHandle(Mockito.any(ConnectorSession.class),
                     Mockito.anyString(), Mockito.anyString())).thenReturn(Optional.of(handle));
 

@@ -122,6 +122,45 @@ public class HudiSchemaParityTest {
     }
 
     @Test
+    public void avroSchemaToColumnsPreservesMetaCommitTimeAsBindableStringColumn() {
+        // The synthetic incremental row filter binds a ConnectorColumnRef to a scan-output slot named EXACTLY
+        // "_hoodie_commit_time" (byte-faithful to legacy LogicalHudiScan.generateIncrementalExpression). This test
+        // pins avroSchemaToColumns' HALF of that binding precondition: GIVEN an avro schema that carries the meta
+        // field (which the getSchemaFromMetaClient getTableAvroSchema(true) call guarantees at runtime),
+        // avroSchemaToColumns must surface it as a column with that exact lower-case name, STRING type, and
+        // visible — never dropped/renamed/mistyped/hidden — or the filter's ConnectorColumnRef fails to bind.
+        // The getTableAvroSchema(true) call itself runs only against a live metaClient, so the end-to-end
+        // meta-column EXPOSURE for a populate.meta.fields=false table is an e2e guard, NOT this unit test.
+        String metaInclusive =
+                "{\"type\":\"record\",\"name\":\"hudi_t\",\"fields\":["
+                + "{\"name\":\"_hoodie_commit_time\",\"type\":[\"null\",\"string\"],\"default\":null},"
+                + "{\"name\":\"id\",\"type\":\"long\"}"
+                + "]}";
+        List<ConnectorColumn> columns =
+                HudiConnectorMetadata.avroSchemaToColumns(new Schema.Parser().parse(metaInclusive));
+        ConnectorColumn commitTime = columns.stream()
+                .filter(c -> "_hoodie_commit_time".equals(c.getName()))
+                .findFirst().orElseThrow(() -> new AssertionError(
+                        "_hoodie_commit_time must be exposed as a column for the incremental row filter to bind"));
+        Assertions.assertTrue(commitTime.isVisible(),
+                "_hoodie_commit_time must be VISIBLE (legacy SELECT * parity + the row-filter's slot binding)");
+        Assertions.assertEquals(ConnectorType.of("STRING"), commitTime.getType(),
+                "_hoodie_commit_time must be STRING so the window compare is lexicographic over Hudi instants");
+    }
+
+    @Test
+    public void jniColumnNamesAreLowerCased() {
+        // H4: HudiScanPlanProvider.planScan feeds these names into THudiFileDesc.column_names, which BE
+        // (HadoopHudiJniScanner.initRequiredColumnsAndTypes) keys a map by and then resolves each requiredField
+        // as an EXACT lower-case containsKey. A mixed-case Avro name ("Id") missing the lower-case slot ("id")
+        // throws and crashes every MOR/JNI split, so the JNI column-name list MUST be lower-cased — consistent
+        // with avroSchemaToColumns and legacy HudiScanNode. RED before the fix: raw-case "Id"/"Name"/"Addr".
+        Assertions.assertEquals(
+                Arrays.asList("id", "name", "price", "event_date", "created_at", "tags", "props", "addr"),
+                HudiScanPlanProvider.jniColumnNames(schema()));
+    }
+
+    @Test
     public void testTopLevelNameLoweredButNestedStructNamePreserved() {
         List<ConnectorColumn> columns = HudiConnectorMetadata.avroSchemaToColumns(schema());
         ConnectorColumn addr = columns.get(7);

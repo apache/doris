@@ -243,6 +243,37 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void convertColumnDefaultsToNotReservedPassthrough() {
+        // Regression guard: a ConnectorColumn that does not carry the reserved-passthrough marker must leave
+        // the Doris Column at its default false — the converter must not stamp it where none was declared.
+        ConnectorType bigintType = ConnectorColumnConverter.toConnectorType(ScalarType.BIGINT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("c", bigintType, null, true, null));
+        Assertions.assertFalse(col.isReservedPassthrough(),
+                "a ConnectorColumn without reservedPassthrough() converts to a non-passthrough Doris column");
+    }
+
+    @Test
+    void convertColumnPropagatesReservedPassthroughMarker() {
+        // WHY: the iceberg v3 row-lineage columns (_row_id / _last_updated_sequence_number) are declared
+        // through the connector schema SPI as invisible() + withUniqueId(reservedId) + reservedPassthrough().
+        // The engine's MERGE/UPDATE / sink binding must recognize them generically via
+        // Column.isReservedPassthrough() instead of string-matching iceberg column names, so the neutral marker
+        // must survive the immutable-copy chain AND the converter must re-apply Column.setReservedPassthrough(true).
+        // MUTATION: dropping the setReservedPassthrough(true) re-apply leaves it false -> this turns red.
+        ConnectorType bigintType = ConnectorColumnConverter.toConnectorType(ScalarType.BIGINT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("_row_id", bigintType, null, true, null)
+                        .withUniqueId(2147483540).invisible().reservedPassthrough());
+        Assertions.assertTrue(col.isReservedPassthrough(),
+                "a reservedPassthrough ConnectorColumn must convert to a reserved-passthrough Doris column");
+        Assertions.assertFalse(col.isVisible(),
+                "the invisible marker must survive alongside the reserved-passthrough marker");
+        Assertions.assertEquals(2147483540, col.getUniqueId(),
+                "the carried uniqueId must survive alongside the reserved-passthrough marker");
+    }
+
+    @Test
     void convertColumnReconstructsIcebergRowIdHiddenColumn() {
         // CONTRACT PIN (③ C3b-core, fe-core half): the iceberg connector declares the request-scoped row-id
         // synthetic write column (__DORIS_ICEBERG_ROWID_COL__) as an engine-neutral invisible STRUCT

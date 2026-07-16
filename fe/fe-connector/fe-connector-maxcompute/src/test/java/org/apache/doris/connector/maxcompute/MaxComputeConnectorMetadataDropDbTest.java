@@ -58,7 +58,8 @@ public class MaxComputeConnectorMetadataDropDbTest {
 
     private MaxComputeConnectorMetadata metadataWith(RecordingStructureHelper helper) {
         return new MaxComputeConnectorMetadata(
-                null /* odps */, helper, "proj", "ep", "quota", Collections.emptyMap());
+                null /* odps */, helper, "proj", "ep", "quota", Collections.emptyMap(),
+                null); // null: partition cache unused by this test
     }
 
     @Test

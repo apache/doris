@@ -42,7 +42,7 @@ import java.util.Map;
  *
  * <p><b>Why this matters:</b> batch mode mirrors legacy {@code MaxComputeScanNode.isBatchMode()}.
  * Getting any gate wrong has real consequences: enabling batch when it should not (e.g. dropping the
- * "must be pruned" or "must have files" guard) spins up async read sessions for the wrong tables;
+ * "not the NOT_PRUNED sentinel" or "must have files" guard) spins up async read sessions for the wrong tables;
  * disabling it when it should fire (e.g. an off-by-one on the partition-count threshold) silently
  * regresses large-partition scans back to slow synchronous planning + large single sessions (the
  * exact OOM/latency risk this fix removes). The connector {@code fileNum > 0} check is folded into
@@ -69,10 +69,11 @@ public class PluginDrivenScanNodeBatchModeTest {
 
     @Test
     public void testNotPrunedNeverBatches() {
-        // NOT_PRUNED = non-partitioned / pruning not applied -> never batch. NOTE: NOT_PRUNED carries
-        // an EMPTY map, so this case is non-discriminating for the !isPruned guard alone (0 >= THRESHOLD
-        // is false regardless); the guard mutant is killed by testUnprocessedPruningNeverBatches
-        // (populated map). This test documents the legacy NOT_PRUNED singleton path.
+        // NOT_PRUNED = non-partitioned / pruning not applicable -> never batch. NOTE: NOT_PRUNED carries
+        // an EMPTY map, so this case is non-discriminating for the == NOT_PRUNED guard alone (0 >= THRESHOLD
+        // is false regardless); the guard's discriminating counterpart is testNoPredicatePartitionedTableBatches
+        // (a full, non-sentinel isPruned=false map, which MUST batch). This test documents the NOT_PRUNED
+        // singleton path (non-partitioned / unpruned).
         Assertions.assertFalse(
                 PluginDrivenScanNode.shouldUseBatchMode(SelectedPartitions.NOT_PRUNED, true, true, THRESHOLD));
     }
@@ -83,15 +84,24 @@ public class PluginDrivenScanNodeBatchModeTest {
     }
 
     @Test
-    public void testUnprocessedPruningNeverBatches() {
-        // isPruned=false with a populated map is "pruning not processed" -> not batch. Pins the
-        // !isPruned guard: dropping it would batch on an unpruned (effectively full) selection.
+    public void testNoPredicatePartitionedTableBatches() {
+        // A partitioned table with NO partition predicate: ExternalTable.initSelectedPartitions returns a
+        // FULL, non-NOT_PRUNED map with isPruned=false (PruneFileScanPartition only runs under a
+        // LogicalFilter). Scanning every partition is EXACTLY the case that most needs async/streaming split
+        // generation, and legacy MaxComputeScanNode.isBatchMode (its != NOT_PRUNED gate) batched it. The gate
+        // is == NOT_PRUNED, NOT !isPruned: this object is not the sentinel, so it MUST batch once the
+        // partition count reaches the threshold. The old !isPruned gate wrongly returned false here (forcing
+        // slow synchronous planning on the largest scans) — the regression this now pins against. NOTE this
+        // inverts the former testUnprocessedPruningNeverBatches assertion: a prior review's "!isPruned is
+        // equivalent to != NOT_PRUNED and slightly stronger" note was mistaken (they diverge for exactly this
+        // case); that note and the test pinning it are superseded (decisions-log D-035 / deviations-log DV-019).
         Map<String, PartitionItem> items = new LinkedHashMap<>();
         for (int i = 0; i < THRESHOLD; i++) {
             items.put("pt=" + i, Mockito.mock(PartitionItem.class));
         }
-        SelectedPartitions notProcessed = new SelectedPartitions(THRESHOLD, items, false);
-        Assertions.assertFalse(PluginDrivenScanNode.shouldUseBatchMode(notProcessed, true, true, THRESHOLD));
+        SelectedPartitions noPredicateFullScan = new SelectedPartitions(THRESHOLD, items, false);
+        Assertions.assertTrue(
+                PluginDrivenScanNode.shouldUseBatchMode(noPredicateFullScan, true, true, THRESHOLD));
     }
 
     @Test
@@ -144,7 +154,10 @@ public class PluginDrivenScanNodeBatchModeTest {
     private static PluginDrivenScanNode streamingNode(ConnectorScanPlanProvider provider) {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
         Connector connector = Mockito.mock(Connector.class);
-        Mockito.when(connector.getScanPlanProvider()).thenReturn(provider);
+        // The node resolves the provider PER TABLE via getScanPlanProvider(currentHandle); a real connector
+        // delegates that overload to the no-arg getter, so the mock answers the arg form (currentHandle is
+        // null in this partial node, hence the null-tolerant any() matcher).
+        Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
         Deencapsulation.setField(node, "connector", connector);
         // hasSlots = true (the streaming gate requires output slots). getSlots() returns ArrayList (concrete).
         TupleDescriptor desc = Mockito.mock(TupleDescriptor.class);

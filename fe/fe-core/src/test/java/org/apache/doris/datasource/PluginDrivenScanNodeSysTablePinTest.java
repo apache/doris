@@ -46,10 +46,13 @@ import java.util.Optional;
  * {@link FileQueryScanNode} needs a harness this module lacks) with the three accessors
  * ({@code getTargetTable}, {@code getQueryTableSnapshot}, {@code getScanParams}) stubbed, so the real
  * resolution runs against controlled state. {@code resolveSysTableSnapshotPin} is package-private
- * exactly to enable this (mirrors the sibling guard/pin tests). The guard
- * {@code checkSysTableScanConstraints} (tested separately) has already rejected this for connectors
- * whose sys tables do not honor a pin (paimon / {@code @incr}), so the fallback only ever runs for a
- * pin-capable connector.</p>
+ * exactly to enable this (mirrors the sibling guard/pin tests).
+ *
+ * <p>The fallback only ever runs for a pin-capable connector because {@code resolveSysTableSnapshotPin}
+ * checks {@code sysTableSupportsTimeTravel()} ITSELF. It must not rely on
+ * {@code checkSysTableScanConstraints} for that: despite what this javadoc used to claim, that guard runs
+ * at split generation, long AFTER this resolution runs at init, so a non-capable connector (paimon) got
+ * the source pin anyway and blew up before ever reaching it (CI 996541, paimon_system_table).</p>
  */
 public class PluginDrivenScanNodeSysTablePinTest {
 
@@ -58,6 +61,9 @@ public class PluginDrivenScanNodeSysTablePinTest {
         // Default: no time travel (plain scan). Time-travel cases override these.
         Mockito.doReturn(null).when(node).getQueryTableSnapshot();
         Mockito.doReturn(null).when(node).getScanParams();
+        // Default: a pin-capable connector (iceberg). The real method would need a live scan provider;
+        // sysTableSupportsTimeTravelFalseDoesNotPin overrides this to exercise the non-capable side.
+        Mockito.doReturn(true).when(node).sysTableSupportsTimeTravel();
         return node;
     }
 
@@ -149,5 +155,28 @@ public class PluginDrivenScanNodeSysTablePinTest {
         // MUTATION: dropping the instanceof MvccTable guard -> CCE on the cast -> red.
         Optional<MvccSnapshot> result = node.resolveSysTableSnapshotPin();
         Assertions.assertFalse(result.isPresent(), "non-MVCC source must not pin (no CCE)");
+    }
+
+    @Test
+    public void sysTableSupportsTimeTravelFalseDoesNotPin() throws Exception {
+        PluginDrivenScanNode node = sysPinNode();
+        PluginDrivenSysExternalTable sysTable = Mockito.mock(PluginDrivenSysExternalTable.class);
+        PluginDrivenMvccExternalTable source = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.doReturn(sysTable).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableSnapshot.class)).when(node).getQueryTableSnapshot();
+        Mockito.doReturn(source).when(sysTable).getSourceTable();
+        // A connector whose sys tables do NOT honor a pin (paimon, the default).
+        Mockito.doReturn(false).when(node).sysTableSupportsTimeTravel();
+
+        // WHY: the capability must be checked HERE, at init. checkSysTableScanConstraints owns the
+        // user-facing "Plugin system tables do not support time travel." message but only runs at split
+        // generation; pinning first hands the SOURCE's snapshot (and its non-null pinned schema) to a tuple
+        // carrying the SYS table's columns, and the L17 guard / loadSnapshot's own RuntimeException fires
+        // first, masking that message (CI 996541, paimon_system_table).
+        // MUTATION: dropping the sysTableSupportsTimeTravel() gate -> a pin is resolved -> red.
+        Optional<MvccSnapshot> result = node.resolveSysTableSnapshotPin();
+        Assertions.assertFalse(result.isPresent(),
+                "a connector that rejects sys-table time travel must not resolve a pin");
+        Mockito.verify(source, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
     }
 }

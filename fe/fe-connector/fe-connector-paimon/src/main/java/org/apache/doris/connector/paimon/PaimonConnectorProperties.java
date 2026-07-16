@@ -29,7 +29,7 @@ package org.apache.doris.connector.paimon;
  */
 public final class PaimonConnectorProperties {
 
-    /** Paimon catalog backend type: filesystem, hms, dlf, rest, jdbc. */
+    /** Paimon catalog backend type: filesystem, hms, rest, jdbc. */
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";
 
     /** Warehouse location for the Paimon catalog. */
@@ -62,7 +62,6 @@ public final class PaimonConnectorProperties {
     public static final String HMS = "hms";
     public static final String REST = "rest";
     public static final String JDBC = "jdbc";
-    public static final String DLF = "dlf";
 
     // ---- HMS flavor keys ----
     /** Hive metastore uri; primary key + the {@code "uri"} alias (legacy HMSBaseProperties). */
@@ -86,9 +85,6 @@ public final class PaimonConnectorProperties {
     public static final String[] JDBC_DRIVER_URL = {"paimon.jdbc.driver_url", "jdbc.driver_url"};
     public static final String[] JDBC_DRIVER_CLASS = {"paimon.jdbc.driver_class", "jdbc.driver_class"};
 
-    // DLF flavor keys removed (P2-T03): the dlf.catalog.* assembly + endpoint-from-region derivation +
-    // validation moved to DlfMetaStoreProperties in fe-connector-metastore-spi (its @ConnectorProperty
-    // aliases are the single source of truth); the connector keeps only appendDlfOptions' literal Options.
 
     private PaimonConnectorProperties() {
     }
