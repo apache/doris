@@ -26,85 +26,104 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
     def restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     def minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    spark_iceberg_multi """
-        create database if not exists demo.test_v2_to_v3_doris_spark_compare_db;
-        use demo.test_v2_to_v3_doris_spark_compare_db;
-        
-        drop table if exists v2v3_doris_upd_case5;
-        drop table if exists v2v3_doris_upd_case5_orc;
-        
-        create table v2v3_doris_upd_case5 (
-            id int,
-            tag string,
-            score int,
-            dt date
-        ) using iceberg
-        partitioned by (days(dt))
-        tblproperties (
-            'format-version' = '2',
-            'write.format.default' = 'parquet',
-            'write.delete.mode' = 'merge-on-read',
-            'write.update.mode' = 'merge-on-read',
-            'write.merge.mode' = 'merge-on-read'
-        );
-        
-        insert into v2v3_doris_upd_case5 values
-        (1, 'base', 100, date '2024-01-01'),
-        (2, 'base', 200, date '2024-01-02');
-        
-        insert into v2v3_doris_upd_case5 values
-        (3, 'base', 300, date '2024-01-03');
-        
-        update v2v3_doris_upd_case5
-        set tag = 'base_u', score = score + 10
-        where id = 1;
-        
-        delete from v2v3_doris_upd_case5
-        where id = 2;
-        
-        alter table v2v3_doris_upd_case5
-        set tblproperties ('format-version' = '3');
-        
-        create table v2v3_doris_upd_case5_orc (
-            id int,
-            tag string,
-            score int,
-            dt date
-        ) using iceberg
-        partitioned by (days(dt))
-        tblproperties (
-            'format-version' = '2',
-            'write.format.default' = 'orc',
-            'write.delete.mode' = 'merge-on-read',
-            'write.update.mode' = 'merge-on-read',
-            'write.merge.mode' = 'merge-on-read'
-        );
-        
-        insert into v2v3_doris_upd_case5_orc values
-        (1, 'base', 100, date '2024-01-01'),
-        (2, 'base', 200, date '2024-01-02');
-        
-        insert into v2v3_doris_upd_case5_orc values
-        (3, 'base', 300, date '2024-01-03');
-        
-        update v2v3_doris_upd_case5_orc
-        set tag = 'base_u', score = score + 10
-        where id = 1;
-        
-        delete from v2v3_doris_upd_case5_orc
-        where id = 2;
-        
-        alter table v2v3_doris_upd_case5_orc
-        set tblproperties ('format-version' = '3');
-
-    """
 
     def formats = ["parquet", "orc"]
 
-    def tableNameForFormat = { baseName, format -> return format == "parquet" ? baseName : "${baseName}_orc"
+    def tableNameForFormat = { baseName, format ->
+        return "${baseName}_${format}"
     }
 
-    def unpartitionedTableNameForFormat = { baseName, format -> return "${baseName}_${format}"
+    def createSparkUpgradeFixture = { tableName, format, partitioned, datePrefix, deleteBeforeUpgrade ->
+        def partitionClause = partitioned ? "partitioned by (days(dt))" : ""
+        def deleteClause = deleteBeforeUpgrade ? """
+            delete from ${tableName}
+            where id = 2;
+        """ : ""
+        spark_iceberg_multi """
+            use demo.${dbName};
+
+            drop table if exists ${tableName};
+
+            create table ${tableName} (
+                id int,
+                tag string,
+                score int,
+                dt date
+            ) using iceberg
+            ${partitionClause}
+            tblproperties (
+                'format-version' = '2',
+                'write.format.default' = '${format}',
+                'write.delete.mode' = 'merge-on-read',
+                'write.update.mode' = 'merge-on-read',
+                'write.merge.mode' = 'merge-on-read'
+            );
+
+            insert into ${tableName} values
+            (1, 'base', 100, date '${datePrefix}-01'),
+            (2, 'base', 200, date '${datePrefix}-02');
+
+            insert into ${tableName} values
+            (3, 'base', 300, date '${datePrefix}-03');
+
+            update ${tableName}
+            set tag = 'base_u', score = score + 10
+            where id = 1;
+
+            ${deleteClause}
+            alter table ${tableName}
+            set tblproperties ('format-version' = '3');
+        """
+    }
+
+    def createSparkReferenceFixture = { tableName, format ->
+        createSparkUpgradeFixture(tableName, format, true, "2024-02", false)
+        spark_iceberg_multi """
+            use demo.${dbName};
+
+            update ${tableName}
+            set tag = 'post_v3_u', score = score + 20
+            where id = 2;
+
+            insert into ${tableName} values
+            (4, 'post_v3_i', 400, date '2024-02-04');
+
+            call demo.system.rewrite_data_files(
+                table => 'demo.${dbName}.${tableName}',
+                options => map('target-file-size-bytes', '10485760', 'min-input-files', '1')
+            );
+        """
+    }
+
+    spark_iceberg_jdbc """create database if not exists demo.${dbName}"""
+    formats.each { format ->
+        createSparkUpgradeFixture(
+                tableNameForFormat("v2v3_row_lineage_null_after_upgrade", format),
+                format,
+                true,
+                "2024-01",
+                false)
+        createSparkReferenceFixture(tableNameForFormat("v2v3_spark_ops_reference", format), format)
+        createSparkUpgradeFixture(
+                tableNameForFormat("v2v3_doris_ops_target", format),
+                format,
+                true,
+                "2024-02",
+                false)
+        (1..5).each { caseIndex ->
+            createSparkUpgradeFixture(
+                    tableNameForFormat("v2v3_doris_upd_case${caseIndex}", format),
+                    format,
+                    true,
+                    "2024-01",
+                    true)
+            createSparkUpgradeFixture(
+                    tableNameForFormat("v2v3_doris_unpart_case${caseIndex}", format),
+                    format,
+                    false,
+                    "2024-01",
+                    true)
+        }
     }
 
     sql """drop catalog if exists ${catalogName}"""
@@ -385,11 +404,11 @@ suite("test_iceberg_v2_to_v3_doris_spark_compare", "p0,external,iceberg,external
             upgradeV3DorisOperationRewrite(tableNameForFormat("v2v3_doris_upd_case4", format))
             upgradeV3DorisOperationMerge(tableNameForFormat("v2v3_doris_upd_case5", format))
 
-            upgradeV3DorisOperationInsert(unpartitionedTableNameForFormat("v2v3_doris_unpart_case1", format))
-            upgradeV3DorisOperationDelete(unpartitionedTableNameForFormat("v2v3_doris_unpart_case2", format))
-            upgradeV3DorisOperationUpdate(unpartitionedTableNameForFormat("v2v3_doris_unpart_case3", format))
-            upgradeV3DorisOperationRewrite(unpartitionedTableNameForFormat("v2v3_doris_unpart_case4", format))
-            upgradeV3DorisOperationMerge(unpartitionedTableNameForFormat("v2v3_doris_unpart_case5", format))
+            upgradeV3DorisOperationInsert(tableNameForFormat("v2v3_doris_unpart_case1", format))
+            upgradeV3DorisOperationDelete(tableNameForFormat("v2v3_doris_unpart_case2", format))
+            upgradeV3DorisOperationUpdate(tableNameForFormat("v2v3_doris_unpart_case3", format))
+            upgradeV3DorisOperationRewrite(tableNameForFormat("v2v3_doris_unpart_case4", format))
+            upgradeV3DorisOperationMerge(tableNameForFormat("v2v3_doris_unpart_case5", format))
         }
 
     } finally {
