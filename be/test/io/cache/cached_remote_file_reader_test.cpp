@@ -266,9 +266,19 @@ TEST_F(BlockFileCacheTest, async_write_reuses_inflight_buffer_then_reads_downloa
     IOContext second_ctx;
     second_ctx.file_cache_stats = &second_stats;
     bytes_read = 0;
-    ASSERT_TRUE(reader->read_at(4096, Slice(second_page.data(), second_page.size()), &bytes_read,
-                                &second_ctx)
-                        .ok());
+    std::future<Status> second_read;
+    {
+        // Full inflight coverage must complete while the BlockFileCache mutex is unavailable,
+        // proving that this fast path does not call BlockFileCache::probe.
+        std::lock_guard cache_lock(cache->_mutex);
+        second_read = std::async(std::launch::async, [&]() {
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            return reader->read_at(4096, Slice(second_page.data(), second_page.size()), &bytes_read,
+                                   &second_ctx);
+        });
+        EXPECT_EQ(second_read.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    }
+    ASSERT_TRUE(second_read.get().ok());
     EXPECT_EQ(bytes_read, second_page.size());
     EXPECT_EQ(second_page, std::string(second_page.size(), '0'));
     EXPECT_EQ(second_stats.inflight_write_buffer_index_hit, 1);
