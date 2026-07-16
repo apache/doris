@@ -21,6 +21,7 @@
 
 #include <cstring>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -42,7 +43,10 @@ std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc
 }
 
 Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
-                                            std::vector<int64_t>* delete_rows) {
+                                            DeletionVector* deletion_vector) {
+    if (deletion_vector == nullptr) {
+        return Status::InvalidArgument("deletion_vector must not be null");
+    }
     if (buffer_size < 8) [[unlikely]] {
         return Status::DataQualityError("Deletion vector file size too small: {}", buffer_size);
     }
@@ -69,12 +73,37 @@ Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
                 e.what());
     }
 
-    delete_rows->reserve(roaring_bitmap.cardinality());
-    for (auto it = roaring_bitmap.begin(); it != roaring_bitmap.end(); it++) {
-        delete_rows->push_back(*it);
-    }
+    *deletion_vector |= DeletionVector(std::move(roaring_bitmap));
     return Status::OK();
 }
+
+namespace {
+
+template <typename Profile>
+void init_deletion_vector_cache_profile(RuntimeProfile* profile, const char* parent,
+                                        Profile* counters) {
+    counters->decoded_cache_hit_count =
+            ADD_CHILD_COUNTER(profile, "DeletionVectorDecodedCacheHitCount", TUnit::UNIT, parent);
+    counters->decoded_cache_miss_count =
+            ADD_CHILD_COUNTER(profile, "DeletionVectorDecodedCacheMissCount", TUnit::UNIT, parent);
+    counters->file_cache_hit_count =
+            ADD_CHILD_COUNTER(profile, "DeletionVectorFileCacheHitCount", TUnit::UNIT, parent);
+    counters->file_cache_miss_count =
+            ADD_CHILD_COUNTER(profile, "DeletionVectorFileCacheMissCount", TUnit::UNIT, parent);
+    counters->file_cache_peer_read_count =
+            ADD_CHILD_COUNTER(profile, "DeletionVectorFileCachePeerReadCount", TUnit::UNIT, parent);
+}
+
+template <typename Profile>
+void update_deletion_vector_file_cache_profile(const DeletionVectorReader& reader,
+                                               Profile* counters) {
+    const auto& stats = reader.file_cache_statistics();
+    COUNTER_UPDATE(counters->file_cache_hit_count, stats.num_local_io_total);
+    COUNTER_UPDATE(counters->file_cache_miss_count, stats.num_remote_io_total);
+    COUNTER_UPDATE(counters->file_cache_peer_read_count, stats.num_peer_io_total);
+}
+
+} // namespace
 
 // ============================================================================
 // PaimonOrcReader
@@ -88,6 +117,7 @@ void PaimonOrcReader::_init_paimon_profile() {
             ADD_CHILD_TIMER(get_profile(), "DeleteFileReadTime", paimon_profile);
     _paimon_profile.parse_deletion_vector_time =
             ADD_CHILD_TIMER(get_profile(), "ParseDeletionVectorTime", paimon_profile);
+    init_deletion_vector_cache_profile(get_profile(), paimon_profile, &_paimon_profile);
 }
 
 Status PaimonOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
@@ -132,10 +162,11 @@ Status PaimonOrcReader::_init_deletion_vector() {
     Status create_status = Status::OK();
 
     SCOPED_TIMER(_paimon_profile.delete_files_read_time);
-    using DeleteRows = std::vector<int64_t>;
-    _delete_rows = _kv_cache->get<DeleteRows>(
-            build_paimon_deletion_vector_cache_key(deletion_file), [&]() -> DeleteRows* {
-                auto delete_rows = std::make_unique<DeleteRows>();
+    bool decoded_cache_hit = false;
+    _deletion_vector = _kv_cache->get<DeletionVector>(
+            build_paimon_deletion_vector_cache_key(deletion_file),
+            [&]() -> DeletionVector* {
+                auto deletion_vector = std::make_unique<DeletionVector>();
 
                 TFileRangeDesc delete_range;
                 delete_range.__set_fs_name(get_scan_range().fs_name);
@@ -155,22 +186,27 @@ Status PaimonOrcReader::_init_deletion_vector() {
                 std::vector<char> buffer(bytes_read);
                 create_status =
                         dv_reader.read_at(deletion_file.offset, {buffer.data(), bytes_read});
+                update_deletion_vector_file_cache_profile(dv_reader, &_paimon_profile);
                 if (!create_status.ok()) [[unlikely]] {
                     return nullptr;
                 }
 
                 SCOPED_TIMER(_paimon_profile.parse_deletion_vector_time);
                 create_status = decode_paimon_deletion_vector_buffer(buffer.data(), bytes_read,
-                                                                     delete_rows.get());
+                                                                     deletion_vector.get());
                 if (!create_status.ok()) [[unlikely]] {
                     return nullptr;
                 }
-                COUNTER_UPDATE(_paimon_profile.num_delete_rows, delete_rows->size());
-                return delete_rows.release();
-            });
+                COUNTER_UPDATE(_paimon_profile.num_delete_rows, deletion_vector->cardinality());
+                return deletion_vector.release();
+            },
+            &decoded_cache_hit);
     RETURN_IF_ERROR(create_status);
-    if (!_delete_rows->empty()) [[likely]] {
-        set_position_delete_rowids(_delete_rows);
+    COUNTER_UPDATE(decoded_cache_hit ? _paimon_profile.decoded_cache_hit_count
+                                     : _paimon_profile.decoded_cache_miss_count,
+                   1);
+    if (!_deletion_vector->isEmpty()) [[likely]] {
+        set_deletion_vector(_deletion_vector);
     }
     return Status::OK();
 }
@@ -187,6 +223,7 @@ void PaimonParquetReader::_init_paimon_profile() {
             ADD_CHILD_TIMER(get_profile(), "DeleteFileReadTime", paimon_profile);
     _paimon_profile.parse_deletion_vector_time =
             ADD_CHILD_TIMER(get_profile(), "ParseDeletionVectorTime", paimon_profile);
+    init_deletion_vector_cache_profile(get_profile(), paimon_profile, &_paimon_profile);
 }
 
 Status PaimonParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
@@ -231,10 +268,11 @@ Status PaimonParquetReader::_init_deletion_vector() {
     Status create_status = Status::OK();
 
     SCOPED_TIMER(_paimon_profile.delete_files_read_time);
-    using DeleteRows = std::vector<int64_t>;
-    _delete_rows = _kv_cache->get<DeleteRows>(
-            build_paimon_deletion_vector_cache_key(deletion_file), [&]() -> DeleteRows* {
-                auto delete_rows = std::make_unique<DeleteRows>();
+    bool decoded_cache_hit = false;
+    _deletion_vector = _kv_cache->get<DeletionVector>(
+            build_paimon_deletion_vector_cache_key(deletion_file),
+            [&]() -> DeletionVector* {
+                auto deletion_vector = std::make_unique<DeletionVector>();
 
                 TFileRangeDesc delete_range;
                 delete_range.__set_fs_name(get_scan_range().fs_name);
@@ -254,22 +292,27 @@ Status PaimonParquetReader::_init_deletion_vector() {
                 std::vector<char> buffer(bytes_read);
                 create_status =
                         dv_reader.read_at(deletion_file.offset, {buffer.data(), bytes_read});
+                update_deletion_vector_file_cache_profile(dv_reader, &_paimon_profile);
                 if (!create_status.ok()) [[unlikely]] {
                     return nullptr;
                 }
 
                 SCOPED_TIMER(_paimon_profile.parse_deletion_vector_time);
                 create_status = decode_paimon_deletion_vector_buffer(buffer.data(), bytes_read,
-                                                                     delete_rows.get());
+                                                                     deletion_vector.get());
                 if (!create_status.ok()) [[unlikely]] {
                     return nullptr;
                 }
-                COUNTER_UPDATE(_paimon_profile.num_delete_rows, delete_rows->size());
-                return delete_rows.release();
-            });
+                COUNTER_UPDATE(_paimon_profile.num_delete_rows, deletion_vector->cardinality());
+                return deletion_vector.release();
+            },
+            &decoded_cache_hit);
     RETURN_IF_ERROR(create_status);
-    if (!_delete_rows->empty()) [[likely]] {
-        ParquetReader::set_delete_rows(_delete_rows);
+    COUNTER_UPDATE(decoded_cache_hit ? _paimon_profile.decoded_cache_hit_count
+                                     : _paimon_profile.decoded_cache_miss_count,
+                   1);
+    if (!_deletion_vector->isEmpty()) [[likely]] {
+        ParquetReader::set_deletion_vector(_deletion_vector);
     }
     return Status::OK();
 }

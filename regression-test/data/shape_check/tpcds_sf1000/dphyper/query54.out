@@ -49,9 +49,9 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[store]
 ----------------------------PhysicalProject
-------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) <= d_month_seq+3)
+------------------------------NestedLoopJoin[INNER_JOIN](cast(date_dim.d_month_seq as BIGINT) <= d_month_seq+3)
 --------------------------------PhysicalProject
-----------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) >= d_month_seq+1)
+----------------------------------NestedLoopJoin[INNER_JOIN](cast(date_dim.d_month_seq as BIGINT) >= d_month_seq+1)
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalAssertNumRows

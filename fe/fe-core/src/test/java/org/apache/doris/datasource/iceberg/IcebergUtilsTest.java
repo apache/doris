@@ -75,6 +75,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 public class IcebergUtilsTest {
     @Test
@@ -297,6 +298,48 @@ public class IcebergUtilsTest {
 
         Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
         Assert.assertEquals("PART", columns.get(1).getName());
+    }
+
+    @Test
+    public void testParseSchemaPreservesInitialDefault() {
+        Schema schema = new Schema(
+                Types.NestedField.optional("added_column")
+                        .withId(1)
+                        .ofType(Types.IntegerType.get())
+                        .withInitialDefault(7)
+                        .build(),
+                Types.NestedField.optional("added_timestamp")
+                        .withId(2)
+                        .ofType(Types.TimestampType.withoutZone())
+                        .withInitialDefault(1_704_067_200_123_456L)
+                        .build(),
+                Types.NestedField.optional("added_uuid")
+                        .withId(3)
+                        .ofType(Types.UUIDType.get())
+                        .withInitialDefault(UUID.fromString("00000000-0000-0000-0000-000000000000"))
+                        .build(),
+                Types.NestedField.optional("added_binary")
+                        .withId(4)
+                        .ofType(Types.BinaryType.get())
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                        .build(),
+                Types.NestedField.optional("added_fixed")
+                        .withId(5)
+                        .ofType(Types.FixedType.ofLength(4))
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {3, 2, 1, 0}))
+                        .build());
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
+
+        Assert.assertEquals("7", columns.get(0).getDefaultValue());
+        Assert.assertEquals("2024-01-01 00:00:00.123456", columns.get(1).getDefaultValue());
+        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", columns.get(2).getDefaultValue());
+        Assert.assertEquals("AAEC/w==", columns.get(3).getDefaultValue());
+
+        Map<Integer, String> base64Defaults = IcebergUtils.getBase64EncodedInitialDefaults(schema);
+        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", base64Defaults.get(3));
+        Assert.assertEquals("AAEC/w==", base64Defaults.get(4));
+        Assert.assertEquals("AwIBAA==", base64Defaults.get(5));
     }
 
     @Test

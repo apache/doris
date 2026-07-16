@@ -17,15 +17,23 @@
 
 package org.apache.doris.cdcclient.source.reader.postgres;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import io.debezium.config.Configuration;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.jdbc.JdbcConfiguration;
 import io.debezium.jdbc.JdbcConnection;
+import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConfig;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
 
 class PostgresSourceReaderTest {
 
@@ -47,6 +55,41 @@ class PostgresSourceReaderTest {
                         PostgresSourceReader.createCleanupConnection(config)) {
             assertSame(connectionFactory(expected), connectionFactory(actual));
         }
+    }
+
+    @Test
+    void postgresConfigIncludesSchemaChangesByDefault() throws Exception {
+        PostgresSourceConfig config = sourceConfig(Map.of());
+
+        assertTrue(config.isIncludeSchemaChanges());
+    }
+
+    @Test
+    void postgresConfigCanDisableSchemaChanges() throws Exception {
+        PostgresSourceConfig config =
+                sourceConfig(Map.of(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false"));
+
+        assertFalse(config.isIncludeSchemaChanges());
+    }
+
+    private static PostgresSourceConfig sourceConfig(Map<String, String> overrides)
+            throws Exception {
+        Map<String, String> cfg = new HashMap<>();
+        cfg.put(DataSourceConfigKeys.JDBC_URL, "jdbc:postgresql://localhost:5432/testdb");
+        cfg.put(DataSourceConfigKeys.USER, "u");
+        cfg.put(DataSourceConfigKeys.PASSWORD, "p");
+        cfg.put(DataSourceConfigKeys.DATABASE, "testdb");
+        cfg.put(DataSourceConfigKeys.SCHEMA, "public");
+        cfg.put(DataSourceConfigKeys.TABLE, "t_test");
+        cfg.put(DataSourceConfigKeys.OFFSET, DataSourceConfigKeys.OFFSET_INITIAL);
+        cfg.put(DataSourceConfigKeys.SLOT_NAME, "slot_1");
+        cfg.put(DataSourceConfigKeys.PUBLICATION_NAME, "pub_1");
+        cfg.putAll(overrides);
+        Method method =
+                PostgresSourceReader.class.getDeclaredMethod(
+                        "generatePostgresConfig", Map.class, String.class, int.class);
+        method.setAccessible(true);
+        return (PostgresSourceConfig) method.invoke(new PostgresSourceReader(), cfg, "job-1", 0);
     }
 
     private static Object connectionFactory(JdbcConnection connection) throws Exception {

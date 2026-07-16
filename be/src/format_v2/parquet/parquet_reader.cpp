@@ -171,16 +171,16 @@ int64_t count_loaded_non_null_values(const ParquetColumnSchema& root_schema,
         return count;
     }
 
-    // For repeated encodings, one top-level row starts when the leaf repetition level moves above
-    // no higher than the top-level container's repeated boundary. Empty MAP/LIST rows have no
-    // entries but still carry a level slot; they are non-NULL and must be counted by count(col).
-    const int16_t non_null_definition_level =
-            static_cast<int16_t>(root_schema.definition_level - 1);
+    // For repeated encodings, repetition level zero starts a top-level row. Empty MAP/LIST rows
+    // have no entries but still carry a level slot; they are non-NULL and must be counted by
+    // count(col). The root nullable level distinguishes a NULL top-level value from a non-NULL
+    // value regardless of which repeated leaf represents its shape.
+    const int16_t non_null_definition_level = root_schema.nullable_definition_level;
     int64_t counted_rows = 0;
     int64_t non_null_rows = 0;
     for (int64_t level_idx = 0; level_idx < levels_written && counted_rows < expected_rows;
          ++level_idx) {
-        if (rep_levels[level_idx] >= root_schema.repetition_level) {
+        if (rep_levels[level_idx] != 0) {
             continue;
         }
         ++counted_rows;
@@ -285,6 +285,22 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
     }
     return Status::InvalidArgument("Invalid parquet aggregate projection local id {} for column {}",
                                    child_projection.local_id(), column_schema.name);
+}
+
+static Status validate_minmax_aggregate_statistics(const ParquetColumnSchema& column_schema) {
+    DORIS_CHECK(column_schema.descriptor != nullptr);
+    switch (column_schema.descriptor->physical_type()) {
+    case ::parquet::Type::BYTE_ARRAY:
+    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
+        // Arrow 17 does not expose Parquet's min/max exactness flags. Binary statistics may be
+        // truncated bounds rather than values present in the file, so they are safe for pruning
+        // but cannot be returned as exact aggregate results.
+        return Status::NotSupported(
+                "Parquet MIN/MAX aggregate pushdown requires exact statistics for column {}",
+                column_schema.name);
+    default:
+        return Status::OK();
+    }
 }
 
 void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
@@ -671,6 +687,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         RETURN_IF_ERROR(find_projected_minmax_leaf(
                 *column_schema, request.columns[request_column_idx].projection, &leaf_schema));
         DORIS_CHECK(leaf_schema != nullptr);
+        RETURN_IF_ERROR(validate_minmax_aggregate_statistics(*leaf_schema));
 
         auto& aggregate_column = result->columns[request_column_idx];
         aggregate_column.projection = request.columns[request_column_idx].projection;

@@ -188,6 +188,9 @@ message PTabletWriterAddBlockRequest {
     // for auto-partition first stage close, we should hang.
     optional bool hang_wait = 15 [default = false];
     optional bool is_adaptive_random_bucket = 16 [default = false];
+    // Per-row row-binlog LSNs allocated by olap table sink. The order is the same
+    // as rows in block/tablet_ids.
+    repeated int64 row_binlog_lsns = 17;
 };
 
 message PSlaveTabletNodes {

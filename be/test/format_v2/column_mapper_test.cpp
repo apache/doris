@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
@@ -76,6 +77,10 @@ DataTypePtr dec32(uint32_t precision, uint32_t scale) {
 
 DataTypePtr str() {
     return std::make_shared<DataTypeString>();
+}
+
+DataTypePtr varbinary() {
+    return std::make_shared<DataTypeVarbinary>();
 }
 
 DataTypePtr timestamptz(uint32_t scale) {
@@ -1184,7 +1189,7 @@ TEST(ColumnMapperCreateMappingTest, ByNameUsesFirstMatchingFileFieldWhenAmbiguou
     expect_mapping(mapper.mappings()[0], 0, "id", 0, "ID", int_type, int_type);
 }
 
-TEST(ColumnMapperCreateMappingTest, TimestampTzScaleMismatchDoesNotAddFinalizeCast) {
+TEST(ColumnMapperCreateMappingTest, TimestampTzScaleMismatchKeepsFilterAboveReader) {
     // Scenario: HDFS TVF may expose a table slot as TIMESTAMPTZ(0), while a Parquet logical UTC
     // timestamp file schema is materialized as TIMESTAMPTZ(6). Finalization must not add a SQL
     // cast from scale 6 to scale 0, because that cast rounds fractional seconds:
@@ -1202,7 +1207,17 @@ TEST(ColumnMapperCreateMappingTest, TimestampTzScaleMismatchDoesNotAddFinalizeCa
     ASSERT_EQ(mapper.mappings().size(), 1);
     expect_mapping(mapper.mappings()[0], 0, "ts_tz", 0, "ts_tz", file_type, table_type);
     EXPECT_TRUE(mapper.mappings()[0].is_trivial);
-    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::COPY_DIRECTLY);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(table_slot(0, 0, table_type, "ts_tz")),
+            .global_indices = {GlobalIndex(0)}};
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, table_schema, &request).ok());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(0));
+    EXPECT_TRUE(request.conjuncts.empty());
 }
 
 TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForRenamedColumn) {
@@ -2157,6 +2172,53 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
     EXPECT_TRUE(localized_slot->data_type()->equals(*int_type));
 }
 
+TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
+    const auto binary_type = varbinary();
+    const auto table_column = name_col("partition_key", binary_type);
+    const auto file_column = name_col("partition_key", binary_type, 7);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    const auto value = Field::create_field<TYPE_VARBINARY>(StringView("binary-value"));
+    TableFilter filter {.conjunct = VExprContext::create_shared(binary_predicate(
+                                TExprOpcode::EQ, table_slot(0, 0, binary_type, "partition_key"),
+                                literal(binary_type, value))),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request).ok());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(7));
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
+TEST(ColumnMapperLocalizeFiltersTest, NestedVarbinaryFilterStaysAboveFileReader) {
+    const auto table_column = struct_name_col(
+            "payload", {name_col("id", i32()), name_col("binary_value", varbinary())});
+    const auto file_column = struct_name_col(
+            "payload", {name_col("id", i32(), 0), name_col("binary_value", varbinary(), 1)}, 7);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(table_slot(0, 0, table_column.type, "payload")),
+            .global_indices = {GlobalIndex(0)}};
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request).ok());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(7));
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
 TEST(ColumnMapperLocalizeFiltersTest, ConstantFilterBuildsEntryWithoutFileScanColumn) {
     auto partition_column = name_col("part", i32());
     partition_column.is_partition_key = true;
@@ -2586,8 +2648,8 @@ TEST(ColumnMapperScanRequestTest, StructProjectionPrunesChildrenByName) {
 }
 
 // Scenario: a row filter reaches a struct child through an array wrapper
-// (`items.item.a > 5`). The mapper keeps this as a row predicate and reads the full array root for
-// predicate evaluation.
+// (`items.item.a > 5`). The mapper cannot localize the filter, so it keeps the full array root in
+// the lazy non-predicate set for table-level evaluation.
 TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter) {
     const auto int_type = i32();
     const auto string_type = str();
@@ -2612,16 +2674,17 @@ TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter)
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_array}, &request).ok());
 
-    EXPECT_TRUE(request.non_predicate_columns.empty());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
-    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(0));
-    EXPECT_TRUE(request.predicate_columns[0].project_all_children);
-    EXPECT_TRUE(request.predicate_columns[0].children.empty());
+    EXPECT_TRUE(request.conjuncts.empty());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(0));
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
 }
 
 // Scenario: a map value struct projects child `b`, while a row filter reads value child `a`.
-// The filter is too complex to become a file-local nested predicate, but the predicate projection
-// must replace the output projection for the same map root and contain both physical value children.
+// The filter is too complex to become a file-local nested predicate. Lazy demotion must move the
+// merged projection to the non-predicate set without dropping either physical value child.
 TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProjection) {
     const auto key_type = i32();
     const auto int_type = i32();
@@ -2654,9 +2717,9 @@ TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProject
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
-    EXPECT_TRUE(request.non_predicate_columns.empty());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
-    const auto& projection = request.predicate_columns[0];
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& projection = request.non_predicate_columns[0];
     EXPECT_EQ(projection.column_id(), LocalColumnId(0));
     ASSERT_FALSE(projection.project_all_children);
     ASSERT_EQ(projection.children.size(), 1);
@@ -3022,11 +3085,9 @@ TEST(ColumnMapperScanRequestTest, MapValuesStructChildConjunctStaysTableLevel) {
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
     EXPECT_TRUE(request.conjuncts.empty());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
-    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(1));
-    ASSERT_FALSE(request.predicate_columns[0].project_all_children);
-    ASSERT_EQ(request.predicate_columns[0].children.size(), 1);
-    EXPECT_EQ(request.predicate_columns[0].children[0].local_id(), 1);
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(1));
 }
 
 // Scenario: MAP_KEYS only reads map keys, but localizing it by wrapping the evolved file map slot
@@ -3065,9 +3126,9 @@ TEST(ColumnMapperScanRequestTest, MapKeysConjunctWithEvolvedValueStructStaysTabl
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
     EXPECT_TRUE(request.conjuncts.empty());
-    EXPECT_TRUE(request.non_predicate_columns.empty());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
-    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(1));
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(1));
 }
 
 // Scenario: an array element struct projection only contains missing/default children; the mapper
@@ -3486,6 +3547,111 @@ TEST_F(ColumnMapperCastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateType
     file_request.conjuncts[0]->close();
 }
 
+// Scenario: a fractional table literal cannot be localized to an integral file type without
+// changing the predicate boundary, so the mapper must cast the file slot instead.
+TEST_F(ColumnMapperCastTest, ColumnMapperRejectsLossyBinaryLiteralConversion) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto table_column = name_col("value", f64());
+    std::vector<ColumnDefinition> projected_columns {table_column};
+
+    auto file_field = name_col("value", i32(), 0);
+    std::vector<ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = binary_predicate(
+            TExprOpcode::LT, VSlotRef::create_shared(0, 0, -1, table_column.type, "value"),
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_DOUBLE>(1.5)));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    const auto& localized_slot_cast = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_slot_cast.get()), nullptr);
+    EXPECT_TRUE(localized_slot_cast->data_type()->equals(*table_column.type));
+    ASSERT_EQ(localized_slot_cast->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const VSlotRef*>(localized_slot_cast->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*table_column.type));
+}
+
+// Scenario: an exactly representable literal is still unsafe to localize when arbitrary file
+// values lose information during materialization to the table type.
+TEST_F(ColumnMapperCastTest, ColumnMapperRejectsLossyFileToTableConversion) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto table_column = name_col("value", i64());
+    std::vector<ColumnDefinition> projected_columns {table_column};
+
+    auto file_field = name_col("value", f64(), 0);
+    std::vector<ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = binary_predicate(
+            TExprOpcode::EQ, VSlotRef::create_shared(0, 0, -1, table_column.type, "value"),
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_BIGINT>(1)));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    const auto& localized_slot_cast = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_slot_cast.get()), nullptr);
+    EXPECT_TRUE(localized_slot_cast->data_type()->equals(*table_column.type));
+    ASSERT_EQ(localized_slot_cast->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const VSlotRef*>(localized_slot_cast->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*table_column.type));
+}
+
+// Scenario: complex Field equality does not compare nested values, so complex literals must not
+// use the scalar round-trip guard.
+TEST_F(ColumnMapperCastTest, ColumnMapperRejectsComplexLiteralLocalization) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto table_column = array_col("value", -1, name_col("element", f64()));
+    set_name_identifiers(&table_column, -1);
+    const auto& table_type = table_column.type;
+    std::vector<ColumnDefinition> projected_columns {table_column};
+
+    auto file_field = array_col("value", -1, name_col("element", i32()), 0);
+    set_name_identifiers(&file_field, 0);
+    std::vector<ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    Array literal_values {Field::create_field<TYPE_DOUBLE>(1.5)};
+    auto predicate = binary_predicate(
+            TExprOpcode::EQ, VSlotRef::create_shared(0, 0, -1, table_type, "value"),
+            VLiteral::create_shared(table_type, Field::create_field<TYPE_ARRAY>(literal_values)));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    EXPECT_TRUE(file_request.conjuncts.empty());
+}
+
 // Scenario: IN predicate literals are all rewritten to file type when every literal conversion is safe.
 TEST_F(ColumnMapperCastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
@@ -3522,6 +3688,48 @@ TEST_F(ColumnMapperCastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch
     EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_expr->children()[2]->is_literal());
     EXPECT_TRUE(localized_expr->children()[2]->data_type()->equals(*file_field.type));
+}
+
+// Scenario: one lossy IN literal prevents the entire predicate from being localized to file type.
+TEST_F(ColumnMapperCastTest, ColumnMapperRejectsLossyInPredicateLiteralConversion) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto table_column = name_col("value", f64());
+    std::vector<ColumnDefinition> projected_columns {table_column};
+
+    auto file_field = name_col("value", i32(), 0);
+    std::vector<ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = create_in_predicate();
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_DOUBLE>(1.0)));
+    predicate->add_child(
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_DOUBLE>(1.5)));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 3);
+    const auto& localized_slot_cast = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_slot_cast.get()), nullptr);
+    EXPECT_TRUE(localized_slot_cast->data_type()->equals(*table_column.type));
+    ASSERT_EQ(localized_slot_cast->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const VSlotRef*>(localized_slot_cast->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*table_column.type));
+    EXPECT_TRUE(localized_expr->children()[2]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[2]->data_type()->equals(*table_column.type));
 }
 
 // Scenario: IN predicate falls back to casting the file slot when any literal cannot be converted safely.

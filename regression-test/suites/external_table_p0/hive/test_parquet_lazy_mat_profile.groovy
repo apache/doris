@@ -100,6 +100,18 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
         return matcher.find() ? matcher.group(1).trim() : null
     }
 
+    def metricValueAsLong = { String value ->
+        if (value == null) {
+            return -1L
+        }
+        def formatted = value =~ /.*\((\d+)\).*/
+        if (formatted.matches()) {
+            return formatted[0][1].toLong()
+        }
+        def plain = value.replaceAll("[^0-9-]", "")
+        return plain == "" ? -1L : plain.toLong()
+    }
+
     // session vars
     sql "unset variable all;"
     sql "set profile_level=2;"
@@ -229,6 +241,29 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
             def profileText = getProfileWithToken(t1)
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
             return extractProfileBlockMetrics(profileText, "ParquetReader")
+        }
+
+        def q8 = {
+            sql """ set enable_file_scanner_v2 = true; """
+            sql """ set enable_parquet_filter_by_min_max = false; """
+            sql """ set enable_parquet_lazy_materialization = true; """
+            def t1 = UUID.randomUUID().toString()
+            def sql_result = sql """
+                select *, "${t1}" from alltypes_tiny_pages_plain where id > 2 and id < 10 order by id;
+            """
+            def idColumnIndex = 7
+            assertEquals(7, sql_result.size())
+            assertEquals("3", sql_result[0][idColumnIndex].toString())
+            assertEquals("9", sql_result[6][idColumnIndex].toString())
+
+            def profileText = getProfileWithToken(t1)
+            assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
+            def metrics = extractProfileBlockMetrics(profileText, "ParquetReader")
+            logger.info("metrics = ${metrics}")
+            assertTrue(metricValueAsLong(metrics["FilteredRowsByLazyRead"]) > 0)
+            assertTrue(metricValueAsLong(metrics["RawRowsRead"]) >= 7)
+            assertTrue(metricValueAsLong(metrics["RowsFilteredByConjunct"]) > 0)
+            assertTrue(metricValueAsLong(metrics["ReaderSelectRows"]) > 0)
         }
 
 
@@ -598,6 +633,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
         test_true_false();
         test_false_false();
         test_false_true();
+        q8();
 
 
         sql """drop catalog ${catalog_name};"""

@@ -36,6 +36,7 @@
 #include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -146,9 +147,66 @@ private:
     const std::string _expr_name = "Int32ZoneMapExpr";
 };
 
+class Int32PairSumExpr final : public VExpr {
+public:
+    Int32PairSumExpr(int left_column_id, int right_column_id, int32_t upper_bound)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _left_column_id(left_column_id),
+              _right_column_id(right_column_id),
+              _upper_bound(upper_bound) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(selector == nullptr);
+        DORIS_CHECK(_left_column_id >= 0 && _left_column_id < static_cast<int>(block->columns()));
+        DORIS_CHECK(_right_column_id >= 0 && _right_column_id < static_cast<int>(block->columns()));
+        const auto& left_column =
+                int32_data_column(*block->get_by_position(_left_column_id).column);
+        const auto& right_column =
+                int32_data_column(*block->get_by_position(_right_column_id).column);
+        DORIS_CHECK(left_column.size() >= count);
+        DORIS_CHECK(right_column.size() >= count);
+
+        auto result = ColumnUInt8::create(count, 0);
+        auto& result_data = result->get_data();
+        for (size_t row = 0; row < count; ++row) {
+            result_data[row] =
+                    left_column.get_element(row) + right_column.get_element(row) < _upper_bound;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_left_column_id);
+        column_ids.insert(_right_column_id);
+    }
+
+private:
+    int _left_column_id;
+    int _right_column_id;
+    int32_t _upper_bound;
+    const std::string _expr_name = "Int32PairSumExpr";
+};
+
 VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::Op op,
                                                int32_t value) {
     return VExprContext::create_shared(std::make_shared<Int32ZoneMapExpr>(column_id, op, value));
+}
+
+VExprContextSPtr create_int32_pair_sum_conjunct(int left_column_id, int right_column_id,
+                                                int32_t upper_bound) {
+    return VExprContext::create_shared(
+            std::make_shared<Int32PairSumExpr>(left_column_id, right_column_id, upper_bound));
+}
+
+int64_t counter_value(RuntimeProfile& profile, const std::string& name) {
+    auto* counter = profile.get_counter(name);
+    DORIS_CHECK(counter != nullptr);
+    return counter->value();
 }
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
@@ -161,6 +219,25 @@ std::shared_ptr<arrow::Array> build_int32_array(const std::vector<int32_t>& valu
     arrow::Int32Builder builder;
     for (const auto value : values) {
         EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_string_array(const std::vector<std::string>& values) {
+    arrow::StringBuilder builder;
+    for (const auto& value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_fixed_binary_array(const std::vector<std::string>& values,
+                                                       int byte_width) {
+    auto type = arrow::fixed_size_binary(byte_width);
+    arrow::FixedSizeBinaryBuilder builder(type, arrow::default_memory_pool());
+    for (const auto& value : values) {
+        EXPECT_EQ(value.size(), byte_width);
+        EXPECT_TRUE(builder.Append(reinterpret_cast<const uint8_t*>(value.data())).ok());
     }
     return finish_array(&builder);
 }
@@ -238,6 +315,16 @@ void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group
     write_table(file_path, table, row_group_size, false, false, enable_statistics);
 }
 
+void write_binary_minmax_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("text", arrow::utf8(), false),
+            arrow::field("fixed", arrow::fixed_size_binary(4), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_string_array({"alpha", "omega"}),
+                                             build_fixed_binary_array({"aaaa", "zzzz"}, 4)});
+    write_table(file_path, table, 2);
+}
+
 void write_struct_parquet_file(const std::string& file_path) {
     auto struct_type = arrow::struct_({arrow::field("id", arrow::int32(), false),
                                        arrow::field("name", arrow::utf8(), false)});
@@ -255,6 +342,15 @@ void write_list_parquet_file(const std::string& file_path) {
     });
     auto table = arrow::Table::Make(schema, {build_list_array()});
     write_table(file_path, table, 2);
+}
+
+void write_int_list_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("xs", arrow::list(arrow::int32()), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3}), build_list_array()});
+    write_table(file_path, table, 3);
 }
 
 void write_page_index_parquet_file(const std::string& file_path) {
@@ -380,6 +476,23 @@ protected:
     std::string _file_path;
 };
 
+TEST(ParquetScanSelectionTest, CompactFilterShrinksCurrentSelection) {
+    format::parquet::SelectionVector selection(4);
+    selection.set_index(0, 0);
+    selection.set_index(1, 2);
+    selection.set_index(2, 4);
+    selection.set_index(3, 5);
+
+    const IColumn::Filter compact_filter {1, 0, 1, 0};
+    const auto selected_rows =
+            format::parquet::apply_compact_filter_to_selection(compact_filter, &selection, 4);
+
+    ASSERT_EQ(selected_rows, 2);
+    EXPECT_EQ(selection.get_index(0), 0);
+    EXPECT_EQ(selection.get_index(1), 4);
+    EXPECT_TRUE(selection.verify(selected_rows, 6).ok());
+}
+
 TEST_F(ParquetScanTest, PlanRowGroupsAppliesScanRangeBeforeStatistics) {
     write_int_pair_parquet_file(_file_path, 2);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
@@ -402,7 +515,7 @@ TEST_F(ParquetScanTest, PlanRowGroupsAppliesScanRangeBeforeStatistics) {
                                                          request, scan_range, false, &plan)
                         .ok());
     EXPECT_TRUE(plan.row_groups.empty());
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 3);
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 0);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 2);
@@ -461,6 +574,28 @@ TEST_F(ParquetScanTest, PlanRowGroupsSelectsAllRowGroupsWithoutFilters) {
         EXPECT_EQ(plan.row_groups[row_group_idx].selected_ranges[0].length, 2);
         EXPECT_TRUE(plan.row_groups[row_group_idx].page_skip_plans.empty());
     }
+}
+
+TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater) {
+    format::parquet::RowGroupScanPlan plan;
+    plan.row_groups.push_back(
+            {.row_group_id = 1,
+             .first_file_row = ConditionCacheContext::GRANULE_SIZE,
+             .row_group_rows = ConditionCacheContext::GRANULE_SIZE,
+             .selected_ranges = {{.start = 0, .length = ConditionCacheContext::GRANULE_SIZE}},
+             .page_skip_plans = {}});
+
+    format::parquet::ParquetScanScheduler scheduler;
+    scheduler.set_plan(std::move(plan));
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = true;
+    ctx->base_granule = 0;
+    ctx->filter_result = std::make_shared<std::vector<bool>>(std::vector<bool> {false});
+    scheduler.set_condition_cache_context(ctx);
+
+    EXPECT_FALSE(scheduler.empty());
+    EXPECT_EQ(scheduler.condition_cache_filtered_rows(), 0);
+    EXPECT_EQ(ctx->base_granule, 0);
 }
 
 TEST_F(ParquetScanTest, PageIndexIntersectsMultipleFiltersAndBuildsSkipPlan) {
@@ -616,6 +751,23 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     EXPECT_EQ(minmax_result.columns[0].max_value.get<TYPE_INT>(), 6);
     EXPECT_EQ(minmax_result.columns[1].min_value.get<TYPE_INT>(), 10);
     EXPECT_EQ(minmax_result.columns[1].max_value.get<TYPE_INT>(), 60);
+}
+
+TEST_F(ParquetScanTest, AggregateMinMaxRejectsInexactBinaryStatistics) {
+    write_binary_minmax_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    open_all_row_groups(reader.get());
+
+    for (int32_t column_id = 0; column_id < 2; ++column_id) {
+        format::FileAggregateRequest request;
+        request.agg_type = TPushAggOp::MINMAX;
+        request.columns.push_back({.projection = field_projection(column_id)});
+        format::FileAggregateResult result;
+        const auto status = reader->get_aggregate_result(request, &result);
+        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    }
 }
 
 TEST_F(ParquetScanTest, AggregateRespectsStatisticsPrunedRowGroups) {
@@ -841,6 +993,257 @@ TEST_F(ParquetScanTest, NoRequestedColumnsReturnsRowsOnlyAcrossRowGroups) {
         total_rows += rows;
     }
     EXPECT_EQ(total_rows, 6);
+}
+
+TEST_F(ParquetScanTest, PredicateColumnsFilterRoundByRound) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 2));
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(1, Int32ZoneMapExpr::Op::LT, 50));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<int32_t> scores;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = int32_data_column(*block.get_by_position(0).column);
+        const auto& score_column = int32_data_column(*block.get_by_position(1).column);
+        ASSERT_EQ(id_column.size(), rows);
+        ASSERT_EQ(score_column.size(), rows);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            scores.push_back(score_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({3, 4}));
+    EXPECT_EQ(scores, std::vector<int32_t>({30, 40}));
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 6);
+    EXPECT_EQ(counter_value(profile, "SelectedRows"), 2);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 4);
+    EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 10);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 4);
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 2);
+}
+
+TEST_F(ParquetScanTest, PredicateColumnsSkipUnreadColumnsWhenFirstPredicateFiltersAll) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 100));
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(1, Int32ZoneMapExpr::Op::LT, 50));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+
+    EXPECT_EQ(total_rows, 0);
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 6);
+    EXPECT_EQ(counter_value(profile, "SelectedRows"), 0);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 6);
+    EXPECT_EQ(counter_value(profile, "EmptySelectionBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 6);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 0);
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 6);
+}
+
+// Scenario: every physical batch in every row group is rejected. Predicate readers reach each row
+// group boundary, while the lazy score reader remains at row 0. The boundary reset must discard that
+// reader and its pending lag instead of issuing SkipRecords for values that can never be observed.
+TEST_F(ParquetScanTest, FullyFilteredRowGroupsDropPendingLazyReaders) {
+    write_int_pair_parquet_file(_file_path, 2, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 100));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+
+    EXPECT_EQ(total_rows, 0);
+    EXPECT_EQ(counter_value(profile, "EmptySelectionBatches"), 6);
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 0);
+    ASSERT_NE(profile.get_counter("ArrowSkipRecordsTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("ArrowSkipRecordsTime")->value(), 0);
+}
+
+// Scenario: row group 0 is fully filtered and leaves two pending lazy rows. Reset must discard that
+// lag before row group 1 creates fresh readers at its own row 0; otherwise score 30 would be skipped
+// as if it belonged to the rejected prefix from the previous row group.
+TEST_F(ParquetScanTest, PendingLazySkipDoesNotCrossRowGroupReset) {
+    write_int_pair_parquet_file(_file_path, 2, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> scores;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& score_column = int32_data_column(*block.get_by_position(1).column);
+        for (size_t row = 0; row < rows; ++row) {
+            scores.push_back(score_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(scores, std::vector<int32_t>({30, 40, 50, 60}));
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 0);
+}
+
+// Scenario: a nested lazy column stays behind while id=1 is rejected. Flushing skip(1) must consume
+// the complete repetition/definition-level span for the first list, then materialize the remaining
+// two parent rows without corrupting their child boundaries.
+TEST_F(ParquetScanTest, PendingLazySkipPreservesNestedRowBoundaries) {
+    write_int_list_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<size_t> list_lengths;
+    std::vector<int32_t> list_values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        const IColumn* list_column = block.get_by_position(1).column.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(list_column)) {
+            list_column = &nullable->get_nested_column();
+        }
+        const auto& array_column = assert_cast<const ColumnArray&>(*list_column);
+        const auto& value_column = int32_data_column(array_column.get_data());
+        for (size_t row = 0; row < rows; ++row) {
+            const size_t list_start = array_column.offset_at(row);
+            const size_t list_length = array_column.size_at(row);
+            list_lengths.push_back(list_length);
+            for (size_t element = 0; element < list_length; ++element) {
+                list_values.push_back(value_column.get_element(list_start + element));
+            }
+        }
+    }
+
+    EXPECT_EQ(list_lengths, std::vector<size_t>({1, 0}));
+    EXPECT_EQ(list_values, std::vector<int32_t>({3}));
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 1);
+}
+
+TEST_F(ParquetScanTest, MultiColumnPredicateWaitsForAllPredicateColumns) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_pair_sum_conjunct(0, 1, 45));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<int32_t> scores;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = int32_data_column(*block.get_by_position(0).column);
+        const auto& score_column = int32_data_column(*block.get_by_position(1).column);
+        ASSERT_EQ(id_column.size(), rows);
+        ASSERT_EQ(score_column.size(), rows);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            scores.push_back(score_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4}));
+    EXPECT_EQ(scores, std::vector<int32_t>({10, 20, 30, 40}));
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 6);
+    EXPECT_EQ(counter_value(profile, "SelectedRows"), 4);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 2);
+    EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 12);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 0);
 }
 
 TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {

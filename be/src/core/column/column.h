@@ -676,6 +676,21 @@ public:
 
     virtual bool is_column_string64() const { return false; }
 
+    bool contains_column_string64() const {
+        if (is_column_string64()) {
+            return true;
+        }
+
+        bool contains = false;
+        ColumnCallback callback = [&](const IColumn& subcolumn) {
+            if (!contains) {
+                contains = subcolumn.contains_column_string64();
+            }
+        };
+        for_each_subcolumn(callback);
+        return contains;
+    }
+
     virtual bool is_column_dictionary() const { return false; }
 
     /// If the only value column can contain is NULL.

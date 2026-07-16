@@ -792,7 +792,7 @@ public class OlapScanNode extends ScanNode {
             setHasPartitionPredicate(false);
             selectedPartitionIds = olapTable.getPartitionIds();
         }
-        selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);
+        selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds, Optional.empty());
         selectedPartitionNum = selectedPartitionIds.size();
 
         for (long id : selectedPartitionIds) {
