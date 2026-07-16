@@ -2186,6 +2186,99 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
     }
 
     @Test
+    public void testZeroInnerFiltersRejected() throws Exception {
+        // When the inner subquery has no LogicalFilter at all (e.g. a
+        // CTE consumer directly under the aggregate), checkFilter must
+        // reject early.  An empty inner filter set cannot prove that the
+        // inner predicates are a subset of the outer predicates, and the
+        // relation/identity/uniqueness proofs rely on filter matching.
+        createTable("CREATE TABLE fact_zero_inner (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_zero_inner (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_zero_inner add constraint uq_dim_zero_inner_k unique (k)");
+
+        // The inner subquery has no WHERE clause — no LogicalFilter below
+        // the aggregate.  checkFilter must reject this.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_zero_inner f, dim_zero_inner d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_zero_inner f2 "
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — no inner filter to prove shape.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when inner plan has no filter");
+    }
+
+    @Test
+    public void testNoAggregateOutputConjunctRejected() throws Exception {
+        // When the top-level Filter has no conjunct that references the
+        // aggregate output ExprId, conjuncts.get(false) is null and
+        // rewrite() must not NPE.  This can happen with a projected
+        // scalar subquery under an unrelated pushed filter.
+        createTable("CREATE TABLE fact_no_agg_conj (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_no_agg_conj (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_no_agg_conj add constraint uq_dim_no_agg_conj_k unique (k)");
+
+        // The subquery is in the SELECT list, not in WHERE, producing a
+        // Project above the Apply.  The Filter predicates reference only
+        // table columns, not the aggregate output — conjuncts.get(false)
+        // is null.
+        String sql = "SELECT d.did, f.id, f.k, f.v, "
+                + "  (SELECT SUM(f2.v) FROM fact_no_agg_conj f2 WHERE f2.k = d.k) AS s "
+                + "FROM fact_no_agg_conj f, dim_no_agg_conj d "
+                + "WHERE f.k = d.k";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — no aggregate-output conjunct in Filter.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when no outer conjunct "
+                + "references the aggregate output");
+    }
+
+    @Test
     public void testStackedPruningProjectsExpanded() throws Exception {
         // When the shared table is behind multiple stacked pruning
         // projects — e.g. SubQueryAlias sf → Project(k) → Project(k)
