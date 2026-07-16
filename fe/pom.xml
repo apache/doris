@@ -173,7 +173,8 @@ under the License.
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
                         <excludes>
                             **/apache/doris/thrift/**/*,
-                            **/apache/parquet/**/*
+                            **/apache/parquet/**/*,
+                            **/apache/hadoop/**/*
                         </excludes>
                     </configuration>
                     <executions>
