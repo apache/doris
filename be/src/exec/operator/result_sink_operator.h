@@ -46,7 +46,7 @@ struct ResultFileOptions {
     TParquetCompressionType::type parquet_commpression_type;
     TParquetVersion::type parquet_version;
     bool parquert_disable_dictionary = false;
-    bool enable_int96_timestamps = false;
+    bool enable_int96_timestamps = true;
     //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
     //But in order to consider the compatibility when upgrading, so add a bool to check
     //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.

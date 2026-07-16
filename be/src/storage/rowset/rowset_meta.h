@@ -177,21 +177,21 @@ public:
         _rowset_meta_pb.set_index_disk_size(index_disk_size);
     }
 
-    void zone_maps(std::vector<ZoneMap>* zone_maps) {
-        for (const ZoneMap& zone_map : _rowset_meta_pb.zone_maps()) {
+    void zone_maps(std::vector<::doris::ZoneMap>* zone_maps) {
+        for (const ::doris::ZoneMap& zone_map : _rowset_meta_pb.zone_maps()) {
             zone_maps->push_back(zone_map);
         }
     }
 
-    void set_zone_maps(const std::vector<ZoneMap>& zone_maps) {
-        for (const ZoneMap& zone_map : zone_maps) {
-            ZoneMap* new_zone_map = _rowset_meta_pb.add_zone_maps();
+    void set_zone_maps(const std::vector<::doris::ZoneMap>& zone_maps) {
+        for (const ::doris::ZoneMap& zone_map : zone_maps) {
+            ::doris::ZoneMap* new_zone_map = _rowset_meta_pb.add_zone_maps();
             *new_zone_map = zone_map;
         }
     }
 
-    void add_zone_map(const ZoneMap& zone_map) {
-        ZoneMap* new_zone_map = _rowset_meta_pb.add_zone_maps();
+    void add_zone_map(const ::doris::ZoneMap& zone_map) {
+        ::doris::ZoneMap* new_zone_map = _rowset_meta_pb.add_zone_maps();
         *new_zone_map = zone_map;
     }
 

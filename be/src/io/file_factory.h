@@ -16,6 +16,7 @@
 // under the License.
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
@@ -64,6 +65,8 @@ struct FileDescription {
     // -1 means unset.
     // If the file length is not set, the file length will be fetched from the file system.
     int64_t file_size = -1;
+    int64_t range_start_offset = 0;
+    int64_t range_size = -1;
     // modification time of this file.
     // 0 means unset.
     int64_t mtime = 0;
@@ -83,6 +86,8 @@ class FileFactory {
     ENABLE_FACTORY_CREATOR(FileFactory);
 
 public:
+    static io::FileReaderOptions get_reader_options(const TQueryOptions& option,
+                                                    const io::FileDescription& fd);
     static io::FileReaderOptions get_reader_options(RuntimeState* state,
                                                     const io::FileDescription& fd);
 

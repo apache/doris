@@ -22,8 +22,10 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
 import org.apache.doris.thrift.TBrokerCloseWriterRequest;
 import org.apache.doris.thrift.TBrokerDeletePathRequest;
@@ -154,6 +156,16 @@ public class BrokerUtilTest {
             Assert.fail();
         }
 
+    }
+
+    @Test
+    public void normalizeColumnsFromPathPreservesNullInfo() {
+        BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.normalizeColumnsFromPath(
+                Lists.newArrayList("p1", FeConstants.null_string,
+                        HiveExternalMetaCache.HIVE_DEFAULT_PARTITION, null));
+
+        Assert.assertEquals(Lists.newArrayList("p1", "", "", ""), parsed.getValues());
+        Assert.assertEquals(Lists.newArrayList(false, true, true, true), parsed.getIsNull());
     }
 
     @Test

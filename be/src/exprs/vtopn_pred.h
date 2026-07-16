@@ -64,6 +64,11 @@ public:
     }
 
     int source_node_id() const { return _source_node_id; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VTopNPred::create_shared(clone_texpr_node(), _source_node_id, nullptr);
+        return Status::OK();
+    }
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         _predicate = &state->get_query_ctx()->get_runtime_predicate(_source_node_id);

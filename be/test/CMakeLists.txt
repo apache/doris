@@ -21,7 +21,39 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
 # where to put generated libraries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
-file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
+file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
+    agent/*.cpp
+    ai/*.cpp
+    cloud/*.cpp
+    common/*.cpp
+    core/*.cpp
+    exec/*.cpp
+    exprs/*.cpp
+    format/*.cpp
+    format_v2/*.cpp
+    gutil/*.cpp
+    io/*.cpp
+    load/*.cpp
+    olap/*.cpp
+    runtime/*.cpp
+    service/*.cpp
+    storage/*.cpp
+    testutil/*.cpp
+    udf/*.cpp
+    tools/*.cpp
+    util/*.cpp
+    vec/*.cpp
+)
+
+if (ENABLE_TDE)
+    file(GLOB_RECURSE TDE_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TDE_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${TDE_UT_FILES})
+endif()
+
+if (ENABLE_TLS)
+    file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TLS_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${TLS_UT_FILES})
+endif()
 
 set(PHDR_CACHE_TEST_DSO_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/common/phdr_cache_test_dso.cpp)
 list(REMOVE_ITEM UT_FILES ${PHDR_CACHE_TEST_DSO_SOURCE})

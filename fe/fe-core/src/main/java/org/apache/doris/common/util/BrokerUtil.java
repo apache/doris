@@ -75,6 +75,24 @@ public class BrokerUtil {
 
     private static final int READ_BUFFER_SIZE_B = 1024 * 1024;
 
+    public static final class ParsedColumnsFromPath {
+        private final List<String> values;
+        private final List<Boolean> isNull;
+
+        private ParsedColumnsFromPath(List<String> values, List<Boolean> isNull) {
+            this.values = values;
+            this.isNull = isNull;
+        }
+
+        public List<String> getValues() {
+            return values;
+        }
+
+        public List<Boolean> getIsNull() {
+            return isNull;
+        }
+    }
+
     /**
      * Parse file status in path with broker, except directory
      * @param path
@@ -201,6 +219,21 @@ public class BrokerUtil {
                     + columnsFromPath + ", filePath: " + filePath);
         }
         return Lists.newArrayList(columns);
+    }
+
+    public static ParsedColumnsFromPath normalizeColumnsFromPath(List<String> columnsFromPath) {
+        if (columnsFromPath == null || columnsFromPath.isEmpty()) {
+            return new ParsedColumnsFromPath(Collections.emptyList(), Collections.emptyList());
+        }
+        List<String> values = new ArrayList<>(columnsFromPath.size());
+        List<Boolean> isNull = new ArrayList<>(columnsFromPath.size());
+        for (String value : columnsFromPath) {
+            boolean nullValue = value == null || FeConstants.null_string.equals(value)
+                    || HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(value);
+            values.add(nullValue ? "" : value);
+            isNull.add(nullValue);
+        }
+        return new ParsedColumnsFromPath(values, isNull);
     }
 
     /**

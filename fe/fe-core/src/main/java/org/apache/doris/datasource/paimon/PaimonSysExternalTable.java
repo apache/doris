@@ -137,16 +137,19 @@ public class PaimonSysExternalTable extends ExternalTable {
     @Override
     public List<Column> getFullSchema() {
         Table sysTable = getSysPaimonTable();
-        List<DataField> fields = sysTable.rowType().getFields();
+        return buildFullSchema(sysTable.rowType().getFields(), getCatalog().getEnableMappingVarbinary(),
+                getCatalog().getEnableMappingTimestampTz());
+    }
+
+    static List<Column> buildFullSchema(List<DataField> fields, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
         List<Column> columns = Lists.newArrayListWithCapacity(fields.size());
 
         for (DataField field : fields) {
             Column column = new Column(
-                    field.name().toLowerCase(),
+                    field.name(),
                     PaimonUtil.paimonTypeToDorisType(
-                            field.type(),
-                            getCatalog().getEnableMappingVarbinary(),
-                            getCatalog().getEnableMappingTimestampTz()),
+                            field.type(), enableMappingVarbinary, enableMappingTimestampTz),
                     true,
                     null,
                     true,
@@ -253,4 +256,5 @@ public class PaimonSysExternalTable extends ExternalTable {
     public String getComment() {
         return "Paimon system table: " + sysTableType + " for " + sourceTable.getName();
     }
+
 }
