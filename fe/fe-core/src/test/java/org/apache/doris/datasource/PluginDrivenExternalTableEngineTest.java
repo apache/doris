@@ -100,6 +100,17 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
+    public void testGsonPostProcessRestoresMissingRemoteName() throws Exception {
+        PluginDrivenExternalTable table = createTableWithCatalogType("jdbc");
+        table.setRemoteName(null);
+
+        table.gsonPostProcess();
+
+        Assertions.assertEquals("test_table", table.remoteName,
+                "Deserialized external tables should materialize the effective remote table name");
+    }
+
+    @Test
     public void testInitSchemaReturnsEmptyWhenTableHandleMissing() {
         Connector connector = createMockConnector(false, false);
         PluginDrivenExternalTable table = createTableWithCatalogType("jdbc", connector);

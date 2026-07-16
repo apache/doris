@@ -399,6 +399,9 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         objectCreated = false;
+        // Older metadata may not contain remoteName. Materialize the same fallback
+        // used by getRemoteName() so no metadata path can observe a null table name.
+        remoteName = getRemoteName();
     }
 
     @Override
