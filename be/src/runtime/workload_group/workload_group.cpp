@@ -155,10 +155,7 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
         return;
     }
     std::lock_guard<std::shared_mutex> wl {_mutex};
-    // In serverless mode, user may modify cgroup's memory limit directly and workload group's config
-    // is not changed. So that we should update workload group's config ignore version.
-    if (wg_info.version > _version ||
-        (wg_info.version == _version && _memory_limit != wg_info.memory_limit)) {
+    if (wg_info.version > _version) {
         _name = wg_info.name;
         _version = wg_info.version;
         _min_cpu_percent = wg_info.min_cpu_percent;
@@ -184,6 +181,38 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
 
 // MemtrackerLimiter is not removed during query context release, so that should remove it here.
 int64_t WorkloadGroup::refresh_memory_usage() {
+    {
+        // In serverless mode, user may modify cgroup's memory limit directly and workload group's config
+        // is not changed. So that we should update workload group's config ignore version.
+        std::lock_guard<std::shared_mutex> wl {_mutex};
+        const int max_memory_percent = _max_memory_percent.load(std::memory_order_relaxed);
+        const std::string mem_limit_str = fmt::format("{}%", max_memory_percent);
+        bool is_percent = true;
+        const int64_t new_memory_limit =
+                ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
+        DCHECK(is_percent) << "mem_limit_str: " << mem_limit_str;
+        if (new_memory_limit != _memory_limit.load(std::memory_order_relaxed)) {
+            LOG(INFO) << fmt::format(
+                    "Workload group id:{}, name:{}, "
+                    "memory_limit changed from {} to {}",
+                    _id, _name,
+                    PrettyPrinter::print(_memory_limit.load(std::memory_order_relaxed),
+                                         TUnit::BYTES),
+                    PrettyPrinter::print(new_memory_limit, TUnit::BYTES));
+
+            _memory_limit.store(new_memory_limit, std::memory_order_relaxed);
+            if (max_memory_percent == 0) {
+                _min_memory_limit.store(0, std::memory_order_relaxed);
+            } else {
+                const int min_memory_percent = _min_memory_percent.load(std::memory_order_relaxed);
+                const int64_t new_min_memory_limit =
+                        static_cast<int64_t>(static_cast<double>(new_memory_limit) *
+                                             min_memory_percent / max_memory_percent);
+                _min_memory_limit.store(new_min_memory_limit, std::memory_order_relaxed);
+            }
+        }
+    }
+
     int64_t fragment_used_memory = 0;
     {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
