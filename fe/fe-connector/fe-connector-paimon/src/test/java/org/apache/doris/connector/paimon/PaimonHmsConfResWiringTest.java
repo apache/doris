@@ -17,49 +17,104 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
- * FIX-HMS-CONFRES connector-wiring test: proves the HMS create path actually CALLS
- * {@code ConnectorContext.loadHiveConfResources} and feeds the result into the HiveConf builder
- * (intent: no silent drop of an external hive-site.xml), not merely that the pure builder works.
+ * FIX-HMS-CONFRES: proves an external {@code hive.conf.resources} hive-site.xml actually reaches the
+ * assembled {@link HiveConf} — intent: no silent drop of the operator's file (the original defect).
  *
- * <p>The HMS catalog cannot be fully created offline (no live metastore). We drive the connector's
- * lazy catalog creation with {@code RecordingConnectorContext.failAuth=true}, so creation fails fast
- * at {@code executeAuthenticated} — AFTER the HMS branch has already resolved the file via the hook,
- * and BEFORE any metastore connection is attempted.
+ * <p>The connector resolves and parses the file itself ({@code PaimonCatalogFactory.addConfResources})
+ * rather than receiving pre-flattened keys from an engine hook, so this asserts the REAL file->HiveConf
+ * behavior instead of a mock handshake: it writes a real XML under a real directory and reads the value
+ * back off the HiveConf.
  */
 public class PaimonHmsConfResWiringTest {
 
+    private static final String QOP_KEY = "hive.metastore.sasl.qop";
+
+    /** The engine-set system property carrying {@code Config.hadoop_config_dir} into the plugin. */
+    private static final String CONFIG_DIR_KEY = "doris.hadoop.config.dir";
+
+    private static void writeHiveSite(File dst, String key, String value) throws Exception {
+        Files.write(dst.toPath(), ("<?xml version=\"1.0\"?><configuration><property><name>" + key
+                + "</name><value>" + value + "</value></property></configuration>")
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Runs {@code body} with the engine's config-dir bridge pointed at {@code dir}, restoring the previous
+     * value afterwards (the property is process-global).
+     */
+    private static void withConfigDir(Path dir, ThrowingRunnable body) throws Exception {
+        String prev = System.getProperty(CONFIG_DIR_KEY);
+        System.setProperty(CONFIG_DIR_KEY, dir.toString() + File.separator);
+        try {
+            body.run();
+        } finally {
+            if (prev == null) {
+                System.clearProperty(CONFIG_DIR_KEY);
+            } else {
+                System.setProperty(CONFIG_DIR_KEY, prev);
+            }
+        }
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
     @Test
-    public void hmsBranchRoutesHiveConfResourcesThroughContext() {
-        RecordingConnectorContext ctx = new RecordingConnectorContext();
-        ctx.failAuth = true;
-        ctx.hiveConfResources = Collections.singletonMap("hive.metastore.sasl.qop", "auth-conf");
+    public void externalHiveSiteXmlReachesTheHiveConf(@TempDir Path tmp) throws Exception {
+        writeHiveSite(tmp.resolve("hive-site.xml").toFile(), QOP_KEY, "auth-conf");
 
-        Map<String, String> props = new HashMap<>();
-        props.put("paimon.catalog.type", "hms");
-        props.put("warehouse", "/wh");
-        props.put("hive.metastore.uris", "thrift://nn:9083");
-        props.put("hive.conf.resources", "hive-site.xml");
+        withConfigDir(tmp, () -> {
+            HiveConf hc = PaimonCatalogFactory.assembleHiveConf("hive-site.xml", Collections.emptyMap());
+            // WHY: a refactor that builds the HiveConf without consulting hive.conf.resources would
+            // silently drop the operator's file — the very defect this path exists to fix.
+            Assertions.assertEquals("auth-conf", hc.get(QOP_KEY),
+                    "the external hive-site.xml named by hive.conf.resources must reach the HiveConf");
+        });
+    }
 
-        PaimonConnector connector = new PaimonConnector(props, ctx);
+    @Test
+    public void overridesBeatTheExternalFile(@TempDir Path tmp) throws Exception {
+        writeHiveSite(tmp.resolve("hive-site.xml").toFile(), QOP_KEY, "auth-conf");
 
-        // getMetadata -> ensureCatalog -> createCatalog: the HMS branch calls loadHiveConfResources
-        // first, then createCatalogFromContext fails fast (failAuth) before connecting to a metastore.
-        Assertions.assertThrows(RuntimeException.class, () -> connector.getMetadata(null));
+        withConfigDir(tmp, () -> {
+            HiveConf hc = PaimonCatalogFactory.assembleHiveConf("hive-site.xml",
+                    Collections.singletonMap(QOP_KEY, "auth"));
+            // WHY (F2 ordering): the file is the BASE, the metastore-spi overrides are the connection
+            // facts and must win. addResource + set() must not invert that precedence.
+            Assertions.assertEquals("auth", hc.get(QOP_KEY),
+                    "toHiveConfOverrides must override the external file, not the other way round");
+        });
+    }
 
-        // WHY: a future refactor that builds the HiveConf without consulting the hook would silently
-        // drop the external hive-site.xml again (the very defect). MUTATION: HMS branch not calling
-        // loadHiveConfResources -> hiveConfResourcesCalled false / wrong arg -> red.
-        Assertions.assertTrue(ctx.hiveConfResourcesCalled,
-                "the HMS branch must call ConnectorContext.loadHiveConfResources (no silent drop)");
-        Assertions.assertEquals("hive-site.xml", ctx.lastHiveConfResourcesArg,
-                "the connector must pass the raw hive.conf.resources value to the hook");
+    @Test
+    public void missingFileFailsLoud(@TempDir Path tmp) throws Exception {
+        withConfigDir(tmp, () -> {
+            // WHY: a missing file must fail loud, never degrade to "connect with defaults" — the operator
+            // named a file that carries connection-critical settings.
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonCatalogFactory.assembleHiveConf("absent.xml", Collections.emptyMap()));
+            Assertions.assertTrue(e.getMessage().contains("Config resource file does not exist"),
+                    "message must name the unresolvable file; was: " + e.getMessage());
+        });
+    }
+
+    @Test
+    public void blankResourcesIsANoOp() {
+        // WHY: hive.conf.resources is optional; a catalog without it must not touch the filesystem or throw.
+        HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, Collections.singletonMap(QOP_KEY, "auth"));
+        Assertions.assertEquals("auth", hc.get(QOP_KEY));
     }
 }

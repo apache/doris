@@ -223,6 +223,23 @@ public class IcebergScanRange implements ConnectorScanRange {
     }
 
     /**
+     * A distinct-faithful key for the native iceberg partition this file belongs to (FIX-L12), or
+     * {@code null} when the file carries no {@code PartitionData} (unpartitioned / current spec
+     * unpartitioned). Combines the partition-spec id with the serialized {@code PartitionData}
+     * ({@code partitionDataJson}) so that two files are keyed equal iff they share the same spec and
+     * partition tuple — mirroring legacy {@code IcebergScanNode}'s de-dup by
+     * {@code (PartitionData) file().partition()}, and disambiguating cross-spec value collisions
+     * (e.g. {@code identity(id)=2} vs {@code bucket(id)=2}) that the value-only json would merge.
+     * {@code IcebergScanPlanProvider} counts distinct non-null keys for {@code selectedPartitionNum}.
+     */
+    String getScannedPartitionKey() {
+        if (partitionDataJson == null) {
+            return null;
+        }
+        return partitionSpecId + "|" + partitionDataJson;
+    }
+
+    /**
      * Iceberg partition values always come from table/file metadata, never from a Hive-style
      * {@code key=value} directory layout, so the engine must NEVER fall back to path parsing for an iceberg
      * range. Returning {@code true} unconditionally makes {@code PluginDrivenSplit} map an empty identity map

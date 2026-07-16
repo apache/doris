@@ -67,11 +67,10 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.TablePartitionValues;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
@@ -125,8 +124,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -456,32 +453,36 @@ public class MetadataGenerator {
             return errorResult("The specified db or table does not exist");
         }
 
-        if (!(dorisTable instanceof HMSExternalTable)) {
-            return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
+        if (hudiQueryType != THudiQueryType.TIMELINE) {
+            return errorResult("Unsupported hudi inspect type: " + hudiQueryType);
         }
 
-        HMSExternalTable hudiTable = (HMSExternalTable) dorisTable;
-        List<TRow> dataBatch = Lists.newArrayList();
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-
-        switch (hudiQueryType) {
-            case TIMELINE:
-                HoodieTimeline timeline = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hudi(catalog.getId())
-                        .getHoodieTableMetaClient(hudiTable.getOrBuildNameMapping())
-                        .getActiveTimeline();
-                for (HoodieInstant instant : timeline.getInstants()) {
-                    TRow trow = new TRow();
-                    trow.addToColumnValue(new TCell().setStringVal(instant.requestedTime()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getAction()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getState().name()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getCompletionTime()));
-                    dataBatch.add(trow);
+        // A flipped hudi table is a PluginDrivenExternalTable served by its connector via the
+        // SUPPORTS_METADATA_TABLE SPI. Timeline iteration/parsing lives OUTSIDE this class, so
+        // MetadataGenerator no longer imports org.apache.hudi.
+        List<List<String>> timelineRows;
+        switch (dorisTable.getType()) {
+            case PLUGIN_EXTERNAL_TABLE: {
+                PluginDrivenExternalTable pluginTable = (PluginDrivenExternalTable) dorisTable;
+                if (!pluginTable.supportsMetadataTable()) {
+                    return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
                 }
+                timelineRows = pluginTable.getMetadataTableRows("timeline");
                 break;
+            }
             default:
-                return errorResult("Unsupported hudi inspect type: " + hudiQueryType);
+                return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
         }
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (List<String> row : timelineRows) {
+            TRow trow = new TRow();
+            for (String cell : row) {
+                trow.addToColumnValue(new TCell().setStringVal(cell));
+            }
+            dataBatch.add(trow);
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
@@ -1313,29 +1314,12 @@ public class MetadataGenerator {
             return dealInternalCatalog((Database) db, table);
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
             return dealPluginDrivenCatalog((PluginDrivenExternalCatalog) catalog, (ExternalTable) table);
-        } else if (catalog instanceof HMSExternalCatalog) {
-            return dealHMSCatalog((HMSExternalCatalog) catalog, (ExternalTable) table);
         }
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("partitionMetadataResult() end");
         }
         return errorResult("not support catalog: " + catalogName);
-    }
-
-    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, ExternalTable table) {
-        List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.getClient()
-                .listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
-        for (String partition : partitionNames) {
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(partition));
-            dataBatch.add(trow);
-        }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
     }
 
     private static TFetchSchemaTableDataResult dealPluginDrivenCatalog(PluginDrivenExternalCatalog catalog,
@@ -2088,8 +2072,8 @@ public class MetadataGenerator {
             TableIf table = PartitionValuesTableValuedFunction.analyzeAndGetTable(ctlName, dbName, tblName, false);
             TableType tableType = table.getType();
             switch (tableType) {
-                case HMS_EXTERNAL_TABLE:
-                    dataBatch = partitionValuesMetadataResultForHmsTable((HMSExternalTable) table,
+                case PLUGIN_EXTERNAL_TABLE:
+                    dataBatch = partitionValuesMetadataResultForPluginTable((PluginDrivenExternalTable) table,
                             params.getColumnsName());
                     break;
                 default:
@@ -2105,9 +2089,18 @@ public class MetadataGenerator {
         }
     }
 
-    private static List<TRow> partitionValuesMetadataResultForHmsTable(HMSExternalTable tbl, List<String> colNames)
-            throws AnalysisException {
-        List<Column> partitionCols = tbl.getPartitionColumns();
+    // A flipped hms table (and paimon/iceberg) is a PluginDrivenExternalTable, not an HMSExternalTable; the
+    // partition values come from the connector's listPartitions via the generic SPI, then feed the same row
+    // builder as the HMS path (identical typed-TCell rendering, including HIVE_DEFAULT_PARTITION -> NULL).
+    private static List<TRow> partitionValuesMetadataResultForPluginTable(PluginDrivenExternalTable tbl,
+            List<String> colNames) throws AnalysisException {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(tbl);
+        Map<String, List<String>> valuesMap = tbl.getNameToPartitionValues(snapshot);
+        return partitionValuesRows(tbl.getPartitionColumns(snapshot), colNames, valuesMap, tbl.getName());
+    }
+
+    private static List<TRow> partitionValuesRows(List<Column> partitionCols, List<String> colNames,
+            Map<String, List<String>> valuesMap, String tableName) throws AnalysisException {
         List<Integer> colIdxs = Lists.newArrayList();
         List<Type> types = Lists.newArrayList();
         for (String colName : colNames) {
@@ -2120,12 +2113,9 @@ public class MetadataGenerator {
         }
         if (colIdxs.size() != colNames.size()) {
             throw new AnalysisException(
-                    "column " + colNames + " does not match partition columns of table " + tbl.getName());
+                    "column " + colNames + " does not match partition columns of table " + tableName);
         }
 
-        HiveExternalMetaCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
-                MvccUtil.getSnapshotFromContext(tbl));
-        Map<String, List<String>> valuesMap = hivePartitionValues.getNameToPartitionValues();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<String, List<String>> entry : valuesMap.entrySet()) {
             TRow trow = new TRow();

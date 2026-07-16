@@ -180,7 +180,7 @@ public class PluginDrivenExternalTablePartitionTest {
                         new ConnectorColumn("REGION", ConnectorType.of("INT"), "", true, null),
                         new ConnectorColumn("VAL", ConnectorType.of("INT"), "", true, null)),
                 "max_compute",
-                Collections.singletonMap("partition_columns", "YEAR,REGION"));
+                Collections.singletonMap(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "YEAR,REGION"));
         Mockito.when(metadata.getTableSchema(session, handle)).thenReturn(tableSchema);
         // Identifier mapping lowercases the remote names (raw "YEAR" -> mapped "year").
         Mockito.when(metadata.fromRemoteColumnName(Mockito.eq(session), Mockito.anyString(),
@@ -229,13 +229,13 @@ public class PluginDrivenExternalTablePartitionTest {
 
     @Test
     public void testGetTablePropertiesStripsSchemaControlKeysButKeepsUserOptions() {
-        // The connector stuffs BOTH user-facing table options (path / file.format) AND the
-        // FE-internal schema-control keys (partition_columns / primary_keys) into one properties map.
+        // The connector stuffs BOTH user-facing table options (path / file.format) AND the FE-internal
+        // schema-control keys (reserved, namespaced under __internal.) into one properties map.
         Map<String, String> rawProps = new LinkedHashMap<>();
         rawProps.put("path", "s3://wh/db/t");
         rawProps.put("file.format", "orc");
-        rawProps.put("partition_columns", "dt");
-        rawProps.put("primary_keys", "id");
+        rawProps.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "dt");
+        rawProps.put(ConnectorTableSchema.PRIMARY_KEYS_KEY, "id");
         PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
                 Collections.singletonList(new Column("id", PrimitiveType.INT)),
                 Collections.emptyList(), Collections.emptyList(), rawProps);
@@ -243,16 +243,16 @@ public class PluginDrivenExternalTablePartitionTest {
 
         Map<String, String> props = table.getTableProperties();
         // WHY (D-046): SHOW CREATE TABLE's LOCATION reads "path" and PROPERTIES(...) dumps this map.
-        // The user-facing options MUST survive, but the FE-internal control keys MUST be stripped —
+        // The user-facing options MUST survive, but the FE-internal reserved keys MUST be stripped —
         // they are emitted only so initSchema() can derive partition columns and would corrupt the
-        // round-tripped DDL. MUTATION: dropping the filter -> partition_columns/primary_keys leak ->
+        // round-tripped DDL. MUTATION: dropping the filter -> the reserved keys leak ->
         // red; over-filtering (removing "path") -> LOCATION renders empty -> red.
         Assertions.assertEquals("s3://wh/db/t", props.get("path"));
         Assertions.assertEquals("orc", props.get("file.format"));
-        Assertions.assertFalse(props.containsKey("partition_columns"),
-                "partition_columns is an FE-internal control key, must not appear in SHOW CREATE PROPERTIES");
-        Assertions.assertFalse(props.containsKey("primary_keys"),
-                "primary_keys is an FE-internal control key, must not appear in SHOW CREATE PROPERTIES");
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "the reserved partition-columns key must not appear in SHOW CREATE PROPERTIES");
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.PRIMARY_KEYS_KEY),
+                "the reserved primary-keys key must not appear in SHOW CREATE PROPERTIES");
     }
 
     @Test

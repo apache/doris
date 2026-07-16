@@ -51,6 +51,13 @@ public final class ConnectorColumn {
     // _last_updated_sequence_number=2147483539, matched by field id BE-side). Defaults UNSET_UNIQUE_ID (-1),
     // leaving the Doris default untouched; set via withUniqueId().
     private final int uniqueId;
+    // Marks a connector-reserved passthrough column: a synthetic column whose identity the ENGINE must
+    // recognize generically (without knowing the connector's column names) — e.g. iceberg v3 row-lineage
+    // (_row_id / _last_updated_sequence_number), which fe-core MERGE/UPDATE must pass through rather than treat
+    // as user data. fe-core's ConnectorColumnConverter re-applies it via Column.setReservedPassthrough(true);
+    // engine consumers then ask Column.isReservedPassthrough() instead of string-matching source column names.
+    // Defaults false; set via reservedPassthrough().
+    private final boolean reservedPassthrough;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -71,12 +78,13 @@ public final class ConnectorColumn {
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated) {
         this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false, true,
-                UNSET_UNIQUE_ID);
+                UNSET_UNIQUE_ID, false);
     }
 
     private ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
-            boolean isAggregated, boolean withTimeZone, boolean visible, int uniqueId) {
+            boolean isAggregated, boolean withTimeZone, boolean visible, int uniqueId,
+            boolean reservedPassthrough) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
@@ -88,6 +96,7 @@ public final class ConnectorColumn {
         this.withTimeZone = withTimeZone;
         this.visible = visible;
         this.uniqueId = uniqueId;
+        this.reservedPassthrough = reservedPassthrough;
     }
 
     /**
@@ -97,7 +106,7 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn withTimeZone() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, true, visible, uniqueId);
+                isKey, isAutoInc, isAggregated, true, visible, uniqueId, reservedPassthrough);
     }
 
     /**
@@ -106,7 +115,18 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn invisible() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, withTimeZone, false, uniqueId);
+                isKey, isAutoInc, isAggregated, withTimeZone, false, uniqueId, reservedPassthrough);
+    }
+
+    /**
+     * Returns a copy of this column marked as a connector-reserved passthrough column. See
+     * {@link #isReservedPassthrough()}; the converter re-applies it via {@code Column.setReservedPassthrough(true)}
+     * so the engine can recognize a synthetic column (iceberg v3 row-lineage) generically, without knowing its
+     * source name.
+     */
+    public ConnectorColumn reservedPassthrough() {
+        return new ConnectorColumn(name, type, comment, nullable, defaultValue,
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, true);
     }
 
     /**
@@ -117,7 +137,7 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn withUniqueId(int uniqueId) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId);
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough);
     }
 
     public String getName() {
@@ -164,6 +184,10 @@ public final class ConnectorColumn {
         return uniqueId;
     }
 
+    public boolean isReservedPassthrough() {
+        return reservedPassthrough;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -180,6 +204,7 @@ public final class ConnectorColumn {
                 && withTimeZone == that.withTimeZone
                 && visible == that.visible
                 && uniqueId == that.uniqueId
+                && reservedPassthrough == that.reservedPassthrough
                 && name.equals(that.name)
                 && type.equals(that.type)
                 && Objects.equals(comment, that.comment)
@@ -189,7 +214,7 @@ public final class ConnectorColumn {
     @Override
     public int hashCode() {
         return Objects.hash(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated,
-                withTimeZone, visible, uniqueId);
+                withTimeZone, visible, uniqueId, reservedPassthrough);
     }
 
     @Override

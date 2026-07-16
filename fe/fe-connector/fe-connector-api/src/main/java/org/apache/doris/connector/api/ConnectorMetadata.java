@@ -20,13 +20,17 @@ package org.apache.doris.connector.api;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -87,6 +91,43 @@ public interface ConnectorMetadata extends
     }
 
     /**
+     * Whole-table MTMV freshness for a connector whose table-level change signal is a last-modified
+     * TIMESTAMP rather than a snapshot id (e.g. hive: {@code transient_lastDdlTime} / the max partition
+     * modify time). The generic model wraps the result in an {@code MTMVMaxTimestampSnapshot} table snapshot.
+     *
+     * <p><b>Consulted ONLY when the query-begin pin's {@link ConnectorMvccSnapshot#isLastModifiedFreshness()}
+     * is set</b> — i.e. a last-modified connector, which the generic model reads off the pin it already holds.
+     * A snapshot-id connector (paimon/iceberg) leaves the pin flag false, so this is NEVER called for it and it
+     * pays ZERO extra metadata round-trips. And it is on the MTMV refresh path, never the scan hot path — so a
+     * partitioned last-modified connector may pay a {@code get_partitions_by_names} round-trip here (mirroring
+     * legacy, which fetched per-partition modify time only at refresh time) without regressing queries.</p>
+     *
+     * <p>The default returns empty: a connector that sets the pin flag MUST override this.</p>
+     */
+    default Optional<ConnectorTableFreshness> getTableFreshness(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Per-partition last-modified millis for a last-modified connector, wrapped by the generic model in an
+     * {@code MTMVTimestampSnapshot}. Fetched on the MTMV refresh path only — a last-modified connector's
+     * {@code listPartitions} is names-only on the scan hot path (its per-partition {@code lastModifiedMillis}
+     * stays {@code -1}), so the real time is fetched here on demand instead.
+     *
+     * <p><b>Consulted ONLY when the query-begin pin's {@link ConnectorMvccSnapshot#isLastModifiedFreshness()}
+     * is set</b> (a snapshot-id connector never reaches here — zero extra round-trips). fe-core validates the
+     * partition exists in the materialized set BEFORE calling this; an {@code empty} return therefore means the
+     * partition VANISHED between the materialize and this fetch (a refresh-time race), and fe-core raises the
+     * legacy "can not find partition" error. The default returns empty: a last-modified connector MUST
+     * override it.</p>
+     */
+    default OptionalLong getPartitionFreshnessMillis(
+            ConnectorSession session, ConnectorTableHandle handle, String partitionName) {
+        return OptionalLong.empty();
+    }
+
+    /**
      * Resolves an explicit time-travel spec (extracted from {@code FOR TIME AS OF} /
      * {@code FOR VERSION AS OF}, or the {@code @tag} / {@code @branch} / {@code @incr}
      * scan params) into a pinned snapshot.
@@ -123,6 +164,27 @@ public interface ConnectorMetadata extends
     default ConnectorTableHandle applySnapshot(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         return handle;  // default: connectors without time-travel ignore the pin
+    }
+
+    /**
+     * Returns extra scan-level predicates the engine MUST apply for {@code handle} at the pinned
+     * {@code snapshot} — a connector "residual predicate" the read cannot enforce by file selection alone.
+     * The canonical case is an incremental / CDC commit-time window: a rewritten base file also carries
+     * forward out-of-window rows, so a ROW-LEVEL commit-time filter is required for correctness. The engine
+     * reverse-converts each returned {@link ConnectorExpression} into its native predicate and wraps a filter
+     * over the scan, binding column references to the connector's own (visible) output columns by name.
+     *
+     * <p>The predicate is expressed in the connector-neutral {@link ConnectorExpression} pushdown grammar,
+     * NOT a source-specific shape — the engine NEVER discriminates by connector here; it applies whatever the
+     * connector returns. This mirrors the engine-agnostic residual-predicate model.</p>
+     *
+     * <p>The default returns an EMPTY list: a connector with no synthetic scan predicate adds nothing, so the
+     * plan is byte-identical. iceberg/paimon/jdbc/... inherit this empty default; only a connector that opts in
+     * (e.g. hudi incremental read) returns a non-empty list, and only for the scans that need it.</p>
+     */
+    default List<ConnectorExpression> getSyntheticScanPredicates(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        return List.of();  // default: connectors without a residual scan predicate add nothing
     }
 
     /**
@@ -164,6 +226,22 @@ public interface ConnectorMetadata extends
     default ConnectorTableHandle applyTopnLazyMaterialization(ConnectorSession session,
             ConnectorTableHandle handle) {
         return handle;  // default: connectors without column-pruned scan metadata ignore the signal
+    }
+
+    /**
+     * Engine-neutral rows for a connector metadata table (e.g. the hudi commit timeline), one row per record in
+     * the fixed column order the table-valued function declares. The TVF owns the column schema; the connector
+     * returns only the {@code String} cell values in that order (a {@code null} cell renders as SQL NULL).
+     * {@code kind} selects the metadata table (currently only {@code "timeline"}).
+     *
+     * <p>Default empty: a connector without a metadata table returns nothing. The plugin-driven TVF arm gates on
+     * {@link ConnectorCapability#SUPPORTS_METADATA_TABLE} before delegating here, so only a connector that
+     * declares the capability is ever asked. Connectors overriding this that read remote metadata off the
+     * planning thread must pin the TCCL to the plugin classloader themselves (fe-core does not).</p>
+     */
+    default List<List<String>> getMetadataTableRows(ConnectorSession session, ConnectorTableHandle handle,
+            String kind) {
+        return Collections.emptyList();
     }
 
     @Override

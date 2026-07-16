@@ -38,12 +38,13 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
-import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
+import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
@@ -268,10 +269,22 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             String partitionName = part.getPartitionName();
             nameToLastModifiedMillis.put(partitionName, part.getLastModifiedMillis());
             try {
-                // The connector already renders values (incl. dates) into getPartitionName(), so
-                // building from the rendered name is byte-parity with legacy. Partition values may be
-                // malformed; catch to avoid affecting the query (parity generatePartitionInfo).
-                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, types));
+                // The connector supplies the parsed values in name-segment order; building from them is
+                // byte-parity with legacy. Two shapes are tolerated by skipping the partition rather than
+                // failing the whole query (parity PaimonUtil.generatePartitionInfo):
+                //   - a value that is un-representable in its column type;
+                //   - a value/column count mismatch, which is LEGITIMATE under iceberg partition spec
+                //     evolution: the column list comes from the CURRENT spec while each row's values come
+                //     from the spec its data file was written under, so rows written before an
+                //     ADD/DROP PARTITION FIELD carry fewer values (a table that began life unpartitioned
+                //     carries none). Skipping leaves the built-item set short of the listed-name set,
+                //     which isPartitionInvalid turns into UNPARTITIONED: the query still returns correct
+                //     rows, it only loses partition pruning. Do NOT hoist this check out of the catch to
+                //     "fail loud" — that was tried (cfb0958e607) and every real-world hit was a legitimate
+                //     spec evolution, not a mis-wired connector, taking down 6 suites (CI 996541).
+                nameToPartitionItem.put(partitionName,
+                        toListPartitionItem(partitionName, types,
+                                part.getOrderedPartitionValues(), part.getPartitionValueNullFlags()));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
                         partitionColumns, partitionName, e);
@@ -284,28 +297,38 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     /**
-     * Builds a {@link ListPartitionItem} from a RENDERED partition name (e.g. {@code "dt=2024-01-01"}).
-     * Copied verbatim from legacy {@code PaimonUtil.toListPartitionItem}; it is source-agnostic.
+     * Builds a {@link ListPartitionItem} from a RENDERED partition name (e.g. {@code "dt=2024-01-01"}) and the
+     * connector-supplied per-value SQL-NULL flags. Source-agnostic: the connector — not fe-core — decides which
+     * values are genuine NULL.
+     *
+     * <p>Each parsed value {@code i} builds {@code new PartitionValue(value, nullFlags.get(i))}. A connector that
+     * renders a genuine-NULL partition value (hive's {@code __HIVE_DEFAULT_PARTITION__}, paimon's
+     * {@code partition.default-name}) supplies {@code true} for that position, so
+     * {@link PartitionKey#createListPartitionKeyWithTypes} emits a typed {@code NullLiteral} instead of parsing
+     * the sentinel string into the column type — which for a non-string column (INT/DATE/...) would throw and
+     * silently drop the partition (table then mis-reported UNPARTITIONED, {@code partition=0/0}). The genuine-null
+     * partition then prunes on {@code col IS NULL} and an MTMV refresh materializes its null rows. A connector
+     * that supplies no flags ({@code nullFlags} empty) treats every value as non-null — unchanged behavior for
+     * connectors that do not opt in. {@code fe-core} never string-compares a sentinel (iron rule): hive and paimon
+     * render the identical {@code __HIVE_DEFAULT_PARTITION__} string with connector-specific NULL semantics, so
+     * nullness must be connector-supplied.
      */
-    private static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types)
-            throws AnalysisException {
-        // Partition name will be in format: nation=cn/city=beijing
-        // parse it to get values "cn" and "beijing"
-        List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
+    private static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types,
+            List<String> connectorValues, List<Boolean> nullFlags) throws AnalysisException {
+        // The connector supplies the already-parsed values in name-segment order (hive/paimon/iceberg/hudi).
+        // There is no name-parsing fallback anymore. This size check is LOAD-BEARING, not defensive: it is
+        // what turns a heterogeneous-arity partition (legitimate under iceberg partition spec evolution)
+        // into the skip -> UNPARTITIONED degrade. The caller relies on it throwing INSIDE its try/catch.
+        List<String> partitionValues = connectorValues;
         Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
+        // Fail loud: a connector that opts in MUST supply one flag per value; a short list would silently
+        // default the tail to isNull=false and re-introduce the drop bug. Empty = not opted in = OK.
+        Preconditions.checkState(nullFlags.isEmpty() || nullFlags.size() == types.size(),
+                "nullFlags " + nullFlags + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
-        for (String partitionValue : partitionValues) {
-            // Master parity (PaimonUtil.toListPartitionItem: `new PartitionValue(value, false)`): every
-            // partition value — including a genuine-NULL value the connector rendered via its sentinel
-            // (e.g. paimon's partition.default-name normalized to __HIVE_DEFAULT_PARTITION__) — builds a
-            // NON-null (isNull=false) partition value. So the genuine-null partition is a plain
-            // StringLiteral; an MTMV refresh emits `col IN ('<sentinel>')` which the scan's genuine SQL-NULL
-            // rows never match (the null rows are dropped from the MV, like master), and its MTMV name is
-            // derived from the sentinel (distinct from a literal 'NULL' partition — no p_NULL collision).
-            // `col IS NULL` still returns the genuine-null rows: the paimon scan is predicate-driven and the
-            // connector opts out of the FE prune-to-zero short-circuit (see Connector capability consulted by
-            // PluginDrivenScanNode.resolveRequiredPartitions), so the SDK re-plans with the pushed predicate.
-            values.add(new PartitionValue(partitionValue, false));
+        for (int i = 0; i < partitionValues.size(); i++) {
+            boolean isNull = i < nullFlags.size() && nullFlags.get(i);
+            values.add(new PartitionValue(partitionValues.get(i), isNull));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         return new ListPartitionItem(Lists.newArrayList(key));
@@ -465,16 +488,38 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     // ──────────────────── schema (snapshot-aware) ────────────────────
 
     /**
-     * Returns the schema AS OF the context-pinned snapshot when an explicit time-travel pin carries a
-     * pinned schema (schema-at-snapshot under schema evolution), else the latest schema. Parity with
-     * legacy {@code PaimonExternalTable.getSchemaCacheValue}, which returns the schema of the
-     * context-pinned snapshot.
+     * Returns the schema AS OF the snapshot resolved from the AMBIENT context, else the latest schema.
+     *
+     * <p>Version-BLIND: it asks the statement "what is pinned for this table?" without saying WHICH
+     * reference is asking, so a statement pinning this table at two versions (e.g. a self-join of two
+     * {@code @tag} references) cannot be disambiguated and degrades to LATEST here — a schema no reference
+     * asked for. Correct only for statement-global callers (MTMV refresh, preload, the write sink) that
+     * genuinely have no reference to speak of. <b>The plan path must call {@link #getSchemaCacheValue(
+     * Optional)} with the reference's own pin instead.</b>
      */
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        Optional<MvccSnapshot> ctx = MvccUtil.getSnapshotFromContext(this);
-        if (ctx.isPresent() && ctx.get() instanceof PluginDrivenMvccSnapshot) {
-            SchemaCacheValue pinned = ((PluginDrivenMvccSnapshot) ctx.get()).getPinnedSchema();
+        return schemaAt(MvccUtil.getSnapshotFromContext(this));
+    }
+
+    /**
+     * Returns the schema AS OF {@code snapshot} — the pin resolved for ONE specific table reference — when
+     * it carries a pinned schema (schema-at-snapshot under schema evolution), else the latest schema.
+     * Parity with legacy {@code PaimonExternalTable.getSchemaCacheValue}, which returns the schema of the
+     * context-pinned snapshot.
+     *
+     * <p>Deliberately NOT delegated to/from the no-arg override: an empty {@code snapshot} means "this
+     * reference has no pin" (=> latest), whereas the no-arg form means "resolve from the ambient context".
+     * They are siblings; collapsing them would strip ambient resolution from the statement-global callers.
+     */
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        return schemaAt(snapshot);
+    }
+
+    private Optional<SchemaCacheValue> schemaAt(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            SchemaCacheValue pinned = ((PluginDrivenMvccSnapshot) snapshot.get()).getPinnedSchema();
             if (pinned != null) {
                 return Optional.of(pinned);     // time-travel: schema AS OF the pinned snapshot
             }
@@ -557,11 +602,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (pin.getPartitionType() != null) {
             // Range-view path: do NOT empty the columns here (parity master getIcebergPartitionColumns, which
             // always returns the spec columns); UNPARTITIONED is enforced via getPartitionType above.
-            return super.getPartitionColumns();
+            return super.getPartitionColumns(snapshot);
         }
         // Legacy empties the partition columns on an invalid partition set so the table is treated
         // as UNPARTITIONED everywhere downstream.
-        return pin.isPartitionInvalid() ? Collections.emptyList() : super.getPartitionColumns();
+        return pin.isPartitionInvalid() ? Collections.emptyList() : super.getPartitionColumns(snapshot);
     }
 
     @Override
@@ -580,13 +625,29 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (value == null) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
-        // Range-view path with snapshot-id freshness pins the per-partition snapshot id (parity master
-        // IcebergExternalTable.getPartitionSnapshot -> MTMVSnapshotIdSnapshot). The connector pre-resolved the
-        // `<= 0 -> table snapshot id` fallback, so a non-empty table never carries a non-positive value here.
-        // The legacy path keeps the last-modified-millis timestamp (paimon parity).
-        return pin.isSnapshotIdFreshness()
-                ? new MTMVSnapshotIdSnapshot(value)
-                : new MTMVTimestampSnapshot(value);
+        if (pin.isSnapshotIdFreshness()) {
+            // Range-view path with snapshot-id freshness pins the per-partition snapshot id (parity master
+            // IcebergExternalTable.getPartitionSnapshot -> MTMVSnapshotIdSnapshot). The connector pre-resolved
+            // the `<= 0 -> table snapshot id` fallback, so a non-empty table never carries a non-positive value.
+            return new MTMVSnapshotIdSnapshot(value);
+        }
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            // Last-modified connector (e.g. hive): the REAL per-partition modify time is not in the pin — the
+            // connector's listPartitions is names-only on the scan hot path (pin value is the -1 sentinel) — so
+            // fetch it on demand here, on the MTMV refresh path only (parity legacy HiveDlaTable
+            // .getPartitionSnapshot -> MTMVTimestampSnapshot(partition.getLastModifiedTime())). The pin flag
+            // gates this, so a snapshot-id connector (paimon/iceberg) NEVER reaches the probe. An empty return
+            // means the partition vanished after the materialize-time existence check above (a refresh-time
+            // race): raise the legacy "can not find partition" (parity checkPartitionExists).
+            OptionalLong onDemand = queryPartitionFreshnessMillis(partitionName);
+            if (!onDemand.isPresent()) {
+                throw new AnalysisException("can not find partition: " + partitionName);
+            }
+            return new MTMVTimestampSnapshot(onDemand.getAsLong());
+        }
+        // Pin-timestamp connector (paimon): the pin's per-partition last-modified millis is authoritative
+        // (byte-unchanged — no probe).
+        return new MTMVTimestampSnapshot(value);
     }
 
     @Override
@@ -597,7 +658,84 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        return new MTMVSnapshotIdSnapshot(getOrMaterialize(snapshot).getConnectorSnapshot().getSnapshotId());
+        // Freshness-kind-aware (mirrors getPartitionSnapshot), gated by the pin fe-core already holds so a
+        // snapshot-id connector pays ZERO extra metadata calls. A last-modified connector (e.g. hive, whose
+        // whole-table change signal is transient_lastDdlTime / the max partition modify time, NOT a snapshot
+        // id) flags the query-begin pin; fe-core then wraps getTableFreshness into an MTMVMaxTimestampSnapshot
+        // (byte-parity with legacy HiveDlaTable.getTableSnapshot). WITHOUT this a plain-hive empty pin's
+        // snapshot id is a constant -1, so an MV over a hive base table would never detect change. A snapshot-id
+        // connector (paimon/iceberg) leaves the flag false and keeps the snapshot-id table snapshot, taking the
+        // EXACT pre-change path (getOrMaterialize was already required for the id — no added round-trip).
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            Optional<ConnectorTableFreshness> tableFreshness = queryTableFreshness();
+            if (tableFreshness.isPresent()) {
+                return new MTMVMaxTimestampSnapshot(tableFreshness.get().getName(),
+                        tableFreshness.get().getTimestampMillis());
+            }
+        }
+        return new MTMVSnapshotIdSnapshot(pin.getConnectorSnapshot().getSnapshotId());
+    }
+
+    // ──────────────────── on-demand freshness (last-modified connectors) ────────────────────
+
+    /**
+     * Whole-table freshness from a last-modified connector (present only for e.g. hive), or empty for a
+     * snapshot-id connector / a dropped catalog/table. See {@link ConnectorMetadata#getTableFreshness}.
+     */
+    private Optional<ConnectorTableFreshness> queryTableFreshness() {
+        Optional<FreshnessProbe> probe = resolveFreshnessProbe();
+        if (!probe.isPresent()) {
+            return Optional.empty();
+        }
+        FreshnessProbe p = probe.get();
+        return p.metadata.getTableFreshness(p.session, p.handle);
+    }
+
+    /**
+     * Per-partition last-modified millis from a last-modified connector (present only for e.g. hive), or
+     * empty for a snapshot-id connector / a dropped catalog/table. See
+     * {@link ConnectorMetadata#getPartitionFreshnessMillis}.
+     */
+    private OptionalLong queryPartitionFreshnessMillis(String partitionName) {
+        Optional<FreshnessProbe> probe = resolveFreshnessProbe();
+        if (!probe.isPresent()) {
+            return OptionalLong.empty();
+        }
+        FreshnessProbe p = probe.get();
+        return p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionName);
+    }
+
+    /**
+     * Resolves (session, metadata, handle) for an on-demand freshness probe, or empty when the catalog/table
+     * is gone (degrade to the snapshot-id / pin path). Unlike {@link #materializeLatest} this lists NOTHING
+     * and pins NOTHING — a last-modified connector fetches only the freshness it needs, off the scan hot path.
+     */
+    private Optional<FreshnessProbe> resolveFreshnessProbe() {
+        makeSureInitialized();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        return handleOpt.map(handle -> new FreshnessProbe(session, metadata, handle));
+    }
+
+    /** Bundles the (session, metadata, handle) an on-demand freshness probe needs. */
+    private static final class FreshnessProbe {
+        private final ConnectorSession session;
+        private final ConnectorMetadata metadata;
+        private final ConnectorTableHandle handle;
+
+        private FreshnessProbe(ConnectorSession session, ConnectorMetadata metadata,
+                ConnectorTableHandle handle) {
+            this.session = session;
+            this.metadata = metadata;
+            this.handle = handle;
+        }
     }
 
     @Override
@@ -605,6 +743,18 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // Dictionary-update path: always probe LATEST (bypass any context pin), mirroring legacy
         // which passes empty/empty to force a fresh listing.
         PluginDrivenMvccSnapshot pin = materializeLatest();
+        // Last-modified connector (e.g. hive): the whole-table newest-change signal is a modify TIMESTAMP
+        // (transient_lastDdlTime / the max partition modify time), NOT the partition listing — which for hive is
+        // names-only, so every nameToLastModifiedMillis below is -1, gets filtered, and collapses to a CONSTANT 0.
+        // That constant would make Dictionary.hasNewerSourceVersion compare equal forever, so a SQL dictionary / MV
+        // over a hive base table would NEVER auto-refresh. Mirror getTableSnapshot: when the pin flags last-modified
+        // freshness, return the connector's whole-table freshness millis (cache-backed getTableFreshness, so the
+        // periodic dictionary poll stays cheap), else 0 (dropped catalog/table or a genuinely empty partition set —
+        // parity legacy). A snapshot-id connector (paimon/iceberg) leaves the flag false and takes the EXACT
+        // pre-change path below: a single boolean read, zero added metadata calls — byte- and cost-neutral.
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            return queryTableFreshness().map(ConnectorTableFreshness::getTimestampMillis).orElse(0L);
+        }
         if (pin.getPartitionType() != null) {
             // Range-view path: nameToLastModifiedMillis holds (non-monotonic) snapshot ids, NOT a usable
             // change marker. Use the connector-supplied newest-update-time, which IS monotonic (parity master

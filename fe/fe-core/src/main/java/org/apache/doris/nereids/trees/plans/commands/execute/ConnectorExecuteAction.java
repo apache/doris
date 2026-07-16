@@ -74,9 +74,12 @@ import java.util.Optional;
  * unchecked {@link DorisConnectorException}; this adapter converts it to a {@code UserException} so
  * {@code ExecuteActionCommand.run()} re-wraps it with the legacy {@code "Failed to execute action:"} prefix.</p>
  *
- * <p><b>Dormant pre-cutover.</b> Iceberg tables are {@code IcebergExternalTable} (not
- * {@code PluginDrivenExternalTable}) until they enter {@code SPI_READY_TYPES} at P6.6, so this adapter is
- * never constructed pre-flip — live {@code ALTER TABLE EXECUTE} still routes to the legacy fe-core actions.</p>
+ * <p><b>Live for the flipped SPI catalogs; per-handle for a gateway.</b> Iceberg and paimon are already in
+ * {@code SPI_READY_TYPES}, so their tables are {@code PluginDrivenExternalTable}s and {@code ALTER TABLE EXECUTE}
+ * on them routes through this adapter today. Procedure ops are selected {@link Connector#getProcedureOps(
+ * org.apache.doris.connector.api.handle.ConnectorTableHandle) per-handle}: a single-format connector just returns
+ * its connector-level ops, but a flipped {@code hms} gateway (still dormant — not yet in {@code SPI_READY_TYPES})
+ * exposes none at the connector level and diverts a foreign iceberg-on-HMS handle to its iceberg sibling.</p>
  */
 public class ConnectorExecuteAction implements ExecuteAction {
 
@@ -113,7 +116,22 @@ public class ConnectorExecuteAction implements ExecuteAction {
     public ResultSet execute(TableIf ignored) throws UserException {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         Connector connector = catalog.getConnector();
-        ConnectorProcedureOps procedureOps = connector.getProcedureOps();
+
+        // Resolve the connector session + the target table handle FIRST, so procedure-ops selection is
+        // PER-HANDLE. A single-format connector's per-handle getProcedureOps(handle) just returns its
+        // connector-level ops, but a flipped hms GATEWAY exposes no connector-level procedures
+        // (getProcedureOps() == null) while its iceberg-on-HMS tables do — getProcedureOps(handle) diverts a
+        // foreign handle to the iceberg sibling, and a plain-hive handle keeps the null. Both dispatch arms
+        // (single-call and distributed) also need the session/handle. Resolving the handle first means a bad
+        // table name now surfaces "Table not found" before "does not support EXECUTE".
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle tableHandle = metadata
+                .getTableHandle(session, table.getRemoteDbName(), table.getRemoteName())
+                .orElseThrow(() -> new AnalysisException("Table not found: " + table.getRemoteDbName()
+                        + "." + table.getRemoteName() + " in catalog " + catalog.getName()));
+
+        ConnectorProcedureOps procedureOps = connector.getProcedureOps(tableHandle);
         if (procedureOps == null) {
             throw new DdlException("Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                     + ") does not support EXECUTE actions");
@@ -129,14 +147,6 @@ public class ConnectorExecuteAction implements ExecuteAction {
             throw new DdlException("WHERE condition is not supported for this EXECUTE action");
         }
 
-        // Resolve the shared connector prerequisites — both dispatch arms (single-call and distributed) need
-        // the session, the resolved table handle and the partition names.
-        ConnectorSession session = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
-        ConnectorTableHandle tableHandle = metadata
-                .getTableHandle(session, table.getRemoteDbName(), table.getRemoteName())
-                .orElseThrow(() -> new AnalysisException("Table not found: " + table.getRemoteDbName()
-                        + "." + table.getRemoteName() + " in catalog " + catalog.getName()));
         List<String> partitionNames = partitionNamesInfo
                 .map(PartitionNamesInfo::getPartitionNames).orElse(Collections.emptyList());
 

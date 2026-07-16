@@ -298,6 +298,38 @@ public class PaimonConnectorMetadataPartitionTest {
     }
 
     @Test
+    public void nullPartitionSuppliesNullFlagTrue() {
+        // Variant B: paimon adopts genuine-NULL semantics. Its genuine-NULL partition value (rendered as the
+        // Doris-canonical sentinel in the NAME) must ALSO carry isNull=true in the connector-supplied flag, so
+        // the FE bridge builds a typed NullLiteral (not a StringLiteral). This realizes the connector's stated
+        // intent: `category IS NULL` prunes to the null partition and an MTMV refresh materializes the null rows.
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", categoryRowType(), Collections.singletonList("category"), Collections.emptyList());
+        table.setOptions(Collections.singletonMap("partition.legacy-name", "true"));
+        ops.table = table;
+        Map<String, String> nullSpec = new LinkedHashMap<>();
+        nullSpec.put("category", "__DEFAULT_PARTITION__");
+        Map<String, String> literalSpec = new LinkedHashMap<>();
+        literalSpec.put("category", "bj");
+        ops.partitions = Arrays.asList(
+                partition(nullSpec, 1L, 1L, 1L),
+                partition(literalSpec, 1L, 1L, 1L));
+
+        List<ConnectorPartitionInfo> infos =
+                metadataWith(ops).listPartitions(null, categoryHandle(table), Optional.empty());
+
+        // MUTATION: leaving paimon's flag false (pre-B parity) -> the null partition stays a StringLiteral -> red.
+        Assertions.assertEquals(Collections.singletonList(true),
+                infos.get(0).getPartitionValueNullFlags(), "genuine-null partition -> isNull flag true");
+        Assertions.assertEquals(Collections.singletonList(false),
+                infos.get(1).getPartitionValueNullFlags(), "ordinary value -> isNull flag false");
+        // The name is still normalized to the sentinel (partition-name identity preserved).
+        Assertions.assertEquals("category=" + ConnectorPartitionValues.HIVE_DEFAULT_PARTITION,
+                infos.get(0).getPartitionName());
+    }
+
+    @Test
     public void nonPartitionedHandleReturnsEmptyWithoutSeamCall() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(

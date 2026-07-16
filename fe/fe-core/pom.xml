@@ -214,7 +214,10 @@ under the License.
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
-        <!-- Runtime-only: hive-catalog-shade's HiveConf needs org.apache.commons.lang.StringUtils.
+        <!-- Runtime-only: hadoop-huaweicloud's OBSFileSystem (reflection-loaded, so no compile-time
+             reference reveals this) and bce-java-sdk both call org.apache.commons.lang.StringUtils
+             while declaring no commons-lang of their own. This declaration is its only source on the
+             FE classpath; dropping it compiles green and then NoClassDefFoundErrors on OBS access.
              scope=runtime keeps it off the compile classpath, so fe source stays commons-lang(2.x)-free. -->
         <dependency>
             <groupId>commons-lang</groupId>
@@ -282,6 +285,35 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Used directly by org.apache.doris.scheduler.disruptor.*; until the hudi-common removal
+             it only arrived transitively. Version from the parent's dependencyManagement. -->
+        <dependency>
+            <groupId>com.lmax</groupId>
+            <artifactId>disruptor</artifactId>
+        </dependency>
+        <!-- Used directly by fe source (@Nullable/@NotNull); until the hudi-common removal it only
+             arrived transitively, and dropping the declaration would silently drift the version to
+             whatever else on the graph happens to win mediation. -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+        </dependency>
+        <!-- Caffeine: used directly by the FE caches (MetaCache, StatisticsCache, FileSystemCache,
+             ExternalRowCountCache, ...). Version comes from the spring-boot-dependencies BOM (3.2.3).
+             It used to arrive transitively via hudi-common, and hive-catalog-shade's bundled
+             unrelocated Caffeine 2.x shadowed it at runtime; both are gone, so declare it directly. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+        <!-- Provides the org.json API (JSONObject/JSONArray) that fe source uses directly.
+             Open JSON is the Apache-2.0 clean-room implementation; the org.json:json reference
+             implementation must not be used (its license is ASF category X, which is why the
+             parent pom excludes it from hadoop-cos). -->
+        <dependency>
+            <groupId>com.tdunning</groupId>
+            <artifactId>json</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
@@ -338,19 +370,11 @@ under the License.
         </dependency>
         <dependency>
             <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-glue</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-dynamodb</artifactId>
         </dependency>
         <dependency>
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-logs</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-sts</artifactId>
         </dependency>
         <!-- hadoop-huaweicloud provides OBSFileSystem; loaded via reflection in OBSProperties
              with graceful S3A fallback — runtime only, not needed at compile time -->
@@ -413,7 +437,9 @@ under the License.
             <groupId>com.ibm.icu</groupId>
             <artifactId>icu4j</artifactId>
         </dependency>
-        <!-- Fix it-->
+        <!-- Must stay: the parent pom declares awaitility test-scoped, so this scope-less
+             redeclaration is what keeps it on fe-core's compile classpath for
+             InsertOverwriteTableCommand. Do not delete as a "duplicate of the parent". -->
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
@@ -434,9 +460,22 @@ under the License.
             <groupId>com.google.flatbuffers</groupId>
             <artifactId>flatbuffers-java</artifactId>
         </dependency>
+        <!-- Runtime-only: the FE half of the Hive-UDF-compat shipping contract, and the mirror of
+             be-java-extensions/java-udf, which bundles the same base classes so BE can execute such
+             UDFs. CreateFunctionCommand validates a user JAVA_UDF jar by loading its symbol class in
+             a throwaway URLClassLoader parented to the FE app classloader; deriving a class resolves
+             its supertypes, so a symbol extending org.apache.hadoop.hive.ql.exec.UDF fails CREATE
+             FUNCTION unless fe/lib carries that base class. Nothing in fe source references hive:
+             scope=runtime keeps it off the compile classpath, so fe-core source stays hive-free.
+             This is a UDF-engine dependency, not a catalog one. It is declared here because it was
+             previously satisfied only by accident, as a passenger inside the hive-catalog-shade
+             uber-jar; no compile-time reference reveals it, so removing that jar compiled green and
+             broke CREATE FUNCTION for every hive-derived UDF at runtime. -->
         <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <classifier>core</classifier>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
@@ -591,17 +630,6 @@ under the License.
             <artifactId>avro</artifactId>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
-        <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-common</artifactId>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
-        <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-hadoop-mr</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-avro</artifactId>
@@ -764,22 +792,18 @@ under the License.
             <scope>test</scope>
         </dependency>
         <!-- fastutil-core: fastutil used directly by FE catalog/tablet-index code
-             (e.g. Long2ObjectOpenHashMap). hive-catalog-shade bundles an ancient, unrelocated
-             fastutil (6.5.6) that collides on the classpath; the maven-shade-plugin below
-             bundles this real fastutil-core into doris-fe.jar (pinned first on the FE classpath
-             by bin/start_fe.sh), so the correct class wins. -->
+             (e.g. Long2ObjectOpenHashMap). This used to need a maven-shade-plugin execution that
+             bundled it into doris-fe.jar (pinned first on the FE classpath by bin/start_fe.sh),
+             because hive-catalog-shade bundled an ancient unrelocated fastutil (6.5.6) whose
+             Long2ObjectOpenHashMap lacks computeIfAbsent. That jar is gone, so the override is
+             gone with it. A full fastutil (via fe-common -> trino-main) still shares the
+             classpath, but it carries the same API, so either copy is correct. -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
         </dependency>
     </dependencies>
     <repositories>
-        <!-- for hive-catalog-shade -->
-        <repository>
-            <id>central</id>
-            <name>central maven repo https</name>
-            <url>https://repo.maven.apache.org/maven2</url>
-        </repository>
         <!-- for huawei obs sdk -->
         <repository>
             <id>huawei-obs-sdk</id>
@@ -919,48 +943,6 @@ under the License.
                                 <!-- add arbitrary num of src dirs here -->
                                 <source>${basedir}/target/generated-sources/</source>
                             </sources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <!-- Bundle the real fastutil-core (8.5.18) into doris-fe.jar, UNRELOCATED, so the
-                 correct Long2ObjectOpenHashMap (with computeIfAbsent(long, Long2ObjectFunction))
-                 wins over the ancient fastutil (6.5.6) that hive-catalog-shade embeds. start_fe.sh
-                 pins doris-fe.jar first on the FE classpath, so whatever it contains takes load
-                 priority. This avoids touching the hive-catalog-shade dependency. -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>bundle-fastutil-into-doris-fe</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                        <configuration>
-                            <!-- Keep fe-core's dependency list intact: fastutil-core stays a normal
-                                 dependency (still copied into lib/ by fe-lib.xml, and resolved
-                                 normally by fe_plugins which depend on fe-core with scope=provided). -->
-                            <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <!-- ONLY fastutil-core; do NOT turn doris-fe.jar into a full uber-jar.
-                                 The project's own classes are always included by shade. -->
-                            <artifactSet>
-                                <includes>
-                                    <include>it.unimi.dsi:fastutil-core</include>
-                                </includes>
-                            </artifactSet>
-                            <filters>
-                                <filter>
-                                    <artifact>*:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/*.SF</exclude>
-                                        <exclude>META-INF/*.DSA</exclude>
-                                        <exclude>META-INF/*.RSA</exclude>
-                                        <exclude>module-info.class</exclude>
-                                    </excludes>
-                                </filter>
-                            </filters>
                         </configuration>
                     </execution>
                 </executions>
