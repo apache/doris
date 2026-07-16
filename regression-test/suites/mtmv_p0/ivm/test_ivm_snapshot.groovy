@@ -18,6 +18,8 @@
 suite("test_ivm_snapshot") {
     sql """drop materialized view if exists test_ivm_snapshot_mv;"""
     sql """drop table if exists test_ivm_snapshot_base;"""
+    sql """drop materialized view if exists tivm_snap_part_mv;"""
+    sql """drop table if exists tivm_snap_part_base;"""
 
     // 1. Create base table (MOW UNIQUE KEYS)
     sql """
@@ -100,4 +102,70 @@ suite("test_ivm_snapshot") {
     assertTrue(syncAfterComplete2.toString().contains("true"))
 
     order_qt_after_complete """SELECT k1, v1 FROM test_ivm_snapshot_mv"""
+
+    // 8. Partitioned IVM task metadata should track only needRefreshPartitions.
+    sql """
+        CREATE TABLE tivm_snap_part_base (
+            event_id BIGINT NOT NULL,
+            dt DATE NOT NULL,
+            category VARCHAR(20) NOT NULL,
+            amount DECIMAL(12, 2) NOT NULL
+        )
+        DUPLICATE KEY(event_id, dt)
+        AUTO PARTITION BY RANGE(date_trunc(dt, 'day')) ()
+        DISTRIBUTED BY HASH(event_id) BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1',
+            'binlog.enable' = 'true',
+            'binlog.format' = 'ROW'
+        );
+    """
+
+    sql """
+        INSERT INTO tivm_snap_part_base VALUES
+            (1, '2024-03-01', 'book', 15.00),
+            (2, '2024-03-01', 'toy', 25.00),
+            (3, '2024-03-02', 'book', 35.00),
+            (4, '2024-03-02', 'food', 45.00);
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW tivm_snap_part_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        PARTITION BY (dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
+        SELECT dt, category, count(*) AS event_count, sum(amount) AS total_amount
+        FROM tivm_snap_part_base
+        GROUP BY dt, category;
+    """
+
+    sql """REFRESH MATERIALIZED VIEW tivm_snap_part_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("tivm_snap_part_mv")
+    advance_ivm_stream_offset("tivm_snap_part_mv")
+
+    sql """
+        INSERT INTO tivm_snap_part_base VALUES
+            (5, '2024-03-03', 'book', 55.00),
+            (6, '2024-03-03', 'food', 65.00);
+    """
+
+    sql """REFRESH MATERIALIZED VIEW tivm_snap_part_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("tivm_snap_part_mv")
+
+    order_qt_partition_task """
+        SELECT NeedRefreshPartitions, CompletedPartitions, Progress
+        FROM tasks('type'='mv')
+        WHERE MvDatabaseName = '${context.dbName}'
+          AND MvName = 'tivm_snap_part_mv'
+        ORDER BY CreateTime DESC
+        LIMIT 1
+    """
+
+    order_qt_partition_after_incr """
+        SELECT dt, category, event_count, total_amount
+        FROM tivm_snap_part_mv
+        ORDER BY dt, category
+    """
 }

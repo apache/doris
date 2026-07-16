@@ -510,7 +510,6 @@ public class MTMVTask extends AbstractTask {
         // Determine which partitions need refresh, same as partition-based flow.
         this.needRefreshPartitions = MTMVPartitionUtil.getMTMVNeedRefreshPartitions(refreshContext,
                 relation.getBaseTablesOneLevelAndFromView());
-        List<String> allPartitions = Lists.newArrayList(mtmv.getPartitionNames());
         if (CollectionUtils.isEmpty(needRefreshPartitions)) {
             LOG.info("IVM incremental refresh skipped for mv={}: all partitions are synced, taskId={}",
                     mtmv.getName(), getTaskId());
@@ -524,7 +523,7 @@ public class MTMVTask extends AbstractTask {
         try {
             capturedSnapshots = MTMVPartitionUtil.generatePartitionSnapshots(
                     refreshContext, relation.getBaseTablesOneLevelAndFromView(),
-                    Sets.newHashSet(allPartitions));
+                    Sets.newHashSet(needRefreshPartitions));
         } catch (Exception e) {
             throw new JobException("IVM snapshot generation failed for mv=" + mtmv.getName(), e);
         }
@@ -545,7 +544,7 @@ public class MTMVTask extends AbstractTask {
         }
         if (ivmResult.isSuccess()) {
             this.partitionSnapshots.putAll(capturedSnapshots);
-            this.completedPartitions.addAll(allPartitions);
+            this.completedPartitions.addAll(needRefreshPartitions);
             LOG.info("IVM incremental refresh succeeded for mv={}, taskId={}",
                     mtmv.getName(), getTaskId());
             return AttemptResultType.SUCCESS;
