@@ -107,6 +107,9 @@ public:
 
     DataTypePtr& data_type() { return _data_type; }
 
+    void set_window_current_position(AggregateDataPtr place, int64_t current_position) const {
+        _function->set_window_current_position(place, current_position);
+    }
     String get_name() const { return _function->get_name(); }
     DataTypePtr get_return_type() const { return _function->get_return_type(); }
     size_t size_of_data() const { return _function->size_of_data(); }
