@@ -17,18 +17,37 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.aws.glue.GlueCatalog;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergGlueMetaStorePropertiesTest {
+
+    private String originalS3ClientHttpScheme;
+
+    @BeforeEach
+    public void setUpS3ClientHttpScheme() {
+        originalS3ClientHttpScheme = Config.s3_client_http_scheme;
+        Config.s3_client_http_scheme = "https";
+    }
+
+    @AfterEach
+    public void restoreS3ClientHttpScheme() {
+        Config.s3_client_http_scheme = originalS3ClientHttpScheme;
+    }
 
     @Test
     public void glueTest() throws UserException {
@@ -47,7 +66,7 @@ public class IcebergGlueMetaStorePropertiesTest {
     }
 
     @Test
-    public void glueAndS3Test() throws UserException {
+    public void glueAndS3Test() throws Exception {
         Map<String, String> baseProps = ImmutableMap.of(
                 "type", "iceberg",
                 "iceberg.catalog.type", "glue",
@@ -57,9 +76,16 @@ public class IcebergGlueMetaStorePropertiesTest {
                 "glue.endpoint", "https://glue.us-west-2.amazonaws.com",
                 "warehouse", "s3://my-bucket/warehouse",
                 "s3.region", "us-west-2",
-                "s3.endpoint", "https://s3.us-west-2.amazonaws.com"
+                "s3.endpoint", "s3.us-west-2.amazonaws.com"
         );
         IcebergGlueMetaStoreProperties properties = (IcebergGlueMetaStoreProperties) MetastoreProperties.create(baseProps);
+        Map<String, String> fileIOProperties = new HashMap<>();
+        Method appendS3Props = IcebergGlueMetaStoreProperties.class.getDeclaredMethod("appendS3Props", Map.class);
+        appendS3Props.setAccessible(true);
+        appendS3Props.invoke(properties, fileIOProperties);
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com",
+                fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+
         Catalog catalog = properties.initializeCatalog("iceberg_catalog", StorageProperties.createAll(baseProps));
         Assertions.assertEquals(GlueCatalog.class, catalog.getClass());
     }

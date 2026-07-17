@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.common;
 
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.S3Properties;
 
 import org.apache.commons.lang3.StringUtils;
@@ -111,7 +112,7 @@ public final class IcebergAwsClientCredentialsProperties {
     private static void putS3FileIOProperties(Map<String, String> target,
             S3Properties s3Properties) {
         if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
-            target.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
+            target.put(S3FileIOProperties.ENDPOINT, S3Util.buildEndpointUrl(s3Properties.getEndpoint()));
         }
         if (StringUtils.isNotBlank(s3Properties.getUsePathStyle())) {
             target.put(S3FileIOProperties.PATH_STYLE_ACCESS, s3Properties.getUsePathStyle());

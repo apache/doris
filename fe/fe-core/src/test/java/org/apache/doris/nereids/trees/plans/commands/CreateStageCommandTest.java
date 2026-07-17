@@ -101,7 +101,7 @@ public class CreateStageCommandTest extends TestWithFeService {
         CreateStageCommand command3 = getCreateStageCommand(sql);
         ObjectStoreInfoPB objectStoreInfoPB = command3.getStageProperties().getObjectStoreInfoPB();
 
-        Assertions.assertEquals("http://cos.ap-beijing.myqcloud.com", objectStoreInfoPB.getEndpoint());
+        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", objectStoreInfoPB.getEndpoint());
         Assertions.assertEquals("ap-beijing", objectStoreInfoPB.getRegion());
         Assertions.assertEquals("tmp-bucket", objectStoreInfoPB.getBucket());
         Assertions.assertEquals("tmp_prefix", objectStoreInfoPB.getPrefix());
@@ -299,7 +299,7 @@ public class CreateStageCommandTest extends TestWithFeService {
         Assertions.assertEquals("ex_stage_1", stagePB.getName());
         Assertions.assertTrue(StringUtils.isNotBlank(stagePB.getStageId()));
         ObjectStoreInfoPB objInfo = stagePB.getObjInfo();
-        Assertions.assertEquals("http://cos.ap-beijing.myqcloud.com", objInfo.getEndpoint());
+        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", objInfo.getEndpoint());
         Map<String, String> propertiesMap = stagePB.getPropertiesMap();
         Assertions.assertEquals(4, propertiesMap.size());
         Assertions.assertEquals("csv", propertiesMap.get("default.file.type"));

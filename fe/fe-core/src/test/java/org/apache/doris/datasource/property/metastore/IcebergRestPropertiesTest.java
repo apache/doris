@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.storage.OSSProperties;
@@ -32,7 +33,9 @@ import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -41,6 +44,19 @@ import java.util.List;
 import java.util.Map;
 
 public class IcebergRestPropertiesTest {
+
+    private String originalS3ClientHttpScheme;
+
+    @BeforeEach
+    public void setUpS3ClientHttpScheme() {
+        originalS3ClientHttpScheme = Config.s3_client_http_scheme;
+        Config.s3_client_http_scheme = "https";
+    }
+
+    @AfterEach
+    public void restoreS3ClientHttpScheme() {
+        Config.s3_client_http_scheme = originalS3ClientHttpScheme;
+    }
 
     @Test
     public void testBasicRestProperties() {
@@ -957,7 +973,8 @@ public class IcebergRestPropertiesTest {
         restProps.toFileIOProperties(storageList, fileIOProperties, conf);
 
         // OSSProperties should be used, not S3Properties
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("https://oss-cn-beijing.aliyuncs.com",
+                fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("ossAccessKey", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
         Assertions.assertEquals("ossSecretKey", fileIOProperties.get(S3FileIOProperties.SECRET_ACCESS_KEY));
     }
@@ -1030,7 +1047,8 @@ public class IcebergRestPropertiesTest {
         restProps.toFileIOProperties(storageList, fileIOProperties, conf);
 
         // First non-S3Properties (oss1) should be used
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("https://oss-cn-beijing.aliyuncs.com",
+                fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("ossAK1", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
     }
 

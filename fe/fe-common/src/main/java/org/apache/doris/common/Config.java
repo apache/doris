@@ -21,6 +21,25 @@ import java.io.File;
 
 public class Config extends ConfigBase {
 
+    @Override
+    public void init(String configFile) throws Exception {
+        super.init(configFile);
+        validateS3ClientHttpScheme();
+    }
+
+    @Override
+    public void initCustom(String customConfigFile) throws Exception {
+        super.initCustom(customConfigFile);
+        validateS3ClientHttpScheme();
+    }
+
+    private static void validateS3ClientHttpScheme() {
+        if (!"http".equals(s3_client_http_scheme) && !"https".equals(s3_client_http_scheme)) {
+            throw new IllegalArgumentException("Invalid s3_client_http_scheme: " + s3_client_http_scheme
+                    + ", only http and https are supported");
+        }
+    }
+
     @ConfField(description = {"The path of the user-defined configuration file, used to store fe_custom.conf. "
             + "Configurations in this file will override those in fe.conf"})
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
