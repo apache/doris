@@ -2135,7 +2135,12 @@ public abstract class RoutineLoadJob
             }
             if (!command.hasTargetTable()) {
                 validateAlterJobPropertiesForMutation(command);
-                unprotectApplyAlter(command);
+            }
+
+            // Data-source preparation may perform external I/O. Keep it outside DB/table metadata locks.
+            PreparedAlter preparedAlter = prepareAlter(command);
+            if (!command.hasTargetTable()) {
+                unprotectApplyAlter(command, preparedAlter);
                 return;
             }
 
@@ -2159,8 +2164,7 @@ public abstract class RoutineLoadJob
                             uniqueKeyUpdateMode, alteredJobProperties);
                     unprotectedValidateTargetTable(
                             db, (OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
-                    // Keep target binding and its journal ordered with concurrent table DDL.
-                    unprotectApplyAlter(command);
+                    unprotectApplyAlter(command, preparedAlter);
                 } finally {
                     table.readUnlock();
                 }
@@ -2172,8 +2176,9 @@ public abstract class RoutineLoadJob
         }
     }
 
-    private void unprotectApplyAlter(AlterRoutineLoadCommand command) throws UserException {
-        unprotectModifyProperties(command);
+    private void unprotectApplyAlter(AlterRoutineLoadCommand command, PreparedAlter preparedAlter)
+            throws UserException {
+        preparedAlter.apply();
         if (command.hasTargetTable()) {
             tableId = command.getTargetTableId();
         }
@@ -2182,7 +2187,12 @@ public abstract class RoutineLoadJob
         Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
     }
 
-    protected abstract void unprotectModifyProperties(AlterRoutineLoadCommand command) throws UserException;
+    @FunctionalInterface
+    protected interface PreparedAlter {
+        void apply() throws UserException;
+    }
+
+    protected abstract PreparedAlter prepareAlter(AlterRoutineLoadCommand command) throws UserException;
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 

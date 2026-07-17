@@ -249,16 +249,25 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testModifyTargetTableValidatesAndLogsUnderMetadataLocks() throws Exception {
+    public void testModifyTargetTablePreparesExternalIoBeforeMetadataLocks() throws Exception {
         KafkaRoutineLoadJob routineLoadJob = Mockito.spy(new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN));
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
         Deencapsulation.setField(routineLoadJob, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
+        KafkaProgress originalProgress = new KafkaProgress(Maps.newHashMap(ImmutableMap.of(1, 10L)));
+        Deencapsulation.setField(routineLoadJob, "progress", originalProgress);
+
+        Map<String, String> alteredSourceProperties = Maps.newHashMap();
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), "topic2");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "1");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), KafkaProgress.OFFSET_BEGINNING);
+        KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(alteredSourceProperties);
 
         AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
         Mockito.when(command.hasTargetTable()).thenReturn(true);
         Mockito.when(command.getTargetTableId()).thenReturn(2L);
         Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
 
         Env env = Mockito.mock(Env.class);
         EditLog editLog = Mockito.mock(EditLog.class);
@@ -271,6 +280,8 @@ public class KafkaRoutineLoadJobTest {
 
         AtomicBoolean databaseLocked = new AtomicBoolean(false);
         AtomicBoolean tableLocked = new AtomicBoolean(false);
+        AtomicBoolean kafkaPrepared = new AtomicBoolean(false);
+        AtomicBoolean cloudPrepared = new AtomicBoolean(false);
         AtomicBoolean targetValidated = new AtomicBoolean(false);
         Mockito.doAnswer(invocation -> {
             databaseLocked.set(true);
@@ -294,6 +305,11 @@ public class KafkaRoutineLoadJobTest {
             Assert.assertTrue(lock.isWriteLockedByCurrentThread());
             Assert.assertTrue(databaseLocked.get());
             Assert.assertTrue(tableLocked.get());
+            Assert.assertTrue(kafkaPrepared.get());
+            Assert.assertTrue(cloudPrepared.get());
+            Assert.assertEquals(1L, routineLoadJob.getTableId());
+            Assert.assertEquals("topic1", routineLoadJob.getTopic());
+            Assert.assertSame(originalProgress, routineLoadJob.getProgress());
             targetValidated.set(true);
             return null;
         }).when(routineLoadJob).unprotectedValidateTargetTable(Mockito.eq(database), Mockito.eq(targetTable),
@@ -301,22 +317,57 @@ public class KafkaRoutineLoadJobTest {
         Mockito.doAnswer(invocation -> {
             Assert.assertTrue(databaseLocked.get());
             Assert.assertTrue(tableLocked.get());
+            Assert.assertTrue(targetValidated.get());
             Assert.assertEquals(2L, routineLoadJob.getTableId());
+            Assert.assertEquals("topic2", routineLoadJob.getTopic());
             return null;
         }).when(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
 
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Cloud.ResetRLProgressResponse response = Cloud.ResetRLProgressResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                .build();
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test-cloud";
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class);
+                MockedStatic<MetaServiceProxy> metaServiceProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            kafkaUtilStatic.when(() -> KafkaUtil.getRealOffsets(Mockito.eq("127.0.0.1:9020"),
+                    Mockito.eq("topic2"), Mockito.anyMap(), Mockito.anyList())).thenAnswer(invocation -> {
+                        ReentrantReadWriteLock lock = Deencapsulation.getField(routineLoadJob, "lock");
+                        Assert.assertTrue(lock.isWriteLockedByCurrentThread());
+                        Assert.assertFalse(databaseLocked.get());
+                        Assert.assertFalse(tableLocked.get());
+                        kafkaPrepared.set(true);
+                        return Lists.newArrayList(Pair.of(1, 100L));
+                    });
+            metaServiceProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            Mockito.when(metaServiceProxy.resetRLProgress(Mockito.any())).thenAnswer(invocation -> {
+                ReentrantReadWriteLock lock = Deencapsulation.getField(routineLoadJob, "lock");
+                Assert.assertTrue(lock.isWriteLockedByCurrentThread());
+                Assert.assertFalse(databaseLocked.get());
+                Assert.assertFalse(tableLocked.get());
+                Assert.assertTrue(kafkaPrepared.get());
+                cloudPrepared.set(true);
+                return response;
+            });
 
             routineLoadJob.modifyProperties(command);
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
         }
 
+        Assert.assertTrue(kafkaPrepared.get());
+        Assert.assertTrue(cloudPrepared.get());
         Assert.assertTrue(targetValidated.get());
         Assert.assertFalse(databaseLocked.get());
         Assert.assertFalse(tableLocked.get());
         Assert.assertEquals(2L, routineLoadJob.getTableId());
+        Assert.assertEquals("topic2", routineLoadJob.getTopic());
         Mockito.verify(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
+        Mockito.verify(metaServiceProxy).resetRLProgress(Mockito.any());
     }
 
     @Test

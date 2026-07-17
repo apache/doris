@@ -772,76 +772,43 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void unprotectModifyProperties(AlterRoutineLoadCommand command) throws UserException {
+    protected PreparedAlter prepareAlter(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
-        modifyPropertiesInternal(jobProperties, dataSourceProperties);
+        PreparedKafkaProperties preparedDataSourceProperties = prepareDataSourceProperties(dataSourceProperties, false);
+        return () -> modifyPropertiesInternal(jobProperties, dataSourceProperties, preparedDataSourceProperties);
     }
 
-    private void convertOffset(KafkaDataSourceProperties dataSourceProperties,
+    private List<Pair<Integer, Long>> resolveOffsets(KafkaDataSourceProperties dataSourceProperties,
             KafkaDataSourceSnapshot dataSourceSnapshot) throws UserException {
         List<Pair<Integer, Long>> partitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
         if (partitionOffsets.isEmpty()) {
-            return;
+            return partitionOffsets;
         }
-        List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
-            newOffsets = KafkaUtil.getOffsetsForTimes(dataSourceSnapshot.brokerList, dataSourceSnapshot.topic,
-                    dataSourceSnapshot.convertedCustomProperties, partitionOffsets);
-        } else {
-            newOffsets = KafkaUtil.getRealOffsets(dataSourceSnapshot.brokerList, dataSourceSnapshot.topic,
+            return KafkaUtil.getOffsetsForTimes(dataSourceSnapshot.brokerList, dataSourceSnapshot.topic,
                     dataSourceSnapshot.convertedCustomProperties, partitionOffsets);
         }
-        dataSourceProperties.setKafkaPartitionOffsets(newOffsets);
+        return KafkaUtil.getRealOffsets(dataSourceSnapshot.brokerList, dataSourceSnapshot.topic,
+                dataSourceSnapshot.convertedCustomProperties, partitionOffsets);
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KafkaDataSourceProperties dataSourceProperties)
             throws UserException {
-        modifyPropertiesInternal(jobProperties, dataSourceProperties, false);
+        PreparedKafkaProperties preparedDataSourceProperties = prepareDataSourceProperties(dataSourceProperties, true);
+        modifyPropertiesInternal(jobProperties, dataSourceProperties, preparedDataSourceProperties);
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KafkaDataSourceProperties dataSourceProperties,
-                                          boolean isReplay)
+                                          PreparedKafkaProperties preparedDataSourceProperties)
             throws UserException {
         if (null != dataSourceProperties) {
-            KafkaDataSourceSnapshot dataSourceSnapshot = stageDataSourceProperties(dataSourceProperties);
-            List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
-
-            if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
-                kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
-            }
-
-            if (!kafkaPartitionOffsets.isEmpty()
-                    && (!dataSourceSnapshot.resetProgress || CollectionUtils.isNotEmpty(customKafkaPartitions))) {
-                ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
-            }
-            if (!isReplay) {
-                convertOffset(dataSourceProperties, dataSourceSnapshot);
-                kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
-            }
-
-            if (Config.isCloudMode() && !isReplay
-                    && (dataSourceSnapshot.resetProgress || !kafkaPartitionOffsets.isEmpty())) {
-                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
-                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
-                builder.setCloudUniqueId(Config.cloud_unique_id);
-                builder.setDbId(dbId);
-                builder.setJobId(id);
-                if (!kafkaPartitionOffsets.isEmpty()) {
-                    Map<Integer, Long> partitionOffsetMap = new HashMap<>();
-                    for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
-                        // The reason why the value recorded in MS in cloud mode needs to be subtracted by one is
-                        // this value will be incremented
-                        // when pulling MS persistent progress data and updating memory
-                        // in routineLoadJob.updateCloudProgress().
-                        partitionOffsetMap.put(pair.first, pair.second - 1);
-                    }
-                    builder.putAllPartitionToOffset(partitionOffsetMap);
-                }
-                resetCloudProgress(builder);
-            }
+            Preconditions.checkNotNull(preparedDataSourceProperties);
+            KafkaDataSourceSnapshot dataSourceSnapshot = preparedDataSourceProperties.dataSourceSnapshot;
+            List<Pair<Integer, Long>> kafkaPartitionOffsets = preparedDataSourceProperties.kafkaPartitionOffsets;
+            dataSourceProperties.setKafkaPartitionOffsets(kafkaPartitionOffsets);
 
             if (dataSourceSnapshot.customPropertiesChanged) {
                 this.customProperties.clear();
@@ -884,6 +851,61 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
                 this.id, jobProperties, dataSourceProperties);
+    }
+
+    private PreparedKafkaProperties prepareDataSourceProperties(KafkaDataSourceProperties dataSourceProperties,
+            boolean isReplay) throws UserException {
+        if (dataSourceProperties == null) {
+            return null;
+        }
+
+        KafkaDataSourceSnapshot dataSourceSnapshot = stageDataSourceProperties(dataSourceProperties);
+        List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+        if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
+            kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
+        }
+        if (!kafkaPartitionOffsets.isEmpty()
+                && (!dataSourceSnapshot.resetProgress || CollectionUtils.isNotEmpty(customKafkaPartitions))) {
+            ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
+        }
+
+        if (!isReplay) {
+            kafkaPartitionOffsets = resolveOffsets(dataSourceProperties, dataSourceSnapshot);
+            resetCloudProgressIfNeeded(dataSourceSnapshot, kafkaPartitionOffsets);
+        }
+        return new PreparedKafkaProperties(dataSourceSnapshot, copyPartitionOffsets(kafkaPartitionOffsets));
+    }
+
+    private List<Pair<Integer, Long>> copyPartitionOffsets(List<Pair<Integer, Long>> kafkaPartitionOffsets) {
+        List<Pair<Integer, Long>> copiedPartitionOffsets = Lists.newArrayListWithCapacity(kafkaPartitionOffsets.size());
+        for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
+            copiedPartitionOffsets.add(Pair.of(partitionOffset.first, partitionOffset.second));
+        }
+        return copiedPartitionOffsets;
+    }
+
+    private void resetCloudProgressIfNeeded(KafkaDataSourceSnapshot dataSourceSnapshot,
+            List<Pair<Integer, Long>> kafkaPartitionOffsets) throws DdlException {
+        if (!Config.isCloudMode() || (!dataSourceSnapshot.resetProgress && kafkaPartitionOffsets.isEmpty())) {
+            return;
+        }
+
+        Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+        builder.setDbId(dbId);
+        builder.setJobId(id);
+        if (!kafkaPartitionOffsets.isEmpty()) {
+            Map<Integer, Long> partitionOffsetMap = new HashMap<>();
+            for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
+                // The reason why the value recorded in MS in cloud mode needs to be subtracted by one is
+                // this value will be incremented when pulling MS persistent progress data and updating memory
+                // in routineLoadJob.updateCloudProgress().
+                partitionOffsetMap.put(pair.first, pair.second - 1);
+            }
+            builder.putAllPartitionToOffset(partitionOffsetMap);
+        }
+        resetCloudProgress(builder);
     }
 
     private KafkaDataSourceSnapshot stageDataSourceProperties(KafkaDataSourceProperties dataSourceProperties)
@@ -931,6 +953,17 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
+    private static class PreparedKafkaProperties {
+        private final KafkaDataSourceSnapshot dataSourceSnapshot;
+        private final List<Pair<Integer, Long>> kafkaPartitionOffsets;
+
+        private PreparedKafkaProperties(KafkaDataSourceSnapshot dataSourceSnapshot,
+                List<Pair<Integer, Long>> kafkaPartitionOffsets) {
+            this.dataSourceSnapshot = dataSourceSnapshot;
+            this.kafkaPartitionOffsets = kafkaPartitionOffsets;
+        }
+    }
+
     private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {
         Cloud.ResetRLProgressResponse response;
         try {
@@ -954,7 +987,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
             modifyPropertiesInternal(log.getJobProperties(),
-                    (KafkaDataSourceProperties) log.getDataSourceProperties(), true);
+                    (KafkaDataSourceProperties) log.getDataSourceProperties());
             if (log.getTargetTableId() != 0) {
                 this.tableId = log.getTargetTableId();
             }

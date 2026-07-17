@@ -674,11 +674,11 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void unprotectModifyProperties(AlterRoutineLoadCommand command) throws UserException {
+    protected PreparedAlter prepareAlter(AlterRoutineLoadCommand command) {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KinesisDataSourceProperties dataSourceProperties =
                 (KinesisDataSourceProperties) command.getDataSourceProperties();
-        modifyPropertiesInternal(jobProperties, dataSourceProperties);
+        return () -> modifyPropertiesInternal(jobProperties, dataSourceProperties);
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
