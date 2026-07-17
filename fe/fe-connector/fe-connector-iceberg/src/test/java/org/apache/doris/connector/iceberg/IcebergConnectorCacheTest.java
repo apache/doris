@@ -165,4 +165,77 @@ public class IcebergConnectorCacheTest {
                 .commit();
         return table;
     }
+
+    // ==================== PERF-01: cross-query table cache gate + invalidation ====================
+
+    private static Table fakeTable(String name) {
+        return new FakeIcebergTable(name,
+                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())),
+                PartitionSpec.unpartitioned(), "s3://b/" + name, Collections.emptyMap());
+    }
+
+    @Test
+    public void crossQueryTableCacheEnabledForPlainCatalog() {
+        // A plain catalog (no per-user session, no REST vended credentials) has query-independent credentials,
+        // so the cross-query RAW-table cache is built and enabled at the default 24h TTL — restoring the legacy
+        // IcebergExternalMetaCache table cache. MUTATION: leaving it null/disabled for a plain catalog -> the
+        // 3~7x remote loadTable amplification is not collapsed across queries -> assert below red.
+        IcebergTableCache cache =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).tableCacheForTest();
+        Assertions.assertNotNull(cache, "a plain catalog must build the cross-query table cache");
+        Assertions.assertTrue(cache.isEnabled(), "the default 24h TTL enables the cache");
+    }
+
+    @Test
+    public void crossQueryTableCacheDisabledForVendedCredentials() {
+        // REST vended-credentials: the cached raw table's FileIO carries a server-vended token that expires
+        // within the query (iceberg keeps it fresh by reloading the table each query). A 24h-TTL cross-query hit
+        // would hand BE an expired token (403 mid-scan), so this layer MUST be off (null); the query-scoped fat
+        // handle still dedups within one query. MUTATION: building the cache for a vended catalog -> non-null -> red.
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        Assertions.assertNull(
+                new IcebergConnector(vended, new RecordingConnectorContext()).tableCacheForTest(),
+                "a REST vended-credentials catalog must NOT build the cross-query table cache");
+    }
+
+    @Test
+    public void crossQueryTableCacheDisabledForPerUserSession() {
+        // iceberg.rest.session=user: the cached raw table carries per-user delegated FileIO, so sharing it
+        // across users would leak credentials. This layer MUST be off (null) — the fat handle keeps within-query
+        // dedup. MUTATION: building the cache for a session=user catalog -> tableCacheForTest non-null -> red.
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        Assertions.assertNull(
+                new IcebergConnector(session, new RecordingConnectorContext()).tableCacheForTest(),
+                "a per-user session catalog must NOT build the cross-query table cache");
+    }
+
+    @Test
+    public void refreshHooksInvalidateCrossQueryTableCache() {
+        // The REFRESH hooks must clear the cross-query table cache (else external DDL/writes would stay invisible
+        // beyond the pin): REFRESH TABLE drops one table, REFRESH DATABASE drops that db's tables, REFRESH
+        // CATALOG drops everything — mirroring the latest-snapshot cache. MUTATION: an invalidate* hook not
+        // touching tableCache -> a stale entry survives -> a size assert below red.
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergTableCache cache = connector.tableCacheForTest();
+        Assertions.assertNotNull(cache);
+
+        cache.getOrLoad(TableIdentifier.of("db1", "t1"), () -> fakeTable("db1.t1"));
+        cache.getOrLoad(TableIdentifier.of("db1", "t2"), () -> fakeTable("db1.t2"));
+        cache.getOrLoad(TableIdentifier.of("db2", "t1"), () -> fakeTable("db2.t1"));
+        Assertions.assertEquals(3, cache.size());
+
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops only that table");
+
+        connector.invalidateDb("db1");
+        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops that db's remaining tables");
+
+        connector.invalidateAll();
+        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
 }

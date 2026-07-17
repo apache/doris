@@ -144,18 +144,30 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // IcebergExternalMetaCache parity, mirrors paimon). The 3-arg ctor (direct-construction tests) passes a
     // DISABLED cache so those reads stay always-live.
     private final IcebergLatestSnapshotCache latestSnapshotCache;
+    // PERF-01: cross-query RAW-table cache (null = no cross-query layer). The 3-arg direct-construction tests
+    // and the credential-gated catalogs pass null; the query-scoped fat handle (IcebergTableHandle) works
+    // regardless. Consumed only by resolveTableForRead.
+    private final IcebergTableCache tableCache;
 
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
-        this(catalogOps, properties, context, new IcebergLatestSnapshotCache(0L, 1));
+        this(catalogOps, properties, context, new IcebergLatestSnapshotCache(0L, 1), null);
+    }
+
+    /** Convenience ctor without a cross-query table cache (tableCache null); used by MVCC/statistics tests. */
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+            ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache) {
+        this(catalogOps, properties, context, latestSnapshotCache, null);
     }
 
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
-            ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache) {
+            ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
+            IcebergTableCache tableCache) {
         this.catalogOps = catalogOps;
         this.properties = properties;
         this.context = context;
         this.latestSnapshotCache = latestSnapshotCache;
+        this.tableCache = tableCache;
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -536,14 +548,41 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return "ORDER BY (" + String.join(", ", sortItems) + ")";
     }
 
-    /** Loads the iceberg {@link Table} through the seam, wrapped in the FE-injected auth context (Kerberos UGI). */
+    /**
+     * Loads the iceberg {@link Table} for {@code handle}, wrapped in the FE-injected auth context (Kerberos
+     * UGI). Resolution goes through {@link #resolveTableForRead} (fat handle -&gt; cross-query cache -&gt;
+     * remote), so the many reads sharing one handle in a planning/analysis pass collapse onto a single remote
+     * {@code loadTable} (PERF-01); a fat-handle hit returns without any remote call.
+     */
     private Table loadTable(IcebergTableHandle handle) {
         try {
-            return context.executeAuthenticated(
-                    () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+            return context.executeAuthenticated(() -> resolveTableForRead(handle));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Resolves the RAW iceberg {@link Table} for {@code handle} with PERF-01's two-layer memo, WITHOUT opening
+     * an auth scope or wrapping exceptions — callers own both. The query-scoped fat handle comes first (same
+     * handle instance -&gt; same table); then the cross-query {@link IcebergTableCache} when enabled (else a
+     * direct remote load); finally the result is memoized back onto the handle. The remote loader's exception
+     * propagates verbatim (the cache re-throws it unwrapped), so a caller's own {@code NoSuchTableException}
+     * degradation (the partition-view readers) still fires. Callers needing the auth scope wrap the call in
+     * {@code executeAuthenticated} (see {@link #loadTable}). NOT used by the sys-table path
+     * ({@link #loadSysTable}) or the DDL/write path (both take a fresh remote base by design).
+     */
+    private Table resolveTableForRead(IcebergTableHandle handle) {
+        Table cached = handle.getResolvedTable();
+        if (cached != null) {
+            return cached;
+        }
+        Table table = tableCache != null
+                ? tableCache.getOrLoad(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
+                        () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
+                : catalogOps.loadTable(handle.getDbName(), handle.getTableName());
+        handle.setResolvedTable(table);
+        return table;
     }
 
     /**
@@ -1450,7 +1489,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             return context.executeAuthenticated(() -> {
-                Table table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
+                Table table = resolveTableForRead(iceHandle);
                 return Optional.of(IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId()));
             });
         } catch (Exception e) {
@@ -1473,7 +1512,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return context.executeAuthenticated(() -> {
                 Table table;
                 try {
-                    table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
+                    table = resolveTableForRead(iceHandle);
                 } catch (NoSuchTableException e) {
                     LOG.warn("Iceberg table not found while listing partitions: {}.{}",
                             iceHandle.getDbName(), iceHandle.getTableName(), e);
@@ -1504,7 +1543,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return context.executeAuthenticated(() -> {
                 Table table;
                 try {
-                    table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
+                    table = resolveTableForRead(iceHandle);
                 } catch (NoSuchTableException e) {
                     LOG.warn("Iceberg table not found while listing partitions: {}.{}",
                             iceHandle.getDbName(), iceHandle.getTableName(), e);

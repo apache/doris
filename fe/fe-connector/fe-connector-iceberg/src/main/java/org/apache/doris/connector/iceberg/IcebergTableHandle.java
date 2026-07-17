@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
 import com.google.common.collect.ImmutableSet;
+import org.apache.iceberg.Table;
 
 import java.util.Objects;
 import java.util.Set;
@@ -95,6 +96,21 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      * {@link #toString} include it.
      */
     private final boolean topnLazyMaterialize;
+
+    /**
+     * Query-scoped resolved {@link Table} memo (PERF-01): the RAW iceberg table this handle resolves to, cached
+     * so the many read entries that share one handle within a single planning/analysis pass
+     * ({@code getColumnHandles}, {@code getTableStatistics}, the scan provider's {@code resolveTable}, ...)
+     * collapse their remote {@code loadTable} RPCs onto one. It is {@code transient} — NOT part of the handle's
+     * serialized form (BE never sees it) — and NOT part of the handle identity: {@link #equals}/
+     * {@link #hashCode}/{@link #toString} deliberately ignore it, since it is a resolution cache, not a
+     * coordinate. The {@code with*} copies carry it forward (an iceberg branch/tag/time-travel pin is the SAME
+     * base {@code Table} plus a downstream {@code useSnapshot}/{@code useRef}, and {@code getColumnHandles}
+     * resolves the table BEFORE the snapshot pin is threaded on), so a pin copy must not force a re-load. A
+     * deserialized handle (BE side) starts {@code null} and resolves live. The stored table is RAW: the scan
+     * provider applies {@code wrapTableForScan} (Kerberos FileIO) per call, never freezing it into the memo.
+     */
+    private transient Table resolvedTable;
 
     public IcebergTableHandle(String dbName, String tableName) {
         this(dbName, tableName, NO_PIN, null, NO_PIN, null, null, false);
@@ -175,6 +191,16 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         return topnLazyMaterialize;
     }
 
+    /** The query-scoped resolved RAW table memo, or {@code null} if not yet resolved (see {@link #resolvedTable}). */
+    public Table getResolvedTable() {
+        return resolvedTable;
+    }
+
+    /** Memoizes the resolved RAW table on this handle so later reads sharing it skip the remote load. */
+    public void setResolvedTable(Table resolvedTable) {
+        this.resolvedTable = resolvedTable;
+    }
+
     /**
      * Returns a copy of this handle carrying the resolved time-travel pin. Mirrors paimon's
      * {@code PaimonTableHandle.withScanOptions}/{@code withBranch} but with iceberg's typed carriers.
@@ -183,8 +209,13 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         // sysTableName, rewriteFileScope and topnLazyMaterialize are preserved: threading a resolved
         // time-travel pin in must not degrade a sys handle (t$snapshots) into a normal data-table handle,
         // drop a rewrite scope, or drop the lazy-materialization signal.
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
+        IcebergTableHandle copy = new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
                 rewriteFileScope, topnLazyMaterialize);
+        // Carry the resolved-table memo forward: the pin is applied downstream via useSnapshot/useRef on the
+        // SAME base table, and getColumnHandles resolves the table before applySnapshot copies the handle, so a
+        // pin copy must not drop the memo and force a re-load (PERF-01).
+        copy.resolvedTable = resolvedTable;
+        return copy;
     }
 
     /**
@@ -196,8 +227,10 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      * The other carriers (snapshot/ref/schema/sys) are preserved.
      */
     public IcebergTableHandle withRewriteFileScope(Set<String> rawDataFilePaths) {
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
+        IcebergTableHandle copy = new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
                 ImmutableSet.copyOf(rawDataFilePaths), topnLazyMaterialize);
+        copy.resolvedTable = resolvedTable;
+        return copy;
     }
 
     /**
@@ -205,8 +238,10 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      * {@link #topnLazyMaterialize}). The other carriers (snapshot/ref/schema/sys/rewriteScope) are preserved.
      */
     public IcebergTableHandle withTopnLazyMaterialize(boolean topnLazyMaterialize) {
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
+        IcebergTableHandle copy = new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
                 rewriteFileScope, topnLazyMaterialize);
+        copy.resolvedTable = resolvedTable;
+        return copy;
     }
 
     @Override

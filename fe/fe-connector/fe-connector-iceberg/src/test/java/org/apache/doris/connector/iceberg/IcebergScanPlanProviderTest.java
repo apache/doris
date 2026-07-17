@@ -228,6 +228,29 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("db1", ops.lastLoadDb);
     }
 
+    @Test
+    public void planningPassLoadsSameTableOnceViaFatHandle() {
+        // PERF-01 metric gate: a single planning pass threads ONE IcebergTableHandle through getColumnHandles
+        // (metadata) and planScan (provider). The fat-handle memo (transient resolvedTable set by the first
+        // resolve, reused by the second) collapses BOTH remote reads onto a single loadTable RPC. This is the
+        // deterministic core claim — one remote loadTable per table per planning pass, independent of the
+        // cross-query cache (off here: context-less provider, disabled metadata cache).
+        // MUTATION: dropping the fat handle (each resolve re-loads) -> 2 loadTable log entries -> red.
+        Table empty = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        RecordingIcebergCatalogOps ops = opsReturning(empty);
+        IcebergConnectorMetadata metadata =
+                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        metadata.getColumnHandles(null, handle);
+        provider.planScan(null, handle, Collections.emptyList(), Optional.empty());
+
+        long remoteLoads = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
+        Assertions.assertEquals(1, remoteLoads,
+                "fat handle must collapse the metadata + provider reads to one remote loadTable");
+    }
+
     // --- T02 split-enumeration + predicate-pushdown tests ---
 
     @Test
@@ -1760,14 +1783,15 @@ public class IcebergScanPlanProviderTest {
 
     // --- T05: COUNT(*) pushdown (getCountFromSnapshot + collapse-to-one count range, mirrors paimon) ---
 
-    private static final IcebergTableHandle T1 = new IcebergTableHandle("db1", "t1");
-
     private static List<ConnectorScanRange> planCount(IcebergScanPlanProvider provider, ConnectorSession session,
             boolean countPushdown) {
         // The COUNT-pushdown-aware 7-arg overload the generic PluginDrivenScanNode invokes (limit/
-        // requiredPartitions are unused by the iceberg read path).
-        return provider.planScan(session, T1, Collections.emptyList(), Optional.empty(),
-                -1L, Collections.emptyList(), countPushdown);
+        // requiredPartitions are unused by the iceberg read path). A FRESH handle per call mirrors a real
+        // planning pass: PluginDrivenScanNode.currentHandle is a per-query, per-scan-node handle, so the
+        // query-scoped fat-handle memo (PERF-01) must never bleed from one test's table to another's (a shared
+        // static handle would serve the first scenario's cached table to every later one).
+        return provider.planScan(session, new IcebergTableHandle("db1", "t1"), Collections.emptyList(),
+                Optional.empty(), -1L, Collections.emptyList(), countPushdown);
     }
 
     @Test

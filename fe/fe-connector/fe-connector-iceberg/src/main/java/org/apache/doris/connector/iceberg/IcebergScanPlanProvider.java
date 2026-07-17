@@ -65,6 +65,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -222,6 +223,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // (offline tests), in which case stashing is skipped (the supply is exercised only on the post-cutover write
     // path; pre-flip the provider never runs at all).
     private final IcebergRewritableDeleteStash rewritableDeleteStash;
+    // PERF-01: cross-query RAW-table cache shared with the metadata layer, owned by the long-lived
+    // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors and
+    // when the connector's credential gate disables the cross-query layer; when null resolveTable still uses the
+    // query-scoped fat handle and falls back to a direct remote load.
+    private final IcebergTableCache tableCache;
 
     // FIX-SCAN-METRICS: per-query stash of the iceberg SDK scan diagnostics captured by the attached
     // IcebergScanProfileReporter during planScan, keyed by session queryId. fe-core drains it
@@ -248,8 +254,20 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorContext context, IcebergManifestCache manifestCache,
             IcebergRewritableDeleteStash rewritableDeleteStash) {
         // Constant resolver: these ctors (offline tests + the pre-session connector paths) bind a single ops that
-        // ignores the session, so existing behaviour/tests are byte-identical.
-        this(properties, session -> catalogOps, context, manifestCache, rewritableDeleteStash);
+        // ignores the session, so existing behaviour/tests are byte-identical. No cross-query cache (tableCache
+        // null) — the fat handle still dedups within a planning pass.
+        this(properties, session -> catalogOps, context, manifestCache, rewritableDeleteStash, null);
+    }
+
+    /**
+     * Session-aware convenience ctor without a cross-query table cache (tableCache null); used by the offline
+     * session-routing tests. The query-scoped fat handle still dedups within a planning pass.
+     */
+    public IcebergScanPlanProvider(Map<String, String> properties,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergManifestCache manifestCache,
+            IcebergRewritableDeleteStash rewritableDeleteStash) {
+        this(properties, catalogOpsResolver, context, manifestCache, rewritableDeleteStash, null);
     }
 
     /**
@@ -261,12 +279,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public IcebergScanPlanProvider(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context, IcebergManifestCache manifestCache,
-            IcebergRewritableDeleteStash rewritableDeleteStash) {
+            IcebergRewritableDeleteStash rewritableDeleteStash, IcebergTableCache tableCache) {
         this.properties = properties;
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
         this.manifestCache = manifestCache;
         this.rewritableDeleteStash = rewritableDeleteStash;
+        this.tableCache = tableCache;
     }
 
     /**
@@ -2053,17 +2072,40 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code null} context (offline unit tests / simple-auth) resolves directly.
      */
     private Table resolveTable(ConnectorSession session, IcebergTableHandle handle) {
+        // Fat handle first (PERF-01): one handle threaded through getColumnHandles + planScan resolves the table
+        // once. The memo holds the RAW table; wrapTableForScan (the Kerberos doAs FileIO) is re-applied per call
+        // below so no per-request authenticator is ever frozen into the shared memo/cache.
+        Table cached = handle.getResolvedTable();
+        if (cached != null) {
+            return wrapTableForScan(cached);
+        }
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
+        Table raw;
         if (context == null) {
-            return ops.loadTable(handle.getDbName(), handle.getTableName());
+            raw = loadRawTable(ops, handle);
+        } else {
+            try {
+                raw = context.executeAuthenticated(() -> loadRawTable(ops, handle));
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to load table for scan, error message is:" + e.getMessage(), e);
+            }
         }
-        try {
-            return wrapTableForScan(context.executeAuthenticated(
-                    () -> ops.loadTable(handle.getDbName(), handle.getTableName())));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load table for scan, error message is:" + e.getMessage(), e);
+        handle.setResolvedTable(raw);
+        return wrapTableForScan(raw);
+    }
+
+    /**
+     * Loads the RAW iceberg table for {@code handle} through the cross-query {@link IcebergTableCache} when
+     * enabled (the connector disables it for credential-dependent catalogs), else a direct remote
+     * {@code loadTable}. No wrap and no auth scope here — {@link #resolveTable} owns both.
+     */
+    private Table loadRawTable(IcebergCatalogOps ops, IcebergTableHandle handle) {
+        if (tableCache != null) {
+            return tableCache.getOrLoad(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
+                    () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
         }
+        return ops.loadTable(handle.getDbName(), handle.getTableName());
     }
 
     /**
