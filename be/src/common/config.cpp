@@ -1280,7 +1280,7 @@ DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
 // async file cache write
-DEFINE_mBool(enable_async_file_cache_write, "false");
+DEFINE_mBool(enable_async_file_cache_write, "true");
 DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
 DEFINE_mInt64(async_file_cache_write_max_pending_tasks_per_disk, "256");
 DEFINE_mInt32(async_file_cache_write_batch_size, "16");
