@@ -24,8 +24,8 @@ import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
-import org.apache.doris.datasource.PluginDrivenScanNode;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 

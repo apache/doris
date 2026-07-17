@@ -27,7 +27,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 
 import com.google.common.collect.Sets;
