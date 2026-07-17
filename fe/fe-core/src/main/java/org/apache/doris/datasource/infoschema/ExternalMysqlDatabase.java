@@ -22,7 +22,7 @@ import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.InitDatabaseLog.Type;
+import org.apache.doris.datasource.log.InitDatabaseLog.Type;
 
 import com.google.common.collect.Lists;
 

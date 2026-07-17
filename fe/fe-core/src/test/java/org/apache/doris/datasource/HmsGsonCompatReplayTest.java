@@ -19,6 +19,9 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
