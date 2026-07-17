@@ -591,6 +591,10 @@ public class MTMVPlanUtil {
             Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
             keys = analyzeKeys(keys, properties, columns, isIvm, mvPartitionInfo, distribution,
                     ivmRewriteResult.orElse(null));
+            if (isIvm) {
+                properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE, "BIGINT");
+            }
             properties = CreateTableInfo.addOlapHiddenColumns(
                     columns, isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS,
                     isIvm, properties, false);

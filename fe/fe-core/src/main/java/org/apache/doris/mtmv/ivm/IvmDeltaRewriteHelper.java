@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -174,7 +173,7 @@ public class IvmDeltaRewriteHelper {
         while (current instanceof LogicalProject) {
             LogicalProject<?> project = (LogicalProject<?>) current;
             projects.add(project);
-            if (containsDeleteSignPlaceholder(project)) {
+            if (containsSinkHiddenColumnPlaceholder(project)) {
                 return Pair.of(project.child(), projects);
             }
             current = project.child();
@@ -184,7 +183,7 @@ public class IvmDeltaRewriteHelper {
 
     /**
      * Finalize the rewritten delta plan into the sink query shape, then reattach the detached top projects
-     * while fixing adapter placeholders such as delete_sign/version.
+     * while fixing adapter placeholders such as delete_sign, sequence, and version.
      */
     public Plan finalizeQuery(Pair<Plan, List<LogicalProject<?>>> prefixChain,
             IvmDeltaRewriteResult result, IvmRefreshContext ctx) {
@@ -208,25 +207,28 @@ public class IvmDeltaRewriteHelper {
                 .collect(Collectors.toList());
     }
 
-    private boolean isDeleteSignAdaptPlaceholder(Alias alias) {
-        return Column.DELETE_SIGN.equals(alias.getName()) && alias.child().isLiteral();
+    private boolean isSinkHiddenColumnPlaceholder(Alias alias) {
+        return IvmUtil.isCommonHiddenSlot(alias.getName()) && alias.child().isLiteral();
     }
 
-    private boolean containsDeleteSignPlaceholder(LogicalProject<?> project) {
+    private boolean containsSinkHiddenColumnPlaceholder(LogicalProject<?> project) {
         return project.getProjects().stream()
                 .filter(Alias.class::isInstance)
                 .map(Alias.class::cast)
-                .anyMatch(this::isDeleteSignAdaptPlaceholder);
+                .anyMatch(this::isSinkHiddenColumnPlaceholder);
     }
 
     private LogicalProject<?> makeDeleteSignProject(IvmDeltaRewriteResult result, IvmRefreshContext ctx) {
         List<Slot> output = result.plan.getOutput();
         List<String> insertedColumns = ctx.getMtmv().getInsertedColumnNames();
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(
-                insertedColumns.size() + 1);
+                insertedColumns.size() + 2);
         for (String colName : insertedColumns) {
             outputs.add(findSlotByName(output, colName));
         }
+        Slot sequenceSlot = findSlotByNameOrNull(output, Column.SEQUENCE_COL);
+        outputs.add(sequenceSlot != null ? sequenceSlot
+                : new Alias(IvmUtil.getCommonHiddenSlotDefault(Column.SEQUENCE_COL), Column.SEQUENCE_COL));
         outputs.add(new Alias(
                 new If(new LessThan(result.dmlFactorSlot, new TinyIntLiteral((byte) 0)),
                         new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0)),
@@ -238,7 +240,7 @@ public class IvmDeltaRewriteHelper {
         Map<String, Slot> childOutputByName = indexOutputsByName(finalProject.getOutput());
         List<NamedExpression> rewrittenAdapterProjects = new java.util.ArrayList<>(adapterProject.getProjects().size());
         for (NamedExpression project : adapterProject.getProjects()) {
-            if (project instanceof Alias && isDeleteSignAdaptPlaceholder((Alias) project)) {
+            if (project instanceof Alias && isSinkHiddenColumnPlaceholder((Alias) project)) {
                 Alias alias = (Alias) project;
                 Slot childSlot = childOutputByName.get(project.getName());
                 if (childSlot != null) {
@@ -440,16 +442,13 @@ public class IvmDeltaRewriteHelper {
      * choose a suitable default literal instead of NULL. For MOW tables, the
      * bound OLAP scan is naturally guarded by {@code delete_sign = 0}; using
      * NULL for the stream scan's missing delete_sign column would make that
-     * filter always false. Version also uses its valid default value 0 when
+     * filter always false. Version and sequence use their valid default value 0 when
      * absent from the stream scan. Other hidden columns still fall back to NULL.
      */
     private Literal hiddenColumnFallbackLiteral(NamedExpression oldExpr) {
         String name = oldExpr.getName();
-        if (Column.DELETE_SIGN.equals(name)) {
-            return new TinyIntLiteral((byte) 0);
-        }
-        if (Column.VERSION_COL.equals(name)) {
-            return new BigIntLiteral(0L);
+        if (IvmUtil.isCommonHiddenSlot(name)) {
+            return IvmUtil.getCommonHiddenSlotDefault(name);
         }
         return new NullLiteral(oldExpr.getDataType());
     }

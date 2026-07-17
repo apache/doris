@@ -107,7 +107,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScan();
         InsertIntoTableCommand command = buildIncrementalInsertCommand(buildScanPlan(scan).child(), mtmv);
         UnboundTableSink<?> sink = getSink(command);
-        Assertions.assertEquals(mtmv.getInsertedColumnNames(), sink.getColNames());
+        Assertions.assertEquals(ImmutableList.of("id", "name"), sink.getColNames());
     }
 
     @Test

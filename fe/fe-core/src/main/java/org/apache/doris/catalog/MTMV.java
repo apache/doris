@@ -228,6 +228,10 @@ public class MTMV extends OlapTable {
         return getIvmInfo().isEnableIvm();
     }
 
+    public long getNextRefreshVersion() {
+        return Config.isCloudMode() ? getNextVersion() : getIvmInfo().getRefreshVersion() + 1;
+    }
+
     public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
             Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay) {
         MTMVCache mtmvCacheWithGuard = null;

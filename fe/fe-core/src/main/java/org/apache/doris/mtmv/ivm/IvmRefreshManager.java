@@ -40,7 +40,6 @@ import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -123,8 +122,7 @@ public class IvmRefreshManager {
         MTMV mtmv = context.getMtmv();
         StatementContext statementContext = new StatementContext(
                 context.getConnectContext(), new OriginStatement(mtmv.getQuerySql(), 0));
-        statementContext.setIvmRewriteContext(Optional.of(
-                IvmRewriteContext.incremental(mtmv, false)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.incremental(mtmv, false)));
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,
                 statementContext, mtmv.getQuerySql());
@@ -139,7 +137,7 @@ public class IvmRefreshManager {
     InsertIntoTableCommand buildInsertCommand(LogicalPlan queryPlan, MTMV mtmv) {
         Objects.requireNonNull(queryPlan, "queryPlan can not be null");
         Objects.requireNonNull(mtmv, "mtmv can not be null");
-        List<String> sinkColumns = new ArrayList<>(mtmv.getInsertedColumnNames());
+        List<String> sinkColumns = mtmv.getInsertedColumnNames();
         List<String> mvNameParts = ImmutableList.of(
                 InternalCatalog.INTERNAL_CATALOG_NAME,
                 mtmv.getQualifiedDbName(),

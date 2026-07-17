@@ -19,7 +19,7 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -29,41 +29,30 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -151,13 +140,15 @@ public class IvmDeltaRewriter {
             return new LogicalEmptyRelation(
                     ctx.getConnectContext().getStatementContext().getNextRelationId(), normalizedPlan.getOutput());
         }
+        long refreshVersion = isAgg ? 0L : ctx.getMtmv().getNextRefreshVersion();
 
         // --- Step 3: per-table visitor rewrite ---
         IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor();
         List<Plan> rewrittenPlans = new ArrayList<>();
-        for (Plan deltaPlan : deltaPlans) {
+        for (int deltaPlanIndex = 0; deltaPlanIndex < deltaPlans.size(); deltaPlanIndex++) {
+            Plan deltaPlan = deltaPlans.get(deltaPlanIndex);
             IvmDeltaRewriteResult result = visitor.rewritePlan(deltaPlan, ctx);
-            rewrittenPlans.add(result.plan);
+            rewrittenPlans.add(isAgg ? result.plan : addDeltaSequence(result.plan, deltaPlanIndex, refreshVersion));
         }
 
         // --- Step 4: UNION ALL ---
@@ -185,15 +176,30 @@ public class IvmDeltaRewriter {
             mergedPlan = reattachAggAndProcess(savedAgg, workPlan, mergedPlan, aggMeta, ctx);
             // --- Step 6 (AGG only): rebuild above-AGG chain bottom-up ---
             mergedPlan = rebuildAboveAggChain(savedChain, mergedPlan);
-        } else if (hasMowIncrementalStreamScan(mergedPlan)) {
-            // --- Step 5 (non-AGG): binlog order rewrite ---
-            mergedPlan = applyBinlogOrderRewrite(mergedPlan, ctx);
         }
 
         // --- Final step: dml_factor → delete_sign (all paths converge here) ---
         Slot dmlSlot = helper.findSlotByName(mergedPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
         mergedPlan = helper.finalizeQuery(prefixChain, new IvmDeltaRewriteResult(mergedPlan, dmlSlot, null), ctx);
         return mergedPlan;
+    }
+
+    private Plan addDeltaSequence(Plan plan, int deltaPlanIndex, long refreshVersion) {
+        long prefix = getSequencePrefix(refreshVersion, deltaPlanIndex);
+        Slot baseOpSlot = helper.findSlotByName(plan.getOutput(), Column.IVM_BASE_OP_COL);
+        List<NamedExpression> outputs = new ArrayList<>(plan.getOutput());
+        Expression phase = new If(new GreaterThan(baseOpSlot, new TinyIntLiteral((byte) 0)),
+                new BigIntLiteral(1), new BigIntLiteral(0));
+        outputs.add(new Alias(new Add(new BigIntLiteral(prefix), phase), Column.SEQUENCE_COL));
+        return new LogicalProject<>(outputs, plan);
+    }
+
+    private long getSequencePrefix(long refreshVersion, int deltaPlanIndex) {
+        Preconditions.checkState(refreshVersion >= 0 && refreshVersion <= (Long.MAX_VALUE >>> 11),
+                "IVM refresh version exceeds the sequence encoding range: %s", refreshVersion);
+        Preconditions.checkState(deltaPlanIndex >= 0 && deltaPlanIndex < 1024,
+                "invalid IVM delta plan index: %s", deltaPlanIndex);
+        return (refreshVersion << 11) | ((long) deltaPlanIndex << 1);
     }
 
     // ---------------------------------------------------------------------------
@@ -478,84 +484,6 @@ public class IvmDeltaRewriter {
             throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
                     "IVM: stream not found for base table " + originTable.getName(), e);
         }
-    }
-
-    /**
-     * Checks whether the merged delta plan contains an incremental stream scan on a MOW table.
-     * Only non-AGG MVs with MOW base table deltas need the binlog order rewrite.
-     */
-    private boolean hasMowIncrementalStreamScan(Plan mergedPlan) {
-        return mergedPlan.anyMatch(node -> {
-            if (!(node instanceof LogicalOlapTableStreamScan)) {
-                return false;
-            }
-            LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) node;
-            if (!streamScan.isIncremental()) {
-                return false;
-            }
-            TableIf table = streamScan.getTable();
-            if (table instanceof OlapTable) {
-                return ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS;
-            }
-            return false;
-        });
-    }
-
-    /**
-     * Wraps the merged delta plan with CTE + split + FULL OUTER JOIN + IF(isnull) Project
-     * to ensure delete rows are processed before insert rows for the same key.
-     * This replaces the Sort approach, avoiding full-data spill in AP scenarios.
-     */
-    Plan applyBinlogOrderRewrite(Plan mergedPlan, IvmRefreshContext ctx) {
-        Slot rowIdSlot = IvmUtil.findRowIdSlot(mergedPlan.getOutput(), "merged delta plan");
-
-        // ① CTE: share the delta plan via producer/consumer instead of deep copy.
-        //    The FOJ children are LogicalCTEConsumer (leaf nodes) so checkConflictAlias
-        //    never reaches the stream scan — no "Not unique table/alias" error.
-        CTEId cteId = StatementScopeIdGenerator.newCTEId();
-        LogicalSubQueryAlias<Plan> producerAlias = new LogicalSubQueryAlias<>(
-                "__doris_ivm_cte", (Plan) mergedPlan);
-        LogicalCTEProducer<Plan> producer = new LogicalCTEProducer<>(cteId,
-                (LogicalPlan) producerAlias);
-        LogicalCTEConsumer insertConsumer = new LogicalCTEConsumer(
-                StatementScopeIdGenerator.newRelationId(), cteId, "__doris_ivm_cte_insert",
-                (LogicalPlan) mergedPlan);
-        LogicalCTEConsumer deleteConsumer = new LogicalCTEConsumer(
-                StatementScopeIdGenerator.newRelationId(), cteId, "__doris_ivm_cte_delete",
-                (LogicalPlan) mergedPlan);
-
-        // ② Split: filter by baseOp on each consumer, wrapped in SubQueryAlias
-        //    like the parser does for "SELECT ... FROM (SELECT * FROM cte WHERE ...) alias".
-        Plan insertBranch = new LogicalSubQueryAlias<>("__doris_ivm_insert",
-                new LogicalFilter<>(ImmutableSet.of(
-                        new GreaterThan(helper.findSlotByName(insertConsumer.getOutput(),
-                                Column.IVM_BASE_OP_COL), new TinyIntLiteral((byte) 0))), insertConsumer));
-        Plan deleteBranch = new LogicalSubQueryAlias<>("__doris_ivm_delete",
-                new LogicalFilter<>(ImmutableSet.of(
-                        new LessThan(helper.findSlotByName(deleteConsumer.getOutput(),
-                                Column.IVM_BASE_OP_COL), new TinyIntLiteral((byte) 0))), deleteConsumer));
-
-        Slot insertRowId = helper.findSlotByName(insertBranch.getOutput(), rowIdSlot.getName());
-        Slot deleteRowId = helper.findSlotByName(deleteBranch.getOutput(), rowIdSlot.getName());
-
-        // ③ FULL OUTER JOIN on row_id
-        LogicalJoin<Plan, Plan> foj = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
-                ImmutableList.of(new EqualTo(insertRowId, deleteRowId)), ImmutableList.of(),
-                insertBranch, deleteBranch, JoinReorderContext.EMPTY);
-
-        // ④ Final Project: every column through IF(insert.row_id IS NULL, delete.col, insert.col)
-        List<Slot> outputs = insertBranch.getOutput();
-        ImmutableList.Builder<NamedExpression> finalProjects = ImmutableList.builderWithExpectedSize(
-                outputs.size());
-        for (Slot col : outputs) {
-            Slot deleteCol = helper.findSlotByName(deleteBranch.getOutput(), col.getName());
-            finalProjects.add(new Alias(col.getExprId(),
-                    new If(new IsNull(insertRowId), deleteCol, col), col.getName()));
-        }
-        LogicalProject<Plan> ifProject = new LogicalProject<>(finalProjects.build(), foj);
-
-        // ⑤ Wrap with CTE Anchor: Producer (left) + main plan (right)
-        return new LogicalCTEAnchor<>(cteId, producer, ifProject);
     }
 
     boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {

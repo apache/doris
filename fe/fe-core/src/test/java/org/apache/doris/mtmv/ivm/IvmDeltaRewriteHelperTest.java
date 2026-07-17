@@ -239,6 +239,8 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
                     findAliasChild(streamProject, Column.DELETE_SIGN));
             Assertions.assertEquals(new BigIntLiteral(0L),
                     findAliasChild(streamProject, Column.VERSION_COL));
+            Assertions.assertEquals(new BigIntLiteral(0L),
+                    findAliasChild(streamProject, Column.SEQUENCE_COL));
 
             LogicalPlan snapshotPlan = (LogicalPlan) streamScan.withPostSnapshot();
             LogicalProject<?> remapped = helper.remapStreamScanToPlan(streamProject, snapshotPlan);
@@ -247,6 +249,8 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
                     findAliasChild(remapped, Column.DELETE_SIGN));
             Assertions.assertEquals(helper.findSlotByName(snapshotPlan.getOutput(), Column.VERSION_COL),
                     findAliasChild(remapped, Column.VERSION_COL));
+            Assertions.assertEquals(helper.findSlotByName(snapshotPlan.getOutput(), Column.SEQUENCE_COL),
+                    findAliasChild(remapped, Column.SEQUENCE_COL));
         } finally {
             ConnectContext.remove();
         }
@@ -257,6 +261,8 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
                 new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
                 new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.TINYINT), false,
+                        AggregateType.NONE, false, "", false, Column.COLUMN_UNIQUE_ID_INIT_VALUE),
+                new Column(Column.SEQUENCE_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, "", false, Column.COLUMN_UNIQUE_ID_INIT_VALUE),
                 new Column(Column.VERSION_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, "", false, Column.COLUMN_UNIQUE_ID_INIT_VALUE));

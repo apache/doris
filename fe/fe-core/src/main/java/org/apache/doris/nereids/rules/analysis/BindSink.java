@@ -267,7 +267,7 @@ public class BindSink implements AnalysisRuleFactory {
                 // 1. it's a load job with `partial_columns=true`
                 // 2. UPDATE and DELETE, planner will automatically add these hidden columns
                 // 3. session value `require_sequence_in_insert` is false
-                if (!haveInputSeqCol && !isPartialUpdate && (
+                if (!haveInputSeqCol && !isIncrementalIvmTable(table) && !isPartialUpdate && (
                         boundSink.getDmlCommandType() != DMLCommandType.UPDATE
                                 && boundSink.getDmlCommandType() != DMLCommandType.DELETE) && (
                         boundSink.getDmlCommandType() != DMLCommandType.INSERT
@@ -435,6 +435,11 @@ public class BindSink implements AnalysisRuleFactory {
                         columnToReplaced.put(column.getName(), seqColumn.toSlot());
                         replaceMap.put(seqColumn.toSlot(), seqColumn.child(0));
                     }
+                } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
+                    Alias output = new Alias(IvmUtil.getCommonHiddenSlotDefault(column.getName()), column.getName());
+                    columnToOutput.put(column.getName(), output);
+                    columnToReplaced.put(column.getName(), output.toSlot());
+                    replaceMap.put(output.toSlot(), output.child());
                 } else if (missingIvmHiddenColumns.contains(column.getName())) {
                     Alias output = new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())),
                             column.getName());
@@ -1229,7 +1234,7 @@ public class BindSink implements AnalysisRuleFactory {
                 && !column.isMaterializedViewColumn();
     }
 
-    private boolean isIncrementalIvmTable(OlapTable table) {
+    private static boolean isIncrementalIvmTable(TableIf table) {
         return table instanceof MTMV && ((MTMV) table).isIvm();
     }
 

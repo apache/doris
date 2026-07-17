@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -2319,6 +2320,16 @@ public class DatabaseTransactionMgr {
         // update table stream offset if necessary
         if (!CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
             updateStreamOffset(transactionState, transactionState.getCommitTime());
+            updateIvmRefreshVersion(transactionState, db);
+        }
+    }
+
+    private void updateIvmRefreshVersion(TransactionState transactionState, Database db) {
+        for (Long tableId : transactionState.getTableIdList()) {
+            Table table = db.getTableNullable(tableId);
+            if (table instanceof MTMV && ((MTMV) table).isIvm()) {
+                ((MTMV) table).getIvmInfo().advanceRefreshVersion();
+            }
         }
     }
 
