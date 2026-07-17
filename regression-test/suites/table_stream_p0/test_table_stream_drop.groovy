@@ -44,6 +44,46 @@ suite("test_table_stream_drop") {
         CREATE STREAM s_drop_exist ON TABLE base_drop
         PROPERTIES ("type" = "append_only")
     """
+    sql "INSERT INTO base_drop VALUES (1, 10)"
+    sql "sync"
+    sleep(1200)
+    assertEquals(1, sql("SELECT k1, v1 FROM s_drop_exist").size())
+    sql "DROP STREAM s_drop_exist"
+
+    assertEquals(0, sql("""
+        SELECT COUNT(*) FROM information_schema.table_streams
+        WHERE DB_NAME = 'test_table_stream_drop_db'
+          AND STREAM_NAME = 's_drop_exist'
+    """)[0][0] as int)
+    assertEquals(0, sql("""
+        SELECT COUNT(*) FROM information_schema.table_stream_consumption
+        WHERE DB_NAME = 'test_table_stream_drop_db'
+          AND STREAM_NAME = 's_drop_exist'
+    """)[0][0] as int)
+
+    // Dropping a stream must not affect its base table or later writes.
+    sql "INSERT INTO base_drop VALUES (2, 20)"
+    sql "sync"
+    assertEquals([["1", "10"], ["2", "20"]],
+            sql("SELECT k1, v1 FROM base_drop ORDER BY k1").collect {
+                row -> row.collect { value -> value.toString() }
+            })
+
+    // The dropped name can be reused and starts from its own creation offset.
+    sql """
+        CREATE STREAM s_drop_exist ON TABLE base_drop
+        PROPERTIES (
+            "type" = "append_only",
+            "show_initial_rows" = "false"
+        )
+    """
+    assertEquals(0, sql("SELECT k1, v1 FROM s_drop_exist").size())
+    sql "INSERT INTO base_drop VALUES (3, 30)"
+    sql "sync"
+    sleep(1200)
+    assertEquals([["3", "30"]], sql("SELECT k1, v1 FROM s_drop_exist ORDER BY k1").collect {
+        row -> row.collect { value -> value.toString() }
+    })
     sql "DROP STREAM s_drop_exist"
 
     // dropping the same name again (no IF EXISTS) must fail.
@@ -67,6 +107,9 @@ suite("test_table_stream_drop") {
         PROPERTIES ("type" = "append_only")
     """
     sql "DROP STREAM s_drop_force FORCE"
-
-    sql "DROP DATABASE IF EXISTS test_table_stream_drop_db"
+    assertEquals(0, sql("""
+        SELECT COUNT(*) FROM information_schema.table_streams
+        WHERE DB_NAME = 'test_table_stream_drop_db'
+          AND STREAM_NAME = 's_drop_force'
+    """)[0][0] as int)
 }

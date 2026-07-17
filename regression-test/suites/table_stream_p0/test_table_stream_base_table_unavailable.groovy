@@ -64,6 +64,13 @@ suite("test_table_stream_base_table_unavailable") {
     def afterDrop = fetchRow("s_drop")
     assertEquals("N/A", afterDrop[0])
     assertEquals("N/A", afterDrop[1])
+    assertEquals("N/A", afterDrop[2])
+    assertEquals("N/A", afterDrop[3])
+
+    test {
+        sql "SELECT k1, v1 FROM s_drop"
+        exception "Unknown base table"
+    }
 
     // --- B. rename the base table; the stream must reflect the new name. ---
     sql """
@@ -87,5 +94,12 @@ suite("test_table_stream_base_table_unavailable") {
     sql "ALTER TABLE base_rename RENAME base_renamed"
     assertEquals("base_renamed", fetchRow("s_rename")[0])
 
-    sql "DROP DATABASE IF EXISTS test_table_stream_base_unavail_db"
+    // Rename must preserve the base-table identity used by the stream.
+    sql "INSERT INTO base_renamed VALUES (1, 10)"
+    sql "sync"
+    sleep(1200)
+    assertEquals([["1", "10"]], sql("SELECT k1, v1 FROM s_rename ORDER BY k1").collect {
+        row -> row.collect { value -> value.toString() }
+    })
+
 }
