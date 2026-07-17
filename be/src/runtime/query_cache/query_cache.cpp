@@ -346,6 +346,47 @@ bool QueryCacheRuntime::_capture_tablet_delta(int64_t tablet_id, int64_t cached_
         decision->incremental_fallback_reason = "delta contains delete predicates";
         return false;
     }
+    // Pin the cached side for as long as the classification below reads the
+    // delete bitmap. The markers it looks for sit on the rowsets the cached
+    // snapshot was built from, and the capture above pins only the delta
+    // side, so nothing else keeps that evidence alive: once a compaction
+    // spanning both sides retires such a rowset, an overwritten row has no
+    // counterpart in the output and its marker is therefore not relocated
+    // (BaseTablet::calc_compaction_output_rowset_delete_bitmap skips a source
+    // row whose id does not convert), leaving the marker only on the retired
+    // input, which the stale sweep then hands to the unused-rowset GC.
+    // Classification would see no rewrite and merge the cached rows with
+    // their replacements: a wrong entry, stored at the current version.
+    // Holding the rowsets stops that, in start_delete_unused_rowset(): it
+    // collects a retired rowset only once nothing else references it, and
+    // only what it collects gets remove_rowset_delete_bitmap(), which drops
+    // every version of that rowset's bitmap. The other remover, the key
+    // ranges that the stale sweep queues onto the pre-window rowsets, is
+    // held off by the delta capture instead: that queue is released only
+    // once the swept path's own rowsets are unreferenced.
+    std::vector<RowsetSharedPtr> cached_side_pin;
+    if (merge_on_write) {
+        {
+            std::shared_lock rdlock(tablet->get_header_lock());
+            auto pin_res = tablet->capture_consistent_rowsets_unlocked({0, cached_version},
+                                                                       {.quiet = true});
+            if (pin_res) {
+                cached_side_pin = std::move(pin_res.value().rowsets);
+            }
+        }
+        // quiet yields the prefix it walked, so cover the whole cached range
+        // before trusting the classification: an unpinned tail is evidence we
+        // cannot vouch for.
+        if (cached_side_pin.empty() || cached_side_pin.front()->start_version() != 0 ||
+            cached_side_pin.back()->end_version() != cached_version) {
+            decision->incremental_fallback_reason = "cached versions not pinnable";
+            return false;
+        }
+        // The pin is only worth anything while the classification runs, so
+        // let a test observe it exactly there rather than infer it.
+        TEST_SYNC_POINT_CALLBACK("QueryCacheRuntime::_capture_tablet_delta.cached_side_pinned",
+                                 &cached_side_pin);
+    }
     if (merge_on_write &&
         _delta_rewrites_history(*tablet, *read_source, cached_version, decision->current_version)) {
         // A load in the delta window marked rows of the cached snapshot as

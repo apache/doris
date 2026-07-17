@@ -900,6 +900,65 @@ TEST_F(QueryCacheIncrementalTest, mow_history_rewrite_falls_back) {
     EXPECT_EQ(decision->incremental_fallback_reason, "delta rewrites history rows");
 }
 
+TEST_F(QueryCacheIncrementalTest, mow_cached_side_pinned_across_classification) {
+    // The rewrite markers classification looks for live on the cached side,
+    // which the delta capture does not pin. Unpinned, a compaction spanning
+    // both sides can retire such a rowset without relocating the marker of a
+    // row it dropped, and the unused-rowset GC can then wipe that marker
+    // before classification reads it -- a stale entry would silently merge
+    // with the rows that replaced it. So the pin must cover the whole cached
+    // range and must still be held while classification runs, which is where
+    // this sync point observes it.
+    ASSERT_NE(create_tablet(TKeysType::UNIQUE_KEYS, true, {{0, 50}, {51, 100}}), nullptr);
+    auto* sp = SyncPoint::get_instance();
+    int64_t pinned_start = -1;
+    int64_t pinned_end = -1;
+    int observed = 0;
+    sp->set_call_back("QueryCacheRuntime::_capture_tablet_delta.cached_side_pinned",
+                      [&](auto&& args) {
+                          auto* pinned = try_any_cast<std::vector<RowsetSharedPtr>*>(args[0]);
+                          ++observed;
+                          EXPECT_FALSE(pinned->empty());
+                          if (!pinned->empty()) {
+                              pinned_start = pinned->front()->start_version();
+                              pinned_end = pinned->back()->end_version();
+                          }
+                      });
+    sp->enable_processing();
+    Defer clear_sp {[&] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto decision = make_stale_decision();
+    EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::INCREMENTAL);
+    // Guard against a vacuous pass: a renamed or removed sync point would
+    // leave the pin unobserved while the assertions below still held.
+    EXPECT_EQ(observed, 1);
+    // The cached snapshot is everything up to the cached version, and every
+    // bit of it must be pinned: an unpinned tail is evidence we could lose.
+    EXPECT_EQ(pinned_start, 0);
+    EXPECT_EQ(pinned_end, 50);
+}
+
+TEST_F(QueryCacheIncrementalTest, mow_cached_side_not_pinnable_falls_back) {
+    // Part of the cached snapshot is gone (compacted away and swept), so its
+    // rewrite markers may already have been collected: classification could no
+    // longer tell an append from an overwrite. The delta is unaffected and
+    // still captures, so only the cached-side pin can catch this. The pin asks
+    // quietly, which yields whatever prefix it walked -- here [0, 40], short
+    // of the cached version 50 -- so it is the coverage check, not emptiness,
+    // that must reject it.
+    ASSERT_NE(create_tablet(TKeysType::UNIQUE_KEYS, true, {{0, 40}, {51, 80}, {81, 100}}), nullptr);
+    int64_t fallbacks_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
+    auto decision = make_stale_decision();
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallbacks_before + 1);
+    EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
+    EXPECT_EQ(decision->incremental_fallback_reason, "cached versions not pinnable");
+}
+
 TEST_F(QueryCacheIncrementalTest, mow_irrelevant_bitmap_entries_ignored) {
     // Delete-bitmap entries that cannot affect the cached snapshot must not
     // spoil the incremental path: entries targeting the delta rowsets (a key
