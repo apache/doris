@@ -1138,6 +1138,7 @@ EOF
 
     if [[ "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/file_cache_microbench" "${DORIS_OUTPUT}/be/lib"/
+        cp -r -p "${DORIS_HOME}/be/output/lib/async_file_cache_write_microbench" "${DORIS_OUTPUT}/be/lib"/
     fi
 
     if [[ "${BUILD_INDEX_TOOL}" = "ON" ]]; then
