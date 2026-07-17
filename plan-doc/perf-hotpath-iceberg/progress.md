@@ -45,3 +45,16 @@
 - **度量守门（新）**：`IcebergPartitionUtilsTest.partitionScanIsCachedAcrossRepeatsAndConsumersAtSameSnapshot` —— 真分区表重复 `buildMvccPartitionView` + `listPartitions` 同快照 → `loadCountForTest()==1`。另 `IcebergPartitionCacheTest`（含 `ValidationException` 透传+不缓存）、连接器 gate/失效诸测。
 - **结果**：全 iceberg 模块 **943 pass / 0 fail / 1 skip**，checkstyle 绿。summary 见 `designs/FIX-PERF-02-partition-view-cache-summary.md`。0 回归（无需改任何现有测试）。
 - **下一步**：见 HANDOFF —— PERF-03（#64134 planFiles 兜底复活：`file_format_type` 无 write-format 时走整表 planFiles 反推格式 → memoize / 从枚举反推）。
+
+---
+
+## 2026-07-18 — session 3：PERF-03 实现 + 全绿（commit `0b96f2e6c78`）
+
+- **复核确认审计 C2/C11（同一重操作两视角）**：`getScanNodeProperties:1350 → IcebergWriterHelper.getFileFormat → resolveFileFormatName → inferFileFormatFromDataFiles → table.newScan().planFiles()`（无过滤整表 manifest 扫描）。门槛=表属性无 `write-format` 且无 `write.format.default`。fe-core 侧 `cachedPropertiesResult` 已 node-memoize ⇒ 查询内 1 次，但跨查询零缓存 ⇒ 每查询/EXPLAIN 一遍整表扫描（大表数百 ms~秒 ×QPS）。
+- **路线否决（复核推翻 HANDOFF 原倾向 b）**：HANDOFF 倾向"从 planScan 枚举反推格式"（消除而非缓存），复核**否决**——`FileQueryScanNode.createScanRangeLocations` **先** `getFileFormatType`（line 325 → 触发本重操作）**后** `getSplits/planScan`（line 422）：格式须先于数据扫描给出，planScan 尚未跑；且推断是无过滤、planScan 带谓词，谓词剪空所有文件时反推拿不到格式破 legacy parity；改时序须动 fe-core（违反"fe-core 源只出不进"铁律）。**正是 HANDOFF 预判的"两路径独立触发 → 退回 (a) memoize"**。
+- **设计红队（独立 agent 对抗）**：7 项攻击（时序/键 soundness/无 gate/失败粘住/混格式&空表/失效完整/写路径不缓存）**全部未击穿**，判"根本可靠"。采纳两点：R1 loader 只能抛 unchecked（`close()` 的 `IOException` 包 `UncheckedIOException`）；R2 混格式表"格式变确定"如实记为可复现性变化非卖点。R3 加 avro 首文件重抛断言。
+- **实现（连接器侧，一个 `[perf]` commit，零 fe-core 改动）**：新增 `IcebergFormatCache`（键 `(TableIdentifier, currentSnapshotId)`、值格式名 `String`、**无凭证 gate**）；`IcebergWriterHelper` 加 cache-aware `getFileFormat` 重载 + `resolveFileFormatName` 重载，拆 `inferFirstDataFileFormat`(透传异常)/`inferFileFormatFromDataFiles`(吞→委派)，orc/parquet 映射与其 unsupported throw 保持在 `getOrLoad` 之外；`IcebergScanPlanProvider` 加 nullable `formatCache` 字段 + 7 参 ctor（6 参委派 null）+ 改 `getScanNodeProperties` 调用点；`IcebergConnector` 无条件构造 + 传 provider + 三失效钩子 + `formatCacheForTest`。**写路径 7 个 `getFileFormat(Table)` 调用点不动**（留 PERF-07/C20）。
+- **度量守门（新）**：`IcebergWriterHelperTest`（真 InMemoryCatalog 表 + 真数据文件）无格式属性表重复 `getFileFormat(table,id,cache)` → `loadCountForTest()==1`+`size()==1`+与无缓存 parity；属性表 `size()==0`；null cache 存活；avro 首文件推断一次但每次重抛。`IcebergFormatCacheTest`（8：TTL/关/失效/失败不缓存可重试）。`IcebergConnectorCacheTest`（+2：三目录无 gate + REFRESH 失效）。
+- **结果**：全 iceberg 模块 **957 pass / 0 fail / 1 skip**（`install -am`），checkstyle 绿，0 回归（无需改任何现有测试）。summary 见 `designs/FIX-PERF-03-format-inference-cache-summary.md`。
+- **踩坑/印证**：InMemoryCatalog `newAppend().commit()` 后同一 table 对象 `currentSnapshot()` 会刷新（度量守门测试 ORC+loadCount==1 通过即证），无需像 `dayPartitionedTable` 那样 reload；但 reload 仍是更稳的既有范式。
+- **下一步**：见 HANDOFF —— PERF-04（IcebergManifestCache 两条旁路接回：C17 streaming 大表踢出 cache + C18 COUNT(*) 下推绕过 cache）。

@@ -17,7 +17,7 @@
 |---|---|---|---|---|---|---|
 | PERF-01 | P0 | C1 C4 C6 C10 C16 | 一次规划 3~7 次远程 loadTable → 胖 handle(查询内单实例)+ 跨查询 IcebergTableCache(挂 Connector);~~convertPredicate 收窄~~已删(红队证伪) | — | ✅ 完成 | `484f0e0c125` |
 | PERF-02 | P0 | C7 C22 C23 | 分区视图每查询重扫 PARTITIONS 元数据表 → `(table,snapshotId)` 缓存(连接器侧,无凭证 gate);MTMV refresh pin 判定为多余(靠 latestSnapshotCache 稳定快照坍缩,不改 fe-core) | 与 01 共享快照 pin 机制 | ✅ 完成 | `518d0599cbf` |
-| PERF-03 | P0 | C2 C11 | #64134 复活：`file_format_type` 兜底走整表 planFiles → memoize / 从枚举反推 | 受益于 01 的失效收窄（消第二次） | ⏳ | |
+| PERF-03 | P0 | C2 C11 | #64134 复活：`file_format_type` 兜底走整表 planFiles → 跨查询 `(table,snapshotId)` memoize(连接器侧,无 gate);~~从枚举反推~~已否决(getFileFormatType 早于 planScan + 无过滤 vs 带谓词破 parity) | 与 01/02 共享快照 pin | ✅ 完成 | `0b96f2e6c78` |
 | PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 两条旁路接回 | — | ⏳ | |
 | PERF-05 | P1 | C9 | information_schema.tables 循环内每表 loadTable（只为拿 comment） → 随表缓存 / 惰性取 | — | ⏳ | |
 | PERF-06 | P1 | C3 | REST vended-cred 每 data/delete file 重建 StorageProperties+Configuration → scan 级 memo | — | ⏳ | |
@@ -43,10 +43,11 @@
 - **修复方向**：按 `(TableIdentifier, snapshotId)` 缓存分区视图（pin 在 `beginQuerySnapshot` 后已在 handle 上），挂 `fe-connector-cache`；MTMV 侧在 `MTMVRefreshContext` 加 refresh 级 `MvccSnapshot` pin。
 - **依赖**：与 PERF-01 共享 `(table, snapshotId)` 快照 pin —— 先做 01 立住模式，02 复用。
 
-### [ ] PERF-03 — 簇2：#64134 planFiles 兜底复活（C2 C11）
-- **病灶**：`getScanNodeProperties:1311 → IcebergWriterHelper.getFileFormat:265 → resolveFileFormatName:277 → inferFileFormatFromDataFiles:287 → table.newScan().planFiles():291`（无过滤整表 manifest 扫描）。门槛=表属性无 `write-format` 且无 `write.format.default`（含迁移表 + 任何写引擎从不显式设该属性的表）。纯冗余：planScan 自己的 planFiles 枚举里每个 `dataFile.format()` 都有，为拿"第一个文件格式"专门再扫全表。乘数=每次 properties 计算 1 次（无谓词 1/查询、带谓词 2/查询，叠 C1）。
-- **修复方向**：按 `(table UUID, snapshotId)` memoize 解析结果（快照不变 ⇒ 格式不变），或从 split 枚举结果反推 scan 级 format 传下去；配合 PERF-01 的失效收窄消掉第二次。
-- **依赖**：PERF-01 的 convertPredicate 收窄消除第二次计算。
+### [x] PERF-03 — 簇2：#64134 planFiles 兜底复活（C2 C11） · ✅ `0b96f2e6c78`
+- **病灶**：`getScanNodeProperties → IcebergWriterHelper.getFileFormat → resolveFileFormatName → inferFileFormatFromDataFiles → table.newScan().planFiles()`（无过滤整表 manifest 扫描）。门槛=表属性无 `write-format` 且无 `write.format.default`（迁移表 + 任何写引擎从不显式设该属性的表）。node 级已 memoize ⇒ 查询内 1 次，但跨查询零缓存 ⇒ 每查询/EXPLAIN 一遍整表扫描。
+- **落地**：新增连接器侧 `IcebergFormatCache`（键 `(TableIdentifier, currentSnapshotId)`、值格式名 `String`、**无凭证 gate**），只缓存推断兜底（属性探测不缓存），失败不入缓存（loader 透传 unchecked），映射/抛点在 `getOrLoad` 之外。写路径 7 调用点不动（留 PERF-07）。
+- **~~从枚举反推~~已否决**：`createScanRangeLocations` 先 `getFileFormatType`(line 325) 后 `getSplits/planScan`(line 422)，格式须先于数据扫描给出；且推断无过滤 vs planScan 带谓词，剪空时反推破 parity；改时序须动 fe-core（违反铁律）。
+- **收益**：无格式属性表每查询整表推断 → 每快照一遍（跨查询命中）。度量守门 `loadCountForTest()==1`。全模块 957 UT 绿。
 
 ---
 
