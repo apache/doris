@@ -166,14 +166,22 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
-                // Always prefer glob semantics: for exact paths it ensures precise matching
-                // (prevents S3 prefix-based listing from including unintended files like
-                // "file.csv.bz2" when listing "file.csv"). Fall back to listFiles only
-                // when the filesystem does not support glob.
-                try {
-                    entries = fs.globListWithLimit(Location.of(path), "", 0, 0).getFiles();
-                } catch (UnsupportedOperationException ex) {
-                    entries = fs.listFiles(Location.of(path));
+                if (sp instanceof ObjectStorageProperties
+                        && S3Util.isExactS3ExpressObject(
+                                path, ((ObjectStorageProperties) sp).getEndpoint())) {
+                    Location location = Location.of(path);
+                    entries = List.of(new FileEntry(
+                            location, fs.newInputFile(location).length(), false, 0L, List.of()));
+                } else {
+                    // Always prefer glob semantics: for exact paths it ensures precise matching
+                    // (prevents S3 prefix-based listing from including unintended files like
+                    // "file.csv.bz2" when listing "file.csv"). Fall back to listFiles only
+                    // when the filesystem does not support glob.
+                    try {
+                        entries = fs.globListWithLimit(Location.of(path), "", 0, 0).getFiles();
+                    } catch (UnsupportedOperationException ex) {
+                        entries = fs.listFiles(Location.of(path));
+                    }
                 }
                 for (FileEntry e : entries) {
                     fileStatuses.add(new TBrokerFileStatus(

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "cpp/s3_bucket_capabilities.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_file_system.h"
 
@@ -34,7 +33,8 @@ class ObjClientHolder;
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
     explicit S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                                S3BucketCapabilities capabilities = {});
+                                bool is_s3_express = false)
+            : _client(std::move(client)), _is_s3_express(is_s3_express) {}
     ~S3ObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;
@@ -61,7 +61,7 @@ public:
 
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;
-    S3BucketCapabilities _capabilities;
+    bool _is_s3_express = false;
 };
 
 } // namespace doris::io

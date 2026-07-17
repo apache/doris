@@ -69,29 +69,6 @@ class DFSFileSystemTest {
         Assertions.assertDoesNotThrow(() -> new DFSFileSystem(props));
     }
 
-    @Test
-    void rejectsDirectoryBucketBeforeHadoopS3aAccess() {
-        DFSFileSystem fs = new DFSFileSystem(new HashMap<>());
-
-        IOException exception = Assertions.assertThrows(IOException.class,
-                () -> fs.requireFs(new Path(
-                        "s3a://analytics--use1-az4--x-s3/warehouse/table")));
-        Assertions.assertTrue(exception.getMessage().contains("Hadoop S3A"));
-    }
-
-    @Test
-    void keepsCustomS3CompatibleBucketOnHadoopPath() throws Exception {
-        Map<String, String> properties = Map.of(
-                "fs.s3a.endpoint", "https://minio.example.com");
-        DFSFileSystem fs = new DFSFileSystem(properties);
-        org.apache.hadoop.fs.FileSystem hadoopFs =
-                Mockito.mock(org.apache.hadoop.fs.FileSystem.class);
-        injectHadoopFs(fs, "analytics--use1-az4--x-s3", hadoopFs);
-
-        Assertions.assertSame(hadoopFs, fs.requireFs(new Path(
-                "s3a://analytics--use1-az4--x-s3/warehouse/table")));
-    }
-
     // ------------------------------------------------------------------
     // close() and post-close behavior
     // ------------------------------------------------------------------

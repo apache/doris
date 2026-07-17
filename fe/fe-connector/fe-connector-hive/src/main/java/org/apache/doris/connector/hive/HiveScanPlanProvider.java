@@ -27,7 +27,6 @@ import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
-import org.apache.doris.filesystem.S3BucketCapabilities;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
@@ -226,7 +225,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             PartitionScanInfo partition, HiveFileFormat fileFormat,
             boolean splittable, long targetSplitSize,
             List<ConnectorScanRange> ranges) throws IOException {
-        rejectUnsupportedDirectoryBucket(partition.location, catalogProperties);
         Path partPath = new Path(partition.location);
         FileSystem fs = FileSystem.get(partPath.toUri(), conf);
         FileStatus[] statuses;
@@ -248,17 +246,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
             splitFile(status, partition, fileFormat, splittable,
                     targetSplitSize, ranges);
-        }
-    }
-
-    static void rejectUnsupportedDirectoryBucket(String location,
-            Map<String, String> properties) throws IOException {
-        String endpoint = properties.getOrDefault("AWS_ENDPOINT",
-                properties.getOrDefault("s3.endpoint",
-                        properties.getOrDefault("fs.s3a.endpoint", properties.get("endpoint"))));
-        if (S3BucketCapabilities.isDirectoryBucketUri(location, endpoint)) {
-            throw new IOException(
-                    "S3 Express One Zone is not supported by Hive Hadoop S3A in this release");
         }
     }
 

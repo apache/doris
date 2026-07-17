@@ -81,42 +81,19 @@ TEST_F(S3UTILTest, is_s3_express_context) {
     EXPECT_TRUE(is_s3_express("bucket--use1-az4--x-s3",
                               "https://s3.us-east-1.amazonaws.com"));
     EXPECT_TRUE(is_s3_express("bucket--use1-az4--x-s3",
-                              "bucket--use1-az4--x-s3.s3express-use1-az4.us-east-1.amazonaws.com"));
+                              "bucket--use1-az4--x-s3.s3express-use1-az4.us-east-1."
+                              "amazonaws.com"));
+    EXPECT_TRUE(is_s3_express("bucket--cnn1-az1--x-s3",
+                              "https://s3.cn-north-1.amazonaws.com.cn"));
+
+    // S3-compatible services must retain their existing endpoint and checksum behavior,
+    // even if a bucket happens to use the Directory Bucket suffix.
     EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3", "https://minio.example.com"));
-    EXPECT_FALSE(is_s3_express("bucket--x-s3-suffix", "s3.us-east-1.amazonaws.com"));
+    EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3",
+                               "https://s3.us-east-1.amazonaws.com.example.com"));
+    EXPECT_FALSE(is_s3_express("bucket--x-s3", "https://s3.us-east-1.amazonaws.com"));
+    EXPECT_FALSE(is_s3_express("bucket--zone--x-s3", "https://s3.us-east-1.amazonaws.com"));
     EXPECT_FALSE(is_s3_express("bucket", "https://example.com/s3express/path"));
-}
-
-TEST_F(S3UTILTest, s3_directory_bucket_capabilities) {
-    auto capabilities = resolve_s3_bucket_capabilities(
-            "analytics--use1-az4--x-s3", "https://s3.us-east-1.amazonaws.com");
-    EXPECT_TRUE(capabilities.is_directory_bucket());
-    EXPECT_TRUE(capabilities.official_aws_service);
-    EXPECT_EQ(S3EndpointMode::AWS_SDK_RULES, capabilities.endpoint_mode);
-    EXPECT_EQ(S3ChecksumPolicy::CRC32C, capabilities.checksum_policy);
-    EXPECT_FALSE(capabilities.supports_start_after);
-    EXPECT_FALSE(capabilities.list_is_lexicographic);
-    EXPECT_FALSE(capabilities.supports_versioning);
-    EXPECT_FALSE(capabilities.supports_presign);
-
-    capabilities = resolve_s3_bucket_capabilities("analytics--use1-az4--x-s3", "");
-    EXPECT_TRUE(capabilities.is_directory_bucket());
-    EXPECT_EQ("use1-az4", s3_directory_bucket_zone_id("analytics--use1-az4--x-s3"));
-    EXPECT_EQ("use1-az4", s3express_endpoint_zone_id(
-                                   "analytics--use1-az4--x-s3.s3express-use1-az4.us-east-1."
-                                   "amazonaws.com"));
-    EXPECT_EQ("us-east-1", aws_s3_endpoint_region("s3.us-east-1.amazonaws.com"));
-
-    capabilities = resolve_s3_bucket_capabilities(
-            "analytics--use1-az4--x-s3", "https://s3.dualstack.us-east-1.amazonaws.com");
-    EXPECT_TRUE(capabilities.is_directory_bucket());
-    EXPECT_EQ(S3EndpointMode::EXPLICIT_OVERRIDE, capabilities.endpoint_mode);
-
-    capabilities = resolve_s3_bucket_capabilities("analytics--use1-az4--x-s3",
-                                                   "https://minio.example.com");
-    EXPECT_FALSE(capabilities.is_directory_bucket());
-    EXPECT_FALSE(capabilities.official_aws_service);
-    EXPECT_EQ(S3ChecksumPolicy::CONTENT_MD5, capabilities.checksum_policy);
 }
 
 // Verifies that check_s3_rate_limiter_config_changed() rebuilds the global GET rate

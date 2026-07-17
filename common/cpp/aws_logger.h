@@ -20,8 +20,6 @@
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <glog/logging.h>
-#include <cstdarg>
-#include <cstdio>
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
 public:
@@ -36,13 +34,6 @@ public:
     void LogStream(Aws::Utils::Logging::LogLevel log_level, const char* tag,
                    const Aws::OStringStream& message_stream) final {
         _log_impl(log_level, tag, message_stream.str().c_str());
-    }
-
-    void vaLog(Aws::Utils::Logging::LogLevel log_level, const char* tag, const char* format_str,
-               va_list args) final {
-        char buf[4096];
-        vsnprintf(buf, sizeof(buf), format_str, args);
-        _log_impl(log_level, tag, buf);
     }
 
     void Flush() final {}

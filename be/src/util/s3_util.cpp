@@ -28,11 +28,14 @@
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3EndpointProvider.h>
 #include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
 #include <cpp/token_bucket_rate_limiter.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 
 #include "util/string_util.h"
 
@@ -78,62 +81,60 @@ bvar::LatencyRecorder s3_list_latency("s3_list");
 bvar::LatencyRecorder s3_list_object_versions_latency("s3_list_object_versions");
 bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
 bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
-bvar::Adder<uint64_t> s3_checksum_failure_total("s3_checksum_failure_total");
-bvar::Adder<uint64_t> s3_multipart_abort_total("s3_multipart_abort_total");
-bvar::Adder<uint64_t> s3_multipart_abort_failure_total("s3_multipart_abort_failure_total");
-bvar::Adder<uint64_t> s3_multipart_unfinished_on_destroy_total(
-        "s3_multipart_unfinished_on_destroy_total");
-bvar::Adder<uint64_t> s3_directory_list_scanned_keys("s3_directory_list_scanned_keys");
-bvar::Adder<uint64_t> s3_directory_list_returned_keys("s3_directory_list_returned_keys");
-bvar::Adder<uint64_t> s3_directory_list_pages("s3_directory_list_pages");
 }; // namespace s3_bvar
 
 namespace {
 
+std::string s3_endpoint_host(std::string_view endpoint) {
+    const auto scheme = endpoint.find("://");
+    if (scheme != std::string_view::npos) {
+        endpoint.remove_prefix(scheme + 3);
+    }
+    endpoint = endpoint.substr(0, endpoint.find_first_of("/?#"));
+    if (const auto port = endpoint.find(':'); port != std::string_view::npos) {
+        endpoint = endpoint.substr(0, port);
+    }
+    std::string host(endpoint);
+    std::transform(host.begin(), host.end(), host.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return host;
+}
+
+bool is_official_aws_s3_endpoint(std::string_view endpoint) {
+    const auto host = s3_endpoint_host(endpoint);
+    const bool aws_dns = host.ends_with(".amazonaws.com") ||
+                         host.ends_with(".amazonaws.com.cn") || host.ends_with(".api.aws");
+    return aws_dns &&
+           (host.starts_with("s3.") || host.starts_with("s3-") ||
+            host.starts_with("s3express-") || host.find(".s3.") != std::string::npos ||
+            host.find(".s3-") != std::string::npos ||
+            host.find(".s3express-") != std::string::npos);
+}
+
+bool is_s3_directory_bucket_name(std::string_view bucket) {
+    constexpr std::string_view suffix = "--x-s3";
+    if (!bucket.ends_with(suffix)) {
+        return false;
+    }
+    bucket.remove_suffix(suffix.size());
+    const auto zone_separator = bucket.rfind("--");
+    if (zone_separator == std::string_view::npos || zone_separator == 0) {
+        return false;
+    }
+    const auto zone_id = bucket.substr(zone_separator + 2);
+    return zone_id.find("-az") != std::string_view::npos;
+}
+
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
-    if (conf.endpoint.empty() && conf.provider == io::ObjStorageType::AZURE) {
+    if (conf.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
     }
     if (conf.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
     }
-
-    const auto capabilities = resolve_s3_bucket_capabilities(conf.bucket, conf.endpoint);
-    if (capabilities.official_aws_service && is_s3express_control_endpoint(conf.endpoint)) {
+    if (is_s3_express(conf.bucket, conf.endpoint) && !conf.use_virtual_addressing) {
         return Status::InvalidArgument<false>(
-                "s3express-control endpoint cannot be used for object operations");
-    }
-    if (capabilities.official_aws_service && is_s3express_zonal_endpoint(conf.endpoint) &&
-        !capabilities.is_directory_bucket()) {
-        return Status::InvalidArgument<false>(
-                "An S3 Express endpoint requires a valid AWS Directory Bucket name");
-    }
-    if (capabilities.is_directory_bucket()) {
-        if (capabilities.endpoint_mode != S3EndpointMode::AWS_SDK_RULES) {
-            return Status::InvalidArgument<false>(
-                    "AWS Directory Bucket requires a standard regional or zonal S3 endpoint");
-        }
-        if (!conf.use_virtual_addressing) {
-            return Status::InvalidArgument<false>(
-                    "Path-style addressing is not supported for AWS Directory Bucket");
-        }
-        if (config::s3_client_http_scheme == "http" || conf.endpoint.starts_with("http://")) {
-            return Status::InvalidArgument<false>("AWS Directory Bucket requires HTTPS");
-        }
-        const auto endpoint_region = aws_s3_endpoint_region(conf.endpoint);
-        if (!endpoint_region.empty() && endpoint_region != conf.region) {
-            return Status::InvalidArgument<false>(
-                    "Configured endpoint region {} does not match AWS_REGION {} for Directory "
-                    "Bucket {}",
-                    endpoint_region, conf.region, conf.bucket);
-        }
-        const auto endpoint_zone = s3express_endpoint_zone_id(conf.endpoint);
-        const auto bucket_zone = s3_directory_bucket_zone_id(conf.bucket);
-        if (!endpoint_zone.empty() && endpoint_zone != bucket_zone) {
-            return Status::InvalidArgument<false>(
-                    "Configured endpoint zone {} does not match Directory Bucket zone {}",
-                    endpoint_zone, bucket_zone);
-        }
+                "Path-style addressing is not supported for AWS Directory Bucket");
     }
 
     if (conf.role_arn.empty()) {
@@ -534,24 +535,15 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         const S3ClientConf& s3_conf) {
+    const bool s3_express = is_s3_express(s3_conf.bucket, s3_conf.endpoint);
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
             std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
-    // Use S3ClientConfiguration (not the legacy ClientConfiguration) so the SDK's
-    // endpoint-rules resolver is active. This is required for S3 Express One Zone:
-    // the resolver detects the --x-s3 bucket suffix, calls CreateSession, and signs
-    // requests with service name "s3express" instead of "s3".
-    const auto capabilities =
-            resolve_s3_bucket_capabilities(s3_conf.bucket, s3_conf.endpoint);
-    const auto payload_signing_policy =
-            capabilities.is_directory_bucket()
-                    ? Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent
-                    : Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never;
-    Aws::S3::S3ClientConfiguration aws_config(S3ClientFactory::getClientConfiguration(),
-                                              payload_signing_policy,
-                                              s3_conf.use_virtual_addressing);
+    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
+    if (s3_conf.need_override_endpoint && !s3_express) {
+        aws_config.endpointOverride = s3_conf.endpoint;
+    }
     aws_config.region = s3_conf.region;
-    aws_config.useVirtualAddressing = s3_conf.use_virtual_addressing;
 
     if (_ca_cert_file_path.empty()) {
         _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
@@ -567,6 +559,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.maxConnections = 102400;
     }
 
+    aws_config.requestTimeoutMs = 30000;
     if (s3_conf.request_timeout_ms > 0) {
         aws_config.requestTimeoutMs = s3_conf.request_timeout_ms;
     }
@@ -575,33 +568,34 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
 
-    if (config::s3_client_http_scheme == "http") {
+    if (s3_express) {
+        aws_config.scheme = Aws::Http::Scheme::HTTPS;
+    } else if (config::s3_client_http_scheme == "http") {
         aws_config.scheme = Aws::Http::Scheme::HTTP;
     }
 
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/false);
 
-    // Directory Bucket requests must remain on the SDK endpoint-rules path so it can resolve
-    // the bucket-specific Zonal host and manage CreateSession credentials.
-    if (s3_conf.need_override_endpoint && !s3_conf.endpoint.empty() &&
-        !capabilities.is_directory_bucket()) {
-        aws_config.endpointOverride = s3_conf.endpoint;
+    std::shared_ptr<Aws::S3::S3Client> new_client;
+    if (s3_express) {
+        Aws::S3::S3ClientConfiguration express_config(
+                aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent,
+                true);
+        express_config.disableS3ExpressAuth = false;
+        new_client = std::make_shared<Aws::S3::S3Client>(
+                get_aws_credentials_provider(s3_conf),
+                Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3Client"), express_config);
+    } else {
+        new_client = std::make_shared<Aws::S3::S3Client>(
+                get_aws_credentials_provider(s3_conf), std::move(aws_config),
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                s3_conf.use_virtual_addressing);
     }
-    aws_config.disableS3ExpressAuth = !capabilities.official_aws_service;
-
-    auto new_client = std::make_shared<Aws::S3::S3Client>(
-            get_aws_credentials_provider(s3_conf),
-            Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3Client"), aws_config);
 
     auto obj_client =
-            std::make_shared<io::S3ObjStorageClient>(std::move(new_client), capabilities);
-    LOG_INFO("create one s3 client with {}, bucket_type={}, endpoint_mode={}, checksum_policy={}",
-             s3_conf.to_string(),
-             capabilities.is_directory_bucket() ? "directory" : "general_purpose",
-             capabilities.endpoint_mode == S3EndpointMode::AWS_SDK_RULES ? "sdk_rules"
-                                                                          : "override",
-             capabilities.checksum_policy == S3ChecksumPolicy::CRC32C ? "crc32c" : "content_md5");
+            std::make_shared<io::S3ObjStorageClient>(std::move(new_client), s3_express);
+    LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return obj_client;
 }
 
@@ -863,7 +857,7 @@ std::string hide_access_key(const std::string& ak) {
 }
 
 bool is_s3_express(std::string_view bucket, std::string_view endpoint) {
-    return resolve_s3_bucket_capabilities(bucket, endpoint).is_directory_bucket();
+    return is_s3_directory_bucket_name(bucket) && is_official_aws_s3_endpoint(endpoint);
 }
 
 } // end namespace doris

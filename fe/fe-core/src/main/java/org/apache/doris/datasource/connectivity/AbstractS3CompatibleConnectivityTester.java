@@ -65,7 +65,7 @@ public abstract class AbstractS3CompatibleConnectivityTester implements StorageC
                 URI.create(endpoint),
                 properties.getRegion(),
                 Boolean.parseBoolean(properties.getUsePathStyle()),
-                properties.getAwsCredentialsProvider(), bucket)) {
+                properties.getAwsCredentialsProvider())) {
             client.headBucket(b -> b.bucket(bucket));
         }
     }

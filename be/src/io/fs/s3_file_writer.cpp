@@ -85,12 +85,8 @@ S3FileWriter::~S3FileWriter() {
         _wait_until_finish(fmt::format("wait s3 file {} upload to be finished",
                                        _obj_storage_path_opts.path.native()));
     }
-    if (_obj_storage_path_opts.upload_id.has_value() && state() == State::OPENED) {
-        s3_bvar::s3_multipart_unfinished_on_destroy_total << 1;
-        LOG(WARNING) << "S3FileWriter destroyed with an unfinished multipart upload, bucket="
-                     << _obj_storage_path_opts.bucket << ", key=" << _obj_storage_path_opts.key
-                     << ", upload_id=" << *_obj_storage_path_opts.upload_id;
-    }
+    // Do not issue network requests from the destructor. Close failures abort an active
+    // multipart upload in _close_impl().
     if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }
@@ -430,8 +426,7 @@ void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
     s3_bytes_written_total << buf.get_size();
 
     ObjectCompleteMultiPart completed_part {
-            part_num, resp.etag.has_value() ? std::move(resp.etag.value()) : "",
-            std::move(resp.checksum_crc32c)};
+            part_num, resp.etag.has_value() ? std::move(resp.etag.value()) : ""};
 
     std::unique_lock<std::mutex> lck {_completed_lock};
     _completed_parts.emplace_back(std::move(completed_part));
@@ -504,6 +499,11 @@ Status S3FileWriter::_complete() {
     _wait_until_finish("Complete");
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:1",
                              std::make_pair(&_failed, &_completed_parts));
+    if (_used_by_s3_committer) {    // S3 committer will complete multipart upload file on FE side.
+        s3_file_created_total << 1; // Assume that it will be created successfully
+        return Status::OK();
+    }
+
     // check number of parts
     int64_t expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
                                   !!(_bytes_appended % config::s3_write_buffer_size);
@@ -526,18 +526,6 @@ Status S3FileWriter::_complete() {
     // make sure _completed_parts are ascending order
     std::sort(_completed_parts.begin(), _completed_parts.end(),
               [](auto& p1, auto& p2) { return p1.part_num < p2.part_num; });
-    for (size_t i = 0; i < _completed_parts.size(); ++i) {
-        if (_completed_parts[i].part_num != static_cast<int>(i + 1)) {
-            return Status::InternalError(
-                    "multipart upload parts must be consecutive from 1, completed_parts_list={} "
-                    "file_path={}",
-                    _dump_completed_part(), _obj_storage_path_opts.path.native());
-        }
-    }
-    if (_used_by_s3_committer) {    // S3 committer will complete multipart upload file on FE side.
-        s3_file_created_total << 1; // Assume that it will be created successfully
-        return Status::OK();
-    }
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:2", &_completed_parts);
     LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()

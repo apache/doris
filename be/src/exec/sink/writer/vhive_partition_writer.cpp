@@ -19,7 +19,6 @@
 
 #include <aws/s3/model/CompletedPart.h>
 
-#include "common/check.h"
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
 #include "format/transformer/vcsv_transformer.h"
@@ -198,20 +197,10 @@ bool VHivePartitionWriter::_build_s3_mpu_pending_upload(TS3MPUPendingUpload* pen
     pending_upload->__set_upload_id(upload_id);
 
     std::map<int, std::string> etags;
-    std::map<int, std::string> part_checksums;
     for (auto& completed_part : s3_mpu_file_writer->completed_parts()) {
         etags.insert({completed_part.part_num, completed_part.etag});
-        if (completed_part.checksum_crc32c.has_value()) {
-            part_checksums.insert(
-                    {completed_part.part_num, *completed_part.checksum_crc32c});
-        }
     }
     pending_upload->__set_etags(etags);
-    if (!part_checksums.empty()) {
-        DORIS_CHECK_EQ(part_checksums.size(), etags.size());
-        pending_upload->__set_checksum_algorithm(TObjectStorageChecksumAlgorithm::CRC32C);
-        pending_upload->__set_part_checksums(part_checksums);
-    }
     return true;
 }
 

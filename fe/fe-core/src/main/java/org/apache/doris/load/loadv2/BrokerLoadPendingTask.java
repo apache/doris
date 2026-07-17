@@ -24,6 +24,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.S3Util;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
@@ -96,6 +99,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                     fileStatusList.add(fileStatuses);
                 }
             } else {
+                StorageProperties storageProperties = brokerDesc.getStorageProperties();
                 for (BrokerFileGroup fileGroup : fileGroups) {
                     long groupFileSize = 0;
                     List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
@@ -106,12 +110,20 @@ public class BrokerLoadPendingTask extends LoadTask {
                             // Plain listFiles uses S3 prefix matching which can return unintended
                             // prefix-siblings (e.g. "file.csv.bz2" when listing "file.csv").
                             List<FileEntry> entries;
-                            try {
-                                GlobListing listing = fs.globListWithLimit(
-                                        Location.of(path), null, 0, 0);
-                                entries = listing.getFiles();
-                            } catch (UnsupportedOperationException ex) {
-                                entries = fs.listFiles(Location.of(path));
+                            if (storageProperties instanceof ObjectStorageProperties
+                                    && S3Util.isExactS3ExpressObject(path,
+                                            ((ObjectStorageProperties) storageProperties).getEndpoint())) {
+                                Location location = Location.of(path);
+                                entries = List.of(new FileEntry(
+                                        location, fs.newInputFile(location).length(), false, 0L, List.of()));
+                            } else {
+                                try {
+                                    GlobListing listing = fs.globListWithLimit(
+                                            Location.of(path), null, 0, 0);
+                                    entries = listing.getFiles();
+                                } catch (UnsupportedOperationException ex) {
+                                    entries = fs.listFiles(Location.of(path));
+                                }
                             }
                             for (FileEntry e : entries) {
                                 fileStatuses.add(new TBrokerFileStatus(

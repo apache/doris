@@ -50,10 +50,6 @@ public class S3FileReader extends AvroReader {
         this.region = region;
         S3Utils.parseURI(uri);
         this.bucketName = S3Utils.getBucket();
-        if (S3Utils.isAwsDirectoryBucket(bucketName, endpoint)) {
-            throw new IOException(
-                    "S3 Express One Zone is not supported by the Avro Hadoop S3A reader");
-        }
         this.key = S3Utils.getKey();
         this.accessKey = accessKey;
         this.secretKey = secretKey;

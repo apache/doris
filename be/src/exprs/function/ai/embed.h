@@ -374,21 +374,16 @@ private:
 
         S3ClientConf s3_client_conf;
         RETURN_IF_ERROR(init_s3_client_conf_from_json(file_input, s3_client_conf));
+        auto s3_client = S3ClientFactory::instance().create(s3_client_conf);
+        if (s3_client == nullptr) {
+            return Status::InternalError("Failed to create S3 client for EMBED file input");
+        }
+
         S3URI s3_uri(uri);
         RETURN_IF_ERROR(s3_uri.parse());
         std::string bucket = s3_uri.get_bucket();
         std::string key = s3_uri.get_key();
         DORIS_CHECK(!bucket.empty() && !key.empty());
-        s3_client_conf.bucket = bucket;
-        if (resolve_s3_bucket_capabilities(bucket, s3_client_conf.endpoint)
-                    .is_directory_bucket()) {
-            return Status::NotSupported(
-                    "Presigned URL is not supported for AWS Directory Bucket");
-        }
-        auto s3_client = S3ClientFactory::instance().create(s3_client_conf);
-        if (s3_client == nullptr) {
-            return Status::InternalError("Failed to create S3 client for EMBED file input");
-        }
         media_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key}, ttl_seconds,
                                                       s3_client_conf);
         return Status::OK();

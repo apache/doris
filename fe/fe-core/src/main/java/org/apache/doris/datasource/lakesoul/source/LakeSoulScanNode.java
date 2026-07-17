@@ -25,7 +25,6 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
-import org.apache.doris.filesystem.S3BucketCapabilities;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -95,14 +94,6 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         lakeSoulExternalTable = (LakeSoulExternalTable) desc.getTable();
         TableInfo tableInfo = lakeSoulExternalTable.getLakeSoulTableInfo();
         location = tableInfo.getTablePath();
-        Map<String, String> catalogProperties = lakeSoulExternalTable.getCatalog().getProperties();
-        String endpoint = catalogProperties.getOrDefault("AWS_ENDPOINT",
-                catalogProperties.getOrDefault("s3.endpoint",
-                        catalogProperties.get("fs.s3a.endpoint")));
-        if (S3BucketCapabilities.isDirectoryBucketUri(location, endpoint)) {
-            throw new UserException(
-                    "S3 Express One Zone is not supported by LakeSoul object storage in this release");
-        }
         tableName = tableInfo.getTableName();
         partitions = tableInfo.getPartitions();
         readType = LakeSoulOptions.ReadType$.MODULE$.FULL_READ();

@@ -17,7 +17,6 @@
 
 package org.apache.doris.filesystem.s3;
 
-import org.apache.doris.filesystem.S3BucketCapabilities;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
@@ -38,7 +37,6 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
@@ -78,6 +76,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -100,8 +99,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     /** Bucket name; may be null if not provided (listObjectsWithPrefix and related methods will fail). */
     private final String bucket;
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private volatile S3Client generalClient;
-    private volatile S3Client directoryClient;
+    private volatile S3Client client;
+    private volatile S3Client expressClient;
     private volatile AwsCredentialsProvider credentialsProvider;
 
     public S3ObjStorage(S3FileSystemProperties properties) {
@@ -128,14 +127,14 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         if (closed.get()) {
             throw new IOException("S3ObjStorage is already closed");
         }
-        if (generalClient == null) {
+        if (client == null) {
             synchronized (this) {
-                if (generalClient == null) {
-                    generalClient = buildClient();
+                if (client == null) {
+                    client = buildClient();
                 }
             }
         }
-        return generalClient;
+        return client;
     }
 
     protected S3Client buildClient() throws IOException {
@@ -145,13 +144,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 getCredentialsProvider(), false);
     }
 
-    protected S3Client buildDirectoryClient() throws IOException {
-        return buildClient(s3Properties.getEndpoint(), s3Properties.getRegion(),
+    protected S3Client buildExpressClient() throws IOException {
+        return buildClient(
+                s3Properties.getEndpoint(),
+                s3Properties.getRegion(),
                 getCredentialsProvider(), true);
     }
 
     private S3Client buildClient(String endpointStr, String region,
-            AwsCredentialsProvider clientCredentialsProvider, boolean directory)
+            AwsCredentialsProvider clientCredentialsProvider, boolean express)
             throws IOException {
         S3ClientBuilder builder = S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder()
@@ -160,16 +161,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         .build())
                 .credentialsProvider(clientCredentialsProvider)
                 .region(Region.of(region))
-                .disableS3ExpressSessionAuth(!directory
-                        && !S3BucketCapabilities.isAwsS3Endpoint(endpointStr))
+                .disableS3ExpressSessionAuth(!express)
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(directory ? false : usePathStyle)
+                        .pathStyleAccessEnabled(express ? false : usePathStyle)
                         .build());
 
-        // Preserve the configured override for the general-purpose client. Directory Bucket
-        // requests use the separate SDK-routed client and never enter this branch.
-        if (!directory && StringUtils.isNotBlank(endpointStr)) {
+        if (!express && StringUtils.isNotBlank(endpointStr)) {
             if (!endpointStr.contains("://")) {
                 endpointStr = "https://" + endpointStr;
             }
@@ -205,36 +203,21 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return credentialsProvider;
     }
 
-    S3BucketCapabilities capabilitiesFor(String requestBucket) {
-        return S3BucketCapabilities.resolve(requestBucket, s3Properties.getEndpoint());
-    }
-
-    boolean isDirectoryBucket(String requestBucket) {
-        return capabilitiesFor(requestBucket).isDirectoryBucket();
-    }
-
     private S3Client clientFor(String requestBucket) throws IOException {
-        S3BucketCapabilities capabilities = capabilitiesFor(requestBucket);
-        if (!capabilities.isDirectoryBucket()) {
+        if (!isS3Express(requestBucket, s3Properties.getEndpoint())) {
             return getClient();
-        }
-        try {
-            capabilities.validateDirectoryConfiguration(s3Properties.getEndpoint(),
-                    s3Properties.getRegion(), usePathStyle);
-        } catch (IllegalArgumentException e) {
-            throw new IOException(e.getMessage(), e);
         }
         if (closed.get()) {
             throw new IOException("S3ObjStorage is already closed");
         }
-        if (directoryClient == null) {
+        if (expressClient == null) {
             synchronized (this) {
-                if (directoryClient == null) {
-                    directoryClient = buildDirectoryClient();
+                if (expressClient == null) {
+                    expressClient = buildExpressClient();
                 }
             }
         }
-        return directoryClient;
+        return expressClient;
     }
 
     private AwsCredentialsProvider buildStsSourceCredentialsProvider() {
@@ -258,42 +241,32 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
-        S3BucketCapabilities capabilities = capabilitiesFor(uri.bucket());
-        String requestPrefix = capabilities.isDirectoryBucket()
-                ? directoryListPrefix(uri.key()) : uri.key();
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
                 .bucket(uri.bucket())
-                .prefix(requestPrefix);
+                .prefix(uri.key());
         if (options != null) {
             if (StringUtils.isNotBlank(options.continuationToken())) {
                 builder.continuationToken(options.continuationToken());
-            } else if (capabilities.supportsStartAfter()
-                    && StringUtils.isNotBlank(options.startAfter())) {
+            } else if (StringUtils.isNotBlank(options.startAfter())) {
                 builder.startAfter(options.startAfter());
             }
             if (options.maxKeys() > 0) {
                 builder.maxKeys(options.maxKeys());
             }
             if (StringUtils.isNotBlank(options.delimiter())) {
-                if (capabilities.isDirectoryBucket() && !"/".equals(options.delimiter())) {
-                    throw new IOException("AWS Directory Bucket only supports '/' as delimiter");
-                }
                 builder.delimiter(options.delimiter());
             }
         }
         try {
-            List<org.apache.doris.filesystem.spi.RemoteObject> objects = new ArrayList<>();
-            ListObjectsV2Response response = clientFor(uri.bucket()).listObjectsV2(builder.build());
-            response.contents().stream()
-                    .filter(s3Obj -> s3Obj.key().startsWith(uri.key()))
+            ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
+            List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
                     .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
                             s3Obj.key(),
                             getRelativePath(uri.key(), s3Obj.key()),
                             s3Obj.eTag(),
                             s3Obj.size(),
-                            s3Obj.lastModified() != null
-                                    ? s3Obj.lastModified().toEpochMilli() : 0L))
-                    .forEach(objects::add);
+                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
+                    .collect(Collectors.toList());
             return new RemoteObjects(objects, response.isTruncated(),
                     response.nextContinuationToken());
         } catch (SdkException e) {
@@ -371,15 +344,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public void putObject(String remotePath, org.apache.doris.filesystem.spi.RequestBody requestBody)
             throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
-        S3BucketCapabilities capabilities = capabilitiesFor(uri.bucket());
-        PutObjectRequest.Builder request = PutObjectRequest.builder()
-                .bucket(uri.bucket()).key(uri.key());
-        if (capabilities.checksumPolicy() == S3BucketCapabilities.ChecksumPolicy.CRC32C) {
-            request.checksumAlgorithm(ChecksumAlgorithm.CRC32C);
-        }
         try (InputStream content = requestBody.content()) {
             clientFor(uri.bucket()).putObject(
-                    request.build(),
+                    PutObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build(),
                     software.amazon.awssdk.core.sync.RequestBody.fromInputStream(
                             content, requestBody.contentLength()));
         } catch (SdkException e) {
@@ -391,7 +358,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public void deleteObject(String remotePath) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
-            clientFor(uri.bucket()).deleteObject(DeleteObjectRequest.builder()
+            getClient().deleteObject(DeleteObjectRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).build());
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
@@ -407,11 +374,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public void copyObject(String srcPath, String dstPath) throws IOException {
         S3Uri srcUri = S3Uri.parse(srcPath, usePathStyle);
         S3Uri dstUri = S3Uri.parse(dstPath, usePathStyle);
-        if (isDirectoryBucket(srcUri.bucket()) || isDirectoryBucket(dstUri.bucket())) {
-            throw new IOException("CopyObject is not supported for AWS Directory Bucket");
-        }
         try {
-            clientFor(dstUri.bucket()).copyObject(CopyObjectRequest.builder()
+            getClient().copyObject(CopyObjectRequest.builder()
                     .copySource(SdkHttpUtils.urlEncodeIgnoreSlashes(
                             srcUri.bucket() + "/" + srcUri.key()))
                     .destinationBucket(dstUri.bucket())
@@ -426,15 +390,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
-        S3BucketCapabilities capabilities = capabilitiesFor(uri.bucket());
-        CreateMultipartUploadRequest.Builder request = CreateMultipartUploadRequest.builder()
-                .bucket(uri.bucket()).key(uri.key());
-        if (capabilities.checksumPolicy() == S3BucketCapabilities.ChecksumPolicy.CRC32C) {
-            request.checksumAlgorithm(ChecksumAlgorithm.CRC32C);
-        }
         try {
-            CreateMultipartUploadResponse response = clientFor(uri.bucket())
-                    .createMultipartUpload(request.build());
+            CreateMultipartUploadResponse response = clientFor(uri.bucket()).createMultipartUpload(
+                    CreateMultipartUploadRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return response.uploadId();
         } catch (SdkException e) {
             throw new IOException("initiateMultipartUpload failed for " + remotePath
@@ -446,24 +404,16 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             org.apache.doris.filesystem.spi.RequestBody body) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
-        S3BucketCapabilities capabilities = capabilitiesFor(uri.bucket());
-        UploadPartRequest.Builder request = UploadPartRequest.builder()
-                .bucket(uri.bucket()).key(uri.key())
-                .uploadId(uploadId).partNumber(partNum)
-                .contentLength(body.contentLength());
-        if (capabilities.checksumPolicy() == S3BucketCapabilities.ChecksumPolicy.CRC32C) {
-            request.checksumAlgorithm(ChecksumAlgorithm.CRC32C);
-        }
         try (InputStream content = body.content()) {
             UploadPartResponse response = clientFor(uri.bucket()).uploadPart(
-                    request.build(),
+                    UploadPartRequest.builder()
+                            .bucket(uri.bucket()).key(uri.key())
+                            .uploadId(uploadId).partNumber(partNum)
+                            .contentLength(body.contentLength())
+                            .build(),
                     software.amazon.awssdk.core.sync.RequestBody.fromInputStream(
                             content, body.contentLength()));
-            if (capabilities.isDirectoryBucket() && StringUtils.isBlank(response.checksumCRC32C())) {
-                throw new IOException("UploadPart response is missing CRC32C for AWS Directory Bucket, part="
-                        + partNum);
-            }
-            return new UploadPartResult(partNum, response.eTag(), response.checksumCRC32C());
+            return new UploadPartResult(partNum, response.eTag());
         } catch (SdkException e) {
             throw new IOException("uploadPart " + partNum + " failed for " + remotePath
                     + ": " + e.getMessage(), e);
@@ -474,27 +424,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
-        S3BucketCapabilities capabilities = capabilitiesFor(uri.bucket());
-        List<UploadPartResult> sortedParts = parts.stream()
-                .sorted(java.util.Comparator.comparingInt(UploadPartResult::partNumber))
+        List<CompletedPart> completedParts = parts.stream()
+                .map(p -> CompletedPart.builder().partNumber(p.partNumber()).eTag(p.etag()).build())
                 .collect(Collectors.toList());
-        List<CompletedPart> completedParts = new ArrayList<>(sortedParts.size());
-        for (int i = 0; i < sortedParts.size(); i++) {
-            UploadPartResult part = sortedParts.get(i);
-            if (capabilities.isDirectoryBucket() && part.partNumber() != i + 1) {
-                throw new IOException("Multipart upload parts must be consecutive from 1");
-            }
-            CompletedPart.Builder completed = CompletedPart.builder()
-                    .partNumber(part.partNumber()).eTag(part.etag());
-            if (capabilities.isDirectoryBucket()) {
-                if (StringUtils.isBlank(part.checksumCrc32c())) {
-                    throw new IOException(
-                            "AWS Directory Bucket multipart completion requires CRC32C for every part");
-                }
-                completed.checksumCRC32C(part.checksumCrc32c());
-            }
-            completedParts.add(completed.build());
-        }
         try {
             clientFor(uri.bucket()).completeMultipartUpload(CompleteMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId)
@@ -513,9 +445,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             clientFor(uri.bucket()).abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId).build());
         } catch (S3Exception e) {
-            if (e.statusCode() == 404) {
-                return;
-            }
             // Re-throw so callers know the abort failed; orphaned parts may still exist
             // and require manual cleanup or a lifecycle rule.
             throw new IOException("abortMultipartUpload failed for " + remotePath
@@ -613,19 +542,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             String continuationToken) throws IOException {
         requireBucket("listObjectsWithPrefix");
         String fullPrefix = normalizeAndCombinePrefix(prefix, subPrefix);
-        S3BucketCapabilities capabilities = capabilitiesFor(bucket);
-        String requestPrefix = capabilities.isDirectoryBucket()
-                ? directoryListPrefix(fullPrefix) : fullPrefix;
         try {
             ListObjectsV2Request.Builder reqBuilder = ListObjectsV2Request.builder()
                     .bucket(bucket)
-                    .prefix(requestPrefix);
+                    .prefix(fullPrefix);
             if (StringUtils.isNotBlank(continuationToken)) {
                 reqBuilder.continuationToken(continuationToken);
             }
-            ListObjectsV2Response resp = clientFor(bucket).listObjectsV2(reqBuilder.build());
+            ListObjectsV2Response resp = getClient().listObjectsV2(reqBuilder.build());
             List<RemoteObject> files = resp.contents().stream()
-                    .filter(s3Obj -> s3Obj.key().startsWith(fullPrefix))
                     .map(s3Obj -> new RemoteObject(
                             s3Obj.key(),
                             getRelativePathSafe(prefix, s3Obj.key()),
@@ -646,7 +571,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         requireBucket("headObjectWithMeta");
         String fullKey = normalizeAndCombinePrefix(prefix, subKey);
         try {
-            HeadObjectResponse resp = clientFor(bucket).headObject(
+            HeadObjectResponse resp = getClient().headObject(
                     HeadObjectRequest.builder()
                             .bucket(bucket)
                             .key(fullKey)
@@ -667,9 +592,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
         requireBucket("getPresignedUrl");
-        if (!capabilitiesFor(bucket).supportsPresign()) {
-            throw new IOException("Presigned URL is not supported for AWS Directory Bucket");
-        }
         try {
             PutObjectRequest putReq = PutObjectRequest.builder()
                     .bucket(bucket)
@@ -705,14 +627,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 List<ObjectIdentifier> identifiers = batch.stream()
                         .map(k -> ObjectIdentifier.builder().key(k).build())
                         .collect(Collectors.toList());
-                DeleteObjectsRequest.Builder request = DeleteObjectsRequest.builder()
+                DeleteObjectsRequest request = DeleteObjectsRequest.builder()
                         .bucket(bucket)
-                        .delete(Delete.builder().objects(identifiers).quiet(true).build());
-                if (capabilitiesFor(bucket).checksumPolicy()
-                        == S3BucketCapabilities.ChecksumPolicy.CRC32C) {
-                    request.checksumAlgorithm(ChecksumAlgorithm.CRC32C);
-                }
-                DeleteObjectsResponse response = clientFor(bucket).deleteObjects(request.build());
+                        .delete(Delete.builder().objects(identifiers).quiet(true).build())
+                        .build();
+                DeleteObjectsResponse response = getClient().deleteObjects(request);
                 if (response.hasErrors()) {
                     for (S3Error error : response.errors()) {
                         LOG.warn("Failed to delete object key={} from bucket={}: {} {}",
@@ -759,14 +678,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return normalized.isEmpty() ? subPrefix : normalized + subPrefix;
     }
 
-    private static String directoryListPrefix(String prefix) {
-        if (prefix == null || prefix.isEmpty() || prefix.endsWith("/")) {
-            return prefix == null ? "" : prefix;
-        }
-        int slash = prefix.lastIndexOf('/');
-        return slash < 0 ? "" : prefix.substring(0, slash + 1);
-    }
-
     private static String getRelativePathSafe(String prefix, String key) {
         String normalized = (prefix == null || prefix.isEmpty()) ? ""
                 : (prefix.endsWith("/") ? prefix : prefix + "/");
@@ -776,17 +687,48 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return key.substring(normalized.length());
     }
 
+    private static boolean isS3Express(String bucketName, String endpoint) {
+        if (!isDirectoryBucketName(bucketName) || StringUtils.isBlank(endpoint)) {
+            return false;
+        }
+        String endpointUri = endpoint.contains("://") ? endpoint : "https://" + endpoint;
+        String host = URI.create(endpointUri).getHost();
+        if (host == null) {
+            return false;
+        }
+        host = host.toLowerCase(Locale.ROOT);
+        boolean awsDns = host.endsWith(".amazonaws.com")
+                || host.endsWith(".amazonaws.com.cn")
+                || host.endsWith(".api.aws");
+        return awsDns && (host.startsWith("s3.")
+                || host.startsWith("s3-")
+                || host.startsWith("s3express-")
+                || host.contains(".s3.")
+                || host.contains(".s3-")
+                || host.contains(".s3express-"));
+    }
+
+    private static boolean isDirectoryBucketName(String bucketName) {
+        String suffix = "--x-s3";
+        if (bucketName == null || !bucketName.endsWith(suffix)) {
+            return false;
+        }
+        String prefix = bucketName.substring(0, bucketName.length() - suffix.length());
+        int zoneSeparator = prefix.lastIndexOf("--");
+        return zoneSeparator > 0 && prefix.substring(zoneSeparator + 2).contains("-az");
+    }
+
     @Override
     public void close() throws IOException {
         if (closed.compareAndSet(false, true)) {
-            if (generalClient != null) {
-                generalClient.close();
+            if (client != null) {
+                client.close();
+                client = null;
             }
-            if (directoryClient != null && directoryClient != generalClient) {
-                directoryClient.close();
+            if (expressClient != null) {
+                expressClient.close();
+                expressClient = null;
             }
-            generalClient = null;
-            directoryClient = null;
         }
     }
 }

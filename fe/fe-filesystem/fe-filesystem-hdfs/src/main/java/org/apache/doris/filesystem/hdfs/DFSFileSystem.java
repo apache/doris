@@ -23,7 +23,6 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.S3BucketCapabilities;
 import org.apache.doris.filesystem.spi.HadoopAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
@@ -79,13 +78,6 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
     private org.apache.hadoop.fs.FileSystem getHadoopFs(Path path) throws IOException {
         if (closed.get()) {
             throw new IOException("DFSFileSystem is closed.");
-        }
-        String endpoint = properties.getOrDefault("AWS_ENDPOINT",
-                properties.getOrDefault("s3.endpoint",
-                        properties.getOrDefault("fs.s3a.endpoint", properties.get("endpoint"))));
-        if (S3BucketCapabilities.isDirectoryBucketUri(path.toString(), endpoint)) {
-            throw new IOException(
-                    "S3 Express One Zone is not supported by Hadoop S3A in this release");
         }
         String authority = path.toUri().getAuthority();
         String key = authority != null ? authority : "";

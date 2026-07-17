@@ -40,7 +40,6 @@ import org.apache.doris.datasource.hudi.HudiPartitionUtils;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.filesystem.S3BucketCapabilities;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -174,18 +173,9 @@ public class HudiScanNode extends HiveScanNode {
 
         long tableMetaStartTime = System.currentTimeMillis();
         try {
-            String tableLocation = hmsTable.getRemoteTable().getSd().getLocation();
-            Map<String, String> storageProperties = hmsTable.getStoragePropertiesMap();
-            String endpoint = storageProperties.getOrDefault("AWS_ENDPOINT",
-                    storageProperties.getOrDefault("s3.endpoint",
-                            storageProperties.get("fs.s3a.endpoint")));
-            if (S3BucketCapabilities.isDirectoryBucketUri(tableLocation, endpoint)) {
-                throw new UserException(
-                        "S3 Express One Zone is not supported by Hudi Hadoop S3A in this release");
-            }
             hudiClient = hmsTable.getHudiClient();
             hudiClient.reloadActiveTimeline();
-            basePath = tableLocation;
+            basePath = hmsTable.getRemoteTable().getSd().getLocation();
             inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
             serdeLib = hmsTable.getRemoteTable().getSd().getSerdeInfo().getSerializationLib();
 

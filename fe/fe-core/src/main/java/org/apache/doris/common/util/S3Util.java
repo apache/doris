@@ -22,7 +22,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.credentials.CloudCredential;
-import org.apache.doris.filesystem.S3BucketCapabilities;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -48,7 +47,6 @@ import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
@@ -60,6 +58,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -93,8 +92,37 @@ public class S3Util {
     @Deprecated
     public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential,
             boolean isUsePathStyle) {
-        return buildS3Client(endpoint, region, isUsePathStyle,
-                getAwsCredencialsProvider(credential), null);
+        EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
+                .builder()
+                .baseDelay(Duration.ofSeconds(1))
+                .maxBackoffTime(Duration.ofMinutes(1))
+                .build();
+        // retry 3 time with Equal backoff
+        RetryPolicy retryPolicy = RetryPolicy
+                .builder()
+                .numRetries(3)
+                .backoffStrategy(backoffStrategy)
+                .build();
+        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
+                .builder()
+                // set retry policy
+                .retryPolicy(retryPolicy)
+                // using AwsS3V4Signer
+                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
+                .build();
+        return S3Client.builder()
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
+                .endpointOverride(endpoint)
+                .credentialsProvider(getAwsCredencialsProvider(credential))
+                .region(Region.of(region))
+                .overrideConfiguration(clientConf)
+                // disable chunkedEncoding because of bos not supported
+                .serviceConfiguration(S3Configuration.builder()
+                        .chunkedEncodingEnabled(false)
+                        .pathStyleAccessEnabled(isUsePathStyle)
+                        .build())
+                .build();
     }
 
     /**
@@ -190,15 +218,6 @@ public class S3Util {
 
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,
                                          AwsCredentialsProvider credential) {
-        return buildS3Client(endpoint, region, isUsePathStyle, credential, null);
-    }
-
-    public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,
-            AwsCredentialsProvider credential, String bucket) {
-        S3BucketCapabilities capabilities = S3BucketCapabilities.resolve(
-                bucket, endpoint == null ? null : endpoint.toString());
-        capabilities.validateDirectoryConfiguration(
-                endpoint == null ? null : endpoint.toString(), region, isUsePathStyle);
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                 .builder()
                 .baseDelay(Duration.ofSeconds(1))
@@ -210,36 +229,62 @@ public class S3Util {
                 .numRetries(3)
                 .backoffStrategy(backoffStrategy)
                 .build();
-        ClientOverrideConfiguration.Builder clientConf = ClientOverrideConfiguration
-                .builder().retryPolicy(retryPolicy);
-        if (!capabilities.isDirectoryBucket()) {
-            clientConf.putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create());
-        }
-        S3ClientBuilder builder = S3Client.builder()
+        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
+                .builder()
+                // set retry policy
+                .retryPolicy(retryPolicy)
+                // using AwsS3V4Signer
+                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
+                .build();
+        return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
+                .endpointOverride(endpoint)
                 .credentialsProvider(credential)
                 .region(Region.of(region))
-                .disableS3ExpressSessionAuth(!capabilities.isDirectoryBucket()
-                        && !capabilities.officialAwsService())
-                .overrideConfiguration(clientConf.build())
+                .overrideConfiguration(clientConf)
                 // disable chunkedEncoding because of bos not supported
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(capabilities.isDirectoryBucket()
-                                ? false : isUsePathStyle)
-                        .build());
-        if (!capabilities.isDirectoryBucket() && endpoint != null) {
-            builder.endpointOverride(endpoint);
-        }
-        return builder.build();
+                        .pathStyleAccessEnabled(isUsePathStyle)
+                        .build())
+                .build();
     }
 
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle, String accessKey,
             String secretKey, String sessionToken, String roleArn, String externalId) {
-        return buildS3Client(endpoint, region, isUsePathStyle,
-                getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
-                        sessionToken, roleArn, externalId), null);
+        EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
+                .builder()
+                .baseDelay(Duration.ofSeconds(1))
+                .maxBackoffTime(Duration.ofMinutes(1))
+                .build();
+        // retry 3 time with Equal backoff
+        RetryPolicy retryPolicy = RetryPolicy
+                .builder()
+                .numRetries(3)
+                .backoffStrategy(backoffStrategy)
+                .build();
+        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
+                .builder()
+                // set retry policy
+                .retryPolicy(retryPolicy)
+                // using AwsS3V4Signer
+                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
+                .build();
+        return S3Client.builder()
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
+                .endpointOverride(endpoint)
+                .credentialsProvider(getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
+                        sessionToken, roleArn, externalId))
+                .region(Region.of(region))
+                .overrideConfiguration(clientConf)
+                // disable chunkedEncoding because of bos not supported
+                .serviceConfiguration(S3Configuration.builder()
+                        .chunkedEncodingEnabled(false)
+                        .pathStyleAccessEnabled(isUsePathStyle)
+                        .build())
+                .build();
     }
 
     public static String getLongestPrefix(String globPattern) {
@@ -256,6 +301,47 @@ public class S3Util {
         }
 
         return globPattern.substring(0, earliestSpecialCharIndex);
+    }
+
+    public static boolean isExactS3ExpressObject(String path, String endpoint) throws UserException {
+        if (!(path.regionMatches(true, 0, "s3://", 0, "s3://".length())
+                || path.regionMatches(true, 0, "s3a://", 0, "s3a://".length())
+                || path.regionMatches(true, 0, "s3n://", 0, "s3n://".length()))
+                || !getLongestPrefix(path).equals(path)) {
+            return false;
+        }
+        return isS3Express(S3URI.create(path).getBucket(), endpoint);
+    }
+
+    private static boolean isS3Express(String bucketName, String endpoint) {
+        if (!isDirectoryBucketName(bucketName) || Strings.isNullOrEmpty(endpoint)) {
+            return false;
+        }
+        String endpointUri = endpoint.contains("://") ? endpoint : "https://" + endpoint;
+        String host = URI.create(endpointUri).getHost();
+        if (host == null) {
+            return false;
+        }
+        host = host.toLowerCase(Locale.ROOT);
+        boolean awsDns = host.endsWith(".amazonaws.com")
+                || host.endsWith(".amazonaws.com.cn")
+                || host.endsWith(".api.aws");
+        return awsDns && (host.startsWith("s3.")
+                || host.startsWith("s3-")
+                || host.startsWith("s3express-")
+                || host.contains(".s3.")
+                || host.contains(".s3-")
+                || host.contains(".s3express-"));
+    }
+
+    private static boolean isDirectoryBucketName(String bucketName) {
+        String suffix = "--x-s3";
+        if (bucketName == null || !bucketName.endsWith(suffix)) {
+            return false;
+        }
+        String prefix = bucketName.substring(0, bucketName.length() - suffix.length());
+        int zoneSeparator = prefix.lastIndexOf("--");
+        return zoneSeparator > 0 && prefix.substring(zoneSeparator + 2).contains("-az");
     }
 
     // Apply some rules to extend the globs parsing behavior

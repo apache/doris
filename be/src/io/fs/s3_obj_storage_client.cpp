@@ -34,7 +34,6 @@
 #include <aws/s3/S3Errors.h>
 #include <aws/s3/model/AbortMultipartUploadRequest.h>
 #include <aws/s3/model/AbortMultipartUploadResult.h>
-#include <aws/s3/model/ChecksumAlgorithm.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
 #include <aws/s3/model/CompleteMultipartUploadResult.h>
 #include <aws/s3/model/CompletedMultipartUpload.h>
@@ -61,12 +60,10 @@
 #include <aws/s3/model/PutObjectResult.h>
 #include <aws/s3/model/UploadPartRequest.h>
 #include <aws/s3/model/UploadPartResult.h>
-#include <crc32c/crc32c.h>
 
 #include <algorithm>
 #include <ranges>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -119,47 +116,11 @@ using namespace Aws::S3::Model;
 
 static constexpr int S3_REQUEST_THRESHOLD_MS = 5000;
 
-namespace {
-// AWS expects the CRC32C value as the big-endian 4-byte representation, base64-encoded.
-Aws::String compute_crc32c_b64(std::string_view data) {
-    uint32_t crc = crc32c::Crc32c(reinterpret_cast<const uint8_t*>(data.data()), data.size());
-    uint8_t bytes[4] = {static_cast<uint8_t>((crc >> 24) & 0xff),
-                        static_cast<uint8_t>((crc >> 16) & 0xff),
-                        static_cast<uint8_t>((crc >> 8) & 0xff), static_cast<uint8_t>(crc & 0xff)};
-    return Aws::Utils::HashingUtils::Base64Encode(Aws::Utils::ByteBuffer(bytes, sizeof(bytes)));
-}
-
-std::string directory_list_prefix(std::string_view prefix) {
-    if (prefix.empty() || prefix.ends_with('/')) {
-        return std::string(prefix);
-    }
-    const auto slash = prefix.rfind('/');
-    return slash == std::string_view::npos ? "" : std::string(prefix.substr(0, slash + 1));
-}
-
-std::string delete_errors_message(const Aws::Vector<Aws::S3::Model::Error>& errors,
-                                  const Aws::String& request_id) {
-    std::string message = fmt::format("DeleteObjects partially failed, request_id={}", request_id);
-    for (const auto& error : errors) {
-        fmt::format_to(std::back_inserter(message), ", key={}, code={}, message={}", error.GetKey(),
-                       error.GetCode(), error.GetMessage());
-    }
-    return message;
-}
-} // namespace
-
-S3ObjStorageClient::S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                                       S3BucketCapabilities capabilities)
-        : _client(std::move(client)), _capabilities(capabilities) {}
-
 ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
         const ObjectStoragePathOptions& opts) {
     CreateMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetContentType("application/octet-stream");
-    if (_capabilities.checksum_policy == S3ChecksumPolicy::CRC32C) {
-        request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
-    }
 
     MonotonicStopWatch watch;
     watch.start();
@@ -197,11 +158,7 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
-    if (_capabilities.checksum_policy == S3ChecksumPolicy::CRC32C) {
-        // S3 Express One Zone rejects Content-MD5; use CRC32C instead.
-        request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
-        request.SetChecksumCRC32C(compute_crc32c_b64(stream));
-    } else {
+    if (!_is_s3_express) {
         Aws::Utils::ByteBuffer part_md5(
                 Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
         request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
@@ -248,13 +205,7 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
 
     request.SetBody(string_view_stream);
 
-    std::optional<Aws::String> checksum_crc32c;
-    if (_capabilities.checksum_policy == S3ChecksumPolicy::CRC32C) {
-        // S3 Express One Zone rejects Content-MD5; use CRC32C instead.
-        checksum_crc32c = compute_crc32c_b64(stream);
-        request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
-        request.SetChecksumCRC32C(*checksum_crc32c);
-    } else {
+    if (!_is_s3_express) {
         Aws::Utils::ByteBuffer part_md5(
                 Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
         request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
@@ -295,23 +246,7 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
             << "UploadPart cost=" << watch.elapsed_time_milliseconds() << "ms"
             << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key
             << ", part_num=" << part_num << ", upload_id=" << *opts.upload_id;
-    if (checksum_crc32c.has_value() &&
-        outcome.GetResult().GetChecksumCRC32C() != *checksum_crc32c) {
-        s3_bvar::s3_checksum_failure_total << 1;
-        auto st = Status::IOError(
-                "CRC32C mismatch for UploadPart, bucket={}, key={}, part={}, expected={}, "
-                "actual={}, request_id={}",
-                opts.bucket, opts.key, part_num, *checksum_crc32c,
-                outcome.GetResult().GetChecksumCRC32C(), request_id);
-        return ObjectStorageUploadResponse {
-                .resp = {convert_to_obj_response(std::move(st)), 200, request_id}};
-    }
-    return ObjectStorageUploadResponse {
-            .etag = outcome.GetResult().GetETag(),
-            .checksum_crc32c = checksum_crc32c.has_value()
-                                       ? std::optional<std::string>(std::string(
-                                                 checksum_crc32c->c_str(), checksum_crc32c->size()))
-                                       : std::nullopt};
+    return ObjectStorageUploadResponse {.etag = outcome.GetResult().GetETag()};
 }
 
 ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
@@ -320,31 +255,13 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
     CompleteMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
 
-    if (_capabilities.checksum_policy == S3ChecksumPolicy::CRC32C) {
-        for (size_t i = 0; i < completed_parts.size(); ++i) {
-            const auto& part = completed_parts[i];
-            if (part.part_num != static_cast<int>(i + 1)) {
-                return {convert_to_obj_response(Status::InvalidArgument(
-                        "Directory Bucket multipart parts must be consecutive from 1"))};
-            }
-            if (!part.checksum_crc32c.has_value()) {
-                return {convert_to_obj_response(Status::InvalidArgument(
-                        "AWS Directory Bucket multipart completion requires CRC32C for part {}",
-                        part.part_num))};
-            }
-        }
-    }
-
     CompletedMultipartUpload completed_upload;
     std::vector<CompletedPart> complete_parts;
     std::ranges::transform(completed_parts, std::back_inserter(complete_parts),
-                           [this](const ObjectCompleteMultiPart& part_ptr) {
+                           [](const ObjectCompleteMultiPart& part_ptr) {
                                CompletedPart part;
                                part.SetPartNumber(part_ptr.part_num);
                                part.SetETag(part_ptr.etag);
-                               if (_capabilities.checksum_policy == S3ChecksumPolicy::CRC32C) {
-                                   part.SetChecksumCRC32C(*part_ptr.checksum_crc32c);
-                               }
                                return part;
                            });
     completed_upload.SetParts(std::move(complete_parts));
@@ -385,12 +302,10 @@ ObjectStorageResponse S3ObjStorageClient::abort_multipart_upload(
     Aws::S3::Model::AbortMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
     auto outcome = s3_put_rate_limit([&]() { return _client->AbortMultipartUpload(request); });
-    s3_bvar::s3_multipart_abort_total << 1;
     if (outcome.IsSuccess() ||
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return ObjectStorageResponse::OK();
     }
-    s3_bvar::s3_multipart_abort_failure_total << 1;
     return {convert_to_obj_response(s3fs_error(
                     outcome.GetError(),
                     fmt::format("failed to AbortMultipartUpload: {}, upload_id={}",
@@ -451,10 +366,7 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
 ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOptions& opts,
                                                        std::vector<FileInfo>* files) {
     Aws::S3::Model::ListObjectsV2Request request;
-    std::string service_prefix = _capabilities.is_directory_bucket()
-                                         ? directory_list_prefix(opts.prefix)
-                                         : opts.prefix;
-    request.WithBucket(opts.bucket).WithPrefix(service_prefix);
+    request.WithBucket(opts.bucket).WithPrefix(opts.prefix);
     bool is_trucated = false;
     do {
         Aws::S3::Model::ListObjectsV2Outcome outcome;
@@ -478,25 +390,14 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
                     static_cast<int>(outcome.GetError().GetResponseCode()),
                     outcome.GetError().GetRequestId()};
         }
-        if (_capabilities.is_directory_bucket()) {
-            s3_bvar::s3_directory_list_pages << 1;
-            s3_bvar::s3_directory_list_scanned_keys
-                    << outcome.GetResult().GetContents().size();
-        }
         for (const auto& obj : outcome.GetResult().GetContents()) {
             std::string key = obj.GetKey();
-            if (!key.starts_with(opts.prefix)) {
-                continue;
-            }
             bool is_dir = (key.back() == '/');
             FileInfo file_info;
             file_info.file_name = obj.GetKey();
             file_info.file_size = obj.GetSize();
             file_info.is_file = !is_dir;
             files->push_back(std::move(file_info));
-            if (_capabilities.is_directory_bucket()) {
-                s3_bvar::s3_directory_list_returned_keys << 1;
-            }
         }
         is_trucated = outcome.GetResult().GetIsTruncated();
         if (is_trucated && outcome.GetResult().GetNextContinuationToken().empty()) {
@@ -508,9 +409,6 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
 
         request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
     } while (is_trucated);
-    if (!_capabilities.list_is_lexicographic) {
-        std::ranges::sort(*files, {}, &FileInfo::file_name);
-    }
     return ObjectStorageResponse::OK();
 }
 
@@ -518,9 +416,6 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
                                                          std::vector<std::string> objs) {
     Aws::S3::Model::DeleteObjectsRequest delete_request;
     delete_request.SetBucket(opts.bucket);
-    if (_capabilities.checksum_policy == S3ChecksumPolicy::CRC32C) {
-        delete_request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
-    }
     Aws::S3::Model::Delete del;
     Aws::Vector<Aws::S3::Model::ObjectIdentifier> objects;
     std::ranges::transform(objs, std::back_inserter(objects), [](auto&& obj_key) {
@@ -543,9 +438,10 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
     // case for partial delete object failure
     SYNC_POINT_CALLBACK("s3_obj_storage_client::delete_objects", &delete_outcome);
     if (!delete_outcome.GetResult().GetErrors().empty()) {
-        return {convert_to_obj_response(Status::InternalError(delete_errors_message(
-                delete_outcome.GetResult().GetErrors(),
-                delete_outcome.GetResult().GetRequestId())))};
+        const auto& e = delete_outcome.GetResult().GetErrors().front();
+        return {convert_to_obj_response(
+                Status::InternalError("failed to delete object {}: {}, request_id={}", e.GetKey(),
+                                      e.GetMessage(), delete_outcome.GetResult().GetRequestId()))};
     }
     return ObjectStorageResponse::OK();
 }
@@ -569,15 +465,9 @@ ObjectStorageResponse S3ObjStorageClient::delete_object(const ObjectStoragePathO
 ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
         const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::ListObjectsV2Request request;
-    request.WithBucket(opts.bucket)
-            .WithPrefix(_capabilities.is_directory_bucket()
-                                ? directory_list_prefix(opts.prefix)
-                                : opts.prefix);
+    request.WithBucket(opts.bucket).WithPrefix(opts.prefix);
     Aws::S3::Model::DeleteObjectsRequest delete_request;
     delete_request.SetBucket(opts.bucket);
-    if (_capabilities.checksum_policy == S3ChecksumPolicy::CRC32C) {
-        delete_request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
-    }
     bool is_trucated = false;
     do {
         Aws::S3::Model::ListObjectsV2Outcome outcome;
@@ -596,11 +486,8 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
         Aws::Vector<Aws::S3::Model::ObjectIdentifier> objects;
         objects.reserve(result.GetContents().size());
         for (const auto& obj : result.GetContents()) {
-            if (obj.GetKey().starts_with(opts.prefix)) {
-                objects.emplace_back().SetKey(obj.GetKey());
-            }
+            objects.emplace_back().SetKey(obj.GetKey());
         }
-        bool deleted_objects = false;
         if (!objects.empty()) {
             Aws::S3::Model::Delete del;
             del.WithObjects(std::move(objects)).SetQuiet(true);
@@ -619,16 +506,14 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
             SYNC_POINT_CALLBACK("s3_obj_storage_client::delete_objects_recursively",
                                 &delete_outcome);
             if (!delete_outcome.GetResult().GetErrors().empty()) {
-                return {convert_to_obj_response(Status::InternalError(delete_errors_message(
-                        delete_outcome.GetResult().GetErrors(),
-                        delete_outcome.GetResult().GetRequestId())))};
+                const auto& e = delete_outcome.GetResult().GetErrors().front();
+                return {convert_to_obj_response(Status::InternalError(
+                        "failed to delete object {}: {}, request_id={}", opts.key, e.GetMessage(),
+                        delete_outcome.GetResult().GetRequestId()))};
             }
-            deleted_objects = true;
         }
         is_trucated = result.GetIsTruncated();
-        request.SetContinuationToken(_capabilities.is_directory_bucket() && deleted_objects
-                                             ? Aws::String()
-                                             : result.GetNextContinuationToken());
+        request.SetContinuationToken(result.GetNextContinuationToken());
     } while (is_trucated);
     return ObjectStorageResponse::OK();
 }
@@ -636,11 +521,6 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
 std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
                                                        int64_t expiration_secs,
                                                        const S3ClientConf&) {
-    if (!_capabilities.supports_presign) {
-        LOG(WARNING) << "Presigned URL is not supported for AWS Directory Bucket, bucket="
-                     << opts.bucket;
-        return {};
-    }
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);
 }

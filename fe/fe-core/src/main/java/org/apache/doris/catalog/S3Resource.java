@@ -22,7 +22,6 @@ import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.filesystem.S3BucketCapabilities;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
@@ -106,24 +105,12 @@ public class S3Resource extends Resource {
         // the endpoint for ping need add uri scheme.
         String pingEndpoint = properties.get(S3Properties.ENDPOINT);
         if (!pingEndpoint.startsWith("http://") && !pingEndpoint.startsWith("https://")) {
-            S3BucketCapabilities capabilities = S3BucketCapabilities.resolve(
-                    properties.get(S3Properties.BUCKET), pingEndpoint);
-            pingEndpoint = (capabilities.isDirectoryBucket() ? "https://" : "http://")
-                    + properties.get(S3Properties.ENDPOINT);
+            pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
             properties.put(S3Properties.ENDPOINT, pingEndpoint);
             properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
         }
         String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
-        try {
-            S3BucketCapabilities.resolve(properties.get(S3Properties.BUCKET), pingEndpoint)
-                    .validateDirectoryConfiguration(pingEndpoint,
-                            properties.get(S3Properties.REGION),
-                            Boolean.parseBoolean(properties.getOrDefault(
-                                    S3Properties.USE_PATH_STYLE, "false")));
-        } catch (IllegalArgumentException e) {
-            throw new DdlException(e.getMessage());
-        }
 
         if (needCheck) {
             String bucketName = properties.get(S3Properties.BUCKET);
@@ -179,20 +166,9 @@ public class S3Resource extends Resource {
             }
 
             try {
-                String expectedKey = testObj.substring(("s3://" + bucketName + "/").length());
-                String continuationToken = null;
-                boolean found = false;
-                do {
-                    org.apache.doris.filesystem.spi.RemoteObjects remoteObjects =
-                            objStorage.listObjects(testObj, continuationToken);
-                    found = remoteObjects.getObjectList().stream()
-                            .anyMatch(object -> expectedKey.equals(object.getKey()));
-                    continuationToken = remoteObjects.isTruncated()
-                            ? remoteObjects.getContinuationToken() : null;
-                } while (!found && continuationToken != null);
-                if (!found) {
-                    throw new IOException("ListObjects did not return the ping object");
-                }
+                org.apache.doris.filesystem.spi.RemoteObjects remoteObjects =
+                        objStorage.listObjects(testObj, null);
+                LOG.info("remoteObjects: {}", remoteObjects);
             } catch (IOException e) {
                 throw new DdlException("pingS3 failed(list),"
                         + " please check your endpoint, ak/sk or permissions"
@@ -211,8 +187,8 @@ public class S3Resource extends Resource {
                 } catch (IOException e) {
                     try {
                         objStorage.abortMultipartUpload(testObj, uploadId);
-                    } catch (Exception abortFailure) {
-                        e.addSuppressed(abortFailure);
+                    } catch (Exception ignored) {
+                        // best-effort cleanup
                     }
                     throw e;
                 }
@@ -221,7 +197,7 @@ public class S3Resource extends Resource {
                         + " please check your endpoint, ak/sk or permissions"
                         + "(put/head/delete/list/multipartUpload),"
                         + " err: " + e.getMessage() + ", properties: "
-                        + new DatasourcePrintableMap<>(newProperties, "=", true, false, true, false), e);
+                        + new DatasourcePrintableMap<>(newProperties, "=", true, false, true, false));
             }
 
             try {
@@ -352,3 +328,4 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
+

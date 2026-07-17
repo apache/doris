@@ -18,7 +18,6 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystemType;
-import org.apache.doris.filesystem.S3BucketCapabilities;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
@@ -212,8 +211,6 @@ public final class S3FileSystemProperties
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
                 .validate("Invalid S3 filesystem properties");
-        capabilitiesFor(bucket).validateDirectoryConfiguration(
-                endpoint, region, Boolean.parseBoolean(usePathStyle));
     }
 
     @Override
@@ -286,10 +283,6 @@ public final class S3FileSystemProperties
 
     @Override
     public Map<String, String> toHadoopConfigurationMap() {
-        if (capabilitiesFor(bucket).isDirectoryBucket()) {
-            throw new IllegalArgumentException(
-                    "S3 Express One Zone is not supported by Hadoop S3A in this release");
-        }
         Map<String, String> cfg = new HashMap<>();
         cfg.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         cfg.put("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
@@ -334,8 +327,9 @@ public final class S3FileSystemProperties
         return StringUtils.isNotBlank(roleArn);
     }
 
-    public S3BucketCapabilities capabilitiesFor(String requestBucket) {
-        return S3BucketCapabilities.resolve(requestBucket, endpoint);
+    public boolean isDirectoryBucketEndpoint() {
+        return StringUtils.containsIgnoreCase(endpoint, "s3express-control.")
+                || StringUtils.containsIgnoreCase(endpoint, "s3express-");
     }
 
     private static void putIfNotBlank(Map<String, String> map, String key, String value) {

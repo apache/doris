@@ -26,6 +26,19 @@ import java.util.List;
 public class S3UtilTest {
 
     @Test
+    public void testIsExactS3ExpressObject() throws Exception {
+        String object = "s3://analytics--use1-az4--x-s3/data/file.parquet";
+        String awsEndpoint = "https://s3.us-east-1.amazonaws.com";
+
+        Assert.assertTrue(S3Util.isExactS3ExpressObject(object, awsEndpoint));
+        Assert.assertFalse(S3Util.isExactS3ExpressObject(
+                "s3://analytics--use1-az4--x-s3/data/*.parquet", awsEndpoint));
+        Assert.assertFalse(S3Util.isExactS3ExpressObject(object, "https://minio.example.com"));
+        Assert.assertFalse(S3Util.isExactS3ExpressObject(
+                "s3://analytics/data/file.parquet", awsEndpoint));
+    }
+
+    @Test
     public void testExtendGlobNumberRange_simpleRange() {
         // Test simple range expansion {1..3}
         String input = "file_{1..3}.csv";
@@ -457,4 +470,3 @@ public class S3UtilTest {
         Assert.assertEquals("file[abc.csv", S3Util.expandBracketPatterns("file[abc.csv"));
     }
 }
-

@@ -392,17 +392,11 @@ enum TUpdateMode {
     OVERWRITE = 2 // insert overwrite
 }
 
-enum TObjectStorageChecksumAlgorithm {
-    CRC32C = 0
-}
-
 struct TS3MPUPendingUpload {
     1: optional string bucket
     2: optional string key
     3: optional string upload_id
     4: optional map<i32, string> etags
-    5: optional TObjectStorageChecksumAlgorithm checksum_algorithm
-    6: optional map<i32, string> part_checksums
 }
 
 struct THivePartitionUpdate {

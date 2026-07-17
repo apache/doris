@@ -85,7 +85,6 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
 
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
-        rejectDirectoryBucketStorage(storagePropertiesList);
         HiveConf hiveConf = buildHiveConf();
         buildCatalogOptions();
         StorageProperties ossProps = storagePropertiesList.stream()
