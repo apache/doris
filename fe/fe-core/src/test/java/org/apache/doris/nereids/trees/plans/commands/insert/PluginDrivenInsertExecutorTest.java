@@ -29,7 +29,7 @@ import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.planner.PluginDrivenTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;

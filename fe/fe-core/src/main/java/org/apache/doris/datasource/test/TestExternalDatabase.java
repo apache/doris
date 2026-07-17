@@ -19,7 +19,7 @@ package org.apache.doris.datasource.test;
 
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
 
 public class TestExternalDatabase extends ExternalDatabase<TestExternalTable> {
 
