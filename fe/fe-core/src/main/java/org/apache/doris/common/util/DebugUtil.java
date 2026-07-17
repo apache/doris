@@ -103,16 +103,16 @@ public class DebugUtil {
         if (value == 0) {
             // nothing
             unit = "";
-        } else if (value > TERABYTE) {
+        } else if (value >= TERABYTE) {
             unit = "TB";
             doubleValue /= TERABYTE;
-        } else if (value > GIGABYTE) {
+        } else if (value >= GIGABYTE) {
             unit = "GB";
             doubleValue /= GIGABYTE;
-        } else if (value > MEGABYTE) {
+        } else if (value >= MEGABYTE) {
             unit = "MB";
             doubleValue /= MEGABYTE;
-        } else if (value > KILOBYTE)  {
+        } else if (value >= KILOBYTE)  {
             unit = "KB";
             doubleValue /= KILOBYTE;
         } else {

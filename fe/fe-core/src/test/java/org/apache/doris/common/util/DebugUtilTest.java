@@ -84,6 +84,23 @@ public class DebugUtilTest {
         result = DebugUtil.getByteUint(1234567890L);  // G
         Assert.assertEquals(result.first, Double.valueOf(1.1497809458523989));
         Assert.assertEquals(result.second, "GB");
+
+        // exact unit boundaries should roll up to the larger unit
+        result = DebugUtil.getByteUint(1024L);  // exactly 1 KB
+        Assert.assertEquals(result.first, Double.valueOf(1.0));
+        Assert.assertEquals(result.second, "KB");
+
+        result = DebugUtil.getByteUint(1024L * 1024);  // exactly 1 MB
+        Assert.assertEquals(result.first, Double.valueOf(1.0));
+        Assert.assertEquals(result.second, "MB");
+
+        result = DebugUtil.getByteUint(1024L * 1024 * 1024);  // exactly 1 GB
+        Assert.assertEquals(result.first, Double.valueOf(1.0));
+        Assert.assertEquals(result.second, "GB");
+
+        result = DebugUtil.getByteUint(1024L * 1024 * 1024 * 1024);  // exactly 1 TB
+        Assert.assertEquals(result.first, Double.valueOf(1.0));
+        Assert.assertEquals(result.second, "TB");
     }
 
     @Test
