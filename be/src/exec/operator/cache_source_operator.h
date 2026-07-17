@@ -90,10 +90,6 @@ public:
 
 private:
     TQueryCacheParam _cache_param;
-    bool _has_data(RuntimeState* state) const {
-        auto& local_state = get_local_state(state);
-        return local_state._shared_state->data_queue.remaining_has_data();
-    }
     friend class CacheSourceLocalState;
 };
 
