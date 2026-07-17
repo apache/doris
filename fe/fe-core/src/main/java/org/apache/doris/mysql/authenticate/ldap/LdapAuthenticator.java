@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.Authenticator;
@@ -113,11 +114,12 @@ public class LdapAuthenticator implements Authenticator {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("internalAuthenticate: user={}, success=false", userName);
                 }
-                if (Strings.isNullOrEmpty(password)) {
-                    ErrorReport.report(ErrorCode.ERR_EMPTY_PASSWORD, qualifiedUser + "@" + remoteIp);
-                } else {
-                    ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, remoteIp, usePasswd);
+                // extra log to identify case covered by PR 61440 - login with empty LDAP password is not allowed
+                if (Strings.isNullOrEmpty(password) && !LdapConfig.ldap_allow_empty_pass) {
+                    LOG.info(ErrorCode.ERR_EMPTY_PASSWORD, username +"@" + remoteIp);
                 }
+                
+                ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, remoteIp, usePasswd);
                 return AuthenticateResponse.failedResponse;
             }
         } catch (Exception e) {

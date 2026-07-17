@@ -38,6 +38,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
@@ -237,14 +238,12 @@ public class Auth implements Writable {
         // Check the LDAP password when the user exists in the LDAP service.
         if (ldapManager.doesUserExist(remoteUser)) {
             if (!ldapManager.checkUserPasswd(remoteUser, remotePasswd, remoteHost, currentUser)) {
-                if (Strings.isNullOrEmpty(remotePasswd)) {
-                    // extra check for login with empty LDAP password was added in checkUserPasswd
-                    throw new AuthenticationException(ErrorCode.ERR_EMPTY_PASSWORD, remoteUser + "@" + remoteHost);
-                } else {
-                    throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
-                        remoteUser + "@" + remoteHost + " via LDAP",
-                        Strings.isNullOrEmpty(remotePasswd) ? "NO" : "YES");
+                // extra log to identify case covered by PR 61440 - login with empty LDAP password is not allowed
+                if (Strings.isNullOrEmpty(remotePasswd) && !LdapConfig.ldap_allow_empty_pass) {
+                    LOG.info(ErrorCode.ERR_EMPTY_PASSWORD, remoteUser +"@" + remoteHost);
                 }
+                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                        Strings.isNullOrEmpty(remotePasswd) ? "NO" : "YES");
             }
         } else {
             readLock();
