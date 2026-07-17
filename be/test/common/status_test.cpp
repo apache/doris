@@ -21,10 +21,32 @@
 #include <gtest/gtest-test-part.h>
 
 #include "gtest/gtest_pred_impl.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
 class StatusTest : public testing::Test {};
+
+class ScopedEmptyStackTraceFault {
+public:
+    ScopedEmptyStackTraceFault()
+            : _enable_debug_points(config::enable_debug_points),
+              _enable_stacktrace(config::enable_stacktrace) {
+        config::enable_debug_points = true;
+        config::enable_stacktrace = true;
+        DebugPoints::instance()->add("StackTrace::tryCapture.empty_trace");
+    }
+
+    ~ScopedEmptyStackTraceFault() {
+        DebugPoints::instance()->remove("StackTrace::tryCapture.empty_trace");
+        config::enable_stacktrace = _enable_stacktrace;
+        config::enable_debug_points = _enable_debug_points;
+    }
+
+private:
+    const bool _enable_debug_points;
+    const bool _enable_stacktrace;
+};
 
 TEST_F(StatusTest, OK) {
     // default
@@ -115,6 +137,13 @@ TEST_F(StatusTest, Error) {
         EXPECT_TRUE(other.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
         EXPECT_TRUE(other.to_string().find("456") != std::string::npos);
     }
+}
+
+TEST_F(StatusTest, EmptyCapturedStackTrace) {
+    ScopedEmptyStackTraceFault fault;
+
+    Status status = Status::NotFound("fault-injected empty stack trace");
+    EXPECT_NE(status.to_string().find("<Empty trace>"), std::string::npos);
 }
 
 TEST_F(StatusTest /*unused*/, Format /*unused*/) {
