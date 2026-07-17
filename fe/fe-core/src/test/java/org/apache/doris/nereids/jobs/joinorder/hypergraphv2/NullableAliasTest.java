@@ -167,9 +167,10 @@ public class NullableAliasTest extends SqlTestBase {
 
     @Test
     void testSlotForwardingAliasOnMinimalBitmap() {
-        // Bare Slot-forwarding alias s = T1.id over {T1,T2} on nullable side.
-        // s = T3.id should form a {T1}--{T3} edge, not {T1,T2}--{T3},
-        // allowing DPHyp to join {T1,T3} before T2.
+        // Slot-forwarding alias s = T1.id over {T1,T2} on nullable side.
+        // Since all nullable-side aliases now map to subTreeNodes for safety,
+        // s = T3.id forms a {T1,T2}--{T3} edge. Verifies DPHyp still
+        // produces a valid plan.
         CascadesContext c1 = createCascadesContext(
                 "select T2.id, sum(T2.score + T3.score) "
                         + "from T2 inner join T3 on T2.id = T3.id "

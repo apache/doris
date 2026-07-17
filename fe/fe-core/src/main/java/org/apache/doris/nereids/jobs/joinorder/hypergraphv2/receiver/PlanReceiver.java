@@ -326,10 +326,11 @@ public class PlanReceiver extends AbstractReceiver {
         // preserving materialization boundaries for volatile expressions
         // (e.g., uuid()) that cannot be flattened into a single Project.
         // Carry forward child slots still required by parents (e.g., join keys)
-        // that the layer's aliases do not produce, so the parent plan can still
-        // reference them. Use parentRequireSlots (not requireSlots) so that raw
-        // alias inputs like B.payload are dropped after the alias materializes,
-        // matching the original Project's output boundary.
+        // or by deferred Project layers (e.g., B.w for a later y=B.w+1).
+        // Use the full requireSlots so that deferred-layer inputs survive
+        // through intermediate layers. (Optimization: raw inputs consumed
+        // exclusively by the current layer and not needed by deferred layers
+        // could be dropped; left as future work.)
         if (hyperGraph.hasProjectedAliases()) {
             for (List<NamedExpression> layer : hyperGraph.getProjectedAliasLayers(left, right)) {
                 List<NamedExpression> mergedLayer = new ArrayList<>(layer);
@@ -338,7 +339,7 @@ public class PlanReceiver extends AbstractReceiver {
                     layerExprIds.add(a.getExprId());
                 }
                 for (Slot childSlot : logicalPlan.getOutputSet()) {
-                    if (parentRequireSlots.contains(childSlot)
+                    if (requireSlots.contains(childSlot)
                             && !layerExprIds.contains(childSlot.getExprId())) {
                         mergedLayer.add(childSlot);
                     }
