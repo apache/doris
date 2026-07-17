@@ -228,6 +228,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // when the connector's credential gate disables the cross-query layer; when null resolveTable still uses the
     // query-scoped fat handle and falls back to a direct remote load.
     private final IcebergTableCache tableCache;
+    // PERF-03: cross-query inferred-file-format cache shared with the connector, owned by the long-lived
+    // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors; when null
+    // getScanNodeProperties resolves file_format_type live (matching pre-PERF-03 behaviour, node-memoized per query).
+    private final IcebergFormatCache formatCache;
 
     // FIX-SCAN-METRICS: per-query stash of the iceberg SDK scan diagnostics captured by the attached
     // IcebergScanProfileReporter during planScan, keyed by session queryId. fe-core drains it
@@ -280,12 +284,26 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context, IcebergManifestCache manifestCache,
             IcebergRewritableDeleteStash rewritableDeleteStash, IcebergTableCache tableCache) {
+        this(properties, catalogOpsResolver, context, manifestCache, rewritableDeleteStash, tableCache, null);
+    }
+
+    /**
+     * Full ctor used by {@link IcebergConnector#getScanPlanProvider()}, adding the PERF-03 cross-query
+     * inferred-file-format cache ({@code formatCache}). The 6-arg ctor delegates here with a null format cache
+     * (offline tests + pre-cache paths resolve {@code file_format_type} live).
+     */
+    public IcebergScanPlanProvider(Map<String, String> properties,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergManifestCache manifestCache,
+            IcebergRewritableDeleteStash rewritableDeleteStash, IcebergTableCache tableCache,
+            IcebergFormatCache formatCache) {
         this.properties = properties;
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
         this.manifestCache = manifestCache;
         this.rewritableDeleteStash = rewritableDeleteStash;
         this.tableCache = tableCache;
+        this.formatCache = formatCache;
     }
 
     /**
@@ -1400,8 +1418,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // V1-only reader bug. Emit the table's real data format (legacy IcebergScanNode.getFileFormatType
         // parity, same IcebergUtils.getFileFormat resolution, which throws on a non-parquet/orc table); the
         // per-file format still travels per range, since one table may mix parquet and orc data files.
+        // PERF-03: the non-system format resolution falls back to an unfiltered whole-table planFiles() when the
+        // table sets neither write-format nor write.format.default; memoize that inference per (table, snapshot)
+        // across queries via formatCache (pure metadata, no credential gate). Null cache (offline) resolves live.
         props.put("file_format_type",
-                systemTable ? "jni" : IcebergWriterHelper.getFileFormat(table).name().toLowerCase(Locale.ROOT));
+                systemTable ? "jni"
+                        : IcebergWriterHelper.getFileFormat(table,
+                                TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), formatCache)
+                        .name().toLowerCase(Locale.ROOT));
         // [D-065] System (metadata) tables ($snapshots/$files/...) read via the JNI serialized-split path
         // (planSystemTableScan): the metadata-table schema travels INSIDE the serialized FileScanTask, so BE
         // needs neither the base-table path_partition_keys (a metadata table is not base-spec partitioned ->

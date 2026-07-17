@@ -292,4 +292,56 @@ public class IcebergConnectorCacheTest {
         connector.invalidateAll();
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
     }
+
+    private static IcebergFormatCache.Key fmtKey(String db, String tbl, long snapshotId) {
+        return new IcebergFormatCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+    }
+
+    @Test
+    public void formatCacheBuiltForAllCatalogsIncludingCredentialGatedOnes() {
+        // The inferred-format cache stores a pure metadata format-name string (no FileIO/credential), so like the
+        // partition cache it is built for EVERY catalog -- including per-user session and REST vended-credentials,
+        // which disable the table cache. MUTATION: gating the format cache on the credential flags -> null -> red.
+        Assertions.assertNotNull(
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).formatCacheForTest(),
+                "a plain catalog builds the format cache");
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        Assertions.assertNotNull(
+                new IcebergConnector(vended, new RecordingConnectorContext()).formatCacheForTest(),
+                "a vended-credentials catalog still builds the format cache (a format name carries no credentials)");
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        Assertions.assertNotNull(
+                new IcebergConnector(session, new RecordingConnectorContext()).formatCacheForTest(),
+                "a per-user session catalog still builds the format cache");
+    }
+
+    @Test
+    public void refreshHooksInvalidateFormatCache() {
+        // The REFRESH hooks must clear the inferred-format cache too (else a rewrite that changed the write format
+        // would stay invisible beyond the pin): REFRESH TABLE drops that table's snapshot entries, REFRESH DATABASE
+        // that db's, REFRESH CATALOG everything. MUTATION: an invalidate* hook not touching formatCache -> a stale
+        // entry survives -> a size assert below red.
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergFormatCache cache = connector.formatCacheForTest();
+        Assertions.assertNotNull(cache);
+        cache.getOrLoad(fmtKey("db1", "t1", 1L), () -> "parquet");
+        cache.getOrLoad(fmtKey("db1", "t1", 2L), () -> "orc");
+        cache.getOrLoad(fmtKey("db1", "t2", 1L), () -> "parquet");
+        cache.getOrLoad(fmtKey("db2", "t1", 1L), () -> "parquet");
+        Assertions.assertEquals(4, cache.size());
+
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops both snapshot entries of db1.t1");
+
+        connector.invalidateDb("db1");
+        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops db1's remaining table");
+
+        connector.invalidateAll();
+        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
 }

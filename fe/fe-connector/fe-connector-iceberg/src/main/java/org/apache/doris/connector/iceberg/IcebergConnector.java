@@ -168,6 +168,10 @@ public class IcebergConnector implements Connector {
     // Built unconditionally — the cached value is pure metadata with no FileIO/credential, so no credential gate
     // (unlike tableCache); only the TTL knob disables it.
     private final IcebergPartitionCache partitionCache;
+    // PERF-03: cross-query inferred-file-format cache (the whole-table planFiles() fallback result, keyed by
+    // (table, snapshotId)). Like partitionCache, the value is pure metadata (a format-name string) with no
+    // FileIO/credential, so no gate; only the TTL knob disables it.
+    private final IcebergFormatCache formatCache;
     private final IcebergManifestCache manifestCache = new IcebergManifestCache();
     // commit-bridge supply (S4 part 2): per-catalog stash carrying a row-level DML's non-equality delete supply
     // across the scan->write seam — the scan provider fills it (keyed by queryId), the write provider drains it
@@ -211,6 +215,9 @@ public class IcebergConnector implements Connector {
                         resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // PERF-02: partition-view cache. Pure metadata (no credentials) -> no gate; same TTL/capacity as above.
         this.partitionCache = new IcebergPartitionCache(
+                resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // PERF-03: inferred-file-format cache. Pure metadata (no credentials) -> no gate; same TTL/capacity.
+        this.formatCache = new IcebergFormatCache(
                 resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
     }
 
@@ -551,6 +558,7 @@ public class IcebergConnector implements Connector {
             tableCache.invalidate(TableIdentifier.of(dbName, tableName));
         }
         partitionCache.invalidate(TableIdentifier.of(dbName, tableName));
+        formatCache.invalidate(TableIdentifier.of(dbName, tableName));
     }
 
     /**
@@ -571,6 +579,7 @@ public class IcebergConnector implements Connector {
             tableCache.invalidateDb(dbName);
         }
         partitionCache.invalidateDb(dbName);
+        formatCache.invalidateDb(dbName);
     }
 
     /**
@@ -587,6 +596,7 @@ public class IcebergConnector implements Connector {
             tableCache.invalidateAll();
         }
         partitionCache.invalidateAll();
+        formatCache.invalidateAll();
         manifestCache.invalidateAll();
     }
 
@@ -626,6 +636,11 @@ public class IcebergConnector implements Connector {
         return partitionCache;
     }
 
+    /** Test-only: the cross-query inferred-file-format cache (PERF-03; always built, no credential gate). */
+    IcebergFormatCache formatCacheForTest() {
+        return formatCache;
+    }
+
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
         // Mirrors PaimonConnector.getScanPlanProvider: build a fresh provider per call over the lazily-built
@@ -635,7 +650,7 @@ public class IcebergConnector implements Connector {
         // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
         return new IcebergScanPlanProvider(properties,
                 this::newCatalogBackedOps, context, manifestCache,
-                rewritableDeleteStash, tableCache);
+                rewritableDeleteStash, tableCache, formatCache);
     }
 
     @Override
