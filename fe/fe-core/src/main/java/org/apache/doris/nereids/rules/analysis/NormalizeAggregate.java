@@ -171,6 +171,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         ImmutableSet.Builder<Expression> needPushDownSelfExprs = ImmutableSet.builder();
         ImmutableSet.Builder<Expression> needPushDownInputs = ImmutableSet.builder();
         for (AggregateFunction aggFunc : aggFuncs.keySet()) {
+            for (Expression child : aggFunc.children()) {
+                if (ExpressionUtils.hasNonWindowAggregateFunction(child)) {
+                    throw new AnalysisException(
+                            "aggregate function cannot contain aggregate parameters");
+                }
+            }
             if (!aggFunc.isDistinct()) {
                 for (Expression arg : aggFunc.children()) {
                     // should not push down literal under aggregate
@@ -255,11 +261,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // normalize trivial-aggs by bottomProjects
         List<Expression> normalizedAggFuncs =
                 bottomSlotContext.normalizeToUseSlotRef(SessionVarGuardExpr.getExprWithGuard(aggFuncs));
-        if (normalizedAggFuncs.stream().anyMatch(agg -> !agg.children().isEmpty()
-                && agg.child(0).containsType(AggregateFunction.class))) {
-            throw new AnalysisException(
-                    "aggregate function cannot contain aggregate parameters");
-        }
 
         // build normalized agg output
         NormalizeToSlotContext normalizedAggFuncsToSlotContext =
