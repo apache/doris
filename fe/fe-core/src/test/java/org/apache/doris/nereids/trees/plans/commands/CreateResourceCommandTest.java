@@ -19,44 +19,29 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableMap;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class CreateResourceCommandTest extends TestWithFeService {
     @Test
-    public void testValidate(@Mocked Env env, @Mocked AccessControllerManager accessManager,
-            @Mocked SystemInfoService systemInfoService) {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    public void testValidate() {
+        Env env = Env.getCurrentEnv();
+        AccessControllerManager accessControllerManager = env.getAccessManager();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         // test validate normal
         final ImmutableMap<String, String> esProperties =
