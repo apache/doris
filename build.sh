@@ -99,7 +99,7 @@ Usage: $0 <options>
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
-    $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hadoop-hudi-scanner
+    $0 --be-extension-ignore paimon-scanner build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore paimon-scanner,hadoop-hudi-scanner
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -748,7 +748,6 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
-    modules+=("be-java-extensions/avro-scanner")
     # lakesoul-scanner has been deprecated
     # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
@@ -1169,7 +1168,6 @@ EOF
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-connector")
-    extensions_modules+=("avro-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")

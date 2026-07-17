@@ -17,8 +17,12 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.TableFormatType;
@@ -38,6 +42,8 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
@@ -87,6 +93,64 @@ public class IcebergScanNodeTest {
         @Override
         protected boolean getEnableMappingVarbinary() {
             return enableMappingVarbinary;
+        }
+
+        @Override
+        public List<String> getPathPartitionKeys() {
+            return Collections.emptyList();
+        }
+
+        void addSlot(int slotId, Column column) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc.getId());
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
+    }
+
+    @Test
+    public void testSystemTableProjectionMatchesFileSlotOrder() throws Exception {
+        Schema systemTableSchema = new Schema(
+                Types.NestedField.required(1, "file_path", Types.StringType.get()),
+                Types.NestedField.required(2, "record_count", Types.LongType.get()),
+                Types.NestedField.optional(3, "readable_metrics", Types.StructType.of(
+                        Types.NestedField.optional(4, "id", Types.StructType.of(
+                                Types.NestedField.optional(5, "lower_bound", Types.IntegerType.get()))))));
+        Table systemTable = Mockito.mock(Table.class);
+        Mockito.when(systemTable.schema()).thenReturn(systemTableSchema);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, systemTable);
+        node.addSlot(1, new Column("RECORD_COUNT", Type.BIGINT));
+        node.addSlot(2, new Column(Column.GLOBAL_ROWID_COL + "system_table", Type.BIGINT));
+        node.addSlot(3, new Column("FILE_PATH", Type.STRING));
+
+        List<Expression> filters = Collections.singletonList(Expressions.greaterThan("record_count", 0L));
+        Schema projectedSchema = node.getSystemTableProjectedSchema(filters, false);
+
+        Assert.assertEquals(2, projectedSchema.columns().size());
+        Assert.assertEquals("record_count", projectedSchema.columns().get(0).name());
+        Assert.assertEquals("file_path", projectedSchema.columns().get(1).name());
+        Assert.assertNull(projectedSchema.findField("readable_metrics"));
+    }
+
+    @Test
+    public void testSystemTableProjectionRejectsUnmaterializedFilterColumn() throws Exception {
+        Schema systemTableSchema = new Schema(
+                Types.NestedField.required(1, "file_path", Types.StringType.get()),
+                Types.NestedField.required(2, "record_count", Types.LongType.get()));
+        Table systemTable = Mockito.mock(Table.class);
+        Mockito.when(systemTable.schema()).thenReturn(systemTableSchema);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, systemTable);
+        node.addSlot(1, new Column("record_count", Type.BIGINT));
+
+        try {
+            node.getSystemTableProjectedSchema(
+                    Collections.singletonList(Expressions.equal("file_path", "data.parquet")), true);
+            Assert.fail("Filter columns must be materialized by the planner");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("filter column file_path is not materialized"));
         }
     }
 
@@ -140,6 +204,12 @@ public class IcebergScanNodeTest {
 
         Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="), defaults);
         Mockito.verify(node, Mockito.never()).createTableScan();
+    }
+
+    private static void setIcebergTable(IcebergScanNode node, Table table) throws Exception {
+        Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
+        icebergTableField.setAccessible(true);
+        icebergTableField.set(node, table);
     }
 
     @Test
