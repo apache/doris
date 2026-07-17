@@ -318,6 +318,10 @@ suite("test_ngram_bloomfilter_index_change") {
     assertTrue(filtered9 != null && filtered9 == 20, "Expected RowsBloomFilterFiltered = 20, but got ${filtered9}")
 
     // Final cleanup
+    previousJobIds = isCloudMode() ? snapshot_build_index_job_ids(tableName) : null
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
-    sleep(2000)
+    wait_for_last_col_change_finish(tableName, timeout)
+    if (isCloudMode()) {
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previousJobIds)
+    }
 }

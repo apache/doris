@@ -67,8 +67,25 @@ suite("test_index_change_1") {
 
     sql """ CREATE INDEX idx_note ON ${tableName}(`note`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName, timeout) {
+            build_index_on_table("idx_note", tableName)
+        }
+    }
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName, timeout) {
+            build_index_on_table("idx_city", tableName)
+        }
+    }
+
+    def physical_note_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */ user_id
+            FROM ${tableName} WHERE note MATCH 'engineer' ORDER BY user_id"""
+    assertEquals(2, physical_note_result.size())
+    def physical_city_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */ user_id
+            FROM ${tableName} WHERE city MATCH 'beijing' ORDER BY user_id"""
+    assertEquals(3, physical_city_result.size())
 
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
@@ -129,8 +146,25 @@ suite("test_index_change_1") {
 
     sql """ CREATE INDEX idx_note ON ${tableName}(`note`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName, timeout) {
+            build_index_on_table("idx_note", tableName)
+        }
+    }
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName, timeout) {
+            build_index_on_table("idx_city", tableName)
+        }
+    }
+
+    physical_note_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */ user_id
+            FROM ${tableName} WHERE note MATCH 'engineer' ORDER BY user_id"""
+    assertEquals(2, physical_note_result.size())
+    physical_city_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */ user_id
+            FROM ${tableName} WHERE city MATCH 'beijing' ORDER BY user_id"""
+    assertEquals(3, physical_city_result.size())
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

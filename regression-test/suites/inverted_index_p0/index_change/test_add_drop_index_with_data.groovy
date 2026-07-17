@@ -242,9 +242,28 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result.size(), 3)
 
-    run_index_change_job_and_wait(indexTbName1, timeout) {
-        build_index_on_table("idx_name", indexTbName1)
+    if (isCloudMode()) {
+        // Cloud BUILD INDEX is table-scoped and builds both newly added indexes.
+        run_index_change_job_and_wait(indexTbName1, timeout) {
+            build_index_on_table("idx_name", indexTbName1)
+        }
+    } else {
+        run_index_change_job_and_wait(indexTbName1, timeout) {
+            build_index_on_table("idx_id", indexTbName1)
+        }
+        run_index_change_job_and_wait(indexTbName1, timeout) {
+            build_index_on_table("idx_name", indexTbName1)
+        }
     }
+
+    def physical_id_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */ id
+            FROM ${indexTbName1} WHERE id = 1"""
+    assertEquals(1, physical_id_result.size())
+    assertEquals(1, physical_id_result[0][0])
+    def physical_name_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */ id
+            FROM ${indexTbName1} WHERE name MATCH 'name1'"""
+    assertEquals(1, physical_name_result.size())
+    assertEquals(1, physical_name_result[0][0])
 
     // query rows where name match 'name1'
     select_result = sql "select * from ${indexTbName1} where name match 'name1'"

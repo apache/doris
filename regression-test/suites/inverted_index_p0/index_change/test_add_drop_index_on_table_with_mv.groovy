@@ -21,33 +21,6 @@ suite("test_add_drop_index_on_table_with_mv") {
     sql "set enable_add_index_for_new_data = true"
 
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
-
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
-            logger.info("expected_finished_num: " + expected_finished_num)
-            // check only base table build index job
-            assertEquals(1, expected_finished_num)
-            def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num;
-                }
-            }
-            if (finished_num == expected_finished_num) {
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
-    }
 
     def getJobState = { table ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${table}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -114,8 +87,7 @@ suite("test_add_drop_index_on_table_with_mv") {
     assertEquals(show_result.size(), 1)
     assertEquals(show_result[0][2], "idx1")
 
-    // build index
-    build_index_on_table("idx1", tableName)
-        // wait for index build finish
-    wait_for_build_index_on_partition_finish(tableName, timeout)
+    run_index_change_job_and_wait(tableName, timeout) {
+        build_index_on_table("idx1", tableName)
+    }
 }
