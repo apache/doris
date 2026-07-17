@@ -82,6 +82,7 @@ public class IcebergUtilsTest {
     public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
+        Mockito.when(table.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
 
         Assert.assertEquals(org.apache.iceberg.FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
         // Do not call newScan planFiles()

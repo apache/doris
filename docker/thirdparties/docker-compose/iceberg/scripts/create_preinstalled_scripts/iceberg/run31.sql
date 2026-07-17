@@ -1,9 +1,10 @@
--- Reproducer for an Iceberg table whose active snapshot contains both
--- Parquet and ORC data files. Run this file once in the Spark Iceberg container.
--- It deliberately does not drop the table, so rerunning requires a new table name.
+-- Bootstrap an Iceberg table whose active snapshot contains both Parquet and ORC data files.
+-- This script is sourced on every Iceberg container start, so keep it repeatable.
 
 CREATE DATABASE IF NOT EXISTS demo.test_db;
 USE demo.test_db;
+
+DROP TABLE IF EXISTS mixed_file_format;
 
 CREATE TABLE mixed_file_format (
     id INT,
