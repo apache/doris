@@ -776,6 +776,43 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (isPushDisabledByVariable(context)) {
             return child;
         }
+        // Forbid creating a scalar aggregate (aggregate without GROUP BY keys) during
+        // push-down. A scalar aggregate emits 1 row even when its input is empty
+        // (SQL standard: SELECT COUNT(*) FROM empty_table returns 1 row with 0).
+        // When placed below a join, that 1 row joins with rows from the other side,
+        // producing phantom rows that do not exist in the original query.
+        //
+        // This guard is placed at the aggregate-creation boundary rather than upstream
+        // (e.g. visitLogicalJoin or createContextFromProject) because context.groupKeys
+        // can change during intermediate rewrites. Checking groupKeys.isEmpty() early
+        // would either fire on a stale empty state (missing a later filter that adds
+        // keys) or fail to fire because a constant key has not yet been resolved to
+        // empty input slots. Example plan that reaches genAggregate with groupKeys=[]:
+        //
+        //   Aggregate(group=[k], sum(z))
+        //     CrossJoin
+        //       Project(1 AS k, A.v + B.v AS z)
+        //         InnerJoin(A.id = B.id)
+        //           Scan A
+        //           Scan B
+        //       Scan R
+        //
+        // Walk:
+        // 1. visitLogicalJoin(crossJoin): parentContext.groupKeys=[k]
+        //    → fillGroupByKeys puts k in leftChildGroupByKeys → forOneBranch succeeds
+        // 2. visitLogicalProject: createContextFromProject maps k through "1 AS k"
+        //    → literal 1 has no input slots → newContext.groupKeys=[]
+        // 3. visitLogicalJoin(innerJoin): sum(A.v+B.v) spans both sides
+        //    → toLeft=false, toRight=false → falls back to genAggregate with groupKeys=[]
+        //    → without this guard, creates scalar agg below crossJoin → phantom rows
+        //
+        // If the guard were at visitLogicalJoin step 1, groupKeys=[k] (non-empty) would
+        // pass. If at createContextFromProject step 2, it would block before a downstream
+        // filter had the chance to add keys. Only genAggregate sees the final state.
+        // See regression test: scalar_agg_pushdown.groovy
+        if (context.getGroupKeys().isEmpty()) {
+            return child;
+        }
         if (checkStats(child, context) || isPushEnabledByVariable(context)) {
             List<NamedExpression> aggOutputExpressions = new ArrayList<>();
             for (AggregateFunction func : context.getAggFunctions()) {
