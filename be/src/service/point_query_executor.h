@@ -73,7 +73,7 @@ public:
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                 const TQueryOptions& query_options, const TabletSchema& schema,
-                size_t block_size = 1);
+                const PTabletKeyLookupRequest& request, size_t block_size = 1);
 
     std::unique_ptr<Block> get_block();
 

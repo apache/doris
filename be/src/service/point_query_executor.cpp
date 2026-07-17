@@ -130,9 +130,10 @@ static void extract_slot_ref(const VExprSPtr& expr, TupleDescriptor* tuple_desc,
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       const TQueryOptions& query_options, const TabletSchema& schema,
-                      size_t block_size) {
+                      const PTabletKeyLookupRequest& request, size_t block_size) {
     _runtime_state = RuntimeState::create_unique();
     _runtime_state->set_query_options(query_options);
+    update_runtime_state(request);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     for (const auto* slot : tuple_desc()->slots()) {
@@ -317,6 +318,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
     if (cache_handle != nullptr) {
         _reusable = cache_handle;
+        _reusable->update_runtime_state(*request);
         _profile_metrics.hit_lookup_cache = true;
     } else {
         // Lightweight request: FE may omit reusable query context and rely on uuid cache.
@@ -361,16 +363,15 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               *_tablet->tablet_schema(),
+                                               *_tablet->tablet_schema(), *request,
                                                s_preallocted_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               *_tablet->tablet_schema(), 1));
+                                               *_tablet->tablet_schema(), *request, 1));
         }
     }
     _init_remote_scan_cache_write_limiter();
-    _reusable->update_runtime_state(*request);
     if (request->has_version() && request->version() >= 0) {
         _version = request->version();
     }

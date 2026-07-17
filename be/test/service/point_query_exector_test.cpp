@@ -152,7 +152,8 @@ public:
         return dtb.desc_tbl();
     }
 
-    static std::shared_ptr<Reusable> create_reusable() {
+    static std::shared_ptr<Reusable> create_reusable(
+            const PTabletKeyLookupRequest& request = PTabletKeyLookupRequest()) {
         auto obj_pool = std::make_unique<ObjectPool>();
         auto runtime_state = RuntimeState::create_unique();
         auto reusable = std::make_shared<Reusable>();
@@ -161,7 +162,8 @@ public:
         TDescriptorTable t_desc_tbl = create_descriptor_tablet();
 
         // Initialize Reusable
-        Status st = reusable->init(t_desc_tbl, output_exprs, query_options, *tablet_schema, 2);
+        Status st =
+                reusable->init(t_desc_tbl, output_exprs, query_options, *tablet_schema, request, 2);
         if (!st.ok()) {
             return nullptr;
         }
@@ -201,14 +203,12 @@ std::shared_ptr<TabletSchema> ReusableTestHelper::tablet_schema = []() {
 }();
 
 TEST(ReusableTest, PQTestUpdateRuntimeStateForEachRequest) {
-    auto reusable = ReusableTestHelper::create_reusable();
-    ASSERT_NE(reusable, nullptr);
-
     PTabletKeyLookupRequest first_request;
     first_request.set_time_zone("Asia/Shanghai");
     first_request.set_timestamp_ms(1001);
     first_request.set_nano_seconds(123456000);
-    reusable->update_runtime_state(first_request);
+    auto reusable = ReusableTestHelper::create_reusable(first_request);
+    ASSERT_NE(reusable, nullptr);
 
     EXPECT_EQ(reusable->runtime_state()->timezone(), "Asia/Shanghai");
     EXPECT_EQ(reusable->runtime_state()->timestamp_ms(), 1001);

@@ -567,8 +567,9 @@ suite("test_point_query") {
         // The second execution reuses the cached direct point-query path. SET_VAR must still
         // be applied before building the lightweight lookup request.
         sql "set time_zone = '+08:00'"
-        try (PreparedStatement pstmt = prepareStatement("select /*+ SET_VAR(time_zone='+00:00') */ "
-                + "from_unixtime(col1) from regression_test_point_query_p0.table_3821461 "
+        try (PreparedStatement pstmt = prepareStatement("select /*+ SET_VAR("
+                + "debug_skip_fold_constant=true,time_zone='+00:00') */ "
+                + "from_unixtime(20) from regression_test_point_query_p0.table_3821461 "
                 + "where col1 = ? and col2 = ? and loc3 = 'aabc'")) {
             pstmt.setInt(1, 20)
             pstmt.setInt(2, 30)
