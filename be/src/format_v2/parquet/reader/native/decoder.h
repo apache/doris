@@ -69,6 +69,7 @@ public:
 
     virtual void release_scratch(size_t max_retained_bytes) {}
     virtual size_t retained_scratch_bytes() const { return 0; }
+    virtual size_t active_scratch_bytes() const { return 0; }
 
     virtual Status set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                             size_t num_values) {
@@ -85,7 +86,8 @@ protected:
 
     int32_t _type_length = -1;
     Slice* _data = nullptr;
-    uint32_t _offset = 0;
+    // Page offsets are host-sized so checked advances cannot wrap at the 4 GiB boundary.
+    size_t _offset = 0;
     size_t _expected_values = std::numeric_limits<size_t>::max();
 };
 
@@ -170,22 +172,31 @@ public:
     size_t retained_scratch_bytes() const override {
         return _skip_indices.capacity() * sizeof(uint32_t);
     }
+    size_t active_scratch_bytes() const override { return _skip_indices.size() * sizeof(uint32_t); }
 
 protected:
     Status skip_values(size_t num_values) override {
-        _skip_indices.resize(num_values);
-        const auto skipped = _index_batch_decoder->GetBatch(_skip_indices.data(),
-                                                            cast_set<uint32_t>(num_values));
-        if (UNLIKELY(skipped != num_values)) {
-            return Status::IOError("Can't skip enough Parquet dictionary indices");
-        }
+        constexpr size_t kSkipBatchSize = 4096;
+        _skip_indices.resize(std::min(num_values, kSkipBatchSize));
         const size_t num_dictionary_values = dictionary_size();
-        for (size_t row = 0; row < num_values; ++row) {
-            if (UNLIKELY(_skip_indices[row] >= num_dictionary_values)) {
-                return Status::Corruption(
-                        "Parquet dictionary index {} at skipped row {} exceeds dictionary size {}",
-                        _skip_indices[row], row, num_dictionary_values);
+        size_t skipped_values = 0;
+        while (skipped_values < num_values) {
+            const size_t batch_size = std::min(num_values - skipped_values, kSkipBatchSize);
+            const auto skipped = _index_batch_decoder->GetBatch(_skip_indices.data(),
+                                                                static_cast<uint32_t>(batch_size));
+            if (UNLIKELY(skipped != batch_size)) {
+                return Status::IOError("Can't skip enough Parquet dictionary indices");
             }
+            // Filter gaps may be huge RLE runs; validate them without allocating by gap size.
+            for (size_t row = 0; row < batch_size; ++row) {
+                if (UNLIKELY(_skip_indices[row] >= num_dictionary_values)) {
+                    return Status::Corruption(
+                            "Parquet dictionary index {} at skipped row {} exceeds dictionary "
+                            "size {}",
+                            _skip_indices[row], skipped_values + row, num_dictionary_values);
+                }
+            }
+            skipped_values += batch_size;
         }
         return Status::OK();
     }

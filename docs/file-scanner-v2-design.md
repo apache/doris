@@ -282,6 +282,23 @@ Scan optimization remains maintainable only when costs are visible, sources are 
 and failure semantics are explicit. V2 provides three complementary views: Query Profile, query
 resource context, and global metrics.
 
+Query Profile uses one stable ownership tree:
+
+```text
+FileScannerV2
+└── TableReader
+    └── FileReader
+        ├── format-specific reader (ParquetReader, OrcReader, ...)
+        └── IO
+```
+
+Scanner lifecycle and Split scheduling are charged to `FileScannerV2`; table-schema restoration,
+delete handling, and reader lifecycle are charged to `TableReader`; metadata, index, decode, and
+materialization are charged to `FileReader` and its format subtree; physical reads, bytes, cache
+waits, and remote/local attribution remain under `IO`. Every executable lifecycle path needs a
+timer, and cumulative child-reader statistics must be published at batch boundaries as well as
+close, so an active slow query never presents an unexplained timing gap.
+
 ```mermaid
 flowchart LR
     R[FileReader and FileCache Raw Statistics] --> P[Query Profile]

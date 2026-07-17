@@ -99,10 +99,19 @@ format-specific checklist when reviewing Parquet or ORC.
 - Keep index construction, predicate translation, cache lookup, and virtual-column setup out of
   per-row and repeated batch paths unless the work is inherently row-local. Avoid repeated schema
   traversal, expression cloning, metadata parsing, allocation, and conversion.
+- Keep Profile counters in the visible `FileScannerV2 -> TableReader -> FileReader -> IO` hierarchy.
+  Format-specific readers, such as `ParquetReader`, belong below `FileReader`; lifecycle, metadata,
+  index, predicate, decode, materialization, and physical I/O paths must all have timers at the layer
+  that owns the work. Flush recursively aggregated child-reader statistics at every batch boundary,
+  including empty-selection and error exits, so a slow in-progress scan is diagnosable before close.
 - Require format readers to populate the common `ReaderStatistics` accurately where applicable:
   filtered/read row groups, Bloom and min/max pruning, filtered group/page/lazy rows, read rows and
   bytes, metadata/footer/cache timing, page-index work, predicate time, dictionary rewrite, and
   Bloom read time.
+- Reject dead or ambiguous counters. In particular, `FilteredBytes` counts compressed bytes of
+  projected physical chunks avoided by pruning, not every child in the Row Group; footer read,
+  footer parse, lazy page-index materialization, and page-index predicate evaluation need distinct
+  timers. Raw I/O counters stay under `IO` even when a format reader initiates the request.
 - Evaluate performance with representative format versions, writers, data ordering, predicate
   selectivity, nested width, remote storage, batch sizes, and warm/cold caches. Report both the
   optimization overhead and the avoided work; a low pruning ratio alone is not a defect.
@@ -117,6 +126,9 @@ format-specific checklist when reviewing Parquet or ORC.
 - Verify physical/logical metadata is immutable per leaf reader and complete for signed integers,
   decimal precision/scale, date/time/timestamp units and UTC adjustment, INT96, UUID, FLOAT16, and
   fixed-width binary. Unsupported combinations return explicit errors before plausible output.
+- Treat legacy Parquet `TIMESTAMP_MILLIS` and `TIMESTAMP_MICROS` converted types as UTC-adjusted.
+  Do not give them the local/unspecified semantics of an unannotated INT64 timestamp; data decode,
+  statistics conversion, and min/max pruning must use the same timezone rule.
 - Verify schema-change routing separately from physical decode. Integer, FLOAT-to-DOUBLE, decimal,
   and string-family changes should use the direct target-SerDe path. Other supported logical casts
   may use one persistent generic `ColumnTypeConverter` source column; its value/null-map sizes must
@@ -125,6 +137,8 @@ format-specific checklist when reviewing Parquet or ORC.
 - Dictionary review must separate dictionary-entry IDs from logical rows and non-null payload
   ordinals. Materialize the typed dictionary once per generation through the same SerDe, validate
   every index before access, and invalidate cached dictionary state at Row Group/file/type changes.
+  Dictionary-entry predicate evaluation and later row-value flattening must reuse that same typed
+  generation rather than serializing, parsing, or converting the dictionary twice.
 - Check direct materialization for PLAIN, RLE/dictionary, DELTA_BINARY_PACKED,
   DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, and BYTE_STREAM_SPLIT. Filtering must advance encoded
   values without allocating output; null runs must append defaults without advancing payload.
@@ -139,9 +153,23 @@ format-specific checklist when reviewing Parquet or ORC.
 - Review complex types as a level/shape problem around scalar leaf materialization. Parent offsets,
   null maps, sibling alignment, page-spanning rows, and child payload counts must remain correct
   without materializing an intermediate complex column.
+- For MAP, the non-null key leaf owns the outer entry shape. Validate the materialized key/value
+  entry counts, but do not compare their raw repetition vectors: a nested value legitimately has
+  deeper levels. For STRUCT, compare each sibling only at the current parent boundary and ignore
+  repetition owned by a deeper child collection.
 - Require a bounded high-water policy for persistent definition/repetition, null, selection,
-  conversion, and dictionary-index scratch. Test that an oversized repeated-value batch releases
-  retained capacity without discarding ordinary reusable capacity.
+  conversion, dictionary-index, and decoder-owned scratch. Distinguish active bytes from retained
+  capacity: never release an oversized buffer while the current batch still needs it, and require
+  three ordinary/idle batches before releasing capacity above the high-water limit. Test both
+  outlier release and steady-state reuse so the policy does not create allocation thrash.
+- Review all decoder read and skip paths as equally exposed corruption boundaries. Check requested
+  counts against remaining/declared values before pointer arithmetic or narrowing; use checked
+  addition/multiplication for byte extents; bound BYTE_ARRAY dictionary entry counts and IDs before
+  allocation/indexing; and require DELTA_BYTE_ARRAY prefixes to fit the previous reconstructed
+  value. BOOLEAN RLE and DELTA skip paths must consume bounded chunks and fail on short streams.
+- Before Snappy decompression, inspect the encoded uncompressed length and validate destination
+  capacity. Page V1, Page V2, and dictionary pages must produce exactly the declared decoded size;
+  an UNCOMPRESSED dictionary page must also declare equal compressed and uncompressed sizes.
 - For a STRUCT whose projected children are all missing after schema evolution, require a
   levels-only physical reference leaf. It must advance and validate encoded payload cursors while
   deriving the synthetic child count, without constructing a discarded string/complex column.
@@ -172,6 +200,11 @@ format-specific checklist when reviewing Parquet or ORC.
 - Verify lazy materialization avoids reading and decoding non-predicate columns for rejected rows
   while advancing all readers correctly. Predicate columns should be read/prefetched first; output
   prefetch should wait for survivors when filtering is active.
+- For safe staged single-column predicates, review the observed cost/rejection ordering and its
+  cold-start behavior. Reordering is allowed only after every candidate has a sample; prefetch may
+  stop at a low-probability reach prefix, while output-column prefetch may start early only after a
+  learned high survival ratio. Cache the batch SelectionVector's dense bitmap by generation so a
+  wide lazy projection does not rebuild the same O(batch) filter for every column.
 - Register Parquet Page Cache ranges only for surviving projected Column Chunks, require a stable
   file-version key, and assess FileCache, MergeRange, prefetch, requests, and read amplification
   together.

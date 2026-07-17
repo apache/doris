@@ -163,6 +163,23 @@ public:
         _def_level_decoder.release_scratch(max_retained_bytes);
     }
 
+    size_t retained_decoder_scratch_bytes() const {
+        size_t bytes = _rep_level_decoder.retained_scratch_bytes() +
+                       _def_level_decoder.retained_scratch_bytes();
+        for (const auto& [encoding, decoder] : _decoders) {
+            bytes += decoder->retained_scratch_bytes();
+        }
+        return bytes;
+    }
+
+    size_t active_decoder_scratch_bytes() const {
+        // Only the current encoding is active. Old decoder instances retain reusable capacity but
+        // must not make the high-water policy treat their last batch as current working memory.
+        return (_page_decoder == nullptr ? 0 : _page_decoder->active_scratch_bytes()) +
+               _rep_level_decoder.active_scratch_bytes() +
+               _def_level_decoder.active_scratch_bytes();
+    }
+
     tparquet::Encoding::type current_encoding() const { return _current_encoding; }
 
     ColumnChunkReaderStatistics& chunk_statistics() {

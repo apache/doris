@@ -55,6 +55,8 @@ public:
             std::vector<uint16_t>().swap(_rle_scratch);
         }
     }
+    size_t retained_scratch_bytes() const { return _rle_scratch.capacity() * sizeof(uint16_t); }
+    size_t active_scratch_bytes() const { return _rle_scratch.size() * sizeof(uint16_t); }
 
 private:
     tparquet::Encoding::type _encoding;

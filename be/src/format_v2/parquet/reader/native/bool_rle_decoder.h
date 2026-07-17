@@ -50,6 +50,7 @@ public:
         release_vector_if_oversized(&_values, max_retained_bytes);
     }
     size_t retained_scratch_bytes() const override { return _values.capacity() * sizeof(uint8_t); }
+    size_t active_scratch_bytes() const override { return _values.size() * sizeof(uint8_t); }
 
 private:
     RleBatchDecoder<uint8_t> _decoder;

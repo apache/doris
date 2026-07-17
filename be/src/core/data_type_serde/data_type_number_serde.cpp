@@ -204,6 +204,13 @@ Status append_parquet_number(PaddedPODArray<DorisCppType>& data, const uint8_t* 
                              size_t num_values, const ParquetDecodeContext& context) {
     const size_t old_size = data.size();
     data.resize(old_size + num_values);
+    if constexpr (std::is_same_v<DorisCppType, SourceType>) {
+        // Identical fixed-width physical/logical types need no validation or conversion. Parquet
+        // PLAIN values and Doris POD columns share the byte representation on supported targets,
+        // so preserve the dense vector-at-a-time memcpy invariant used by v1 and DuckDB.
+        memcpy(data.data() + old_size, values, num_values * sizeof(SourceType));
+        return Status::OK();
+    }
     for (size_t row = 0; row < num_values; ++row) {
         const auto value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
         if (!decoded_number_value_fits<DorisCppType>(value)) {
@@ -287,6 +294,22 @@ public:
             : _data(assert_cast<ColumnType&>(column).get_data()), _context(context) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        return consume_impl(values, num_values, value_width);
+    }
+
+    Status consume_selected(const uint8_t* values, size_t value_width,
+                            const std::vector<ParquetSelectionRange>& ranges) override {
+        // Each selected PLAIN range is already contiguous in the encoded page. Append those spans
+        // directly so sparse reads never build an intermediate selected-values array.
+        for (const auto& range : ranges) {
+            RETURN_IF_ERROR(
+                    consume_impl(values + range.first * value_width, range.count, value_width));
+        }
+        return Status::OK();
+    }
+
+private:
+    Status consume_impl(const uint8_t* values, size_t num_values, size_t value_width) {
         if (_context.logical_float16) {
             DORIS_CHECK(_context.physical_type == ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY);
             DORIS_CHECK_EQ(value_width, sizeof(uint16_t));
@@ -329,7 +352,6 @@ public:
         }
     }
 
-private:
     PaddedPODArray<DorisCppType>& _data;
     const ParquetDecodeContext& _context;
 };

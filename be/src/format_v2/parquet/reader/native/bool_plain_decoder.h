@@ -65,6 +65,9 @@ public:
     size_t retained_scratch_bytes() const override {
         return selected_values_.capacity() * sizeof(uint8_t);
     }
+    size_t active_scratch_bytes() const override {
+        return selected_values_.size() * sizeof(uint8_t);
+    }
 
 protected:
     inline bool _decode_value(bool* value) {

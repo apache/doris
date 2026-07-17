@@ -60,6 +60,13 @@ public:
                                                  MutableColumnPtr& column,
                                                  IColumn::Filter* row_filter, bool* used_filter);
 
+    // Native statistics are cumulative and can be recursively aggregated for complex columns.
+    // Flush once at the scheduler batch boundary instead of snapshotting after each operation.
+    virtual void flush_profile() {}
+    virtual Result<MutableColumnPtr> dictionary_values() {
+        return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
+    }
+
 protected:
     ParquetColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
                         ParquetColumnReaderProfile profile = {});

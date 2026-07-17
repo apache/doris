@@ -17,7 +17,6 @@
 
 #include "format_v2/parquet/reader/native/fix_length_plain_decoder.h"
 
-#include <cstring>
 #include <limits>
 
 namespace doris::format::parquet::native {
@@ -46,28 +45,21 @@ Status FixLengthPlainDecoder::decode_selected_fixed_values(const ParquetSelectio
     if (UNLIKELY(_offset > _data->size || input_bytes > _data->size - _offset)) {
         return Status::IOError("Out-of-bounds access in Parquet plain selection decoder");
     }
-    _selected_values.resize(selection.selected_values * value_width);
-    size_t output_offset = 0;
-    for (const auto& range : selection.ranges) {
-        const size_t range_bytes = range.count * value_width;
-        memcpy(_selected_values.data() + output_offset,
-               reinterpret_cast<const uint8_t*>(_data->data) + _offset + range.first * value_width,
-               range_bytes);
-        output_offset += range_bytes;
-    }
-    DORIS_CHECK_EQ(output_offset, _selected_values.size());
+    const auto* values = reinterpret_cast<const uint8_t*>(_data->data) + _offset;
     _offset += input_bytes;
-    if (_selected_values.empty()) {
-        return Status::OK();
-    }
-    return consumer.consume(_selected_values.data(), selection.selected_values, value_width);
+    // PLAIN pages are random-access fixed-width spans. Keep those page bytes pinned while the
+    // consumer gathers directly into the final column, otherwise sparse scans pay for a second
+    // selected-width buffer and copy before materialization.
+    return consumer.consume_selected(values, value_width, selection.ranges);
 }
 
 Status FixLengthPlainDecoder::skip_values(size_t num_values) {
-    _offset += _type_length * num_values;
-    if (UNLIKELY(_offset > _data->size)) {
+    DORIS_CHECK(_type_length > 0);
+    const size_t value_width = static_cast<size_t>(_type_length);
+    if (UNLIKELY(_offset > _data->size || num_values > (_data->size - _offset) / value_width)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");
     }
+    _offset += num_values * value_width;
     return Status::OK();
 }
 

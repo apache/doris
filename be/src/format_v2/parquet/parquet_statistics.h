@@ -93,6 +93,7 @@ struct ParquetPruningStats {
     int64_t filtered_row_groups_by_bloom_filter = 0; // row groups pruned by bloom filter
     int64_t filtered_row_groups_by_page_index = 0;   // row groups fully pruned by page index
     int64_t filtered_group_rows = 0;                 // rows in pruned row groups
+    int64_t filtered_bytes = 0;                      // requested bytes in pruned row groups
     int64_t filtered_page_rows = 0;                  // rows pruned by page index
     int64_t selected_row_ranges = 0;                 // selected row range count
     int64_t page_index_read_calls = 0;               // Page Index read count
@@ -100,6 +101,7 @@ struct ParquetPruningStats {
     int64_t row_group_filter_time = 0;               // row-group pruning time (ns)
     int64_t page_index_filter_time = 0;              // page-index pruning time (ns)
     int64_t read_page_index_time = 0;                // page-index read time (ns)
+    int64_t parse_page_index_time = 0;               // lazy page-index materialization time (ns)
     int64_t expr_zonemap_unusable_evals = 0;         // VExpr ZoneMap unusable evaluations
     int64_t in_zonemap_point_check_count = 0;        // VExpr IN ZoneMap point checks
     int64_t in_zonemap_range_only_count = 0;         // VExpr IN ZoneMap range-only checks

@@ -321,6 +321,8 @@ private:
 
 format::FileScanRequest request_with_zonemap_conjunct(std::shared_ptr<VExpr> expr) {
     format::FileScanRequest request;
+    request.predicate_columns.push_back(
+            format::LocalColumnIndex::top_level(format::LocalColumnId(0)));
     request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
     request.conjuncts.push_back(VExprContext::create_shared(std::move(expr)));
     return request;
@@ -770,6 +772,7 @@ TEST(ParquetStatisticsPruningTest, ExprZonemapPredicatesAndNullPredicatesPruneRo
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({2}));
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_statistics, 2);
+    EXPECT_GT(pruning_stats.filtered_bytes, 0);
 
     selected.clear();
     ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(

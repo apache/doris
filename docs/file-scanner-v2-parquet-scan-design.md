@@ -158,7 +158,9 @@ sequenceDiagram
 - **ParquetFileContext:** Adapts Doris FileReader to the active metadata/data stream interface and
   owns Page Cache, FileCache prefetch, and MergeRange routing. During migration this may still
   expose an Arrow adapter for metadata consumers, but native page decoding reads the same stable
-  Doris byte ranges without producing Arrow arrays.
+  Doris byte ranges without producing Arrow arrays. The immutable native footer owns one
+  thread-safe, lazily constructed Arrow metadata adapter at the footer-cache lifecycle, so repeated
+  v2 opens neither re-read the footer nor serialize and parse the same metadata again.
 
 For every selected Row Group, dictionary/index probes finish on the metadata adapter first. The
 scheduler then computes projected physical Column Chunk ranges and installs one shared native
@@ -411,6 +413,20 @@ Arrow and never produce a plausible result through a decoder selected only by lo
 Dictionary-to-plain transitions, multiple data pages, Page V1/V2, truncated
 payloads, integer overflow, and invalid lengths/IDs are part of the unit-test matrix.
 
+Read and skip are the same trust boundary. Every decoder validates the requested count against its
+declared/remaining values before pointer advancement, allocation, multiplication, or integer
+narrowing. BYTE_ARRAY dictionaries bound the entry count by the available four-byte length prefixes
+before reserving storage and validate every decoded ID. DELTA_BYTE_ARRAY requires each prefix to fit
+the preceding reconstructed value and checks the reconstructed and aggregate byte lengths. BOOLEAN
+RLE and DELTA skip paths operate in bounded chunks and reject short streams instead of advancing a
+partially consumed cursor as if the request succeeded.
+
+Compression has an exact-size contract. Snappy's encoded uncompressed length is checked against the
+destination capacity before decompression; Page V1, Page V2, and dictionary decode must then produce
+exactly the size declared in the page header. For the UNCOMPRESSED codec, dictionary compressed and
+uncompressed sizes must be equal. These rules turn malformed size metadata into corruption instead
+of a buffer overrun, silent truncation, or plausible shifted values.
+
 ### 7.3 Direct Materialization and Scratch Reuse
 
 Encoding decoders expose contiguous physical spans and advance encoded-stream cursors. The selected
@@ -437,15 +453,25 @@ Decimal and FIXED_LEN_BYTE_ARRAY direct paths validate the physical byte width, 
 two's-complement values with correct sign extension, and apply precision/scale conversion exactly
 once. Date, timestamp, INT96, unsigned annotations, CHAR/VARCHAR, and timezone conversions retain
 the same semantic checks as the general conversion path. A fast path is enabled only when those
-checks prove the result is equivalent.
+checks prove the result is equivalent. In particular, legacy converted `TIMESTAMP_MILLIS` and
+`TIMESTAMP_MICROS` are UTC-adjusted, while an unannotated INT64 timestamp has distinct
+local/unspecified semantics; data decode and statistics pruning share this interpretation.
+
+The typed dictionary is materialized through the logical SerDe once per decoder dictionary
+generation. Dictionary-entry predicate evaluation, dictionary-ID row filtering, and surviving
+row-value flattening reuse that same Doris column. A Row Group, file, type, or dictionary-generation
+change invalidates it, and every ID is checked before access.
 
 The persistent leaf reader owns reusable conversion objects, null map, selection ranges,
 definition/repetition levels, binary references, dictionary state, decompression buffers, and Doris
 column capacity. Logical sizes are reset at batch boundaries and normal-size capacity is retained.
-After the top-level complex reader has consumed the level plan, any individual batch scratch buffer
-above the 4 MiB high-water limit is released; this prevents staggered repeated-value outliers from
-accumulating one retained allocation per leaf for the rest of the Row Group. The native path does
-not create an Arrow builder or Arrow array.
+After the top-level complex reader has consumed the level plan, retained capacity above the 4 MiB
+high-water limit becomes eligible for release. The reader accounts separately for active and
+retained bytes, including decoder-owned buffers: active oversized scratch is never released, and
+eligible capacity is released only after three consecutive ordinary/idle batches. This hysteresis
+prevents a repeated-value outlier from being pinned for the Row Group without turning a legitimate
+large steady-state batch into allocate/free thrash. The native path does not create an Arrow
+builder or Arrow array.
 
 ### 7.4 Complex Types and Parent Shape Plans
 
@@ -463,8 +489,11 @@ ARRAY and MAP offsets and null maps are derived from that plan. Parquet stores s
 streams for separate physical leaves, so sibling readers still consume their own streams; they must
 advance over the same parent-row range and validate their payload counts instead of redefining the
 parent shape. STRUCT uses a representative present leaf for its null map and parent count. MAP uses
-the key leaf as the entry-shape owner, requires the value leaf to produce the same entry count, and
-validates Parquet's non-null key requirement rather than repairing it.
+the key leaf as the entry-shape owner, requires the materialized key and value columns to match that
+outer entry count, and validates Parquet's non-null key requirement rather than repairing it. Raw
+key/value repetition vectors are intentionally not compared because a nested MAP value owns
+additional repetition levels. STRUCT siblings similarly normalize repetition to the current parent
+boundary; deeper child collection repetition cannot redefine or invalidate the sibling shape.
 
 Level scratch is sized by decoded level entries, not by the 16-bit parent batch cap. Long repeated
 rows and long null/non-null runs are split into representable internal runs without introducing a
@@ -706,6 +735,18 @@ Without row-level filtering, output columns may be warmed together. With filteri
 columns first and defer non-predicate columns until at least one row survives, aligning network
 bandwidth with lazy materialization.
 
+For safe single-column conjuncts, the scheduler records an exponentially weighted cost per input
+row and survival ratio. Cold batches preserve declaration order; after every candidate has a sample,
+the next batch orders predicates by cost per rejected row. The same learned order limits predicate
+prefetch to the prefix with a meaningful probability of being reached, and a sustained high overall
+survival ratio estimate may warm output chunks early. This retains correctness because only
+independently safe conjuncts move and all readers still advance over the same logical batch.
+
+Selection state is scheduler-owned across adaptive batches. Its dense filter bitmap is cached by
+selection generation and batch shape, so every lazily materialized output reader consumes the same
+bitmap without rebuilding an O(batch-size) array. Logical sizes reset per batch while ordinary
+capacity remains reusable.
+
 ## 11. Correctness, Fallback, and Capability Boundaries
 
 V2 follows a prove-before-skip rule. Missing indexes, unsupported types, expressions that cannot be
@@ -740,6 +781,13 @@ split safely, or read anomalies must never change query semantics.
 Troubleshoot in this order: verify planning effectiveness, row filtering, lazy materialization, and
 then I/O/cache health. Total ScanTime alone does not identify the cause.
 
+The visible timer hierarchy is `FileScannerV2 -> TableReader -> FileReader -> IO`; the
+format-specific `ParquetReader` subtree belongs to `FileReader`. Scanner lifecycle and Split work,
+table-semantic restoration, format metadata/index/decode/materialization, and physical I/O are
+charged to their owning layer. Recursive native child-reader statistics are flushed at every batch
+boundary, including empty-selection and early-return paths, so a query cannot be slow merely because
+its counters are waiting for reader close.
+
 ```mermaid
 flowchart TD
   A[Slow Scan] --> B{Many Row Groups Pruned?}
@@ -763,6 +811,8 @@ flowchart TD
 | Page index pruning | How many indexes were checked, pages/rows were pruned, ranges selected, and pages skipped? |
 | Dictionary row filter | How often were predicates rewritten, dictionaries read, bitmaps built, and attempts successful or rejected? |
 | Predicate / raw rows | How many rows were read and rejected, and was lazy materialization worthwhile? |
+| Avoided projected I/O | How many compressed bytes from projected physical chunks were avoided? `FilteredBytes` deliberately excludes unprojected nested children. |
+| Metadata lifecycle | How much time was spent reading the footer, parsing metadata, lazily materializing page indexes, and evaluating page-index predicates? |
 | Parquet Page Cache | What were hit/miss/write counts and compressed/decompressed hit shapes? |
 | FileCache Profile | How many local/peer/remote bytes, waits, downloads, and hits occurred? |
 | Merge / request I/O | Were small reads merged, and were request count and read amplification reasonable? |

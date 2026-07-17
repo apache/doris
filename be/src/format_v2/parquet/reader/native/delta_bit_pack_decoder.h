@@ -66,14 +66,20 @@ public:
     ~DeltaBitPackDecoder() override = default;
 
     Status skip_values(size_t num_values) override {
-        _values.resize(num_values);
-        uint32_t num_valid_values = 0;
-        RETURN_IF_ERROR(
-                _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values));
-        // Skips have the same exact-consumption contract as materialized decodes.
-        if (UNLIKELY(num_valid_values != num_values)) {
-            return Status::IOError("Expected to skip {} Parquet delta values, skipped {}",
-                                   num_values, num_valid_values);
+        constexpr size_t kSkipBatchSize = 4096;
+        _values.resize(std::min(num_values, kSkipBatchSize));
+        size_t skipped = 0;
+        while (skipped < num_values) {
+            const size_t batch_size = std::min(num_values - skipped, kSkipBatchSize);
+            uint32_t num_valid_values = 0;
+            RETURN_IF_ERROR(_get_internal(_values.data(), static_cast<uint32_t>(batch_size),
+                                          &num_valid_values));
+            // Skips retain exact validation without allocating in proportion to a sparse gap.
+            if (UNLIKELY(num_valid_values != batch_size)) {
+                return Status::IOError("Expected to skip {} Parquet delta values, skipped {}",
+                                       num_values, skipped + num_valid_values);
+            }
+            skipped += batch_size;
         }
         return Status::OK();
     }
@@ -126,6 +132,9 @@ public:
     }
     size_t retained_scratch_bytes() const override {
         return _values.capacity() * sizeof(T) + _delta_bit_widths.capacity() * sizeof(uint8_t);
+    }
+    size_t active_scratch_bytes() const override {
+        return _values.size() * sizeof(T) + _delta_bit_widths.size() * sizeof(uint8_t);
     }
 
     Status set_data(Slice* slice) override {
@@ -187,13 +196,20 @@ public:
     }
 
     Status skip_values(size_t num_values) override {
-        _values.resize(num_values);
-        int num_valid_values = 0;
-        RETURN_IF_ERROR(
-                _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values));
-        if (UNLIKELY(num_valid_values != num_values)) {
-            return Status::IOError("Expected to skip {} Parquet delta-length values, skipped {}",
-                                   num_values, num_valid_values);
+        constexpr size_t kSkipBatchSize = 4096;
+        _values.resize(std::min(num_values, kSkipBatchSize));
+        size_t skipped = 0;
+        while (skipped < num_values) {
+            const size_t batch_size = std::min(num_values - skipped, kSkipBatchSize);
+            int num_valid_values = 0;
+            RETURN_IF_ERROR(
+                    _get_internal(_values.data(), static_cast<int>(batch_size), &num_valid_values));
+            if (UNLIKELY(num_valid_values != batch_size)) {
+                return Status::IOError(
+                        "Expected to skip {} Parquet delta-length values, skipped {}", num_values,
+                        skipped + num_valid_values);
+            }
+            skipped += batch_size;
         }
         return Status::OK();
     }
@@ -240,6 +256,8 @@ public:
         return _get_internal(buffer, num_values, out_num_values);
     }
 
+    int valid_values_count() const { return _num_valid_values; }
+
     void release_scratch(size_t max_retained_bytes) override {
         release_vector_if_oversized(&_values, max_retained_bytes);
         release_vector_if_oversized(&_string_refs, max_retained_bytes);
@@ -252,6 +270,11 @@ public:
                _buffered_length.capacity() * sizeof(int32_t) +
                _buffered_data.capacity() * sizeof(char) + _len_decoder.retained_scratch_bytes();
     }
+    size_t active_scratch_bytes() const override {
+        return _values.size() * sizeof(Slice) + _string_refs.size() * sizeof(StringRef) +
+               _buffered_length.size() * sizeof(int32_t) + _buffered_data.size() * sizeof(char) +
+               _len_decoder.active_scratch_bytes();
+    }
 
     Status set_data(Slice* slice) override {
         if (slice == nullptr || slice->size == 0) {
@@ -260,7 +283,6 @@ public:
             _data = nullptr;
             _offset = 0;
             _num_valid_values = 0;
-            _length_idx = 0;
             _buffered_length.clear();
             _buffered_data.clear();
             return Status::Corruption("Parquet delta-length page is empty");
@@ -268,20 +290,18 @@ public:
         _bit_reader = std::make_shared<BitReader>((const uint8_t*)slice->data, slice->size);
         _data = slice;
         _offset = 0;
-        RETURN_IF_ERROR(_decode_lengths());
+        RETURN_IF_ERROR(_init_lengths());
         return Status::OK();
     }
 
     Status set_bit_reader(std::shared_ptr<BitReader> bit_reader) {
         _bit_reader = std::move(bit_reader);
-        RETURN_IF_ERROR(_decode_lengths());
+        RETURN_IF_ERROR(_init_lengths());
         return Status::OK();
     }
 
 private:
-    // Decode all the encoded lengths. The decoder_ will be at the start of the encoded data
-    // after that.
-    Status _decode_lengths();
+    Status _init_lengths();
     Status _get_internal(Slice* buffer, int max_values, int* out_num_values);
 
     std::vector<Slice> _values;
@@ -290,7 +310,6 @@ private:
     DeltaBitPackDecoder<int32_t> _len_decoder;
 
     int _num_valid_values;
-    uint32_t _length_idx;
     std::vector<int32_t> _buffered_length;
     std::vector<char> _buffered_data;
 };
@@ -306,8 +325,15 @@ public:
     }
 
     Status skip_values(size_t num_values) override {
-        RETURN_IF_ERROR(_decode_slices(num_values));
-        return _validate_fixed_width_values();
+        constexpr size_t kSkipBatchSize = 4096;
+        size_t skipped = 0;
+        while (skipped < num_values) {
+            const size_t batch_size = std::min(num_values - skipped, kSkipBatchSize);
+            RETURN_IF_ERROR(_decode_slices(batch_size));
+            RETURN_IF_ERROR(_validate_fixed_width_values());
+            skipped += batch_size;
+        }
+        return Status::OK();
     }
 
     Status decode_binary_values(size_t num_values, ParquetBinaryValueConsumer& consumer) override {
@@ -373,22 +399,36 @@ public:
 
     Status set_data(Slice* slice) override {
         _bit_reader = std::make_shared<BitReader>((const uint8_t*)slice->data, slice->size);
-        RETURN_IF_ERROR(_prefix_len_decoder.set_bit_reader(_bit_reader));
+        auto prefix_reader = std::make_shared<BitReader>(*_bit_reader);
+        RETURN_IF_ERROR(_prefix_len_decoder.set_bit_reader(prefix_reader));
 
         // get the number of encoded prefix lengths
         int num_prefix = _prefix_len_decoder.valid_values_count();
-        // call _prefix_len_decoder.Decode to decode all the prefix lengths.
-        // all the prefix lengths are buffered in _buffered_prefix_length.
-        _buffered_prefix_length.resize(num_prefix);
-        uint32_t ret;
-        RETURN_IF_ERROR(
-                _prefix_len_decoder.decode(_buffered_prefix_length.data(), num_prefix, &ret));
-        DCHECK_EQ(ret, num_prefix);
-        _prefix_len_offset = 0;
+        DeltaBitPackDecoder<int32_t> prefix_locator;
+        prefix_locator.set_expected_values(_expected_values);
+        RETURN_IF_ERROR(prefix_locator.set_bit_reader(_bit_reader));
+        constexpr size_t kLocateBatchSize = 4096;
+        std::vector<int32_t> ignored_prefixes(
+                std::min<size_t>(static_cast<size_t>(num_prefix), kLocateBatchSize));
+        size_t located = 0;
+        while (located < static_cast<size_t>(num_prefix)) {
+            const size_t batch_size =
+                    std::min(static_cast<size_t>(num_prefix) - located, kLocateBatchSize);
+            uint32_t decoded = 0;
+            RETURN_IF_ERROR(prefix_locator.decode(ignored_prefixes.data(),
+                                                  static_cast<uint32_t>(batch_size), &decoded));
+            if (UNLIKELY(decoded != batch_size)) {
+                return Status::Corruption("Parquet delta prefix stream ended early");
+            }
+            located += batch_size;
+        }
         _num_valid_values = num_prefix;
 
         // at this time, the decoder_ will be at the start of the encoded suffix data.
         RETURN_IF_ERROR(_suffix_decoder.set_bit_reader(_bit_reader));
+        if (UNLIKELY(_suffix_decoder.valid_values_count() != num_prefix)) {
+            return Status::Corruption("Parquet delta prefix and suffix counts differ");
+        }
 
         // TODO: read corrupted files written with bug(PARQUET-246). _last_value should be set
         // to _last_value_in_previous_page when decoding a new page(except the first page)
@@ -421,6 +461,14 @@ public:
                _last_value_in_previous_page.capacity() +
                _prefix_len_decoder.retained_scratch_bytes() +
                _suffix_decoder.retained_scratch_bytes();
+    }
+    size_t active_scratch_bytes() const override {
+        return _values.size() * sizeof(Slice) + _string_refs.size() * sizeof(StringRef) +
+               _fixed_values.size() * sizeof(uint8_t) +
+               _buffered_prefix_length.size() * sizeof(int32_t) +
+               _buffered_data.size() * sizeof(char) + _last_value.size() +
+               _last_value_in_previous_page.size() + _prefix_len_decoder.active_scratch_bytes() +
+               _suffix_decoder.active_scratch_bytes();
     }
 
 private:
@@ -462,7 +510,6 @@ private:
     // string buffer for last value in previous page
     std::string _last_value_in_previous_page;
     int _num_valid_values;
-    uint32_t _prefix_len_offset;
     std::vector<int32_t> _buffered_prefix_length;
     std::vector<char> _buffered_data;
 };

@@ -18,10 +18,16 @@
 #pragma once
 #include <gen_cpp/parquet_types.h>
 
+#include <memory>
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
 #include "format/parquet/schema_desc.h"
+
+namespace parquet {
+class FileMetaData;
+}
 
 namespace doris {
 class FileMetaData {
@@ -32,6 +38,7 @@ public:
     const FieldDescriptor& schema() const { return _schema; }
     FieldDescriptor& schema() { return _schema; }
     const tparquet::FileMetaData& to_thrift() const;
+    Status get_arrow_metadata(std::shared_ptr<::parquet::FileMetaData>* metadata) const;
     std::string debug_string() const;
     size_t get_mem_size() const { return _mem_size; }
 
@@ -39,6 +46,9 @@ private:
     tparquet::FileMetaData _metadata;
     FieldDescriptor _schema;
     size_t _mem_size;
+    mutable std::mutex _arrow_metadata_mutex;
+    mutable std::shared_ptr<::parquet::FileMetaData> _arrow_metadata;
+    mutable size_t _arrow_metadata_mem_size = 0;
 };
 
 } // namespace doris

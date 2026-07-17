@@ -58,6 +58,9 @@ public:
     size_t retained_scratch_bytes() const override {
         return _binary_values.capacity() * sizeof(StringRef);
     }
+    size_t active_scratch_bytes() const override {
+        return _binary_values.size() * sizeof(StringRef);
+    }
 
 private:
     std::vector<StringRef> _binary_values;

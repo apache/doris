@@ -49,6 +49,9 @@ public:
     size_t retained_scratch_bytes() const override {
         return _decoded_values.capacity() * sizeof(uint8_t);
     }
+    size_t active_scratch_bytes() const override {
+        return _decoded_values.size() * sizeof(uint8_t);
+    }
 
 private:
     std::vector<uint8_t> _decoded_values;

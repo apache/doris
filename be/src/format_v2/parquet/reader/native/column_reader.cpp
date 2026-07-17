@@ -24,12 +24,14 @@
 #include <algorithm>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -227,10 +229,13 @@ Status init_decode_context(const FieldSchema& field, const cctz::time_zone* ctz,
     case tparquet::ConvertedType::TIMESTAMP_MILLIS:
         context->logical_type = ParquetLogicalType::TIMESTAMP;
         context->time_unit = ParquetTimeUnit::MILLIS;
+        // Legacy converted timestamps are defined as UTC-adjusted, unlike an unannotated INT64.
+        context->timestamp_is_adjusted_to_utc = true;
         break;
     case tparquet::ConvertedType::TIMESTAMP_MICROS:
         context->logical_type = ParquetLogicalType::TIMESTAMP;
         context->time_unit = ParquetTimeUnit::MICROS;
+        context->timestamp_is_adjusted_to_utc = true;
         break;
     case tparquet::ConvertedType::UINT_8:
     case tparquet::ConvertedType::UINT_16:
@@ -262,6 +267,13 @@ Status init_decode_context(const FieldSchema& field, const cctz::time_zone* ctz,
 }
 
 } // namespace
+
+#ifdef BE_TEST
+Status init_decode_context_for_test(const FieldSchema& field, const cctz::time_zone* ctz,
+                                    ParquetDecodeContext* context) {
+    return init_decode_context(field, ctz, context);
+}
+#endif
 
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
                                  const std::vector<level_t>& rep_levels,
@@ -514,6 +526,20 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
         size_t max_retained_bytes) {
+    const size_t retained_bytes = retained_batch_scratch_bytes();
+    const size_t active_bytes = active_batch_scratch_bytes();
+    if (retained_bytes <= max_retained_bytes || active_bytes > max_retained_bytes) {
+        _oversized_scratch_idle_batches = 0;
+        return;
+    }
+    // An adaptive probe or one repeated outlier must not pin memory forever, but immediately
+    // dropping a large steady-state buffer makes every following batch allocate it again. Require
+    // three ordinary batches before treating an oversized capacity as idle.
+    constexpr uint8_t OVERSIZED_SCRATCH_IDLE_BATCHES = 3;
+    if (++_oversized_scratch_idle_batches < OVERSIZED_SCRATCH_IDLE_BATCHES) {
+        return;
+    }
+    _oversized_scratch_idle_batches = 0;
     if (_chunk_reader != nullptr) {
         // Persistent decoders also own batch-sized value/slice buffers, not only the reader.
         _chunk_reader->release_decoder_scratch(max_retained_bytes);
@@ -542,6 +568,31 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     }
 }
 
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::retained_batch_scratch_bytes() const {
+    const size_t decoder_bytes =
+            _chunk_reader == nullptr ? 0 : _chunk_reader->retained_decoder_scratch_bytes();
+    return decoder_bytes + _rep_levels.capacity() * sizeof(level_t) +
+           _def_levels.capacity() * sizeof(level_t) +
+           _null_run_lengths.capacity() * sizeof(uint16_t) +
+           _nested_filter_map_data.capacity() * sizeof(uint8_t) +
+           _materialization_state.dictionary_indices.capacity() * sizeof(uint32_t) +
+           _materialization_state.selection.ranges.capacity() * sizeof(ParquetSelectionRange) +
+           retained_set_bytes(_ancestor_null_indices);
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::active_batch_scratch_bytes() const {
+    const size_t decoder_bytes =
+            _chunk_reader == nullptr ? 0 : _chunk_reader->active_decoder_scratch_bytes();
+    return decoder_bytes + _rep_levels.size() * sizeof(level_t) +
+           _def_levels.size() * sizeof(level_t) + _null_run_lengths.size() * sizeof(uint16_t) +
+           _nested_filter_map_data.size() * sizeof(uint8_t) +
+           _materialization_state.dictionary_indices.size() * sizeof(uint32_t) +
+           _materialization_state.selection.ranges.size() * sizeof(ParquetSelectionRange) +
+           _ancestor_null_indices.size() * sizeof(size_t);
+}
+
 #ifdef BE_TEST
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_batch_scratch_for_test(
@@ -558,12 +609,7 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_batch_scratch_for_
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::retained_batch_scratch_bytes_for_test()
         const {
-    return _rep_levels.capacity() * sizeof(level_t) + _def_levels.capacity() * sizeof(level_t) +
-           _null_run_lengths.capacity() * sizeof(uint16_t) +
-           _nested_filter_map_data.capacity() * sizeof(uint8_t) +
-           _materialization_state.dictionary_indices.capacity() * sizeof(uint32_t) +
-           _materialization_state.selection.ranges.capacity() * sizeof(ParquetSelectionRange) +
-           retained_set_bytes(_ancestor_null_indices);
+    return retained_batch_scratch_bytes();
 }
 #endif
 
@@ -899,6 +945,23 @@ ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::convert_dict_column_to_string_c
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Result<MutableColumnPtr> ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::dictionary_values() {
+    Decoder* dictionary_decoder = _chunk_reader->dictionary_decoder();
+    if (dictionary_decoder == nullptr || dictionary_decoder->dictionary_size() == 0) {
+        return ResultError(Status::NotSupported("Parquet column has no reusable dictionary"));
+    }
+    auto ids = ColumnInt32::create();
+    auto& data = ids->get_data();
+    data.resize(dictionary_decoder->dictionary_size());
+    for (size_t dictionary_id = 0; dictionary_id < data.size(); ++dictionary_id) {
+        data[dictionary_id] = cast_set<int32_t>(dictionary_id);
+    }
+    // Materialize the typed dictionary once and keep it in _materialization_state. Later row-level
+    // filtering decodes only ids and flattens surviving values from this same dictionary.
+    return convert_dict_column_to_string_column(ids.get());
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_try_load_dict_page(bool* loaded,
                                                                             bool* has_dict) {
     // _chunk_reader init will load first page header to check whether has dict page
@@ -1197,11 +1260,9 @@ Status MapColumnReader::read_column_data(
         return Status::Corruption("Parquet map contains a null key");
     }
     const auto& key_rep_levels = _key_reader->get_rep_level();
-    const auto& value_rep_levels = _value_reader->get_rep_level();
-    if (UNLIKELY(key_rep_levels != value_rep_levels)) {
-        return Status::Corruption("Parquet map key/value repetition shapes differ");
-    }
     // fill offset and null map
+    // The key leaf is the canonical outer MAP shape. A nested value has additional repetition
+    // levels for its own collections, so comparing the two leaves would reject valid MAP values.
     RETURN_IF_ERROR(fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr,
                                       key_rep_levels, _key_reader->get_def_level()));
     if (UNLIKELY(key_column->size() != map.get_offsets().back())) {
@@ -1274,6 +1335,21 @@ Status StructColumnReader::read_column_data(
     size_t not_missing_orig_column_size = 0;
     std::vector<size_t> missing_column_idxs {};
     std::vector<size_t> skip_reading_column_idxs {};
+    std::vector<level_t> reference_parent_shape;
+
+    auto parent_shape = [this](const ColumnReader& reader) {
+        std::vector<level_t> shape;
+        const auto& rep_levels = reader.get_rep_level();
+        shape.reserve(rep_levels.size());
+        for (const level_t rep_level : rep_levels) {
+            // Deeper repetitions belong to a nested child; only starts visible at this STRUCT's
+            // repeated-parent boundary determine how sibling values are paired.
+            if (rep_level <= _field_schema->repetition_level) {
+                shape.push_back(rep_level);
+            }
+        }
+        return shape;
+    };
 
     _read_column_names.clear();
 
@@ -1314,6 +1390,7 @@ Status StructColumnReader::read_column_data(
                     batch_size, &field_rows, &field_eof, is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
+            reference_parent_shape = parent_shape(*_child_readers[file_name]);
             /*
              * Considering the issue in the `_read_nested_column` function where data may span across pages, leading
              * to missing definition and repetition levels, when filling the null_map of the struct later, it is
@@ -1336,6 +1413,11 @@ Status StructColumnReader::read_column_data(
                 // STRUCT siblings must advance the same logical rows before any result is exposed.
                 return Status::Corruption("Parquet struct child '{}' returned {} rows, expected {}",
                                           file_name, field_rows, *read_rows);
+            }
+            if (UNLIKELY(parent_shape(*_child_readers[file_name]) != reference_parent_shape)) {
+                return Status::Corruption(
+                        "Parquet struct child '{}' has a different repeated-parent shape",
+                        file_name);
             }
             //            DCHECK_EQ(*eof, field_eof);
         }

@@ -97,12 +97,24 @@ struct ParquetDecodeContext {
     const cctz::time_zone* timezone = nullptr;
 };
 
+struct ParquetSelectionRange {
+    size_t first = 0;
+    size_t count = 0;
+};
+
 // A decoder may produce multiple contiguous spans for one request (for example delta encodings).
 // Consumers are invoked per span, never per value, keeping virtual dispatch out of the row loop.
 class ParquetFixedValueConsumer {
 public:
     virtual ~ParquetFixedValueConsumer() = default;
     virtual Status consume(const uint8_t* values, size_t num_values, size_t value_width) = 0;
+    virtual Status consume_selected(const uint8_t* values, size_t value_width,
+                                    const std::vector<ParquetSelectionRange>& ranges) {
+        for (const auto& range : ranges) {
+            RETURN_IF_ERROR(consume(values + range.first * value_width, range.count, value_width));
+        }
+        return Status::OK();
+    }
 };
 
 class ParquetBinaryValueConsumer {
@@ -115,11 +127,6 @@ public:
 // intentionally excluded: the native ColumnReader uses this plan only when the batch has no NULL
 // leaf slots, so selected values can be appended in one pass without a temporary nullable column.
 // Ranges are sorted, disjoint, and expressed in the physical value stream's coordinate space.
-struct ParquetSelectionRange {
-    size_t first = 0;
-    size_t count = 0;
-};
-
 struct ParquetSelection {
     size_t total_values = 0;
     size_t selected_values = 0;

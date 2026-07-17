@@ -78,6 +78,8 @@ public:
                                          const IColumn::Filter& dictionary_filter,
                                          MutableColumnPtr& column, IColumn::Filter* row_filter,
                                          bool* used_filter) override;
+    void flush_profile() override;
+    Result<MutableColumnPtr> dictionary_values() override;
 
 private:
     NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr projected_type,

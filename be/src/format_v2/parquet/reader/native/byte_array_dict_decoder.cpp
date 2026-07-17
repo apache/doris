@@ -28,14 +28,18 @@ Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32
     if (_dict == nullptr) {
         return Status::Corruption("Wrong dictionary data for byte array type, dict is null.");
     }
-    _dict_items.reserve(num_values);
     if (UNLIKELY(length < 0)) {
         return Status::Corruption("Wrong data length in dictionary");
     }
     const size_t dict_length = cast_set<size_t>(length);
+    // Every BYTE_ARRAY entry needs a four-byte length prefix; bound metadata-driven reserve first.
+    if (UNLIKELY(num_values > dict_length / sizeof(uint32_t))) {
+        return Status::Corruption("Dictionary value count exceeds byte array payload");
+    }
+    _dict_items.reserve(num_values);
     size_t offset_cursor = 0;
     char* dict_item_address = reinterpret_cast<char*>(_dict.get());
-    for (int i = 0; i < num_values; ++i) {
+    for (size_t i = 0; i < num_values; ++i) {
         if (UNLIKELY(offset_cursor > dict_length ||
                      dict_length - offset_cursor < sizeof(uint32_t))) {
             return Status::Corruption("Wrong data length in dictionary");

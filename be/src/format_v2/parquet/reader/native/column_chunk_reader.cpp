@@ -412,6 +412,10 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
                 _chunk_statistics.decompress_cnt++;
                 RETURN_IF_ERROR(_block_compress_codec->decompress(payload_slice, &_page_data));
+                if (UNLIKELY(_page_data.size != uncompressed_payload_size)) {
+                    return Status::Corruption("Parquet page decompressed to {} bytes, expected {}",
+                                              _page_data.size, uncompressed_payload_size);
+                }
             }
             // page cache counters were incremented when PageReader did the header-only
             // cache lookup. Do not increment again to avoid double-counting.
@@ -452,6 +456,10 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
                 _chunk_statistics.decompress_cnt++;
                 RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
+                if (UNLIKELY(_page_data.size != static_cast<size_t>(uncompressed_size))) {
+                    return Status::Corruption("Parquet page decompressed to {} bytes, expected {}",
+                                              _page_data.size, uncompressed_size);
+                }
 
                 // Decide whether to cache decompressed payload or compressed payload based on threshold
                 bool cache_payload_decompressed = should_cache_decompressed(header, _metadata);
@@ -579,6 +587,13 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
 
     // Prepare dictionary data
     int32_t uncompressed_size = header->uncompressed_page_size;
+    if (_block_compress_codec == nullptr &&
+        UNLIKELY(header->compressed_page_size != uncompressed_size)) {
+        // UNCOMPRESSED pages use the compressed size as their physical copy length.
+        return Status::Corruption(
+                "Uncompressed Parquet dictionary sizes differ: compressed={}, uncompressed={}",
+                header->compressed_page_size, uncompressed_size);
+    }
     auto dict_data = make_unique_buffer<uint8_t>(uncompressed_size);
     bool dict_loaded = false;
 
@@ -608,6 +623,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
                 // Decompress cached compressed dictionary data
                 Slice dict_slice(dict_data.get(), uncompressed_size);
                 RETURN_IF_ERROR(_block_compress_codec->decompress(payload_slice, &dict_slice));
+                if (UNLIKELY(dict_slice.size != static_cast<size_t>(uncompressed_size))) {
+                    return Status::Corruption(
+                            "Parquet dictionary decompressed to {} bytes, expected {}",
+                            dict_slice.size, uncompressed_size);
+                }
                 dict_loaded = true;
             }
 
@@ -633,6 +653,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
             if (dict_num != 0) {
                 RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
                 RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
+                if (UNLIKELY(dict_slice.size != static_cast<size_t>(uncompressed_size))) {
+                    return Status::Corruption(
+                            "Parquet dictionary decompressed to {} bytes, expected {}",
+                            dict_slice.size, uncompressed_size);
+                }
             }
 
             // Decide whether to cache decompressed or compressed dictionary based on threshold

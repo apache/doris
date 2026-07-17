@@ -350,8 +350,6 @@ Status NativeColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
     RETURN_IF_ERROR(read_with_filter(rows, nullptr, false, column, _type, false, rows_read));
     advance_selected_span(*rows_read);
     update_reader_read_rows(*rows_read);
-    int64_t max_leaf_page_reads = 0;
-    record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
     return Status::OK();
 }
 
@@ -395,23 +393,18 @@ Status NativeColumnReader::skip(int64_t rows) {
         remaining -= rows_read;
     }
     update_reader_skip_rows(native_skipped_rows);
-    int64_t max_leaf_page_reads = 0;
-    record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
     return Status::OK();
 }
 
 Status NativeColumnReader::select(const SelectionVector& selection, uint16_t selected_rows,
                                   int64_t batch_rows, MutableColumnPtr& column) {
-    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
-    _filter_scratch.assign(static_cast<size_t>(batch_rows), 0);
-    for (uint16_t idx = 0; idx < selected_rows; ++idx) {
-        _filter_scratch[selection.get_index(idx)] = 1;
-    }
+    const uint8_t* filter_data = nullptr;
+    RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
     const size_t old_size = column->size();
     int64_t rows_read = 0;
-    RETURN_IF_ERROR(read_with_filter(batch_rows, _filter_scratch.data(), selected_rows == 0, column,
-                                     _type, false, &rows_read));
+    RETURN_IF_ERROR(read_with_filter(batch_rows, filter_data, selected_rows == 0, column, _type,
+                                     false, &rows_read));
     advance_selected_span(rows_read);
     if (column->size() != old_size + selected_rows) {
         return Status::Corruption(
@@ -423,8 +416,6 @@ Status NativeColumnReader::select(const SelectionVector& selection, uint16_t sel
     }
     update_reader_read_rows(selected_rows);
     update_reader_skip_rows(batch_rows - selected_rows);
-    int64_t max_leaf_page_reads = 0;
-    record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
     return Status::OK();
 }
 
@@ -436,7 +427,6 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
                                                          bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
-    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
     *used_filter = false;
     row_filter->clear();
@@ -445,10 +435,8 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
     }
     *used_filter = true;
 
-    _filter_scratch.assign(static_cast<size_t>(batch_rows), 0);
-    for (uint16_t idx = 0; idx < selected_rows; ++idx) {
-        _filter_scratch[selection.get_index(idx)] = 1;
-    }
+    const uint8_t* filter_data = nullptr;
+    RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
     const bool nullable = _type->is_nullable();
     DataTypePtr id_type = std::make_shared<DataTypeInt32>();
     if (nullable) {
@@ -459,7 +447,7 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
     }
     _dictionary_id_column->clear();
     int64_t rows_read = 0;
-    RETURN_IF_ERROR(read_with_filter(batch_rows, _filter_scratch.data(), selected_rows == 0,
+    RETURN_IF_ERROR(read_with_filter(batch_rows, filter_data, selected_rows == 0,
                                      _dictionary_id_column, id_type, true, &rows_read));
     advance_selected_span(rows_read);
     if (_dictionary_id_column->size() != selected_rows) {
@@ -514,9 +502,17 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
     }
     update_reader_read_rows(cast_set<int64_t>(matched_ids.size()));
     update_reader_skip_rows(batch_rows - cast_set<int64_t>(matched_ids.size()));
+    return Status::OK();
+}
+
+void NativeColumnReader::flush_profile() {
     int64_t max_leaf_page_reads = 0;
     record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
-    return Status::OK();
+}
+
+Result<MutableColumnPtr> NativeColumnReader::dictionary_values() {
+    DORIS_CHECK(_native_reader != nullptr);
+    return _native_reader->dictionary_values();
 }
 
 void NativeColumnReader::record_page_fragments(int64_t page_fragments,

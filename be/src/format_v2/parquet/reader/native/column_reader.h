@@ -49,6 +49,11 @@ namespace doris::format::parquet::native {
 using ::doris::FieldSchema;
 using ::doris::ColumnString;
 
+#ifdef BE_TEST
+Status init_decode_context_for_test(const FieldSchema& field, const cctz::time_zone* ctz,
+                                    ParquetDecodeContext* context);
+#endif
+
 class ColumnReader {
 public:
     struct ColumnStatistics {
@@ -189,6 +194,9 @@ public:
         throw Exception(
                 Status::FatalError("Method convert_dict_column_to_string_column is not supported"));
     }
+    virtual Result<MutableColumnPtr> dictionary_values() {
+        return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
+    }
 
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
                          const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
@@ -255,6 +263,7 @@ public:
                               bool* eof) override;
     Result<MutableColumnPtr> convert_dict_column_to_string_column(
             const ColumnInt32* dict_column) override;
+    Result<MutableColumnPtr> dictionary_values() override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
     ColumnStatistics column_statistics() override {
@@ -362,6 +371,10 @@ private:
     ColumnSelectVector _select_vector;
     int64_t _convert_time = 0;
     size_t _logical_conversion_scratch_bytes = 0;
+    uint8_t _oversized_scratch_idle_batches = 0;
+
+    size_t retained_batch_scratch_bytes() const;
+    size_t active_batch_scratch_bytes() const;
 
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, const DataTypePtr& type,

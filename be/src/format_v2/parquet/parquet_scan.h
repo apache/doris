@@ -61,6 +61,22 @@ namespace doris::format::parquet {
 struct ParquetFileContext;
 struct ParquetColumnSchema;
 
+namespace detail {
+struct AdaptivePredicateStats {
+    double cost_per_input_row_ns = 0;
+    double survival_ratio = 1;
+    size_t samples = 0;
+};
+
+std::vector<size_t> order_adaptive_predicates(
+        const std::vector<size_t>& positions,
+        const std::unordered_map<size_t, AdaptivePredicateStats>& stats);
+std::vector<size_t> adaptive_prefetch_prefix(
+        const std::vector<size_t>& ordered_positions,
+        const std::unordered_map<size_t, AdaptivePredicateStats>& stats,
+        double minimum_reach_probability);
+} // namespace detail
+
 // ============================================================================
 // ============================================================================
 
@@ -153,6 +169,9 @@ public:
 
 private:
     void reset_current_row_group();
+    void flush_current_reader_profiles();
+    std::vector<format::LocalColumnIndex> adaptive_predicate_prefetch_columns(
+            const format::FileScanRequest& request) const;
 
     Status open_next_row_group(ParquetFileContext& file_context,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -225,6 +244,12 @@ private:
     bool _enable_strict_mode = false;
     RuntimeState* _runtime_state = nullptr;
     int64_t _batch_size = DEFAULT_READ_BATCH_SIZE;
+    // Batch control scratch is scheduler-owned so adaptive row caps change logical sizes without
+    // reallocating selection indices, dense filter bytes, or compacted-column positions.
+    SelectionVector _selection;
+    std::vector<uint32_t> _read_column_positions_scratch;
+    std::unordered_map<size_t, detail::AdaptivePredicateStats> _predicate_runtime_stats;
+    double _predicate_survival_ratio = -1;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_filtered_rows = 0;
     int64_t _predicate_filtered_rows = 0;

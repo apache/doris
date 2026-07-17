@@ -53,10 +53,16 @@ Status BoolRLEDecoder::set_data(Slice* slice) {
 }
 
 Status BoolRLEDecoder::skip_values(size_t num_values) {
-    _values.resize(num_values);
-    // GetBatch reports truncation; RleDecoder::Skip assumes a valid run and can spin forever.
-    if (_decoder.GetBatch(_values.data(), cast_set<uint32_t>(num_values)) != num_values) {
-        return Status::IOError("Can't skip enough booleans in Parquet RLE decoder");
+    constexpr size_t kSkipBatchSize = 4096;
+    _values.resize(std::min(num_values, kSkipBatchSize));
+    size_t skipped = 0;
+    while (skipped < num_values) {
+        const size_t batch_size = std::min(num_values - skipped, kSkipBatchSize);
+        // GetBatch reports truncation; RleDecoder::Skip assumes a valid run and can spin forever.
+        if (_decoder.GetBatch(_values.data(), static_cast<uint32_t>(batch_size)) != batch_size) {
+            return Status::IOError("Can't skip enough booleans in Parquet RLE decoder");
+        }
+        skipped += batch_size;
     }
     return Status::OK();
 }

@@ -19,8 +19,6 @@
 
 #include <gen_cpp/parquet_types.h>
 
-#include <vector>
-
 #include "common/status.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/data_type/data_type.h"
@@ -45,15 +43,7 @@ public:
 
     Status skip_values(size_t num_values) override;
 
-    void release_scratch(size_t max_retained_bytes) override {
-        release_vector_if_oversized(&_selected_values, max_retained_bytes);
-    }
-    size_t retained_scratch_bytes() const override {
-        return _selected_values.capacity() * sizeof(uint8_t);
-    }
-
-private:
-    std::vector<uint8_t> _selected_values;
+    size_t retained_scratch_bytes() const override { return 0; }
 };
 
 } // namespace doris::format::parquet::native

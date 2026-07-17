@@ -1438,6 +1438,36 @@ TEST_F(NewParquetReaderTest, NativeComplexColumnsMaterializeDirectlyAcrossBatchC
     EXPECT_GT(profile.get_counter("NestedBatches")->value(), 0);
 }
 
+TEST_F(NewParquetReaderTest, NativeNestedMapUsesOuterKeyRepetitionShape) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    _file_path =
+            std::string(source_root) + "/regression-test/data/external_table_p0/tvf/comp.parquet";
+    ASSERT_TRUE(std::filesystem::exists(_file_path));
+
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    for (size_t position = 0; position < schema.size(); ++position) {
+        request->non_predicate_columns.push_back(field_projection(cast_set<int32_t>(position)));
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        const Status status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        total_rows += rows;
+    }
+    EXPECT_GT(total_rows, 0);
+}
+
 TEST_F(NewParquetReaderTest, NativeDecimalAndFixedBinaryMaterializeDirectly) {
     write_decimal_and_fixed_binary_parquet_file(_file_path);
     RuntimeProfile profile("native_decimal_fixed_binary_materialization");
@@ -2437,7 +2467,7 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
     EXPECT_GE(profile.get_counter("ReaderSelectRows")->value(), 8);
 }
 
-TEST_F(NewParquetReaderTest, DictionaryPredicateProbeDoesNotUseMergeRangeReader) {
+TEST_F(NewParquetReaderTest, DictionaryPredicateReaderIsSharedOutsideMergeRangeReader) {
     write_dictionary_filter_with_trailing_column_parquet_file(_file_path);
 
     RuntimeProfile profile("new_parquet_reader_dictionary_filter_merge_profile");
@@ -2479,9 +2509,9 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateProbeDoesNotUseMergeRangeReader)
     EXPECT_EQ(values, std::vector<std::string>({"az", "za"}));
     EXPECT_EQ(payloads, std::vector<int32_t>({20, 50}));
     EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 4);
-    // Dictionary probing finishes on the base Arrow reader before the native data-page path
-    // installs its row-group-scoped merge reader. The merge profile therefore describes only
-    // native projected chunk reads and cannot be perturbed by dictionary ReadAt order.
+    // The native dictionary probe keeps its reader and cursor for predicate data pages. Other
+    // projected chunks still use the row-group merge reader, so probing never duplicates the
+    // dictionary read or perturbs the merge range's sequential access order.
     ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
     ASSERT_NE(profile.get_counter("MergedBytes"), nullptr);
     EXPECT_GT(profile.get_counter("MergedIO")->value(), 0);

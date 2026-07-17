@@ -18,21 +18,42 @@
 #include "format_v2/parquet/reader/native/delta_bit_pack_decoder.h"
 
 namespace doris::format::parquet::native {
-Status DeltaLengthByteArrayDecoder::_decode_lengths() {
-    RETURN_IF_ERROR(_len_decoder.set_bit_reader(_bit_reader));
-    // get the number of encoded lengths
-    uint32_t num_length = _len_decoder.valid_values_count();
-    _buffered_length.resize(num_length);
+Status DeltaLengthByteArrayDecoder::_init_lengths() {
+    auto length_reader = std::make_shared<BitReader>(*_bit_reader);
+    RETURN_IF_ERROR(_len_decoder.set_bit_reader(length_reader));
+    const uint32_t num_lengths = _len_decoder.valid_values_count();
 
-    // decode all the lengths. all the lengths are buffered in buffered_length_.
-    uint32_t ret;
-    RETURN_IF_ERROR(_len_decoder.decode(_buffered_length.data(), num_length, &ret));
-    if (UNLIKELY(ret != num_length)) {
-        return Status::Corruption("Parquet delta length stream decoded {} of {} lengths", ret,
-                                  num_length);
+    DeltaBitPackDecoder<int32_t> length_locator;
+    length_locator.set_expected_values(_expected_values);
+    RETURN_IF_ERROR(length_locator.set_bit_reader(_bit_reader));
+    constexpr size_t kLocateBatchSize = 4096;
+    std::vector<int32_t> lengths(std::min<size_t>(num_lengths, kLocateBatchSize));
+    size_t located = 0;
+    int64_t payload_size = 0;
+    while (located < num_lengths) {
+        const size_t batch_size = std::min<size_t>(num_lengths - located, kLocateBatchSize);
+        uint32_t decoded = 0;
+        RETURN_IF_ERROR(
+                length_locator.decode(lengths.data(), static_cast<uint32_t>(batch_size), &decoded));
+        if (UNLIKELY(decoded != batch_size)) {
+            return Status::Corruption("Parquet delta length stream ended early");
+        }
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (UNLIKELY(lengths[i] < 0) ||
+                common::add_overflow(payload_size, static_cast<int64_t>(lengths[i]),
+                                     payload_size)) {
+                return Status::Corruption("Invalid Parquet delta byte-array length");
+            }
+        }
+        located += batch_size;
     }
-    _length_idx = 0;
-    _num_valid_values = num_length;
+    // The locator leaves the shared reader at the first payload byte without retaining every
+    // length; the independent decoder supplies bounded batches during materialization or skip.
+    if (UNLIKELY(payload_size > _bit_reader->bytes_left())) {
+        return Status::Corruption("Parquet delta lengths require {} bytes, only {} remain",
+                                  payload_size, _bit_reader->bytes_left());
+    }
+    _num_valid_values = num_lengths;
     return Status::OK();
 }
 
@@ -47,7 +68,14 @@ Status DeltaLengthByteArrayDecoder::_get_internal(Slice* buffer, int max_values,
     }
 
     int64_t data_size = 0;
-    const int32_t* length_ptr = _buffered_length.data() + _length_idx;
+    _buffered_length.resize(max_values);
+    uint32_t lengths_decoded = 0;
+    RETURN_IF_ERROR(_len_decoder.decode(_buffered_length.data(), static_cast<uint32_t>(max_values),
+                                        &lengths_decoded));
+    if (UNLIKELY(lengths_decoded != max_values)) {
+        return Status::Corruption("Parquet delta length stream ended early");
+    }
+    const int32_t* length_ptr = _buffered_length.data();
     for (int i = 0; i < max_values; ++i) {
         int32_t len = length_ptr[i];
         if (len < 0) [[unlikely]] {
@@ -64,8 +92,6 @@ Status DeltaLengthByteArrayDecoder::_get_internal(Slice* buffer, int max_values,
         return Status::Corruption("Parquet delta lengths require {} bytes, only {} remain",
                                   data_size, _bit_reader->bytes_left());
     }
-    _length_idx += max_values;
-
     _buffered_data.resize(data_size);
     char* data_ptr = _buffered_data.data();
     for (int64_t j = 0; j < data_size; j++) {
@@ -101,16 +127,32 @@ Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* 
     }
 
     int64_t data_size = 0;
-    const int32_t* prefix_len_ptr = _buffered_prefix_length.data() + _prefix_len_offset;
+    _buffered_prefix_length.resize(max_values);
+    uint32_t prefixes_decoded = 0;
+    RETURN_IF_ERROR(_prefix_len_decoder.decode(
+            _buffered_prefix_length.data(), static_cast<uint32_t>(max_values), &prefixes_decoded));
+    if (UNLIKELY(prefixes_decoded != max_values)) {
+        return Status::Corruption("Parquet delta prefix stream ended early");
+    }
+    const int32_t* prefix_len_ptr = _buffered_prefix_length.data();
+    size_t preceding_value_size = _last_value.size();
     for (int i = 0; i < max_values; ++i) {
         if (prefix_len_ptr[i] < 0) [[unlikely]] {
             return Status::InvalidArgument("negative prefix length in DELTA_BYTE_ARRAY");
         }
-        if (common::add_overflow(data_size, static_cast<int64_t>(prefix_len_ptr[i]), data_size) ||
-            common::add_overflow(data_size, static_cast<int64_t>(buffer[i].size), data_size))
+        const size_t prefix_size = static_cast<size_t>(prefix_len_ptr[i]);
+        if (prefix_size > preceding_value_size) [[unlikely]] {
+            // Prefixes form a dependency chain, so validate each one before aggregate allocation.
+            return Status::InvalidArgument("prefix length too large in DELTA_BYTE_ARRAY");
+        }
+        size_t reconstructed_size = 0;
+        if (common::add_overflow(prefix_size, buffer[i].size, reconstructed_size) ||
+            reconstructed_size > static_cast<size_t>(std::numeric_limits<int64_t>::max()) ||
+            common::add_overflow(data_size, static_cast<int64_t>(reconstructed_size), data_size))
                 [[unlikely]] {
             return Status::InvalidArgument("excess expansion in DELTA_BYTE_ARRAY");
         }
+        preceding_value_size = reconstructed_size;
     }
     _buffered_data.resize(data_size);
 
@@ -118,9 +160,6 @@ Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* 
 
     char* data_ptr = _buffered_data.data();
     for (int i = 0; i < max_values; ++i) {
-        if (static_cast<size_t>(prefix_len_ptr[i]) > prefix.length()) [[unlikely]] {
-            return Status::InvalidArgument("prefix length too large in DELTA_BYTE_ARRAY");
-        }
         memcpy(data_ptr, prefix.data(), prefix_len_ptr[i]);
         // buffer[i] currently points to the string suffix
         memcpy(data_ptr + prefix_len_ptr[i], buffer[i].data, buffer[i].size);
@@ -129,7 +168,6 @@ Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* 
         data_ptr += buffer[i].size;
         prefix = std::string_view {buffer[i].data, buffer[i].size};
     }
-    _prefix_len_offset += max_values;
     _num_valid_values -= max_values;
     _last_value = std::string {prefix};
 

@@ -947,6 +947,58 @@ bool check_statistics(const ::parquet::RowGroupMetaData& row_group,
     return result == ZoneMapFilterResult::kNoMatch;
 }
 
+void collect_filtered_leaf_ids(const ParquetColumnSchema& column_schema,
+                               const format::LocalColumnIndex* projection,
+                               std::set<int>* leaf_column_ids) {
+    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        if (column_schema.leaf_column_id >= 0) {
+            leaf_column_ids->insert(column_schema.leaf_column_id);
+        }
+        return;
+    }
+    for (const auto& child_schema : column_schema.children) {
+        if (!format::is_child_projected(projection, child_schema->local_id)) {
+            continue;
+        }
+        collect_filtered_leaf_ids(*child_schema,
+                                  format::find_child_projection(projection, child_schema->local_id),
+                                  leaf_column_ids);
+    }
+}
+
+int64_t requested_compressed_bytes(
+        const ::parquet::RowGroupMetaData& row_group,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request) {
+    std::set<int> leaf_column_ids;
+    auto collect_projection = [&](const format::LocalColumnIndex& projection) {
+        const int32_t local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
+            file_schema[local_id] == nullptr) {
+            return;
+        }
+        collect_filtered_leaf_ids(*file_schema[local_id], &projection, &leaf_column_ids);
+    };
+    for (const auto& projection : request.predicate_columns) {
+        collect_projection(projection);
+    }
+    for (const auto& projection : request.non_predicate_columns) {
+        collect_projection(projection);
+    }
+
+    int64_t bytes = 0;
+    for (const int leaf_column_id : leaf_column_ids) {
+        if (leaf_column_id < 0 || leaf_column_id >= row_group.num_columns()) {
+            continue;
+        }
+        const auto column_chunk = row_group.ColumnChunk(leaf_column_id);
+        if (column_chunk != nullptr && column_chunk->total_compressed_size() > 0) {
+            bytes += column_chunk->total_compressed_size();
+        }
+    }
+    return bytes;
+}
+
 Status select_row_groups_by_metadata_impl(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -1004,6 +1056,10 @@ Status select_row_groups_by_metadata_impl(
         if (prune_reason != ParquetRowGroupPruneReason::NONE) {
             if (pruning_stats != nullptr) {
                 pruning_stats->filtered_group_rows += row_group->num_rows();
+                // FilteredBytes must describe the IO actually avoided by this scan projection;
+                // counting every physical child overstates savings for nested-column projection.
+                pruning_stats->filtered_bytes +=
+                        requested_compressed_bytes(*row_group, file_schema, request);
                 if (prune_reason == ParquetRowGroupPruneReason::STATISTICS) {
                     ++pruning_stats->filtered_row_groups_by_statistics;
                 } else if (prune_reason == ParquetRowGroupPruneReason::DICTIONARY) {
@@ -1293,8 +1349,18 @@ bool select_ranges_for_expr_zonemap(
         return false;
     }
     const ParquetColumnSchema* column_schema = nullptr;
-    const auto page_indexes =
-            load_page_indexes_for_slot(row_group, file_schema, request, slot_index, &column_schema);
+    int64_t parse_page_index_time_sink = 0;
+    std::optional<std::pair<std::shared_ptr<::parquet::ColumnIndex>,
+                            std::shared_ptr<::parquet::OffsetIndex>>>
+            page_indexes;
+    {
+        // Arrow materializes the serialized page-index objects lazily in these getters, so keep
+        // that cost separate from predicate evaluation when diagnosing a slow page-index scan.
+        SCOPED_RAW_TIMER(pruning_stats == nullptr ? &parse_page_index_time_sink
+                                                  : &pruning_stats->parse_page_index_time);
+        page_indexes = load_page_indexes_for_slot(row_group, file_schema, request, slot_index,
+                                                  &column_schema);
+    }
     if (!page_indexes.has_value()) {
         return false;
     }
@@ -1438,7 +1504,8 @@ void build_page_skip_plans(const std::shared_ptr<::parquet::RowGroupPageIndexRea
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                            const format::FileScanRequest& request,
                            const std::vector<RowRange>& selected_ranges, int64_t row_group_rows,
-                           std::map<int, ParquetPageSkipPlan>* page_skip_plans) {
+                           std::map<int, ParquetPageSkipPlan>* page_skip_plans,
+                           ParquetPruningStats* pruning_stats) {
     DORIS_CHECK(page_skip_plans != nullptr);
     page_skip_plans->clear();
     std::vector<const ParquetColumnSchema*> leaf_schemas;
@@ -1446,8 +1513,17 @@ void build_page_skip_plans(const std::shared_ptr<::parquet::RowGroupPageIndexRea
     for (const auto* leaf_schema : leaf_schemas) {
         DORIS_CHECK(leaf_schema != nullptr);
         ParquetPageSkipPlan page_skip_plan;
-        if (build_page_skip_plan_for_leaf(row_group, *leaf_schema, selected_ranges, row_group_rows,
-                                          &page_skip_plan)) {
+        int64_t parse_page_index_time_sink = 0;
+        bool has_skip_plan = false;
+        {
+            // Offset indexes for output-only columns may not have been touched by ZoneMap
+            // filtering; include their lazy materialization in the same parse timer.
+            SCOPED_RAW_TIMER(pruning_stats == nullptr ? &parse_page_index_time_sink
+                                                      : &pruning_stats->parse_page_index_time);
+            has_skip_plan = build_page_skip_plan_for_leaf(row_group, *leaf_schema, selected_ranges,
+                                                          row_group_rows, &page_skip_plan);
+        }
+        if (has_skip_plan) {
             page_skip_plans->emplace(page_skip_plan.leaf_column_id, std::move(page_skip_plan));
         }
     }
@@ -1540,7 +1616,7 @@ Status select_row_group_ranges_by_page_index(
     }
     if (page_skip_plans != nullptr) {
         build_page_skip_plans(row_group_index_reader, file_schema, request, *selected_ranges,
-                              row_group_rows, page_skip_plans);
+                              row_group_rows, page_skip_plans, pruning_stats);
     }
     if (pruning_stats != nullptr) {
         const int64_t selected_rows = count_range_rows(*selected_ranges);

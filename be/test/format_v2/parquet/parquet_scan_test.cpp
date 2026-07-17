@@ -522,6 +522,22 @@ TEST(ParquetScanSelectionTest, CompactFilterShrinksCurrentSelection) {
     EXPECT_TRUE(selection.verify(selected_rows, 6).ok());
 }
 
+TEST(ParquetScanAdaptivePredicateTest, OrdersByObservedCostPerRejectedRow) {
+    using format::parquet::detail::AdaptivePredicateStats;
+    std::unordered_map<size_t, AdaptivePredicateStats> stats;
+    stats.emplace(0, AdaptivePredicateStats {
+                             .cost_per_input_row_ns = 10, .survival_ratio = 0.8, .samples = 3});
+    stats.emplace(1, AdaptivePredicateStats {
+                             .cost_per_input_row_ns = 20, .survival_ratio = 0.1, .samples = 3});
+    stats.emplace(2, AdaptivePredicateStats {
+                             .cost_per_input_row_ns = 50, .survival_ratio = 0.5, .samples = 3});
+
+    const auto order = format::parquet::detail::order_adaptive_predicates({0, 1, 2}, stats);
+    EXPECT_EQ(order, std::vector<size_t>({1, 0, 2}));
+    const auto prefetched = format::parquet::detail::adaptive_prefetch_prefix(order, stats, 0.25);
+    EXPECT_EQ(prefetched, std::vector<size_t>({1}));
+}
+
 TEST_F(ParquetScanTest, PlanRowGroupsAppliesScanRangeBeforeStatistics) {
     write_int_pair_parquet_file(_file_path, 2);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);

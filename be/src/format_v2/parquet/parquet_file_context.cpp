@@ -44,7 +44,6 @@
 #include "runtime/exec_env.h"
 #include "storage/cache/page_cache.h"
 #include "util/slice.h"
-#include "util/thrift_util.h"
 
 namespace doris::format::parquet {
 
@@ -615,21 +614,8 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     arrow_file = std::make_shared<DorisRandomAccessFile>(
             input_file_reader, io_ctx, enable_page_cache, std::move(page_cache_file_key));
     try {
-        // Arrow metadata is still used by the v2 pruning planner during the migration, but it must
-        // not trigger a second footer read. Re-serialize the immutable cached Thrift object and
-        // hand the parsed Arrow metadata into Open(). The serialized buffer is needed only during
-        // FileMetaData::Make(), while the v1-compatible cache remains the single footer owner.
-        ThriftSerializer serializer(/*compact=*/true,
-                                    static_cast<int>(std::max<size_t>(native_footer_size, 4096)));
-        std::vector<uint8_t> serialized_metadata;
-        RETURN_IF_ERROR(serializer.serialize(
-                const_cast<tparquet::FileMetaData*>(&native_metadata->to_thrift()),
-                &serialized_metadata));
-        uint32_t serialized_size = cast_set<uint32_t>(serialized_metadata.size());
-        auto arrow_metadata =
-                ::parquet::FileMetaData::Make(serialized_metadata.data(), &serialized_size,
-                                              ::parquet::default_reader_properties());
-        DORIS_CHECK(static_cast<size_t>(serialized_size) == serialized_metadata.size());
+        std::shared_ptr<::parquet::FileMetaData> arrow_metadata;
+        RETURN_IF_ERROR(native_metadata->get_arrow_metadata(&arrow_metadata));
         this->file_reader = ::parquet::ParquetFileReader::Open(
                 arrow_file, ::parquet::default_reader_properties(), std::move(arrow_metadata));
         metadata = this->file_reader->metadata();

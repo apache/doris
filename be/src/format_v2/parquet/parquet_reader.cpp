@@ -423,10 +423,14 @@ Status ParquetReader::init(RuntimeState* state) {
     }
     _state->scheduler.set_merge_read_options(_profile, merge_read_slice_size);
     _state->scheduler.set_batch_size(_batch_size);
-    // Open parquet file and parse metadata to get file schema.
-    RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
-                                              _state->enable_page_cache, *_file_description,
-                                              _enable_mapping_timestamp_tz));
+    // Opening the file parses the footer before any row group can be scheduled. Keep this timer
+    // around the whole operation so footer/cache latency cannot disappear from a slow profile.
+    {
+        SCOPED_TIMER(_parquet_profile.parse_footer_time);
+        RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
+                                                  _state->enable_page_cache, *_file_description,
+                                                  _enable_mapping_timestamp_tz));
+    }
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
                        _state->file_context.native_footer_read_calls);
@@ -435,11 +439,14 @@ Status ParquetReader::init(RuntimeState* state) {
     }
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
-    RETURN_IF_ERROR(
-            build_parquet_column_schema(*_state->file_context.schema, &_state->file_schema));
-    if (_enable_mapping_timestamp_tz) {
-        for (auto& column_schema : _state->file_schema) {
-            apply_timestamp_tz_mapping(column_schema.get());
+    {
+        SCOPED_TIMER(_parquet_profile.parse_meta_time);
+        RETURN_IF_ERROR(
+                build_parquet_column_schema(*_state->file_context.schema, &_state->file_schema));
+        if (_enable_mapping_timestamp_tz) {
+            for (auto& column_schema : _state->file_schema) {
+                apply_timestamp_tz_mapping(column_schema.get());
+            }
         }
     }
     return Status::OK();

@@ -27,6 +27,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/reader/global_rowid_column_reader.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
@@ -68,14 +69,18 @@ public:
         return Status::OK();
     }
 
+    void flush_profile() override { ++_profile_flushes; }
+
     int64_t cursor() const { return _cursor; }
     const std::vector<int64_t>& skip_lengths() const { return _skip_lengths; }
     const std::vector<int64_t>& read_lengths() const { return _read_lengths; }
+    int profile_flushes() const { return _profile_flushes; }
 
 private:
     int64_t _cursor = 0;
     std::vector<int64_t> _skip_lengths;
     std::vector<int64_t> _read_lengths;
+    int _profile_flushes = 0;
 };
 
 GlobalRowLoacationV2 decode_rowid(const ColumnString& column, size_t row) {
@@ -140,6 +145,28 @@ TEST(SelectionVectorTest, VerifyRejectsInvalidSelection) {
     EXPECT_FALSE(selection.verify(2, 3).ok());
 }
 
+TEST(SelectionVectorTest, MaterializedFilterIsReusedUntilSelectionChanges) {
+    SelectionVector selection(4);
+    selection.set_index(0, 1);
+    selection.set_index(1, 3);
+    const uint8_t* first_filter = nullptr;
+    ASSERT_TRUE(selection.materialize_filter(2, 4, &first_filter).ok());
+    ASSERT_NE(first_filter, nullptr);
+    EXPECT_EQ(std::vector<uint8_t>(first_filter, first_filter + 4),
+              std::vector<uint8_t>({0, 1, 0, 1}));
+
+    const uint8_t* reused_filter = nullptr;
+    ASSERT_TRUE(selection.materialize_filter(2, 4, &reused_filter).ok());
+    EXPECT_EQ(reused_filter, first_filter);
+
+    selection.set_index(1, 2);
+    const uint8_t* updated_filter = nullptr;
+    ASSERT_TRUE(selection.materialize_filter(2, 4, &updated_filter).ok());
+    EXPECT_EQ(updated_filter, first_filter);
+    EXPECT_EQ(std::vector<uint8_t>(updated_filter, updated_filter + 4),
+              std::vector<uint8_t>({0, 1, 1, 0}));
+}
+
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {
     CursorColumnReader reader;
     SelectionVector selection(3);
@@ -169,6 +196,16 @@ TEST(ParquetColumnReaderControlTest, BaseSelectZeroRowsConsumesBatch) {
     EXPECT_EQ(reader.cursor(), 4);
     EXPECT_TRUE(reader.read_lengths().empty());
     EXPECT_EQ(reader.skip_lengths(), std::vector<int64_t>({4}));
+}
+
+TEST(ParquetColumnReaderControlTest, SchedulerFlushesReaderProfilesAtBatchBoundary) {
+    ParquetScanScheduler scheduler;
+    auto reader = std::make_unique<CursorColumnReader>();
+    auto* reader_ptr = reader.get();
+    scheduler._current_predicate_columns.emplace(0, std::move(reader));
+
+    scheduler.flush_current_reader_profiles();
+    EXPECT_EQ(reader_ptr->profile_flushes(), 1);
 }
 
 TEST(ParquetVirtualColumnReaderTest, RowPositionReadSkipAndInvalidArgs) {

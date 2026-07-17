@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -66,6 +67,7 @@ public:
         _owned.clear();
         _data = data;
         _size = count;
+        ++_generation;
     }
 
     void resize(size_t count) {
@@ -75,12 +77,14 @@ public:
         for (size_t idx = 0; idx < count; ++idx) {
             _data[idx] = static_cast<Index>(idx);
         }
+        ++_generation;
     }
 
     void clear() {
         _owned.clear();
         _data = nullptr;
         _size = 0;
+        ++_generation;
     }
 
     size_t size() const { return _size; }
@@ -98,7 +102,29 @@ public:
         return _data[idx];
     }
 
-    void set_index(size_t idx, Index value) { _data[idx] = value; }
+    void set_index(size_t idx, Index value) {
+        _data[idx] = value;
+        ++_generation;
+    }
+
+    Status materialize_filter(size_t count, int64_t batch_rows, const uint8_t** filter) const {
+        DORIS_CHECK(filter != nullptr);
+        RETURN_IF_ERROR(verify(count, batch_rows));
+        if (_filter_generation != _generation || _filter_count != count ||
+            _filter_batch_rows != batch_rows) {
+            // Selection is shared by all readers in one scheduler batch. Cache its dense bitmap so
+            // a wide lazy projection does not rebuild the same O(batch_rows) filter per column.
+            _filter.assign(static_cast<size_t>(batch_rows), 0);
+            for (size_t idx = 0; idx < count; ++idx) {
+                _filter[get_index(idx)] = 1;
+            }
+            _filter_generation = _generation;
+            _filter_count = count;
+            _filter_batch_rows = batch_rows;
+        }
+        *filter = _filter.data();
+        return Status::OK();
+    }
 
     Status verify(size_t count, int64_t batch_rows) const {
         if (batch_rows < 0) {
@@ -135,6 +161,11 @@ private:
     std::vector<Index> _owned;
     Index* _data = nullptr;
     size_t _size = 0;
+    uint64_t _generation = 0;
+    mutable std::vector<uint8_t> _filter;
+    mutable uint64_t _filter_generation = std::numeric_limits<uint64_t>::max();
+    mutable size_t _filter_count = 0;
+    mutable int64_t _filter_batch_rows = -1;
 };
 
 inline void selection_to_ranges(const SelectionVector& selection, uint16_t selected_rows,

@@ -26,7 +26,7 @@
 
 namespace doris::format::parquet::native {
 namespace {
-Status read_length(const Slice* data, uint32_t* offset, uint32_t* length) {
+Status read_length(const Slice* data, size_t* offset, uint32_t* length) {
     if (UNLIKELY(*offset > data->size || data->size - *offset < sizeof(uint32_t))) {
         return Status::IOError("Can't read byte array length from plain decoder");
     }
