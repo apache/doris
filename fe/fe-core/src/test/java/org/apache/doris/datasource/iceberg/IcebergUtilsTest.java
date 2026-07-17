@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -54,6 +55,7 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
+import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.view.View;
 import org.junit.Assert;
 import org.junit.Test;
@@ -63,6 +65,7 @@ import org.mockito.Mockito;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -327,6 +330,35 @@ public class IcebergUtilsTest {
                         .withId(5)
                         .ofType(Types.FixedType.ofLength(4))
                         .withInitialDefault(ByteBuffer.wrap(new byte[] {3, 2, 1, 0}))
+                        .build(),
+                Types.NestedField.optional("nested")
+                        .withId(6)
+                        .ofType(Types.StructType.of(
+                                Types.NestedField.optional("added_nested")
+                                        .withId(7)
+                                        .ofType(Types.IntegerType.get())
+                                        .withInitialDefault(9)
+                                        .build()))
+                        .build(),
+                Types.NestedField.optional("array_nested")
+                        .withId(8)
+                        .ofType(Types.ListType.ofOptional(9, Types.StructType.of(
+                                Types.NestedField.optional("added_in_element")
+                                        .withId(10)
+                                        .ofType(Types.StringType.get())
+                                        .withInitialDefault("x")
+                                        .build())))
+                        .build(),
+                Types.NestedField.optional("map_nested")
+                        .withId(11)
+                        .ofType(Types.MapType.ofOptional(12, 13, Types.StringType.get(),
+                                Types.StructType.of(
+                                        Types.NestedField.optional("added_in_value")
+                                                .withId(14)
+                                                .ofType(Types.BinaryType.get())
+                                                .withInitialDefault(ByteBuffer.wrap(
+                                                        new byte[] {4, 5, 6, 7}))
+                                                .build())))
                         .build());
 
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
@@ -335,11 +367,48 @@ public class IcebergUtilsTest {
         Assert.assertEquals("2024-01-01 00:00:00.123456", columns.get(1).getDefaultValue());
         Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", columns.get(2).getDefaultValue());
         Assert.assertEquals("AAEC/w==", columns.get(3).getDefaultValue());
+        Assert.assertEquals("9", columns.get(5).getChildren().get(0).getDefaultValue());
+        Assert.assertEquals(7, columns.get(5).getChildren().get(0).getUniqueId());
+        Assert.assertEquals("x", columns.get(6).getChildren().get(0)
+                .getChildren().get(0).getDefaultValue());
+        Assert.assertEquals(10, columns.get(6).getChildren().get(0)
+                .getChildren().get(0).getUniqueId());
+        Assert.assertEquals("BAUGBw==", columns.get(7).getChildren().get(1)
+                .getChildren().get(0).getDefaultValue());
+        Assert.assertEquals(14, columns.get(7).getChildren().get(1)
+                .getChildren().get(0).getUniqueId());
 
         Map<Integer, String> base64Defaults = IcebergUtils.getBase64EncodedInitialDefaults(schema);
         Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", base64Defaults.get(3));
         Assert.assertEquals("AAEC/w==", base64Defaults.get(4));
         Assert.assertEquals("AwIBAA==", base64Defaults.get(5));
+        Assert.assertEquals("BAUGBw==", base64Defaults.get(14));
+    }
+
+    @Test
+    public void testParseIcebergTimestampTzUsesSessionTimeZone() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("+07:00");
+        context.setThreadLocalInfo();
+        try {
+            Types.TimestampType icebergType = Types.TimestampType.withZone();
+
+            org.apache.iceberg.expressions.Literal<?> sessionLocal =
+                    IcebergUtils.parseIcebergLiteral("2020-01-01 00:00:00.1235",
+                            ScalarType.createTimeStampTzType(3), icebergType);
+            Assert.assertEquals(DateTimeUtil.microsFromInstant(
+                            Instant.parse("2019-12-31T17:00:00.124Z")),
+                    ((Long) sessionLocal.value()).longValue());
+
+            org.apache.iceberg.expressions.Literal<?> explicitOffset =
+                    IcebergUtils.parseIcebergLiteral("2020-01-01 00:00:00.654321+02:00",
+                            ScalarType.createTimeStampTzType(6), icebergType);
+            Assert.assertEquals(DateTimeUtil.microsFromInstant(
+                            Instant.parse("2019-12-31T22:00:00.654321Z")),
+                    ((Long) explicitOffset.value()).longValue());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

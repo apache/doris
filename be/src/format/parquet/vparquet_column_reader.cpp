@@ -993,8 +993,14 @@ Status StructColumnReader::read_column_data(
         DCHECK(doris_type->is_nullable());
         doris_field = IColumn::mutate(std::move(doris_field));
         auto mutable_column = doris_field->assert_mutable();
-        auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
-        nullable_column->insert_many_defaults(missing_column_sz);
+        const auto& initial_default =
+                root_node->children_initial_default(doris_struct_type->get_element_name(idx));
+        if (initial_default) {
+            mutable_column->insert_many_from(*initial_default, 0, missing_column_sz);
+        } else {
+            auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
+            nullable_column->insert_many_defaults(missing_column_sz);
+        }
     }
 
     if (null_map_ptr != nullptr) {

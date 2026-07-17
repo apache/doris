@@ -149,6 +149,28 @@ public class IcebergNestedSchemaEvolutionParserTest {
         assertCommentRoundTrip(true);
     }
 
+    @Test
+    public void testColumnDefinitionWithPathDecodesDefaultAndCommentLiterals() {
+        assertColumnDefinitionLiteralDecoding(false);
+        assertColumnDefinitionLiteralDecoding(true);
+    }
+
+    private void assertColumnDefinitionLiteralDecoding(boolean noBackslashEscapes) {
+        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
+            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
+
+            String sqlPath = noBackslashEscapes ? "C:\\tmp\\" : "C:\\\\tmp\\\\";
+            AddColumnOp add = assertSingleClausePath(
+                    "ALTER TABLE t ADD COLUMN info.owner STRING DEFAULT 'owner''s " + sqlPath
+                            + "' COMMENT \"a\"\"b " + sqlPath + "\"",
+                    AddColumnOp.class, "info.owner");
+
+            Assertions.assertEquals("owner's C:\\tmp\\", add.getColumnDef()
+                    .translateToCatalogStyleForSchemaChange().getDefaultValue());
+            Assertions.assertEquals("a\"b C:\\tmp\\", add.getColumnDef().getComment());
+        }
+    }
+
     private void assertCommentRoundTrip(boolean noBackslashEscapes) {
         try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
             mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);

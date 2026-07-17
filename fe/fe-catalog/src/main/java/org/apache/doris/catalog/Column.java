@@ -610,6 +610,10 @@ public class Column implements GsonPostProcessable {
         return this.defaultValue;
     }
 
+    public void setDefaultValue(String defaultValue) {
+        this.defaultValue = defaultValue;
+    }
+
     public String getRealDefaultValue() {
         return realDefaultValue;
     }

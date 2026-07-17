@@ -1296,6 +1296,28 @@ protected:
         return column.get();
     }
 
+    Status _materialize_missing_child_mapping_column(const ColumnMapping& mapping,
+                                                     const size_t rows, ColumnPtr* column) {
+        DORIS_CHECK(mapping.table_type != nullptr);
+        DORIS_CHECK(column != nullptr);
+        if (mapping.default_expr == nullptr) {
+            *column =
+                    _detach_column(mapping.table_type->create_column_const_with_default_value(rows)
+                                           ->convert_to_full_column_if_const());
+            return Status::OK();
+        }
+        Block eval_block;
+        eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
+                           mapping.table_type, "__table_reader_nested_default_rows"});
+        ColumnWithTypeAndName result;
+        RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(mapping.default_expr,
+                                                                      &eval_block, &result));
+        ColumnPtr result_column = result.column;
+        RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
+        *column = _detach_column(std::move(result_column));
+        return Status::OK();
+    }
+
     Status _materialize_struct_mapping_column(const ColumnMapping& mapping,
                                               const ColumnPtr& file_column, const size_t rows,
                                               ColumnPtr* column) {
@@ -1318,9 +1340,10 @@ protected:
         for (const auto* child_mapping : table_ordered_children) {
             DORIS_CHECK(child_mapping != nullptr);
             if (!child_mapping->file_local_id.has_value()) {
-                child_columns.push_back(
-                        child_mapping->table_type->create_column_const_with_default_value(rows)
-                                ->convert_to_full_column_if_const());
+                ColumnPtr child_column;
+                RETURN_IF_ERROR(_materialize_missing_child_mapping_column(*child_mapping, rows,
+                                                                          &child_column));
+                child_columns.push_back(std::move(child_column));
                 continue;
             }
             const auto file_child_idx =
@@ -1440,17 +1463,25 @@ protected:
         return Status::OK();
     }
 
+    Status _open_mapping_expr(const ColumnMapping& mapping, RowDescriptor& row_desc) {
+        if (mapping.projection != nullptr) {
+            RETURN_IF_ERROR(mapping.projection->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(mapping.projection->open(_runtime_state));
+        }
+        if (mapping.default_expr != nullptr) {
+            RETURN_IF_ERROR(mapping.default_expr->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(mapping.default_expr->open(_runtime_state));
+        }
+        for (const auto& child_mapping : mapping.child_mappings) {
+            RETURN_IF_ERROR(_open_mapping_expr(child_mapping, row_desc));
+        }
+        return Status::OK();
+    }
+
     Status _open_mapping_exprs() {
         RowDescriptor row_desc;
         for (const auto& mapping : _data_reader.column_mapper->mappings()) {
-            if (mapping.projection != nullptr) {
-                RETURN_IF_ERROR(mapping.projection->prepare(_runtime_state, row_desc));
-                RETURN_IF_ERROR(mapping.projection->open(_runtime_state));
-            }
-            if (mapping.default_expr != nullptr) {
-                RETURN_IF_ERROR(mapping.default_expr->prepare(_runtime_state, row_desc));
-                RETURN_IF_ERROR(mapping.default_expr->open(_runtime_state));
-            }
+            RETURN_IF_ERROR(_open_mapping_expr(mapping, row_desc));
         }
         return Status::OK();
     }

@@ -3208,6 +3208,8 @@ TEST(ColumnMapperSchemaEvolutionTest, StructChildrenHandleMissingRenameReorderAn
     auto table_a = field_id_col("a", 1, int_type);
     auto table_renamed_b = field_id_col("renamed_b", 2, string_type);
     auto table_c = field_id_col("c", 3, int_type);
+    table_c.default_expr =
+            VExprContext::create_shared(literal(int_type, Field::create_field<TYPE_INT>(7)));
     auto table_struct = struct_col("s", 10, {table_a, table_renamed_b, table_c});
 
     auto v1_a = field_id_col("a", 1, int_type, 0);
@@ -3229,6 +3231,9 @@ TEST(ColumnMapperSchemaEvolutionTest, StructChildrenHandleMissingRenameReorderAn
     EXPECT_EQ(*v1_mapping.child_mappings[0].file_local_id, 0);
     EXPECT_EQ(*v1_mapping.child_mappings[1].file_local_id, 1);
     EXPECT_FALSE(v1_mapping.child_mappings[2].file_local_id.has_value());
+    EXPECT_EQ(v1_mapping.child_mappings[2].default_expr, table_c.default_expr);
+    EXPECT_FALSE(v1_mapping.child_mappings[2].constant_index.has_value());
+    EXPECT_TRUE(v1_mapper.constant_map().empty());
     ASSERT_EQ(v1_request.non_predicate_columns.size(), 1);
     EXPECT_EQ(v1_request.non_predicate_columns[0].column_id(), LocalColumnId(5));
     EXPECT_TRUE(v1_request.non_predicate_columns[0].project_all_children);
@@ -3243,6 +3248,7 @@ TEST(ColumnMapperSchemaEvolutionTest, StructChildrenHandleMissingRenameReorderAn
     EXPECT_EQ(*v2_mapping.child_mappings[0].file_local_id, 1);
     EXPECT_EQ(*v2_mapping.child_mappings[1].file_local_id, 0);
     EXPECT_EQ(*v2_mapping.child_mappings[2].file_local_id, 2);
+    EXPECT_EQ(v2_mapping.child_mappings[2].default_expr, nullptr);
     ASSERT_EQ(v2_request.non_predicate_columns.size(), 1);
     EXPECT_EQ(v2_request.non_predicate_columns[0].column_id(), LocalColumnId(8));
     EXPECT_TRUE(v2_request.non_predicate_columns[0].project_all_children);

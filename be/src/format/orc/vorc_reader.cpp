@@ -2151,8 +2151,17 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                         col_name);
             }
             auto mutable_field = IColumn::mutate(std::move(doris_field));
-            reinterpret_cast<ColumnNullable*>(mutable_field.get())
-                    ->insert_many_defaults(num_values);
+            const auto& table_column_name = doris_struct_type->get_name_by_position(missing_field);
+            ColumnPtr initial_default;
+            if (!root_node->children_column_exists(table_column_name)) {
+                initial_default = root_node->children_initial_default(table_column_name);
+            }
+            if (initial_default) {
+                mutable_field->insert_many_from(*initial_default, 0, num_values);
+            } else {
+                reinterpret_cast<ColumnNullable*>(mutable_field.get())
+                        ->insert_many_defaults(num_values);
+            }
             doris_field = std::move(mutable_field);
         }
 

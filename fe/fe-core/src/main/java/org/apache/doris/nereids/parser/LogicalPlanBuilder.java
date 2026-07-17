@@ -4278,7 +4278,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     defaultValue = Optional.of(new DefaultValue("-" + ctx.DECIMAL_VALUE().getText()));
                 }
             } else if (ctx.stringValue != null) {
-                defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
+                defaultValue = Optional.of(new DefaultValue(
+                        LogicalPlanBuilderAssistant.parseStringLiteral(ctx.stringValue.getText())));
             } else if (ctx.nullValue != null) {
                 defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
             } else if (ctx.defaultTimestamp != null) {
@@ -4317,8 +4318,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         e.getCause());
             }
         }
-        String comment = ctx.comment != null ? ctx.comment.getText().substring(1, ctx.comment.getText().length() - 1)
-                .replace("\\", "") : "";
+        String comment = ctx.comment != null
+                ? LogicalPlanBuilderAssistant.parseStringLiteral(ctx.comment.getText()) : "";
         long autoIncInitValue = -1;
         if (ctx.AUTO_INCREMENT() != null) {
             if (ctx.autoIncInitValue != null) {

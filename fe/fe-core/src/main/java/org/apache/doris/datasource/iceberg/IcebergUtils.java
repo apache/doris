@@ -65,6 +65,9 @@ import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -1025,8 +1028,13 @@ public class IcebergUtils {
         String canonicalValue = value;
         if (dorisType != null) {
             try {
-                canonicalValue = DateLiteralUtils.createDateLiteral(value, dorisType).getStringValue();
-            } catch (AnalysisException | IllegalArgumentException e) {
+                if (dorisType.isTimeStampTz()) {
+                    TimeStampTzType timestampTzType = (TimeStampTzType) DataType.fromCatalogType(dorisType);
+                    canonicalValue = TimestampTzLiteral.fromSessionTimeZone(timestampTzType, value).getStringValue();
+                } else {
+                    canonicalValue = DateLiteralUtils.createDateLiteral(value, dorisType).getStringValue();
+                }
+            } catch (AnalysisException | RuntimeException e) {
                 throw new IllegalArgumentException("Invalid date or timestamp string: " + value, e);
             }
         }
@@ -1149,8 +1157,13 @@ public class IcebergUtils {
         return epochSecond * 1_000_000L + microSecond;
     }
 
-    private static void updateIcebergColumnUniqueId(Column column, Types.NestedField icebergField) {
+    private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField,
+            boolean enableMappingTimestampTz) {
         column.setUniqueId(icebergField.fieldId());
+        if (icebergField.initialDefault() != null) {
+            column.setDefaultValue(serializeInitialDefault(
+                    icebergField.type(), icebergField.initialDefault(), enableMappingTimestampTz));
+        }
         List<NestedField> icebergFields = Lists.newArrayList();
         switch (icebergField.type().typeId()) {
             case LIST:
@@ -1169,7 +1182,8 @@ public class IcebergUtils {
         if (column.getChildren() != null) {
             List<Column> childColumns = column.getChildren();
             for (int idx = 0; idx < childColumns.size(); idx++) {
-                updateIcebergColumnUniqueId(childColumns.get(idx), icebergFields.get(idx));
+                updateIcebergColumnMetadata(
+                        childColumns.get(idx), icebergFields.get(idx), enableMappingTimestampTz);
             }
         }
     }
@@ -1218,15 +1232,10 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
-            String initialDefault = null;
-            if (field.initialDefault() != null) {
-                initialDefault = serializeInitialDefault(field.type(), field.initialDefault(),
-                        enableMappingTimestampTz);
-            }
             Column column = new Column(field.name(),
                     IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
-                    true, null, true, initialDefault, field.doc(), true, -1);
-            updateIcebergColumnUniqueId(column, field);
+                    true, null, true, null, field.doc(), true, -1);
+            updateIcebergColumnMetadata(column, field, enableMappingTimestampTz);
             if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
                 Types.TimestampType timestampType = (Types.TimestampType) field.type();
                 if (timestampType.shouldAdjustToUTC()) {

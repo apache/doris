@@ -2115,6 +2115,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
+                child_mapping.default_expr = table_child.default_expr;
                 mapping->child_mappings.push_back(std::move(child_mapping));
                 continue;
             }

@@ -32,6 +32,8 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 
 namespace doris {
 namespace {
@@ -215,6 +217,33 @@ TEST(AccessPathParserTest, StructAccessPathMatrix) {
                 &column, std::vector<TColumnAccessPath> {data_access_path({"s", invalid_child})},
                 &schema);
         EXPECT_FALSE(status.ok()) << invalid_child;
+    }
+}
+
+TEST(AccessPathParserTest, InheritsNestedInitialDefaultMetadata) {
+    auto string_type = std::make_shared<DataTypeString>();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {"added"});
+    auto added = field(101, "added", string_type);
+    added.initial_default_value = "AAEC/w==";
+    added.initial_default_value_is_base64 = true;
+    added.default_expr = VExprContext::create_shared(
+            VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>("value")));
+    format::ColumnDefinition schema {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "s",
+            .type = struct_type,
+            .children = {added},
+    };
+
+    for (const auto& path : std::vector<std::vector<std::string>> {{"s"}, {"s", "added"}}) {
+        auto column = root_column(100, "s", struct_type);
+        auto status = AccessPathParser::build_nested_children(
+                &column, std::vector<TColumnAccessPath> {data_access_path(path)}, &schema);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(column.children.size(), 1);
+        EXPECT_EQ(column.children[0].default_expr, added.default_expr);
+        EXPECT_EQ(column.children[0].initial_default_value, added.initial_default_value);
+        EXPECT_TRUE(column.children[0].initial_default_value_is_base64);
     }
 }
 
