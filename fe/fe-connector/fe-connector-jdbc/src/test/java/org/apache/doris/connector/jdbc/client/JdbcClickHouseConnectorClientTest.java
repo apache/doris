@@ -53,6 +53,15 @@ public class JdbcClickHouseConnectorClientTest {
     }
 
     @Test
+    void testUnknownDriverVersionFollowsDriverMetadata() {
+        for (String driverVersion : new String[] {null, "", "custom-build"}) {
+            Assertions.assertTrue(JdbcClickHouseConnectorClient.isNewClickHouseDriverVersion(driverVersion));
+            Assertions.assertTrue(JdbcClickHouseConnectorClient.isDatabaseTermCatalog(driverVersion, true));
+            Assertions.assertFalse(JdbcClickHouseConnectorClient.isDatabaseTermCatalog(driverVersion, false));
+        }
+    }
+
+    @Test
     void testClickHouseSpecificTableTypesAreVisible() {
         Assertions.assertArrayEquals(
                 new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},

@@ -156,8 +156,9 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
     }
 
     static boolean isNewClickHouseDriverVersion(String driverVersion) {
-        if (driverVersion == null) {
-            throw new DorisConnectorException("ClickHouse driver version cannot be null");
+        // Custom jars may omit or rewrite manifest versions; only a known legacy version overrides metadata.
+        if (driverVersion == null || driverVersion.isEmpty()) {
+            return true;
         }
         try {
             String[] versionParts = driverVersion.split("\\.");
@@ -165,7 +166,7 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
             int minorVersion = Integer.parseInt(versionParts[1]);
             return majorVersion > 0 || (majorVersion == 0 && minorVersion >= 5);
         } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
-            throw new DorisConnectorException("Invalid ClickHouse driver version: " + driverVersion, e);
+            return true;
         }
     }
 
