@@ -17,7 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Build the Python complex-UDF archive with its jieba dependency."""
+"""Build the NLP-only Python UDF archive with its jieba dependency."""
 
 import argparse
 import hashlib
@@ -28,13 +28,6 @@ import zipfile
 
 JIEBA_VERSION = "0.42.1"
 JIEBA_ARCHIVE_SHA256 = "055ca12f62674fafed09427f176506079bc135638a14e23e25be909131928db2"
-UDF_SOURCES = (
-    "business_logic.py",
-    "complex_udaf.py",
-    "complex_udtf.py",
-    "external_api.py",
-    "nlp_chinese.py",
-)
 REQUIRED_JIEBA_FILES = (
     "jieba/__init__.py",
     "jieba/dict.txt",
@@ -42,12 +35,33 @@ REQUIRED_JIEBA_FILES = (
     "jieba/posseg/__init__.py",
 )
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+JIEBA_LICENSE = """The MIT License (MIT)
+
+Copyright (c) 2013 Sun Junyi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+"""
 
 
 def parse_args():
     script_dir = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(
-        description="Build py_udf_complex.zip from a verified jieba source archive"
+        description="Build nlp_chinese.zip from a verified jieba source archive"
     )
     parser.add_argument(
         "--jieba-archive",
@@ -57,7 +71,7 @@ def parse_args():
     )
     parser.add_argument(
         "--output",
-        default=script_dir / "py_udf_complex.zip",
+        default=script_dir / "nlp_chinese.zip",
         type=Path,
         help="output zip path",
     )
@@ -80,10 +94,7 @@ def load_entries(script_dir, jieba_archive):
             f"expected {JIEBA_ARCHIVE_SHA256}, got {actual_sha256}"
         )
 
-    entries = {name: (script_dir / name).read_bytes() for name in UDF_SOURCES}
-    entries["THIRD_PARTY_LICENSES/jieba.txt"] = (
-        script_dir / "jieba.LICENSE"
-    ).read_bytes()
+    entries = {"nlp_chinese.py": (script_dir / "nlp_chinese.py").read_bytes()}
 
     archive_prefix = PurePosixPath(f"jieba-{JIEBA_VERSION}") / "jieba"
     with tarfile.open(jieba_archive, "r:gz") as archive:
@@ -106,6 +117,8 @@ def load_entries(script_dir, jieba_archive):
             if extracted is None:
                 raise ValueError(f"cannot read {member.name} from jieba archive")
             entries[str(PurePosixPath("jieba") / relative_path)] = extracted.read()
+
+    entries["THIRD_PARTY_LICENSES/jieba.txt"] = JIEBA_LICENSE.encode("utf-8")
 
     missing = [name for name in REQUIRED_JIEBA_FILES if name not in entries]
     if missing:
