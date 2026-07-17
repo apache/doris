@@ -110,10 +110,6 @@ add_thirdparty(arrow_flight_sql LIB64)
 add_thirdparty(arrow_dataset LIB64)
 add_thirdparty(arrow_acero LIB64)
 add_thirdparty(parquet LIB64)
-# liblance_c.a contains compiler_builtins cbrt symbols. Place libm before it
-# so the final linker resolves C math symbols from the system library first.
-add_thirdparty(lance_c LIB64 NOTADD)
-list(APPEND COMMON_THIRDPARTY m lance_c)
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb)
 add_thirdparty(cyrus-sasl LIBNAME "lib/libsasl2.a")

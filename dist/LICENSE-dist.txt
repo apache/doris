@@ -1476,9 +1476,6 @@ The Apache Software License, Version 2.0
     * opentelemetry-proto: 0.18.0
     * opentelemetry-cpp: 1.4.0
     * clucene: 2.4.6
-    * lance-c: 0.1.2
-        - source: https://github.com/lance-format/lance-c
-        - transitive Rust crate licenses: licenses/LICENSE-lance-c-rust-crates.txt
 
 The MIT License -- licenses/LICENSE-MIT.txt
     * datatables: 1.12.1

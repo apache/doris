@@ -44,16 +44,6 @@ Apache 2.0 License (found in the LICENSE.Apache file in the root directory)
 Doris selects Apache 2.0 License of RocksDB.
 
 ============================================================================================
-Lance-C
-source: https://github.com/lance-format/lance-c
-
-Lance-C is licensed under Apache License Version 2.0.
-
-The static library is built from Rust crates. The transitive Rust crate license
-list for normal/build dependencies is maintained in
-`dist/licenses/LICENSE-lance-c-rust-crates.txt`.
-
-============================================================================================
 LZO
 source: https://github.com/nemequ/lzo
 
