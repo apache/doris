@@ -15,7 +15,7 @@
 
 | ID | 优先级 | 覆盖发现 | 主题（一句话） | 依赖 | 状态 | commit |
 |---|---|---|---|---|---|---|
-| PERF-01 | P0 | C1 C4 C6 C10 C16 | 一次规划 3~7 次远程 loadTable → per-planning-pass Table memo + 收窄 convertPredicate 失效 | — | ⏳ | |
+| PERF-01 | P0 | C1 C4 C6 C10 C16 | 一次规划 3~7 次远程 loadTable → 胖 handle(查询内单实例)+ 跨查询 IcebergTableCache(挂 Connector);~~convertPredicate 收窄~~已删(红队证伪) | — | 🚧 设计定稿,待实现 | |
 | PERF-02 | P0 | C7 C22 C23 | 分区视图每查询重扫 PARTITIONS 元数据表 → `(table,snapshotId)` 缓存 + MTMV refresh pin | 与 01 共享快照 pin 机制 | ⏳ | |
 | PERF-03 | P0 | C2 C11 | #64134 复活：`file_format_type` 兜底走整表 planFiles → memoize / 从枚举反推 | 受益于 01 的失效收窄（消第二次） | ⏳ | |
 | PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 两条旁路接回 | — | ⏳ | |

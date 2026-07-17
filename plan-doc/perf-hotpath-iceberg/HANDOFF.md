@@ -1,50 +1,55 @@
 # 🤝 Session Handoff — fe-connector-iceberg 热路径重操作修复
 
-> **滚动文档**：每次 session 结束**覆盖式更新**，只保留下一个 session 必须的上下文；完成明细进 `git log` + `designs/` + `progress.md`，别堆这里。
-> **范围** = 逐一修复审计报告 `../reviews/perf-audit-fe-connector-iceberg-2026-07-17.md` 的 23 条发现（C1–C23 → **一簇一任务** 11 个 `PERF-NN` 任务，见 [`tasklist.md`](./tasklist.md)）。
+> **滚动文档**：每次 session 结束**覆盖式更新**，只保留下一个 session 必须的上下文；完成明细进 `git log` + `designs/` + `progress.md`。
+> **范围** = 逐一修复审计报告 `../reviews/perf-audit-fe-connector-iceberg-2026-07-17.md` 的 23 条发现 → **11 个 `PERF-NN` 任务**，见 [`tasklist.md`](./tasklist.md)。
 > 开场必读顺序、单项立项流程、约束铁律：[`README.md`](./README.md)。
 
 ---
 
-# 🆕 下一个 session = **启动 PERF-01（簇1，收益最大）**
+# 🆕 下一个 session = **实现 PERF-01（设计已定稿，进入编码）**
 
-## 现状（session 0，2026-07-17）
+## 现状（session 1，2026-07-17）
 
-- 本任务空间**刚建好**：`README.md` / `tasklist.md` / `HANDOFF.md` / `progress.md` / `designs/` 就位。
-- 粒度已定：**一簇一任务**（用户 2026-07-17 拍板）—— 23 发现归并为 **11 个任务**。
-- **零任务已实现** —— 全部 11 项 `⏳ 待启动`。
-- 审计报告是**待 review 的结论草案**（报告 §5 自称"供 review 讨论，非结论"）。因此**不照单硬修**：每项第一步是**按 findings.json 的调用链复核行号 + 乘数**（README §单项立项流程 step 2），复核站得住再设计实现。
+- PERF-01 **复核 + 红队 + 设计全部完成并定稿**，写入 [`designs/FIX-PERF-01-table-memo-design.md`](./designs/FIX-PERF-01-table-memo-design.md)。**未动任何产品代码**。
+- 设计经用户多轮对齐 Trino 拍板，**最终形态**：
+  - **① 胖 handle**：`IcebergTableHandle` 加 `transient Table resolvedTable`（不序列化）+ getter/setter；读表统一"胖 handle 优先"；`withSnapshot/withRewriteFileScope/withTopnLazyMaterialize`（`:182/198/207`）**携带前行**；sys 表 handle 不用。→ 查询内单实例、随查询计划自动回收、**连接器侧零每查询累积**。
+  - **② 跨查询 `IcebergTableCache`**（新类，仿 `IcebergLatestSnapshotCache`，值=raw Table）：挂长生命周期 `IcebergConnector`，传进每个 fresh metadata + provider，**在读 helper 里消费**（非 catalog-seam 装饰器 → DDL 天然隔离）。**gate=`isUserSessionEnabled() || restVendedCredentialsEnabled()` 关闭**（红队 BLOCKER：vended token 过期会 403）。
+  - **Part B（convertPredicate 收窄）已删**（红队证伪为 no-op）。
+- 度量守门：`RecordingIcebergCatalogOps` 断言规划期对同一表 `loadTable` 远端=1；全查询 1（跨查询开）/≤2（关）。
 
-## 下一个 session 第一件事（精确到动作）
+## 下一个 session 第一件事（TDD，精确到动作）
 
-1. 向用户复述并确认起点："上次建好了 iceberg 热路径修复任务空间，下一步启动 **PERF-01（簇1，per-planning-pass Table memo）**，对吗？"（或用户另指定某项，如想先做改动小的 **PERF-08**＝维护路径 C19/C21）。
-2. 确认后，**先复核 PERF-01**（design subagent）：
-   - `grep` 复核簇1 的 7 个 loadTable 调用点行号（报告簇1 表 / findings.json 里 C1 C4 C6 C10 C16 的 `heavy_op` + `multiplicity` 字段）：`IcebergCatalogOps.java` 的 `loadTable`（报告记 :340）、`IcebergConnectorMetadata.getColumnHandles`（:587）、`IcebergScanPlanProvider.getScanNodeProperties`（:1300/1311）+ `resolveTable`（:1981-1993）、`convertPredicate`（:795-798 无条件清 `cachedPropertiesResult`）、`streamingSplitEstimate`（:410）、`planScanInternal`（:562）。
-   - 确认无 `CachingCatalog`（全仓 grep）、`IcebergLatestSnapshotCache` 确只存 `(snapshotId,schemaId)`。
-   - 确认 `beginQuerySnapshot` 的 pin 可作 `(TableIdentifier, snapshotId)` memo key。
-3. 复核站得住 → 写 `designs/FIX-PERF-01-table-memo-design.md`（含**度量方案**：用调用计数证明 loadTable 从 N→1），设计红队，再实现。
+1. 先读 `designs/FIX-PERF-01-table-memo-design.md`（§3 设计 / §4 实现计划 / §5 风险 / §6 度量守门）——这是权威 spec。
+2. **先写测试（TDD）**：`RecordingIcebergCatalogOps`（test 已存在）计数守门——规划期对同一表 `loadTable` 远端次数 = 1（修前基线先记录）。
+3. 按 §4 实现计划 5 步落地（Commit 1，一个 commit）：
+   - `IcebergTableHandle`：transient `resolvedTable` + getter/setter + 3 个 `with*` 携带。
+   - 新增 `IcebergTableCache.java`（仿 `IcebergLatestSnapshotCache`，值 `Table`）。
+   - `IcebergConnector`：构造 `tableCache`、传入 metadata/provider、`invalidate*` 三钩子（`:523-553`）、gate。
+   - `IcebergConnectorMetadata.loadTable(handle):540` 改"胖 handle 优先→跨查询缓存→remote→setResolvedTable"；`getColumnHandles`/`getTableStatistics`/`resolveTimeTravel`/`getMvccPartitionView`/`listPartitions`/`beginQuerySnapshot` 经它；sys 分支不动。
+   - `IcebergScanPlanProvider.resolveTable:1981` 改"胖 handle 优先"+ per-call `wrapTableForScan`；构造加 `tableCache` 参。
+4. 验证（parity + 减负）→ 独立 commit `[perf](catalog) fe-connector-iceberg: <subject> (PERF-01)` → 写 `designs/FIX-PERF-01-...-summary.md` → 更新 tasklist/progress/本 HANDOFF。
 
 ## ⚠️ 关键认知（别重踩）
 
-- **PERF-01 必须最先做**：它的 `convertPredicate` 失效收窄是 PERF-03（簇2 消第二次计算）和 PERF-10（C8）的前置；它立住的 `(table, snapshotId)` memo 模式被 PERF-02/03 复用。顺序错了要返工。
-- **这是性能修复 = 行为必须不变**：验收闸门是「相关 UT/e2e 全绿（parity）+ 证明减负（调用计数/时延）」，不是新增功能。每项尽量补一个**调用计数守门**（如断言规划期 loadTable=1），否则回归无法自动发现。
-- **memo 放连接器侧，别碰 fe-core 源**（fe-core 只出不进铁律）。PERF-09（C5 微批）、PERF-11 内 C14（通用节点）虽改 fe-core 通用层（允许，因非 source-specific），但须证跨连接器 byte+cost 双不变、禁按源名分支。
-- **审计草案可能被复核推翻**：若某条复核后乘数/路径不成立，tasklist 标 🔬 + 记 progress，**不硬凑修复**。
+- **gate 两半都要**：`isUserSessionEnabled() || restVendedCredentialsEnabled()`（后者独立于前者，红队 Attack 2 = BLOCKER）。关的只是跨查询层；胖 handle 层不 gate（查询内 token 新鲜）。
+- **胖 handle 存 raw Table**；`resolveTable` 命中后仍 per-call `wrapTableForScan`（Kerberos FileIO 不冻进缓存）。
+- **DDL/写/procedure 不碰 resolvedTable、不经读 helper**（走裸 ops 拿 fresh base）。
+- **memo 放连接器/handle 侧，别碰 fe-core 源**（fe-core 只出不进铁律）。`IcebergTableCache` 挂 `IcebergConnector`，`resolvedTable` 挂 `IcebergTableHandle`——都在连接器侧。
+- 携带 transient 的原因：`getColumnHandles` 在 pin 前 set，`pinMvccSnapshot` 用 `withSnapshot` 换 handle，不携带则 pin 后重解析。
 
 ---
 
-# 🧰 构建/验证坑（承自主线 HANDOFF，本空间直接复用，别再踩）
+# 🧰 构建/验证坑（承自主线 HANDOFF，直接复用）
 
-1. **maven build cache 会静默跳过 surefire** —— 日志 `Skipping plugin execution (cached): surefire:test` 时 **BUILD SUCCESS 是空的**（报告是陈旧文件）。**所有测试必须加 `-Dmaven.build.cache.enabled=false`**。
-2. **`mvn ... | tail` 后的 `$?` 是 `tail` 的**，不是 maven 的 —— 重定向到文件再取 `$?`，或读 `BUILD SUCCESS`/`BUILD FAILURE` 行。
-3. **maven 用绝对 `-f <abs>/fe/pom.xml`**（cwd 跨调用持久，`cd` 会破相对路径 / 触发权限弹窗）。
-4. **`regression-test/conf/regression-conf.groovy` 工作区本就是脏的**（session 开始前即 `M`）—— **别顺手 `git add -A`**，按需精确 add。
-5. **并发 session 共享同一 worktree** —— 动码前探测并发活动（`git log/status` + maven 进程 + 近 90s mtime）；`pgrep maven` 可能查到 1 天前的僵尸 until-loop，**看 `etime` 再判**，别误判成活跃 session 无谓停手。小步快提交缩短被 amend 卷走窗口。
-6. **本 worktree 的 `.git` 是文件不是目录**（linked worktree）—— rebase/冲突脚本禁硬编码 `.git/rebase-merge`，一律 `git rev-parse --git-path`。
+1. **测试必加 `-Dmaven.build.cache.enabled=false`**（否则 surefire 被静默跳过，BUILD SUCCESS 是陈旧文件）。
+2. **`mvn ... | tail` 后的 `$?` 是 `tail` 的** —— 读 `BUILD SUCCESS`/`BUILD FAILURE` 行。
+3. **maven 用绝对 `-f <abs>/fe/pom.xml`**（cwd 跨调用持久，`cd` 破相对路径）。
+4. **`regression-test/conf/regression-conf.groovy` 本就脏** —— 别 `git add -A`，精确 add。
+5. **并发 session 共享同一 worktree** —— 动码前探测（`git log/status` + `pgrep maven` 看 `etime`）。
+6. **本 worktree 的 `.git` 是文件** —— rebase 脚本用 `git rev-parse --git-path`。
 
 ---
 
-# 🗂 开放问题 / 待用户裁决（不是 TODO，是需要拍板的）
+# 🗂 开放问题
 
-- **审计整体是否已被用户接受为立项依据**：目前按"每项立项前自行复核行号/乘数"处理。若用户已整体签字，可省去部分复核力度（但行号复核仍建议保留）。
-- ~~任务粒度~~：已定 **一簇一任务**（2026-07-17），无遗留。
+- 无。设计定稿，进入实现。
