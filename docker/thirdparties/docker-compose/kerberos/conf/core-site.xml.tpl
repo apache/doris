@@ -40,6 +40,14 @@ under the License.
         </value>
     </property>
     <property>
+        <name>hadoop.proxyuser.hive.hosts</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.hive.users</name>
+        <value>*</value>
+    </property>
+    <property>
         <name>hadoop.security.token.service.use_ip</name>
         <value>false</value>
     </property>

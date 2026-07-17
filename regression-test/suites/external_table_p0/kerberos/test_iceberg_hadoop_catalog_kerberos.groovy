@@ -47,7 +47,8 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external") {
             "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
             "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
             "dfs.client.use.datanode.hostname" = "true",
-            "hadoop.security.token.service.use_ip" = "false"
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication"
             ); 
         """
 

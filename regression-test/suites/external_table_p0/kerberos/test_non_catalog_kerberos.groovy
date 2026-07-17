@@ -47,7 +47,11 @@ suite("test_non_catalog_kerberos", "p0,external") {
             "hadoop.kerberos.min.seconds.before.relogin" = "5",
             "hadoop.kerberos.keytab.login.autorenewal.enabled" = "false",
               "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
-            "fs.defaultFS" = "hdfs://${externalEnvIp}:8520"
+            "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication"
             ); 
         """
 
@@ -77,6 +81,10 @@ suite("test_non_catalog_kerberos", "p0,external") {
         )
         with HDFS (
           "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication",
             "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
@@ -95,6 +103,10 @@ suite("test_non_catalog_kerberos", "p0,external") {
          FORMAT AS CSV
         PROPERTIES(
             "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication",
             "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
@@ -116,6 +128,10 @@ suite("test_non_catalog_kerberos", "p0,external") {
             "hadoop.username" = "doris",
             "format" = "csv",
            "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication",
             "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
