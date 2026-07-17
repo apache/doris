@@ -27,6 +27,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
@@ -805,6 +807,168 @@ TEST_F(AsyncCacheWriteServiceTest, RuntimeGrowAndShrinkPreserveConcurrentTasks) 
     ASSERT_TRUE(shrink_future.get().ok());
     EXPECT_EQ(service->pending_count(), 0);
     EXPECT_EQ(service->options().worker_count, 1);
+}
+
+TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
+    auto cache = create_cache("async_write_service_dynamic_backpressure");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+
+    constexpr size_t producer_count = 4;
+    constexpr size_t fill_wave_count = 4;
+    constexpr size_t accepted_producer_tasks = producer_count * fill_wave_count;
+    constexpr size_t rejected_tasks_per_producer = 12;
+    constexpr size_t rejected_producer_tasks = producer_count * rejected_tasks_per_producer;
+    constexpr size_t total_producer_tasks = accepted_producer_tasks + rejected_producer_tasks;
+    constexpr size_t max_pending_tasks = accepted_producer_tasks + 1;
+    constexpr size_t fast_worker_count = 4;
+    constexpr size_t block_size = 4096;
+
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = max_pending_tasks;
+    options.batch_size = 1;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    size_t consumer_entries = 0;
+    size_t finished_tasks = 0;
+    bool slow_consumers = true;
+    bool record_drain_samples = false;
+    std::vector<size_t> drain_queue_sizes;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                ++consumer_entries;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return !slow_consumers; });
+                if (record_drain_samples) {
+                    // This excludes active tasks, unlike pending_count(), and therefore observes
+                    // the actual MPMC backlog after each dequeue.
+                    drain_queue_sizes.emplace_back(service->_queue.size_approx());
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            slow_consumers = false;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+        service->shutdown();
+    }};
+
+    std::vector<AsyncCacheWriteTask> tasks;
+    tasks.reserve(total_producer_tasks + 1);
+    for (size_t task_id = 0; task_id <= total_producer_tasks; ++task_id) {
+        AsyncCacheWriteBufferPtr buffer;
+        ASSERT_TRUE(service->allocate_tracked_buffer(block_size, &buffer).ok());
+        memset(buffer->data(), static_cast<int>('a' + task_id % 26), buffer->size());
+        tasks.emplace_back(AsyncCacheWriteTask {
+                .cache_hash =
+                        BlockFileCache::hash("dynamic_backpressure_" + std::to_string(task_id)),
+                .file_offset = 0,
+                .file_size = buffer->size(),
+                .buffer = std::move(buffer),
+                .admission_ctx = {},
+                .submit_ts_us = MonotonicMicros(),
+                .write_epoch = service->current_write_epoch(),
+                .on_finalized =
+                        [&](const AsyncCacheWriteTask&) {
+                            std::lock_guard lock(mutex);
+                            ++finished_tasks;
+                            cv.notify_all();
+                        },
+        });
+    }
+
+    const auto baseline_stats = service->stats();
+    ASSERT_TRUE(service->try_submit(std::move(tasks[0])));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
+                                [&]() { return consumer_entries == 1; }));
+    }
+
+    std::atomic<size_t> producer_accepts {0};
+    std::atomic<size_t> producer_rejects {0};
+    // Each producer owns a contiguous task slice beginning at first_task; tasks_per_producer
+    // controls whether this invocation is one fill wave or the final rejection burst.
+    const auto submit_wave = [&](size_t first_task, size_t tasks_per_producer) {
+        std::vector<std::thread> producers;
+        producers.reserve(producer_count);
+        for (size_t producer_id = 0; producer_id < producer_count; ++producer_id) {
+            producers.emplace_back([&, producer_id]() {
+                const size_t producer_first = first_task + producer_id * tasks_per_producer;
+                for (size_t task_offset = 0; task_offset < tasks_per_producer; ++task_offset) {
+                    if (service->try_submit(std::move(tasks[producer_first + task_offset]))) {
+                        producer_accepts.fetch_add(1, std::memory_order_relaxed);
+                    } else {
+                        producer_rejects.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+            });
+        }
+        for (auto& producer : producers) {
+            producer.join();
+        }
+    };
+
+    // With the only consumer blocked, each producer wave adds four queued tasks. The stable
+    // snapshots make backlog growth deterministic instead of depending on polling timing.
+    for (size_t wave = 0; wave < fill_wave_count; ++wave) {
+        submit_wave(1 + wave * producer_count, 1);
+        EXPECT_EQ(service->_queue.size_approx(), (wave + 1) * producer_count);
+        EXPECT_EQ(service->pending_count(), 1 + (wave + 1) * producer_count);
+    }
+
+    // The queue is now bounded by max_pending_tasks. A larger concurrent burst must be dropped by
+    // backpressure without changing either the queued or active task count.
+    submit_wave(1 + accepted_producer_tasks, rejected_tasks_per_producer);
+    EXPECT_EQ(producer_accepts.load(std::memory_order_relaxed), accepted_producer_tasks);
+    EXPECT_EQ(producer_rejects.load(std::memory_order_relaxed), rejected_producer_tasks);
+    EXPECT_GT(producer_rejects.load(std::memory_order_relaxed),
+              producer_accepts.load(std::memory_order_relaxed));
+    EXPECT_EQ(service->_queue.size_approx(), accepted_producer_tasks);
+    EXPECT_EQ(service->pending_count(), max_pending_tasks);
+    const auto pressured_stats = service->stats();
+    EXPECT_EQ(pressured_stats.submitted - baseline_stats.submitted, max_pending_tasks);
+    EXPECT_EQ(pressured_stats.rejected - baseline_stats.rejected, rejected_producer_tasks);
+
+    // Producers have stopped. Grow from one to four consumers while writes remain blocked, then
+    // remove the artificial delay and increase the batch size to model faster disk consumption.
+    options.worker_count = fast_worker_count;
+    options.batch_size = 4;
+    ASSERT_TRUE(service->update_options(options).ok());
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
+                                [&]() { return consumer_entries == fast_worker_count; }));
+        EXPECT_EQ(service->_queue.size_approx(), accepted_producer_tasks - (fast_worker_count - 1));
+        record_drain_samples = true;
+        slow_consumers = false;
+    }
+    cv.notify_all();
+
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(10),
+                                [&]() { return finished_tasks == max_pending_tasks; }));
+    }
+    EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(service->_queue.size_approx(), 0);
+    EXPECT_TRUE(std::any_of(drain_queue_sizes.begin(), drain_queue_sizes.end(), [&](size_t size) {
+        return size > 0 && size <= accepted_producer_tasks / 2;
+    }));
+    EXPECT_TRUE(std::any_of(drain_queue_sizes.begin(), drain_queue_sizes.end(),
+                            [](size_t size) { return size == 0; }));
 }
 
 TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
