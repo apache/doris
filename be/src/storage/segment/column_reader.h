@@ -37,6 +37,7 @@
 #include "common/status.h"            // for Status
 #include "core/column/column_array.h" // ColumnArray
 #include "core/data_type/data_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/io_common.h"
@@ -1094,7 +1095,7 @@ public:
     // when config::enable_column_type_check is on (default true), so derive the real OLAP type from
     // the constant value to avoid a spurious "different type between schema and column reader" error.
     FieldType get_meta_type() override {
-        return TabletColumn::get_field_type_by_type(_value.get_type());
+        return primitive_type_to_storage_field_type(_value.get_type());
     }
 
     Status match_condition(const AndBlockColumnPredicate* col_predicates,
