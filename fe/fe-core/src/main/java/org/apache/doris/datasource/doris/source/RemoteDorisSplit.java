@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.doris.source;
 
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.scan.TableFormatType;
+import org.apache.doris.datasource.split.FileSplit;
 
 import java.nio.ByteBuffer;
 

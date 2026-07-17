@@ -21,6 +21,7 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
