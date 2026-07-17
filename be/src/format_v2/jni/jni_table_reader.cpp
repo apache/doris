@@ -32,19 +32,31 @@ namespace doris::format {
 
 Status JniTableReader::init(TableReadOptions&& options) {
     RETURN_IF_ERROR(TableReader::init(std::move(options)));
-    _init_profile();
+    {
+        // Base and derived scopes must not overlap on the same counter: RuntimeProfile timers add
+        // deltas, so nested use would double-count instead of extending lifecycle coverage.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.init_timer);
+        _init_profile();
+    }
     SCOPED_TIMER(_connector_total_time);
     return Status::OK();
 }
 
 Status JniTableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_connector_total_time);
-    // EOF belongs to the previous split. Keep it set after closing that split so repeated reads
-    // are idempotent, and clear it only when a new split is explicitly prepared.
-    _eof = false;
-    _current_range = options.current_range;
-    RETURN_IF_ERROR(validate_scan_range(options.current_range));
+    {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        // EOF belongs to the previous split. Keep it set after closing that split so repeated reads
+        // are idempotent, and clear it only when a new split is explicitly prepared.
+        _eof = false;
+        _current_range = options.current_range;
+        RETURN_IF_ERROR(validate_scan_range(options.current_range));
+    }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned()) {
         return Status::OK();
     }
@@ -115,7 +127,11 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
 }
 
 Status JniTableReader::abort_split() {
-    RETURN_IF_ERROR(_close_jni_scanner());
+    {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.close_timer);
+        RETURN_IF_ERROR(_close_jni_scanner());
+    }
     return TableReader::abort_split();
 }
 
@@ -352,7 +368,12 @@ Status JniTableReader::close() {
     if (_closed) {
         return Status::OK();
     }
-    auto close_status = _close_jni_scanner();
+    Status close_status;
+    {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.close_timer);
+        close_status = _close_jni_scanner();
+    }
     auto table_status = TableReader::close();
     if (close_status.ok() && !table_status.ok()) {
         close_status = std::move(table_status);

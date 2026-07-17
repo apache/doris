@@ -33,12 +33,19 @@
 namespace doris::format::paimon {
 
 Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
-    _split_schema_id = -1;
-    const auto& paimon_params = options.current_range.table_format_params.paimon_params;
-    if (paimon_params.__isset.schema_id) {
-        _split_schema_id = paimon_params.schema_id;
+    {
+        // Derived schema selection is additive to, not nested around, the common base timers.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        _split_schema_id = -1;
+        const auto& paimon_params = options.current_range.table_format_params.paimon_params;
+        if (paimon_params.__isset.schema_id) {
+            _split_schema_id = paimon_params.schema_id;
+        }
     }
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned()) {
         return Status::OK();
     }
@@ -93,7 +100,12 @@ Status PaimonHybridReader::init(format::TableReadOptions&& options) {
 }
 
 Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options) {
-    RETURN_IF_ERROR(_ensure_current_split_reader(options));
+    {
+        // End the outer dispatch scopes before the selected child enters the shared counters.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        RETURN_IF_ERROR(_ensure_current_split_reader(options));
+    }
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->prepare_split(options);
 }

@@ -162,6 +162,10 @@ Status IcebergPositionDeleteSysTableV2Reader::prepare_split(
         const format::SplitReadOptions& options) {
     RETURN_IF_ERROR(close());
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    // The inner delete-file reader has distinct counters, so the outer preparation can safely
+    // contain its cache miss/open work without re-entering the same RuntimeProfile timer.
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     _current_range = options.current_range;
     _has_split = true;
     return _init_split();
@@ -309,6 +313,15 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
     std::vector<ColumnDefinition> projected_columns;
     RETURN_IF_ERROR(_build_delete_file_projected_columns(&projected_columns));
 
+    static constexpr const char* kPositionReaderProfile = "IcebergPositionDeleteFileReader";
+    if (_position_reader_profile == nullptr) {
+        _position_reader_profile = _scanner_profile->get_child(kPositionReaderProfile);
+        if (_position_reader_profile == nullptr) {
+            // The outer system-table reader calls the inner reader synchronously. Giving both the
+            // same profile would nest identical counter pointers and double-count every timer.
+            _position_reader_profile = _scanner_profile->create_child(kPositionReaderProfile);
+        }
+    }
     _position_reader = std::make_unique<PositionDeleteFileTableReader>();
     RETURN_IF_ERROR(_position_reader->init({
             .projected_columns = std::move(projected_columns),
@@ -317,7 +330,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
             .scan_params = _scan_params,
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
-            .scanner_profile = _scanner_profile,
+            .scanner_profile = _position_reader_profile,
             .file_slot_descs = nullptr,
             .push_down_agg_type = TPushAggOp::type::NONE,
             .condition_cache_digest = 0,

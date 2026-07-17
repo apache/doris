@@ -747,6 +747,17 @@ TEST(ParquetV2NativeDecoderTest, BitPackedLevelCursorOperationsPreservePosition)
     EXPECT_EQ(rle_decoder.get_levels(&truncated_value, 1), 0);
 }
 
+TEST(ParquetV2NativeDecoderTest, BitPackedLevelByteCountDoesNotWrapAtLargeCounts) {
+    char placeholder[8] = {};
+    constexpr uint32_t num_levels = 1'500'000'000;
+    constexpr size_t expected_bytes = 562'500'000;
+    Slice levels(placeholder, expected_bytes);
+    LevelDecoder decoder;
+
+    ASSERT_TRUE(decoder.init(&levels, tparquet::Encoding::BIT_PACKED, 4, num_levels).ok());
+    EXPECT_EQ(levels.size, 0);
+}
+
 TEST(ParquetV2NativeDecoderTest, RejectsLevelsAboveSchemaMaximumOnEveryDecodePath) {
     auto make_decoder = [](tparquet::Encoding::type encoding) {
         static char encoded[] = {0x03}; // width=2 value=3, while the schema maximum is 2.
@@ -1226,6 +1237,86 @@ TEST(ParquetV2NativeDecoderTest, PageHeaderRejectsSignedAndV2LevelSizeCorruption
     impossible_counts.data_page_header_v2.__set_repetition_levels_byte_length(0);
     impossible_counts.data_page_header_v2.__set_num_nulls(2);
     EXPECT_TRUE(parse_header(impossible_counts).is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, FlatPagesRejectLogicalAndPhysicalCardinalityMismatch) {
+    auto init_chunk = [](tparquet::PageHeader header, bool with_offset_index) {
+        std::vector<uint8_t> payload(static_cast<size_t>(header.compressed_page_size), 0);
+        auto bytes = serialize_page(header, payload);
+        MemoryBufferedReader reader(bytes);
+        tparquet::ColumnChunk chunk;
+        chunk.meta_data.__set_type(tparquet::Type::INT32);
+        chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+        chunk.meta_data.__set_num_values(2);
+        chunk.meta_data.__set_total_compressed_size(bytes.size());
+        chunk.meta_data.__set_data_page_offset(0);
+        FieldSchema field;
+        field.physical_type = tparquet::Type::INT32;
+        field.repetition_level = 0;
+        field.definition_level = 0;
+        ParquetPageReadContext context(false, "");
+        tparquet::OffsetIndex offset_index;
+        tparquet::PageLocation location;
+        location.__set_offset(0);
+        location.__set_compressed_page_size(bytes.size());
+        location.__set_first_row_index(0);
+        offset_index.__set_page_locations({location});
+        if (with_offset_index) {
+            ColumnChunkReader<false, true> reader_with_index(&reader, &chunk, &field, &offset_index,
+                                                             1, nullptr, context);
+            return reader_with_index.init();
+        }
+        ColumnChunkReader<false, false> sequential_reader(&reader, &chunk, &field, nullptr, 1,
+                                                          nullptr, context);
+        return sequential_reader.init();
+    };
+
+    tparquet::PageHeader v2;
+    v2.type = tparquet::PageType::DATA_PAGE_V2;
+    v2.__set_compressed_page_size(8);
+    v2.__set_uncompressed_page_size(8);
+    v2.__isset.data_page_header_v2 = true;
+    v2.data_page_header_v2.__set_num_values(2);
+    v2.data_page_header_v2.__set_num_rows(1);
+    v2.data_page_header_v2.__set_num_nulls(0);
+    v2.data_page_header_v2.__set_encoding(tparquet::Encoding::PLAIN);
+    v2.data_page_header_v2.__set_repetition_levels_byte_length(0);
+    v2.data_page_header_v2.__set_definition_levels_byte_length(0);
+    v2.data_page_header_v2.__set_is_compressed(false);
+    auto status = init_chunk(v2, false);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    status = init_chunk(v2, true);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+
+    tparquet::PageHeader v1;
+    v1.type = tparquet::PageType::DATA_PAGE;
+    v1.__set_compressed_page_size(8);
+    v1.__set_uncompressed_page_size(8);
+    v1.__isset.data_page_header = true;
+    v1.data_page_header.__set_num_values(2);
+    v1.data_page_header.__set_encoding(tparquet::Encoding::RLE_DICTIONARY);
+    v1.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    v1.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    status = init_chunk(v1, true);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+}
+
+TEST(ParquetV2NativeDecoderTest, NestedV2PageRejectsMissingAdvertisedRowStarts) {
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE_V2;
+    header.__set_compressed_page_size(12);
+    header.__set_uncompressed_page_size(12);
+    header.__isset.data_page_header_v2 = true;
+    header.data_page_header_v2.__set_num_values(2);
+    header.data_page_header_v2.__set_num_rows(2);
+    header.data_page_header_v2.__set_num_nulls(0);
+    header.data_page_header_v2.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header_v2.__set_repetition_levels_byte_length(4);
+    header.data_page_header_v2.__set_definition_levels_byte_length(0);
+    header.data_page_header_v2.__set_is_compressed(false);
+    // Two values [0, 1] contain only one repetition-level zero, so they describe one row.
+    EXPECT_TRUE(load_malformed_nested_page(header, {2, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0}, 2)
+                        .is<ErrorCode::CORRUPTION>());
 }
 
 TEST(ParquetV2NativeDecoderTest, HugeNestedPageCountsDoNotPreallocateFromHeaders) {

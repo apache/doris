@@ -28,13 +28,20 @@
 namespace doris::format::hudi {
 
 Status HudiReader::prepare_split(const format::SplitReadOptions& options) {
-    _split_schema_id = -1;
-    if (options.current_range.__isset.table_format_params &&
-        options.current_range.table_format_params.__isset.hudi_params &&
-        options.current_range.table_format_params.hudi_params.__isset.schema_id) {
-        _split_schema_id = options.current_range.table_format_params.hudi_params.schema_id;
+    {
+        // Derived schema selection is additive to, not nested around, the common base timers.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        _split_schema_id = -1;
+        if (options.current_range.__isset.table_format_params &&
+            options.current_range.table_format_params.__isset.hudi_params &&
+            options.current_range.table_format_params.hudi_params.__isset.schema_id) {
+            _split_schema_id = options.current_range.table_format_params.hudi_params.schema_id;
+        }
     }
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned()) {
         return Status::OK();
     }
@@ -66,7 +73,13 @@ Status HudiHybridReader::init(format::TableReadOptions&& options) {
 }
 
 Status HudiHybridReader::prepare_split(const format::SplitReadOptions& options) {
-    RETURN_IF_ERROR(_ensure_current_split_reader(options));
+    {
+        // Child readers use these same counters, so time only dispatch/creation here and end the
+        // outer scopes before invoking the child to preserve single-counted totals.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        RETURN_IF_ERROR(_ensure_current_split_reader(options));
+    }
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->prepare_split(options);
 }

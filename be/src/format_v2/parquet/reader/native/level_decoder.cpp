@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 
 #include <algorithm>
+#include <limits>
 
 #include "common/cast_set.h"
 #include "format/parquet/parquet_common.h"
@@ -57,12 +58,17 @@ Status LevelDecoder::init(Slice* slice, tparquet::Encoding::type encoding, level
         break;
     }
     case tparquet::Encoding::BIT_PACKED: {
-        uint32_t num_bits = num_levels * _bit_width;
-        uint32_t num_bytes = BitUtil::RoundUpNumBytes(num_bits);
+        // Header counts are uint32_t and can overflow before the byte bound check. Widen first so
+        // a forged level count cannot wrap to a small slice and desynchronize following values.
+        const uint64_t num_bits = static_cast<uint64_t>(num_levels) * _bit_width;
+        const size_t num_bytes = static_cast<size_t>((num_bits + 7) / 8);
         if (num_bytes > slice->size) {
             return Status::Corruption("Wrong parquet level format");
         }
-        _bit_packed_decoder = BitReader((uint8_t*)slice->data, num_bytes);
+        if (num_bytes > static_cast<size_t>(std::numeric_limits<int>::max())) {
+            return Status::Corruption("Parquet BIT_PACKED level stream is too large");
+        }
+        _bit_packed_decoder = BitReader((uint8_t*)slice->data, cast_set<int>(num_bytes));
 
         slice->data += num_bytes;
         slice->size -= num_bytes;

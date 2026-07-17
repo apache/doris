@@ -829,6 +829,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
         size_t before_rep_level_sz = _rep_levels.size();
         RETURN_IF_ERROR(_chunk_reader->load_page_nested_rows(_rep_levels, right_row - left_row,
                                                              &load_rows, &cross_page));
+        if (UNLIKELY(right_row > left_row && load_rows == 0 && !cross_page)) {
+            // A bounded V2/indexed page must advance at least one logical row; zero progress would
+            // leave both range cursors unchanged and spin forever on corrupt repetition levels.
+            return Status::Corruption("Parquet nested reader made no row progress");
+        }
         RETURN_IF_ERROR(read_and_fill_data(before_rep_level_sz, _filter_map_index));
         _filter_map_index += load_rows;
         while (cross_page) {
@@ -899,6 +904,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_levels(Filte
         size_t level_start = _rep_levels.size();
         RETURN_IF_ERROR(_chunk_reader->load_page_nested_rows(_rep_levels, right_row - left_row,
                                                              &loaded_rows, &cross_page));
+        if (UNLIKELY(right_row > left_row && loaded_rows == 0 && !cross_page)) {
+            // Keep the levels-only path under the same forward-progress invariant as value reads.
+            return Status::Corruption("Parquet nested level reader made no row progress");
+        }
         RETURN_IF_ERROR(consume_level_segment(level_start, _filter_map_index));
         _filter_map_index += loaded_rows;
         while (cross_page) {

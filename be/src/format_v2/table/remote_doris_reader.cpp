@@ -385,7 +385,12 @@ Status RemoteDorisReader::init(TableReadOptions&& options) {
 }
 
 Status RemoteDorisReader::prepare_split(const SplitReadOptions& options) {
-    RETURN_IF_ERROR(validate_remote_doris_range(options.current_range));
+    {
+        // Keep protocol validation visible while avoiding overlap with TableReader's own scopes.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        RETURN_IF_ERROR(validate_remote_doris_range(options.current_range));
+    }
     return TableReader::prepare_split(options);
 }
 

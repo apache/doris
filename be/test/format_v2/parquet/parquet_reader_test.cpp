@@ -62,6 +62,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
@@ -775,6 +776,34 @@ void write_nullable_struct_with_list_parquet_file(const std::string& file_path) 
                                                       ROW_COUNT, builder.build()));
 }
 
+void write_nested_complex_under_struct_parquet_file(const std::string& file_path) {
+    auto nested_struct = build_nullable_string_struct_array();
+    auto nested_array = build_nullable_string_list_array();
+    auto nested_map = build_nullable_int_string_map_array();
+    auto marker = build_int32_array({10, 20, 30, 40, 50});
+    auto struct_field = arrow::field("nested_struct", nested_struct->type(), true);
+    auto array_field = arrow::field("nested_array", nested_array->type(), true);
+    auto map_field = arrow::field("nested_map", nested_map->type(), true);
+    auto marker_field = arrow::field("marker", arrow::int32(), false);
+    auto outer_result =
+            arrow::StructArray::Make({nested_struct, nested_array, nested_map, marker},
+                                     {struct_field, array_field, map_field, marker_field});
+    ASSERT_TRUE(outer_result.ok()) << outer_result.status();
+    auto outer = *outer_result;
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("outer", outer->type(), false)}),
+                                    {outer});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, builder.build()));
+}
+
 void write_int96_timestamp_parquet_file(const std::string& file_path) {
     auto field = arrow::field("ts_tz", arrow::timestamp(arrow::TimeUnit::MICRO), true);
     auto array =
@@ -1436,6 +1465,62 @@ TEST_F(NewParquetReaderTest, NativeComplexColumnsMaterializeDirectlyAcrossBatchC
     EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
     ASSERT_NE(profile.get_counter("NestedBatches"), nullptr);
     EXPECT_GT(profile.get_counter("NestedBatches")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, FullComplexChildUnderPartialParentReadsItsWholeSubtree) {
+    write_nested_complex_under_struct_parquet_file(_file_path);
+    for (size_t child_index = 0; child_index < 3; ++child_index) {
+        auto reader = create_reader();
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        ASSERT_EQ(schema.size(), 1);
+        ASSERT_EQ(schema[0].children.size(), 4);
+        auto projection = format::LocalColumnIndex::partial_local(0);
+        projection.children.push_back(
+                format::LocalColumnIndex::local(schema[0].children[child_index].file_local_id()));
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {projection};
+        request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+        ASSERT_TRUE(reader->open(request).ok());
+
+        format::ColumnDefinition projected;
+        ASSERT_TRUE(format::project_column_definition(schema[0], projection, &projected).ok());
+        Block block;
+        block.insert(ColumnWithTypeAndName(projected.type->create_column(), projected.type,
+                                           projected.name));
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        ASSERT_GT(rows, 0);
+        const auto& outer = nullable_nested_column<ColumnStruct>(block, 0);
+        ASSERT_EQ(outer.tuple_size(), 1);
+        const auto& nullable_nested = assert_cast<const ColumnNullable&>(outer.get_column(0));
+        if (child_index == 0) {
+            const auto& nested =
+                    assert_cast<const ColumnStruct&>(nullable_nested.get_nested_column());
+            ASSERT_EQ(nested.tuple_size(), 2);
+            const auto& payload = assert_cast<const ColumnNullable&>(nested.get_column(0));
+            EXPECT_EQ(assert_cast<const ColumnString&>(payload.get_nested_column())
+                              .get_data_at(0)
+                              .to_string(),
+                      "small");
+            const auto& ids = assert_cast<const ColumnNullable&>(nested.get_column(1));
+            EXPECT_EQ(ids.get_nested_column().get_int(0), 1);
+        } else if (child_index == 1) {
+            const auto& nested =
+                    assert_cast<const ColumnArray&>(nullable_nested.get_nested_column());
+            EXPECT_EQ(nested.get_offsets()[0], 2);
+            EXPECT_EQ(nested.get_data().size(), 4);
+        } else {
+            const auto& nested = assert_cast<const ColumnMap&>(nullable_nested.get_nested_column());
+            EXPECT_EQ(nested.get_offsets()[0], 1);
+            EXPECT_EQ(nested.get_keys().size(), 3);
+            EXPECT_EQ(nested.get_values().size(), 3);
+        }
+    }
 }
 
 TEST_F(NewParquetReaderTest, NativeNestedMapUsesOuterKeyRepetitionShape) {
@@ -2115,6 +2200,8 @@ TEST_F(NewParquetReaderTest, ProfileNestsFormatReaderBelowFileReaderAndRecordsTo
     EXPECT_TRUE(children.at("FileReader").contains("ParquetReader"));
     ASSERT_TRUE(children.contains("ParquetReader"));
     EXPECT_TRUE(children.at("ParquetReader").contains("ColumnReadTime"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("RowGroupsReadNum"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("FilteredRowsByGroup"));
 }
 
 TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {

@@ -32,12 +32,12 @@ void ParquetProfile::init(RuntimeProfile* profile) {
     total_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, parquet_profile, file_scan_profile::FILE_READER, 1);
 
-    // These counters are format-independent and can be reused when one scanner switches between
-    // Parquet and ORC splits; keep their single flat counter identity under FileReader.
+    // Row-group counters are part of the long-standing ParquetReader profile contract. Keep them
+    // below the format node so profile parsers and operators can attribute pruning to Parquet.
     filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowGroupsFiltered", TUnit::UNIT,
-                                                       file_scan_profile::FILE_READER, 1);
+                                                       parquet_profile, 1);
     filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+            profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, parquet_profile, 1);
     filtered_row_groups_by_dictionary = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "RowGroupsFilteredByDictionary", TUnit::UNIT, parquet_profile, 1);
     filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -45,13 +45,13 @@ void ParquetProfile::init(RuntimeProfile* profile) {
     filtered_row_groups_by_page_index = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "RowGroupsFilteredByPageIndex", TUnit::UNIT, parquet_profile, 1);
     to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowGroupsReadNum", TUnit::UNIT,
-                                                      file_scan_profile::FILE_READER, 1);
+                                                      parquet_profile, 1);
     total_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowGroupsTotalNum", TUnit::UNIT,
                                                     parquet_profile, 1);
     selected_row_ranges = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SelectedRowRanges", TUnit::UNIT,
                                                        parquet_profile, 1);
     filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByGroup", TUnit::UNIT,
-                                                       file_scan_profile::FILE_READER, 1);
+                                                       parquet_profile, 1);
     filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByPage", TUnit::UNIT,
                                                       parquet_profile, 1);
     pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -98,8 +98,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                          TUnit::UNIT, parquet_profile, 1);
     nested_batches =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NestedBatches", TUnit::UNIT, parquet_profile, 1);
-    lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "FilteredRowsByLazyRead", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+    lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByLazyRead",
+                                                           TUnit::UNIT, parquet_profile, 1);
     filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredBytes", TUnit::BYTES,
                                                   file_scan_profile::FILE_READER, 1);
     raw_rows_read =

@@ -84,6 +84,7 @@ protected:
     virtual Status _open_jni_scanner();
     bool _reserve_split_profile_publication();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
+    RuntimeProfile::Counter* connector_total_timer() const { return _connector_total_time; }
     TFileRangeDesc _current_range;
 
 private:

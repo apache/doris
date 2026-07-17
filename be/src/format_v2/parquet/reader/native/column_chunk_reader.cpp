@@ -421,6 +421,18 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
         return Status::Corruption("Parquet data page value count {} exceeds column total {}",
                                   page_num_values, _metadata.num_values);
     }
+    if constexpr (!IN_COLLECTION) {
+        const size_t page_start_row = _page_reader->start_row();
+        const size_t page_end_row = _page_reader->end_row();
+        if (UNLIKELY(page_end_row < page_start_row ||
+                     static_cast<size_t>(page_num_values) != page_end_row - page_start_row)) {
+            // Flat columns have exactly one physical value slot per logical row. Rejecting a
+            // divergent header/OffsetIndex span prevents every later page from shifting rows.
+            return Status::Corruption(
+                    "Parquet flat data page has {} values for logical row range [{}, {})",
+                    page_num_values, page_start_row, page_end_row);
+        }
+    }
     _remaining_rep_nums = page_num_values;
     _remaining_def_nums = page_num_values;
     _remaining_num_values = page_num_values;
@@ -1057,6 +1069,16 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_nested_rows(
         rep_levels.emplace_back(rep_level);
     }
     _current_row += *result_rows;
+
+    if ((_page_reader->is_header_v2() || OFFSET_INDEX) &&
+        UNLIKELY(_current_row != _page_reader->end_row())) {
+        // V2 and OffsetIndex advertise an exact logical row span. A page that exhausts its
+        // repetition levels without that many row starts would otherwise make the caller retry
+        // the same row forever.
+        return Status::Corruption(
+                "Parquet nested data page ended at row {}, expected page end row {}", _current_row,
+                _page_reader->end_row());
+    }
 
     auto need_check_cross_page = [&]() -> bool {
         return !OFFSET_INDEX && IN_COLLECTION && _remaining_rep_nums == 0 &&

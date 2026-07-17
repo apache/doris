@@ -101,6 +101,14 @@ const FieldSchema* find_child_field(const FieldSchema& parent, const ParquetColu
     return field_it == parent.children.end() ? nullptr : &*field_it;
 }
 
+void collect_physical_subtree_ids(const FieldSchema& field, std::set<uint64_t>* ids) {
+    DORIS_CHECK(ids != nullptr);
+    ids->insert(field.get_column_id());
+    for (const auto& child : field.children) {
+        collect_physical_subtree_ids(child, ids);
+    }
+}
+
 void collect_projected_ids(const ParquetColumnSchema& schema,
                            const format::LocalColumnIndex* projection,
                            const FieldSchema& native_field, std::set<uint64_t>* ids) {
@@ -115,8 +123,15 @@ void collect_projected_ids(const ParquetColumnSchema& schema,
         DORIS_CHECK(schema_it != schema.children.end());
         const FieldSchema* child_field = find_child_field(native_field, **schema_it);
         DORIS_CHECK(child_field != nullptr);
-        ids->insert(child_field->get_column_id());
-        collect_projected_ids(**schema_it, &child_projection, *child_field, ids);
+        if (format::is_full_projection(&child_projection)) {
+            // A full child path is a request for its complete physical subtree. Keeping only the
+            // child group id makes its grandchildren SkipReadingReaders and silently defaults
+            // STRUCT fields (or breaks ARRAY/MAP shape invariants).
+            collect_physical_subtree_ids(*child_field, ids);
+        } else {
+            ids->insert(child_field->get_column_id());
+            collect_projected_ids(**schema_it, &child_projection, *child_field, ids);
+        }
     }
     if (schema.kind == ParquetColumnSchemaKind::MAP) {
         DORIS_CHECK(!native_field.children.empty());

@@ -230,6 +230,10 @@ public:
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
     // with no concrete reader or split-local state left from the failed split.
     virtual Status abort_split() {
+        // Ignored open failures still spend time closing partially initialized readers. Include
+        // that recovery path in the common lifecycle profile so NOT_FOUND cannot become invisible.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.close_timer);
         if (_data_reader.reader != nullptr) {
             RETURN_IF_ERROR(close_current_reader());
         } else {

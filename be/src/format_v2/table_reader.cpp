@@ -643,31 +643,7 @@ std::optional<ColumnDefinition> TableReader::_find_current_table_column_by_field
 }
 
 Status TableReader::init(TableReadOptions&& options) {
-    _scan_params = options.scan_params;
-    _format = options.format;
-    _io_ctx = options.io_ctx;
-    _runtime_state = options.runtime_state;
     _scanner_profile = options.scanner_profile;
-    _file_slot_descs = options.file_slot_descs;
-    _push_down_agg_type = options.push_down_agg_type;
-    _push_down_count_columns = options.push_down_count_columns;
-    _initial_condition_cache_digest = options.condition_cache_digest;
-    _condition_cache_digest = _initial_condition_cache_digest;
-    _projected_columns = std::move(options.projected_columns);
-    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
-        for (auto& projected_column : _projected_columns) {
-            const auto* schema_field = find_external_root_field(_scan_params, projected_column);
-            if (schema_field != nullptr) {
-                attach_full_schema_identity(
-                        &projected_column,
-                        build_schema_identity_from_external_field(*schema_field));
-            }
-        }
-    }
-    _system_properties = create_system_properties(_scan_params);
-    _mapper_options.mode = TableColumnMappingMode::BY_NAME;
-    _conjuncts = std::move(options.conjuncts);
-
     if (_scanner_profile != nullptr) {
         const auto hierarchy = file_scan_profile::ensure_hierarchy(_scanner_profile);
         static const char* table_profile = file_scan_profile::TABLE_READER;
@@ -732,8 +708,33 @@ Status TableReader::init(TableReadOptions&& options) {
         _profile.file_reader_close_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "FileReaderCloseTime", file_reader_profile, 1);
     }
+    // Establish lifecycle timers before consuming options or constructing filesystem properties;
+    // placing these scopes at the tail records only scope teardown and hides expensive init work.
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.init_timer);
+    _scan_params = options.scan_params;
+    _format = options.format;
+    _io_ctx = options.io_ctx;
+    _runtime_state = options.runtime_state;
+    _file_slot_descs = options.file_slot_descs;
+    _push_down_agg_type = options.push_down_agg_type;
+    _push_down_count_columns = options.push_down_count_columns;
+    _initial_condition_cache_digest = options.condition_cache_digest;
+    _condition_cache_digest = _initial_condition_cache_digest;
+    _projected_columns = std::move(options.projected_columns);
+    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
+        for (auto& projected_column : _projected_columns) {
+            const auto* schema_field = find_external_root_field(_scan_params, projected_column);
+            if (schema_field != nullptr) {
+                attach_full_schema_identity(
+                        &projected_column,
+                        build_schema_identity_from_external_field(*schema_field));
+            }
+        }
+    }
+    _system_properties = create_system_properties(_scan_params);
+    _mapper_options.mode = TableColumnMappingMode::BY_NAME;
+    _conjuncts = std::move(options.conjuncts);
     return Status::OK();
 }
 
