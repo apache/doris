@@ -18,6 +18,7 @@
 #include "storage/segment/column_reader.h"
 
 #include <assert.h>
+#include <gen_cpp/Descriptors_constants.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
@@ -90,25 +91,229 @@ inline bool read_as_string(PrimitiveType type) {
            type == PrimitiveType::TYPE_BITMAP || type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT;
 }
 
-bool is_current_level_meta_access_path(const TColumnAccessPath& path) {
-    if (path.data_access_path.path.size() != 1) {
-        return false;
-    }
-    const auto& component = path.data_access_path.path[0];
+bool is_meta_access_path_component(const std::string& component) {
     return StringCaseEqual()(component, ColumnIterator::ACCESS_OFFSET) ||
            StringCaseEqual()(component, ColumnIterator::ACCESS_NULL);
 }
 
-bool is_current_level_data_access_path(const TColumnAccessPath& path,
-                                       const std::string& column_name) {
-    return path.data_access_path.path.size() == 1 &&
-           StringCaseEqual()(path.data_access_path.path[0], column_name);
+bool uses_legacy_access_path_encoding(const TColumnAccessPath& path) {
+    return !path.__isset.version ||
+           path.version == g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY;
 }
 
-void remove_current_level_meta_access_paths(TColumnAccessPaths& paths) {
-    auto removed = std::ranges::remove_if(paths, is_current_level_meta_access_path);
-    paths.erase(removed.begin(), removed.end());
-}
+namespace {
+
+// Routes only descendant paths produced by ColumnIterator::_split_access_paths(). Their versions
+// have been validated, legacy paths have DATA type, and every active payload is non-empty.
+// Routing rewrites only the payload selected by type.
+class DescendantAccessPathRouter final {
+public:
+    DescendantAccessPathRouter() = delete;
+
+    struct ChildRoutes {
+        TColumnAccessPaths all;
+        TColumnAccessPaths predicate;
+
+        bool empty() const { return all.empty() && predicate.empty(); }
+    };
+
+    struct MapRoutes {
+        ChildRoutes key;
+        ChildRoutes value;
+    };
+
+    static Result<MapRoutes> route_map_descendants(TColumnAccessPaths all_paths,
+                                                   TColumnAccessPaths predicate_paths,
+                                                   const std::string& key_name,
+                                                   const std::string& value_name) {
+        MapRoutes routes;
+        auto status = route_map_path_set(std::move(all_paths), key_name, value_name, routes.key.all,
+                                         routes.value.all);
+        if (!status.ok()) {
+            return ResultError(std::move(status));
+        }
+        status = route_map_path_set(std::move(predicate_paths), key_name, value_name,
+                                    routes.key.predicate, routes.value.predicate);
+        if (!status.ok()) {
+            return ResultError(std::move(status));
+        }
+        return routes;
+    }
+
+    static Result<ChildRoutes> route_array_descendants(TColumnAccessPaths all_paths,
+                                                       TColumnAccessPaths predicate_paths,
+                                                       const std::string& item_name) {
+        ChildRoutes routes {.all = std::move(all_paths), .predicate = std::move(predicate_paths)};
+        auto rewrite_item_roots = [&](TColumnAccessPaths& paths) -> Status {
+            for (auto& path : paths) {
+                const bool matches_access_all = DORIS_TRY(
+                        root_matches(path, ColumnIterator::ACCESS_ALL, RootMatchMode::EXACT));
+                if (matches_access_all) {
+                    RETURN_IF_ERROR(rewrite_active_payload_root(path, item_name));
+                }
+            }
+            return Status::OK();
+        };
+
+        auto status = rewrite_item_roots(routes.all);
+        if (!status.ok()) {
+            return ResultError(std::move(status));
+        }
+        status = rewrite_item_roots(routes.predicate);
+        if (!status.ok()) {
+            return ResultError(std::move(status));
+        }
+        return routes;
+    }
+
+    static Result<ChildRoutes> route_struct_child(const TColumnAccessPaths& all_paths,
+                                                  const TColumnAccessPaths& predicate_paths,
+                                                  const std::string& child_name,
+                                                  bool route_projection_paths) {
+        ChildRoutes routes;
+        auto route_path_set = [&](const TColumnAccessPaths& source_paths,
+                                  bool is_predicate) -> Status {
+            auto& child_paths = is_predicate ? routes.predicate : routes.all;
+            for (const auto& path : source_paths) {
+                const bool routes_to_child =
+                        DORIS_TRY(root_matches(path, child_name, RootMatchMode::CASE_INSENSITIVE));
+                if (routes_to_child) {
+                    child_paths.emplace_back(path);
+                }
+            }
+            return Status::OK();
+        };
+
+        if (route_projection_paths) {
+            auto status = route_path_set(all_paths, false);
+            if (!status.ok()) {
+                return ResultError(std::move(status));
+            }
+        }
+        auto status = route_path_set(predicate_paths, true);
+        if (!status.ok()) {
+            return ResultError(std::move(status));
+        }
+        return routes;
+    }
+
+private:
+    enum class RootMatchMode { EXACT, CASE_INSENSITIVE };
+    enum class MapTarget { NONE, WILDCARD, KEY, VALUE };
+
+    template <typename AccessPath, typename Visitor>
+    static Status visit_normalized_payload(AccessPath& access_path, Visitor&& visitor) {
+        switch (access_path.type) {
+        case TAccessPathType::DATA:
+            if (!access_path.__isset.data_access_path) {
+                return Status::InternalError(
+                        "Invalid DATA access path: data_access_path payload is not set");
+            }
+            return std::forward<Visitor>(visitor)(access_path.data_access_path);
+        case TAccessPathType::META:
+            if (!access_path.__isset.meta_access_path) {
+                return Status::InternalError(
+                        "Invalid META access path: meta_access_path payload is not set");
+            }
+            return std::forward<Visitor>(visitor)(access_path.meta_access_path);
+        default:
+            return Status::InternalError("Invalid access path type: {}",
+                                         static_cast<int>(access_path.type));
+        }
+    }
+
+    static Result<bool> root_matches(const TColumnAccessPath& access_path,
+                                     const std::string& expected_root, RootMatchMode match_mode) {
+        bool matches = false;
+        auto status = visit_normalized_payload(access_path, [&](const auto& payload) {
+            DORIS_CHECK(!payload.path.empty());
+            matches = match_mode == RootMatchMode::EXACT
+                              ? payload.path.front() == expected_root
+                              : StringCaseEqual()(payload.path.front(), expected_root);
+            return Status::OK();
+        });
+        if (!status.ok()) {
+            return ResultError(std::move(status));
+        }
+        return matches;
+    }
+
+    static Status rewrite_active_payload_root(TColumnAccessPath& access_path,
+                                              const std::string& child_name) {
+        return visit_normalized_payload(access_path, [&](auto& payload) {
+            DORIS_CHECK(!payload.path.empty());
+            payload.path.front() = child_name;
+            return Status::OK();
+        });
+    }
+
+    // Map `*` applies trailing qualifiers only to values, while locating entries still requires
+    // the complete key column as DATA. Construct a fresh key path because the source may be META,
+    // and preserve its version so child routing keeps the same legacy/typed encoding.
+    static TColumnAccessPath create_version_preserving_whole_data_child_path(
+            const TColumnAccessPath& source_path, const std::string& child_name) {
+        TColumnAccessPath child_path;
+        child_path.__set_type(TAccessPathType::DATA);
+        TDataAccessPath data_path;
+        data_path.__set_path({child_name});
+        child_path.__set_data_access_path(data_path);
+        if (source_path.__isset.version) {
+            child_path.__set_version(source_path.version);
+        }
+        return child_path;
+    }
+
+    static Result<MapTarget> map_target(const TColumnAccessPath& access_path) {
+        MapTarget target = MapTarget::NONE;
+        auto status = visit_normalized_payload(access_path, [&](const auto& payload) {
+            DORIS_CHECK(!payload.path.empty());
+            const auto& root = payload.path.front();
+            if (root == ColumnIterator::ACCESS_ALL) {
+                target = MapTarget::WILDCARD;
+            } else if (root == ColumnIterator::ACCESS_MAP_KEYS) {
+                target = MapTarget::KEY;
+            } else if (root == ColumnIterator::ACCESS_MAP_VALUES) {
+                target = MapTarget::VALUE;
+            }
+            return Status::OK();
+        });
+        if (!status.ok()) {
+            return ResultError(std::move(status));
+        }
+        return target;
+    }
+
+    static Status route_map_path_set(TColumnAccessPaths source_paths, const std::string& key_name,
+                                     const std::string& value_name, TColumnAccessPaths& key_paths,
+                                     TColumnAccessPaths& value_paths) {
+        for (auto& path : source_paths) {
+            const auto target = DORIS_TRY(map_target(path));
+            switch (target) {
+            case MapTarget::WILDCARD:
+                // A wildcard needs complete keys for runtime lookup, while any remaining
+                // qualifiers apply only to the value. The value keeps its type and version.
+                key_paths.emplace_back(
+                        create_version_preserving_whole_data_child_path(path, key_name));
+                RETURN_IF_ERROR(rewrite_active_payload_root(path, value_name));
+                value_paths.emplace_back(std::move(path));
+                break;
+            case MapTarget::KEY:
+                RETURN_IF_ERROR(rewrite_active_payload_root(path, key_name));
+                key_paths.emplace_back(std::move(path));
+                break;
+            case MapTarget::VALUE:
+                RETURN_IF_ERROR(rewrite_active_payload_root(path, value_name));
+                value_paths.emplace_back(std::move(path));
+                break;
+            case MapTarget::NONE:
+                break;
+            }
+        }
+        return Status::OK();
+    }
+};
+
+} // namespace
 
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
@@ -951,44 +1156,122 @@ void ColumnIterator::_recovery_from_place_holder_column(MutableColumnPtr& dst) {
     }
 }
 
-Result<TColumnAccessPaths> ColumnIterator::_get_sub_access_paths(
-        TColumnAccessPaths sub_access_paths, bool is_predicate) {
-    // Access paths passed to a complex iterator always start with the current
-    // column name. Strip that component and return the remaining child-relative
-    // paths to the caller. For example, when this iterator is for column `s`,
-    // path `s.a.b` is converted to `a.b` and then dispatched to child `a`.
-    //
-    // If stripping the current column consumes the whole path, the current
-    // iterator itself is requested rather than one of its children. Mark the
-    // current iterator according to the path source: predicate paths must be read
-    // in the predicate phase, while all/output paths become lazy output targets.
-    // Empty or mismatched paths indicate an FE/BE access-path contract violation.
-    for (auto it = sub_access_paths.begin(); it != sub_access_paths.end();) {
-        TColumnAccessPath& name_path = *it;
-        if (name_path.data_access_path.path.empty()) {
+Result<ColumnIterator::AccessPathSplit> ColumnIterator::_split_access_paths(
+        TColumnAccessPaths access_paths) const {
+    AccessPathSplit split;
+    for (auto& path : access_paths) {
+        const bool uses_legacy_encoding = uses_legacy_access_path_encoding(path);
+        if (!uses_legacy_encoding &&
+            path.version != g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED) {
+            return ResultError(
+                    Status::InternalError("Unsupported access path version: {}", path.version));
+        }
+
+        std::vector<std::string>* components = nullptr;
+        if (uses_legacy_encoding) {
+            if (path.type != TAccessPathType::DATA) {
+                return ResultError(Status::InternalError("Invalid legacy access path type: {}",
+                                                         static_cast<int>(path.type)));
+            }
+            if (!path.__isset.data_access_path) {
+                return ResultError(Status::InternalError(
+                        "Invalid legacy access path: data_access_path payload is not set"));
+            }
+            components = &path.data_access_path.path;
+        } else {
+            switch (path.type) {
+            case TAccessPathType::DATA:
+                if (!path.__isset.data_access_path) {
+                    return ResultError(Status::InternalError(
+                            "Invalid DATA access path: data_access_path payload is not set"));
+                }
+                components = &path.data_access_path.path;
+                break;
+            case TAccessPathType::META:
+                if (!path.__isset.meta_access_path) {
+                    return ResultError(Status::InternalError(
+                            "Invalid META access path: meta_access_path payload is not set"));
+                }
+                components = &path.meta_access_path.path;
+                break;
+            default:
+                return ResultError(Status::InternalError("Invalid access path type: {}",
+                                                         static_cast<int>(path.type)));
+            }
+        }
+
+        if (components->empty()) {
             return ResultError(Status::InternalError(
                     "Invalid access path for column '{}': path is empty", _column_name));
         }
 
-        if (!StringCaseEqual()(name_path.data_access_path.path[0], _column_name)) {
+        if (!StringCaseEqual()((*components)[0], _column_name)) {
             return ResultError(Status::InternalError(
                     R"(Invalid access path for column: expected name "{}", got "{}")", _column_name,
-                    name_path.data_access_path.path[0]));
+                    (*components)[0]));
         }
 
-        name_path.data_access_path.path.erase(name_path.data_access_path.path.begin());
-        if (!name_path.data_access_path.path.empty()) {
-            ++it;
-        } else {
-            if (is_predicate) {
-                set_read_requirement(ReadRequirement::PREDICATE);
-            } else {
-                set_lazy_output_requirement();
+        components->erase(components->begin());
+        if (components->empty()) {
+            split.reads_current_data = true;
+            continue;
+        }
+
+        const bool is_current_level_meta =
+                components->size() == 1 && is_meta_access_path_component((*components)[0]) &&
+                (path.type == TAccessPathType::META || uses_legacy_encoding);
+        if (is_current_level_meta) {
+            if (StringCaseEqual()((*components)[0], ACCESS_OFFSET)) {
+                split.current_meta_mode = MetaReadMode::OFFSET_ONLY;
+            } else if (split.current_meta_mode == MetaReadMode::DEFAULT) {
+                split.current_meta_mode = MetaReadMode::NULL_MAP_ONLY;
             }
-            it = sub_access_paths.erase(it);
+            continue;
+        }
+
+        split.descendant_paths.emplace_back(std::move(path));
+    }
+    return split;
+}
+
+Result<ColumnIterator::NestedAccessPathPlan> ColumnIterator::_prepare_nested_access_paths(
+        const TColumnAccessPaths& all_access_paths,
+        const TColumnAccessPaths& predicate_access_paths, NestedMetaSupport meta_support,
+        const std::function<void(ReadRequirement)>& set_all_data_descendants_read_requirement) {
+    const auto requirement_before = _read_requirement;
+    if (!predicate_access_paths.empty()) {
+        set_read_requirement_self(ReadRequirement::PREDICATE);
+    }
+
+    NestedAccessPathPlan plan;
+    auto all_split = _split_access_paths(all_access_paths);
+    if (!all_split.has_value()) {
+        return ResultError(std::move(all_split).error());
+    }
+    plan.all = std::move(all_split).value();
+
+    auto predicate_split = _split_access_paths(predicate_access_paths);
+    if (!predicate_split.has_value()) {
+        return ResultError(std::move(predicate_split).error());
+    }
+    plan.predicate = std::move(predicate_split).value();
+    if (plan.all.reads_current_data) {
+        set_lazy_output_requirement();
+    }
+    if (plan.predicate.reads_current_data) {
+        set_read_requirement(ReadRequirement::PREDICATE);
+    }
+
+    if (!plan.predicate.has_descendant_paths()) {
+        RETURN_IF_ERROR_RESULT(_check_and_set_meta_read_mode(requirement_before, plan.all));
+        plan.skip_data_descendants =
+                read_null_map_only() ||
+                (meta_support == NestedMetaSupport::NULL_MAP_AND_OFFSET && read_offset_only());
+        if (plan.skip_data_descendants) {
+            set_all_data_descendants_read_requirement(ReadRequirement::SKIP);
         }
     }
-    return sub_access_paths;
+    return plan;
 }
 
 ///====================== MapFileColumnIterator ============================////
@@ -1454,120 +1737,27 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
         return Status::OK();
     }
 
-    const auto requirement_before_access_path = _read_requirement;
-    if (!predicate_access_paths.empty()) {
-        set_read_requirement_self(ReadRequirement::PREDICATE);
-        DLOG(INFO) << "Map column iterator set sub-column " << _column_name << " to PREDICATE";
-    }
-
-    const bool has_current_level_data_path =
-            std::ranges::any_of(all_access_paths, [this](const TColumnAccessPath& path) {
-                return is_current_level_data_access_path(path, _column_name);
-            });
-    auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
-    auto sub_predicate_access_paths =
-            DORIS_TRY(_get_sub_access_paths(predicate_access_paths, true));
-    if (has_current_level_data_path) {
-        remove_current_level_meta_access_paths(sub_all_access_paths);
-    }
-    const bool has_current_level_predicate_meta_path =
-            std::ranges::any_of(sub_predicate_access_paths, is_current_level_meta_access_path);
-    // Current-level predicate metadata paths are consumed by this map iterator and must not be
-    // forwarded to key/value children. The FE keeps all_access_paths as a superset of predicate
-    // paths, so meta-only mode is still decided from sub_all_access_paths below.
-    remove_current_level_meta_access_paths(sub_predicate_access_paths);
-
-    if (sub_predicate_access_paths.empty() && _read_requirement == ReadRequirement::PREDICATE &&
-        !has_current_level_predicate_meta_path) {
-        // if no sub-column in predicate_access_paths, but current column is PREDICATE,
-        // then we should set key/value iterator to PREDICATE too.
-        _key_iterator->set_read_requirement(ReadRequirement::PREDICATE);
-        _val_iterator->set_read_requirement(ReadRequirement::PREDICATE);
-    }
-
-    if (sub_predicate_access_paths.empty()) {
-        // Check for meta-only modes (OFFSET_ONLY or NULL_MAP_ONLY). Only skip key/value
-        // iterators when no predicate sub-path needs them in the predicate phase.
-        _check_and_set_meta_read_mode(requirement_before_access_path, sub_all_access_paths);
-        if (read_offset_only()) {
-            _key_iterator->set_read_requirement(ReadRequirement::SKIP);
-            _val_iterator->set_read_requirement(ReadRequirement::SKIP);
-            DLOG(INFO) << "Map column iterator set column " << _column_name
-                       << " to OFFSET_ONLY meta read mode, key/value columns set to SKIP";
-            return Status::OK();
-        }
-        if (read_null_map_only()) {
-            _key_iterator->set_read_requirement(ReadRequirement::SKIP);
-            _val_iterator->set_read_requirement(ReadRequirement::SKIP);
-            DLOG(INFO) << "Map column iterator set column " << _column_name
-                       << " to NULL_MAP_ONLY meta read mode, key/value columns set to SKIP";
-            return Status::OK();
-        }
-    }
-
-    // A current-level data path is consumed by _get_sub_access_paths() and leaves
-    // sub_all_access_paths empty after marking key/value as lazy-read targets. Predicate
-    // sub-paths still have to be routed to child iterators for the predicate phase.
-    if (sub_all_access_paths.empty() && sub_predicate_access_paths.empty()) {
+    auto plan = DORIS_TRY(_prepare_nested_access_paths(
+            all_access_paths, predicate_access_paths, NestedMetaSupport::NULL_MAP_AND_OFFSET,
+            [this](ReadRequirement requirement) {
+                _key_iterator->set_read_requirement(requirement);
+                _val_iterator->set_read_requirement(requirement);
+            }));
+    if (plan.skip_data_descendants) {
         return Status::OK();
     }
 
-    TColumnAccessPaths key_all_access_paths;
-    TColumnAccessPaths val_all_access_paths;
-    TColumnAccessPaths key_predicate_access_paths;
-    TColumnAccessPaths val_predicate_access_paths;
-
-    for (auto paths : sub_all_access_paths) {
-        if (paths.data_access_path.path[0] == ACCESS_ALL) {
-            // ACCESS_ALL means element_at(map, key) style access: the key column must be
-            // fully read so that the runtime can match the requested key, while any sub-path
-            // qualifiers (e.g. OFFSET) apply only to the value column.
-            // For key: create a path with just the column name (= full data access).
-            TColumnAccessPath key_path;
-            key_path.__set_type(paths.type);
-            TDataAccessPath key_data_path;
-            key_data_path.__set_path({_key_iterator->column_name()});
-            key_path.__set_data_access_path(key_data_path);
-            key_all_access_paths.emplace_back(std::move(key_path));
-            // For value: pass the full sub-path so qualifiers like OFFSET propagate.
-            paths.data_access_path.path[0] = _val_iterator->column_name();
-            val_all_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == ACCESS_MAP_KEYS) {
-            paths.data_access_path.path[0] = _key_iterator->column_name();
-            key_all_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == ACCESS_MAP_VALUES) {
-            paths.data_access_path.path[0] = _val_iterator->column_name();
-            val_all_access_paths.emplace_back(paths);
-        }
-    }
-    for (auto paths : sub_predicate_access_paths) {
-        if (paths.data_access_path.path[0] == ACCESS_ALL) {
-            // Same logic as above: key needs full data, value gets the sub-path.
-            TColumnAccessPath key_path;
-            key_path.__set_type(paths.type);
-            TDataAccessPath key_data_path;
-            key_data_path.__set_path({_key_iterator->column_name()});
-            key_path.__set_data_access_path(key_data_path);
-            key_predicate_access_paths.emplace_back(std::move(key_path));
-            paths.data_access_path.path[0] = _val_iterator->column_name();
-            val_predicate_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == ACCESS_MAP_KEYS) {
-            paths.data_access_path.path[0] = _key_iterator->column_name();
-            key_predicate_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == ACCESS_MAP_VALUES) {
-            paths.data_access_path.path[0] = _val_iterator->column_name();
-            val_predicate_access_paths.emplace_back(paths);
-        }
+    if (!plan.all.has_descendant_paths() && !plan.predicate.has_descendant_paths()) {
+        return Status::OK();
     }
 
-    const auto need_read_keys =
-            !key_all_access_paths.empty() || !key_predicate_access_paths.empty();
-    const auto need_read_values =
-            !val_all_access_paths.empty() || !val_predicate_access_paths.empty();
+    auto child_paths = DORIS_TRY(DescendantAccessPathRouter::route_map_descendants(
+            std::move(plan.all.descendant_paths), std::move(plan.predicate.descendant_paths),
+            _key_iterator->column_name(), _val_iterator->column_name()));
 
-    if (need_read_keys) {
+    if (!child_paths.key.empty()) {
         RETURN_IF_ERROR(
-                _key_iterator->set_access_paths(key_all_access_paths, key_predicate_access_paths));
+                _key_iterator->set_access_paths(child_paths.key.all, child_paths.key.predicate));
         // Apply LAZY_OUTPUT after child predicate paths have been handled. Read requirements are
         // monotonic, so a predicate-only child already promoted to PREDICATE will not
         // be downgraded, while a non-predicate child becomes a lazy materialization target.
@@ -1577,9 +1767,9 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
         DLOG(INFO) << "Map column iterator set key column to SKIP";
     }
 
-    if (need_read_values) {
-        RETURN_IF_ERROR(
-                _val_iterator->set_access_paths(val_all_access_paths, val_predicate_access_paths));
+    if (!child_paths.value.empty()) {
+        RETURN_IF_ERROR(_val_iterator->set_access_paths(child_paths.value.all,
+                                                        child_paths.value.predicate));
         // Same as keys: predicate-only value paths stay PREDICATE because this
         // post-processing update cannot lower a stronger child requirement.
         _val_iterator->set_read_requirement_self(ReadRequirement::LAZY_OUTPUT);
@@ -1834,70 +2024,31 @@ Status StructFileColumnIterator::set_access_paths(
         return Status::OK();
     }
 
-    const auto requirement_before_access_path = _read_requirement;
-    if (!predicate_access_paths.empty()) {
-        set_read_requirement_self(ReadRequirement::PREDICATE);
-        DLOG(INFO) << "Struct column iterator set sub-column " << _column_name << " to PREDICATE";
+    auto plan = DORIS_TRY(_prepare_nested_access_paths(
+            all_access_paths, predicate_access_paths, NestedMetaSupport::NULL_MAP,
+            [this](ReadRequirement requirement) {
+                for (auto& sub_iterator : _sub_column_iterators) {
+                    sub_iterator->set_read_requirement(requirement);
+                }
+            }));
+
+    if (plan.skip_data_descendants) {
+        DLOG(INFO) << "Struct column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY meta read mode, all sub-columns set to SKIP";
+        return Status::OK();
     }
 
-    const bool has_current_level_data_path =
-            std::ranges::any_of(all_access_paths, [this](const TColumnAccessPath& path) {
-                return is_current_level_data_access_path(path, _column_name);
-            });
-    auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
-    auto sub_predicate_access_paths =
-            DORIS_TRY(_get_sub_access_paths(predicate_access_paths, true));
-    if (has_current_level_data_path) {
-        remove_current_level_meta_access_paths(sub_all_access_paths);
-    }
-    const bool has_current_level_predicate_meta_path =
-            std::ranges::any_of(sub_predicate_access_paths, is_current_level_meta_access_path);
-    // Current-level predicate metadata paths are consumed by this struct iterator and must not be
-    // forwarded to child fields. The FE keeps all_access_paths as a superset of predicate paths, so
-    // NULL_MAP_ONLY is still decided from sub_all_access_paths below.
-    remove_current_level_meta_access_paths(sub_predicate_access_paths);
-
-    if (sub_predicate_access_paths.empty()) {
-        // Check for NULL_MAP_ONLY mode: only read null map, skip all sub-columns.
-        // Do not take this early return when predicate child paths must still be read.
-        _check_and_set_meta_read_mode(requirement_before_access_path, sub_all_access_paths);
-        if (read_null_map_only()) {
-            for (auto& sub_iterator : _sub_column_iterators) {
-                sub_iterator->set_read_requirement(ReadRequirement::SKIP);
-            }
-            DLOG(INFO) << "Struct column iterator set column " << _column_name
-                       << " to NULL_MAP_ONLY meta read mode, all sub-columns set to SKIP";
-            return Status::OK();
-        }
-    }
-
-    const auto no_sub_column_to_skip = sub_all_access_paths.empty();
-    const auto no_predicate_sub_column = sub_predicate_access_paths.empty();
-
+    const bool reads_all_sub_columns = plan.all.reads_current_data;
+    const bool route_projection_paths = !reads_all_sub_columns;
     for (auto& sub_iterator : _sub_column_iterators) {
         const auto name = sub_iterator->column_name();
-        TColumnAccessPaths sub_all_access_paths_of_this;
-        if (!no_sub_column_to_skip) {
-            for (const auto& paths : sub_all_access_paths) {
-                if (paths.data_access_path.path[0] == name) {
-                    sub_all_access_paths_of_this.emplace_back(paths);
-                }
-            }
-        }
-
-        TColumnAccessPaths sub_predicate_access_paths_of_this;
-        if (!no_predicate_sub_column) {
-            for (const auto& paths : sub_predicate_access_paths) {
-                if (StringCaseEqual()(paths.data_access_path.path[0], name)) {
-                    sub_predicate_access_paths_of_this.emplace_back(paths);
-                }
-            }
-        }
+        auto paths = DORIS_TRY(DescendantAccessPathRouter::route_struct_child(
+                plan.all.descendant_paths, plan.predicate.descendant_paths, name,
+                route_projection_paths));
 
         // Predicate-only child paths still need to be routed to the child iterator
         // even when the child is not requested by ordinary projection access paths.
-        const bool need_to_read = no_sub_column_to_skip || !sub_all_access_paths_of_this.empty() ||
-                                  !sub_predicate_access_paths_of_this.empty();
+        const bool need_to_read = reads_all_sub_columns || !paths.empty();
         if (!need_to_read) {
             set_read_requirement_self(ReadRequirement::SKIP);
             sub_iterator->set_read_requirement(ReadRequirement::SKIP);
@@ -1905,15 +2056,7 @@ Status StructFileColumnIterator::set_access_paths(
             continue;
         }
 
-        if (no_predicate_sub_column && _read_requirement == ReadRequirement::PREDICATE &&
-            !has_current_level_predicate_meta_path) {
-            // if no sub-column in predicate_access_paths, but current column is PREDICATE,
-            // then we should set sub iterator to PREDICATE too.
-            sub_iterator->set_read_requirement(ReadRequirement::PREDICATE);
-        }
-
-        RETURN_IF_ERROR(sub_iterator->set_access_paths(sub_all_access_paths_of_this,
-                                                       sub_predicate_access_paths_of_this));
+        RETURN_IF_ERROR(sub_iterator->set_access_paths(paths.all, paths.predicate));
         // Set LAZY_OUTPUT after routing child predicate paths. If the child was needed only for
         // predicate evaluation, set_access_paths() has already promoted it to
         // PREDICATE and this monotonic update will not downgrade it. Otherwise, this
@@ -2285,87 +2428,24 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
         return Status::OK();
     }
 
-    const auto requirement_before_access_path = _read_requirement;
-    if (!predicate_access_paths.empty()) {
-        set_read_requirement_self(ReadRequirement::PREDICATE);
-        DLOG(INFO) << "Array column iterator set sub-column " << _column_name << " to PREDICATE";
+    auto plan = DORIS_TRY(_prepare_nested_access_paths(
+            all_access_paths, predicate_access_paths, NestedMetaSupport::NULL_MAP_AND_OFFSET,
+            [this](ReadRequirement requirement) {
+                _item_iterator->set_read_requirement(requirement);
+            }));
+
+    if (plan.skip_data_descendants) {
+        return Status::OK();
     }
 
-    const bool has_current_level_data_path =
-            std::ranges::any_of(all_access_paths, [this](const TColumnAccessPath& path) {
-                return is_current_level_data_access_path(path, _column_name);
-            });
-    auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
-    auto sub_predicate_access_paths =
-            DORIS_TRY(_get_sub_access_paths(predicate_access_paths, true));
-    if (has_current_level_data_path) {
-        // A current-level data path already reads the array offsets while materializing the array.
-        // Do not let a redundant current-level OFFSET/NULL path switch this iterator into a
-        // meta-only mode that would skip item data.
-        remove_current_level_meta_access_paths(sub_all_access_paths);
-    }
-    const bool has_current_level_predicate_meta_path =
-            std::ranges::any_of(sub_predicate_access_paths, is_current_level_meta_access_path);
-    // Current-level predicate metadata paths are consumed by this array iterator and must not be
-    // forwarded to the item iterator. The FE keeps all_access_paths as a superset of predicate
-    // paths, so meta-only mode is still decided from sub_all_access_paths below.
-    auto removed =
-            std::ranges::remove_if(sub_predicate_access_paths, is_current_level_meta_access_path);
-    sub_predicate_access_paths.erase(removed.begin(), removed.end());
+    const bool has_all_descendant = plan.all.has_descendant_paths();
+    const bool has_predicate_descendant = plan.predicate.has_descendant_paths();
+    auto child_paths = DORIS_TRY(DescendantAccessPathRouter::route_array_descendants(
+            std::move(plan.all.descendant_paths), std::move(plan.predicate.descendant_paths),
+            _item_iterator->column_name()));
 
-    if (sub_predicate_access_paths.empty()) {
-        // Check for meta-only modes (OFFSET_ONLY or NULL_MAP_ONLY). Only skip the item
-        // iterator when no predicate sub-path needs it in the predicate phase.
-        _check_and_set_meta_read_mode(requirement_before_access_path, sub_all_access_paths);
-        if (read_offset_only()) {
-            _item_iterator->set_read_requirement(ReadRequirement::SKIP);
-            DLOG(INFO) << "Array column iterator set column " << _column_name
-                       << " to OFFSET_ONLY meta read mode, item column set to SKIP";
-            return Status::OK();
-        }
-        if (read_null_map_only()) {
-            _item_iterator->set_read_requirement(ReadRequirement::SKIP);
-            DLOG(INFO) << "Array column iterator set column " << _column_name
-                       << " to NULL_MAP_ONLY meta read mode, item column set to SKIP";
-            return Status::OK();
-        }
-    }
-    // OFFSET/NULL at the current array level is consumed by this iterator. After deciding that
-    // the array is not in a meta-only mode, do not forward those paths to the item iterator.
-    remove_current_level_meta_access_paths(sub_all_access_paths);
-
-    const auto no_sub_column_to_skip = sub_all_access_paths.empty();
-    const auto no_predicate_sub_column = sub_predicate_access_paths.empty();
-
-    if (!no_sub_column_to_skip) {
-        for (auto& path : sub_all_access_paths) {
-            if (path.data_access_path.path[0] == ACCESS_ALL) {
-                path.data_access_path.path[0] = _item_iterator->column_name();
-            }
-        }
-    }
-
-    if (no_predicate_sub_column) {
-        // Current-level predicate meta paths (OFFSET/NULL) are consumed by the array itself and
-        // removed before forwarding paths to the item iterator. If they are the only predicate
-        // paths, the item iterator may still be needed later for lazy materialization, but it must
-        // not be promoted to PREDICATE. Only propagate the predicate requirement when the
-        // parent predicate really applies to the item/whole value instead of array metadata only.
-        if (_read_requirement == ReadRequirement::PREDICATE &&
-            !has_current_level_predicate_meta_path) {
-            _item_iterator->set_read_requirement(ReadRequirement::PREDICATE);
-        }
-    } else {
-        for (auto& path : sub_predicate_access_paths) {
-            if (path.data_access_path.path[0] == ACCESS_ALL) {
-                path.data_access_path.path[0] = _item_iterator->column_name();
-            }
-        }
-    }
-
-    if (!no_sub_column_to_skip || !no_predicate_sub_column) {
-        RETURN_IF_ERROR(
-                _item_iterator->set_access_paths(sub_all_access_paths, sub_predicate_access_paths));
+    if (has_all_descendant || has_predicate_descendant) {
+        RETURN_IF_ERROR(_item_iterator->set_access_paths(child_paths.all, child_paths.predicate));
         // Predicate-only item paths stay PREDICATE because this update runs after
         // child set_access_paths() and read requirements are monotonic. Non-predicate item paths are
         // marked as lazy materialization targets.
@@ -2394,26 +2474,7 @@ Status StringFileColumnIterator::init(const ColumnIteratorOptions& opts) {
 Status StringFileColumnIterator::set_access_paths(
         const TColumnAccessPaths& all_access_paths,
         const TColumnAccessPaths& predicate_access_paths) {
-    if (all_access_paths.empty() && predicate_access_paths.empty()) {
-        return Status::OK();
-    }
-
-    const auto requirement_before_access_path = _read_requirement;
-    if (!predicate_access_paths.empty()) {
-        set_read_requirement(ReadRequirement::PREDICATE);
-    }
-
-    const bool has_current_level_data_path =
-            std::ranges::any_of(all_access_paths, [this](const TColumnAccessPath& path) {
-                return is_current_level_data_access_path(path, _column_name);
-            });
-    // Strip the column name from path[0] before checking for meta-only modes.
-    // Raw paths look like ["col_name", "OFFSET"] or ["col_name", "NULL"].
-    auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
-    if (has_current_level_data_path) {
-        remove_current_level_meta_access_paths(sub_all_access_paths);
-    }
-    _check_and_set_meta_read_mode(requirement_before_access_path, sub_all_access_paths);
+    RETURN_IF_ERROR(FileColumnIterator::set_access_paths(all_access_paths, predicate_access_paths));
     // OFFSET_ONLY mode is fundamentally incompatible with CHAR columns:
     // CHAR is stored padded to its declared length (see
     // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
@@ -2449,10 +2510,32 @@ Status StringFileColumnIterator::set_access_paths(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+Status FileColumnIterator::set_access_paths(const TColumnAccessPaths& all_access_paths,
+                                            const TColumnAccessPaths& predicate_access_paths) {
+    if (all_access_paths.empty() && predicate_access_paths.empty()) {
+        return Status::OK();
+    }
+
+    const auto requirement_before_access_path = _read_requirement;
+    if (!predicate_access_paths.empty()) {
+        set_read_requirement(ReadRequirement::PREDICATE);
+    }
+
+    auto all_split = DORIS_TRY(_split_access_paths(all_access_paths));
+    auto predicate_split = DORIS_TRY(_split_access_paths(predicate_access_paths));
+    if (all_split.reads_current_data) {
+        set_lazy_output_requirement();
+    }
+    if (predicate_split.reads_current_data) {
+        set_read_requirement(ReadRequirement::PREDICATE);
+    }
+    return _check_and_set_meta_read_mode(requirement_before_access_path, all_split);
+}
+
 FileColumnIterator::FileColumnIterator(std::shared_ptr<ColumnReader> reader) : _reader(reader) {}
 
-void ColumnIterator::_check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
-                                                   const TColumnAccessPaths& sub_all_access_paths) {
+Status ColumnIterator::_check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
+                                                     const AccessPathSplit& all_access_paths) {
     _meta_read_mode = MetaReadMode::DEFAULT;
     if (requirement_before_access_path != ReadRequirement::NORMAL &&
         requirement_before_access_path != ReadRequirement::SKIP) {
@@ -2460,32 +2543,15 @@ void ColumnIterator::_check_and_set_meta_read_mode(ReadRequirement requirement_b
         // to materialize data. In that case a later predicate NULL/OFFSET path is only
         // an additional predicate requirement and must not downgrade the read to
         // meta-only.
-        return;
+        return Status::OK();
     }
 
-    bool has_offset_path = false;
-    bool has_null_path = false;
-    for (const auto& path : sub_all_access_paths) {
-        if (!is_current_level_meta_access_path(path)) {
-            _meta_read_mode = MetaReadMode::DEFAULT;
-            return;
-        }
-        const auto& component = path.data_access_path.path[0];
-        if (StringCaseEqual()(component, ACCESS_OFFSET)) {
-            has_offset_path = true;
-        } else {
-            has_null_path = true;
-        }
+    if (all_access_paths.reads_current_data || all_access_paths.has_descendant_paths()) {
+        return Status::OK();
     }
-    if (has_offset_path) {
-        // OFFSET_ONLY skips actual child/string data, but nullable complex iterators still
-        // materialize the current-level null map. So OFFSET covers OFFSET+NULL metadata.
-        _meta_read_mode = MetaReadMode::OFFSET_ONLY;
-    } else if (has_null_path) {
-        _meta_read_mode = MetaReadMode::NULL_MAP_ONLY;
-    } else {
-        _meta_read_mode = MetaReadMode::DEFAULT;
-    }
+
+    _meta_read_mode = all_access_paths.current_meta_mode;
+    return Status::OK();
 }
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
