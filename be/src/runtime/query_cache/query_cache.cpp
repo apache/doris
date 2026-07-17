@@ -369,12 +369,28 @@ bool QueryCacheRuntime::_delta_rewrites_history(BaseTablet& tablet,
     for (const auto& split : delta_source.rs_splits) {
         delta_rowsets.insert(split.rs_reader->rowset()->rowset_id());
     }
-    // The tablet delete bitmap is shared with concurrent loads, but entries
-    // stamped with a version <= current_version are immutable once that
-    // version is visible (merge-on-write publishes the bitmap update before
-    // the version becomes visible), so this scan is race free for the window
-    // we care about. Pending entries use DeleteBitmap::TEMP_VERSION_COMMON
-    // (= 0) and stay below the window as well.
+    // The tablet delete bitmap is shared and it does change at versions that
+    // are already visible, so what keeps this scan safe is not immutability
+    // but the fallback it feeds. Loads add their markers before the version
+    // becomes visible. Compaction relocates existing markers onto its output
+    // rowset keeping their original version (BaseTablet::calc_compaction_
+    // output_rowset_delete_bitmap); markers that matter here sit on a rowset
+    // at or below the cached version, and an output that swallowed such a
+    // rowset starts no later than it does, so the relocated marker lands
+    // outside the delta and is read as a rewrite: conservative, never a miss.
+    // (An output whose inputs all sit inside the window does belong to the
+    // delta, and markers on it are delta-internal, which is what we want.) The one
+    // rewrite that moves markers out of the window, the aggregation that
+    // re-stamps a stale range onto its end version (BaseTablet::agg_delete_
+    // bitmap_for_stale_rowsets, run by delete_expired_stale_rowset), only
+    // fires once the merged versions are swept, and the capture this scan
+    // pairs with anchors on the window endpoints, so a window whose path is
+    // gone is rejected before we get here. Capture and scan are not atomic,
+    // so a sweep landing exactly in between (with the aggregated keys also
+    // already recycled) can still hide a rewrite: a known narrow race the
+    // fallback does not cover, shared with the baseline exact-hit path.
+    // Pending entries use DeleteBitmap::TEMP_VERSION_COMMON (= 0) and stay
+    // below the window as well.
     //
     // The map is ordered by (rowset, segment, version), and most entries of
     // a group lie OUTSIDE the delta window (dedup history below it, pending

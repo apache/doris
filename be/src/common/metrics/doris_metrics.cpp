@@ -55,7 +55,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_incremental_fallback_total, Met
                                      "Query cache decisions that could have merged incrementally "
                                      "but fell back to a full recompute.");
 DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_write_back_total, MetricUnit::REQUESTS,
-                                     "Query cache entries written back (full or merged).");
+                                     "Query cache entries handed to the cache to be written back "
+                                     "(full or merged); admission may still turn one down.");
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_success_total, MetricUnit::REQUESTS, "",
                                      push_requests_total, Labels({{"status", "SUCCESS"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_fail_total, MetricUnit::REQUESTS, "",

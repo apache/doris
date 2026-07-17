@@ -260,10 +260,12 @@ suite("query_cache_incremental") {
     // threshold bounds prior write-backs, not the versions accumulated while
     // the entry is idle, so the delta of the first stale query after a long
     // idle stretch can be arbitrarily large. Such a delta must flow through
-    // the parallel scanner builder like any full scan (split by segment rows)
-    // and still merge correctly with the cached blocks. enable_parallel_scan
-    // is on by default; the tiny per-scanner row bound forces the builder to
-    // really split the delta into many scanners instead of collapsing to one.
+    // the parallel scanner builder like any full scan and still merge
+    // correctly with the cached blocks. Both settings below are needed for
+    // the split to actually happen at regression scale: the per-scanner row
+    // floor defaults to 2M rows, and BE clamps this variable up to 1024, so
+    // 1024 is the lowest floor reachable and the delta further down is sized
+    // several times past it.
     sql "set enable_parallel_scan=true"
     sql "set parallel_scan_min_rows_per_scanner=16"
     sql "DROP TABLE IF EXISTS test_query_cache_incremental_dormant"
@@ -297,22 +299,17 @@ suite("query_cache_incremental") {
         GROUP BY url
     """
     sql "INSERT INTO test_query_cache_incremental_dormant VALUES ('2026-01-01',1,'/a',10)"
-    // Fill the entry at the small initial version, then leave it dormant
-    // while 30 loads land on the single-tablet partition: a 30-rowset,
-    // couple-hundred-row suffix that splits into a dozen or more scanners
-    // under the 16-row bound.
+    // Fill the entry at the small initial version, then leave it dormant while
+    // 30 loads land on the single-tablet partition: a 30-rowset, 6000-row
+    // suffix. Against the 1024-row floor the builder cuts that into four or
+    // five scanners, so the delta really goes through the rowset/segment split
+    // rather than through one serial scanner.
     checkConsistency(dormantQuerySql)
     for (int i = 1; i <= 30; i++) {
-        sql """
-            INSERT INTO test_query_cache_incremental_dormant VALUES
-            ('2026-01-02',${i},'/a',${i}),
-            ('2026-01-03',${i},'/b',${i}),
-            ('2026-01-04',${i},'/c',${i}),
-            ('2026-01-05',${i},'/d',${i}),
-            ('2026-01-06',${i},'/e',${i}),
-            ('2026-01-07',${i},'/f',${i}),
-            ('2026-01-08',${i},'/g',${i})
-        """
+        def values = (1..200).collect { n ->
+            "('2026-01-0${(n % 7) + 2}',${i * 1000 + n},'/u${n % 5}',${n})"
+        }.join(",")
+        sql "INSERT INTO test_query_cache_incremental_dormant VALUES ${values}"
     }
     // The first query after the idle stretch must still take the incremental
     // path on local storage and agree with the uncached result. The loads

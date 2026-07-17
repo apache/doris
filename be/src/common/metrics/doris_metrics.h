@@ -57,7 +57,9 @@ public:
     // Query cache incremental merge (see runtime/query_cache/query_cache.h):
     // how many instance decisions reused a stale entry incrementally, how many
     // could have but fell back to a full recompute, and how many entries were
-    // written back. Per-query breakdown lives in the profile
+    // handed to the cache to be written back (the cache may still turn one
+    // down: its LRU-K admission only keeps a key that comes back while the
+    // shard is full). Per-query breakdown lives in the profile
     // (HitCacheStale / IncrementalFallbackReason / InsertCache).
     IntCounter* query_cache_stale_hit_total = nullptr;
     IntCounter* query_cache_incremental_fallback_total = nullptr;
