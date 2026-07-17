@@ -2240,7 +2240,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     const auto file_path = (test_dir / "split.parquet").string();
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
     write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
-    const std::string binary_default("\x00\x01\x02\xff", 4);
+    static_assert(sizeof("0123456789abcdef0123456789abcdef") - 1 > StringView::kInlineSize);
+    const std::string binary_default = "0123456789abcdef0123456789abcdef";
     write_iceberg_binary_equality_delete_parquet_file(delete_file_path, 1, binary_default,
                                                       "added_binary");
 
@@ -2249,10 +2250,12 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     auto scan_params = make_local_parquet_scan_params();
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(
-            100,
-            {external_schema_field("id", 0),
-             external_schema_field("added_binary", 1, {}, "AAEC/w==",
-                                   external_primitive_type(TPrimitiveType::VARBINARY, 4), true)})});
+            100, {external_schema_field("id", 0),
+                  external_schema_field(
+                          "added_binary", 1, {}, "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+                          external_primitive_type(TPrimitiveType::VARBINARY,
+                                                  static_cast<int32_t>(binary_default.size())),
+                          true)})});
 
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};

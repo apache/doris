@@ -4219,9 +4219,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         e.getCause());
             }
         }
-        //comment should remove '\' and '(") at the beginning and end
-        String comment = ctx.comment != null ? ctx.comment.getText().substring(1, ctx.comment.getText().length() - 1)
-                .replace("\\", "") : "";
+        String comment = ctx.comment != null
+                ? LogicalPlanBuilderAssistant.parseStringLiteral(ctx.comment.getText()) : "";
         long autoIncInitValue = -1;
         if (ctx.AUTO_INCREMENT() != null) {
             if (ctx.autoIncInitValue != null) {
@@ -4244,7 +4243,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public ColumnDefinitionWithPath visitColumnDefWithPath(ColumnDefWithPathContext ctx) {
-        ColumnPath columnPath = ColumnPath.of(visitQualifiedName(ctx.colName));
+        if (ctx.columnDef() != null) {
+            ColumnDefinition columnDefinition = visitColumnDef(ctx.columnDef());
+            return new ColumnDefinitionWithPath(columnDefinition, ColumnPath.of(columnDefinition.getName()));
+        }
+
+        ColumnPath columnPath = ColumnPath.of(ctx.colNames.stream()
+                .map(RuleContext::getText)
+                .collect(Collectors.toList()));
         String colName = columnPath.getLeafName();
         DataType colType = ctx.type instanceof PrimitiveDataTypeContext
                 ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
@@ -4262,53 +4268,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             nullableType = ColumnNullableType.NULLABLE;
         }
         String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
-        Optional<DefaultValue> defaultValue = Optional.empty();
-        Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
-        if (ctx.DEFAULT() != null) {
-            if (ctx.INTEGER_VALUE() != null) {
-                if (ctx.SUBTRACT() == null) {
-                    defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
-                } else {
-                    defaultValue = Optional.of(new DefaultValue("-" + ctx.INTEGER_VALUE().getText()));
-                }
-            } else if (ctx.DECIMAL_VALUE() != null) {
-                if (ctx.SUBTRACT() == null) {
-                    defaultValue = Optional.of(new DefaultValue(ctx.DECIMAL_VALUE().getText()));
-                } else {
-                    defaultValue = Optional.of(new DefaultValue("-" + ctx.DECIMAL_VALUE().getText()));
-                }
-            } else if (ctx.stringValue != null) {
-                defaultValue = Optional.of(new DefaultValue(
-                        LogicalPlanBuilderAssistant.parseStringLiteral(ctx.stringValue.getText())));
-            } else if (ctx.nullValue != null) {
-                defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
-            } else if (ctx.defaultTimestamp != null) {
-                if (ctx.defaultValuePrecision == null) {
-                    defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
-                } else {
-                    defaultValue = Optional.of(DefaultValue
-                            .currentTimeStampDefaultValueWithPrecision(
-                                    Long.valueOf(ctx.defaultValuePrecision.getText())));
-                }
-            } else if (ctx.CURRENT_DATE() != null) {
-                defaultValue = Optional.of(DefaultValue.CURRENT_DATE_DEFAULT_VALUE);
-            } else if (ctx.PI() != null) {
-                defaultValue = Optional.of(DefaultValue.PI_DEFAULT_VALUE);
-            } else if (ctx.E() != null) {
-                defaultValue = Optional.of(DefaultValue.E_NUM_DEFAULT_VALUE);
-            } else if (ctx.BITMAP_EMPTY() != null) {
-                defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
-            }
-        }
-        if (ctx.UPDATE() != null) {
-            if (ctx.onUpdateValuePrecision == null) {
-                onUpdateDefaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
-            } else {
-                onUpdateDefaultValue = Optional.of(DefaultValue
-                        .currentTimeStampDefaultValueWithPrecision(
-                                Long.valueOf(ctx.onUpdateValuePrecision.getText())));
-            }
-        }
         AggregateType aggType = null;
         if (aggTypeString != null) {
             try {
@@ -4335,7 +4294,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Optional.of(new GeneratedColumnDesc(ctx.generatedExpr.getText(), getExpression(ctx.generatedExpr)))
                 : Optional.empty();
         ColumnDefinition columnDefinition = new ColumnDefinition(colName, colType, isKey, aggType, nullableType,
-                autoIncInitValue, defaultValue, onUpdateDefaultValue, comment, desc);
+                autoIncInitValue, Optional.empty(), Optional.empty(), comment, desc);
         return new ColumnDefinitionWithPath(columnDefinition, columnPath);
     }
 

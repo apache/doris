@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -424,78 +423,6 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetNameMappingFallback) {
               "StructNode\n"
               "  col1_new (file: col1_old)\n"
               "    ScalarNode\n");
-}
-
-TEST(MockTableSchemaChangeHelper, IcebergNestedMissingFieldKeepsInitialDefault) {
-    TColumnType int_type;
-    int_type.__set_type(TPrimitiveType::INT);
-    TColumnType struct_type;
-    struct_type.__set_type(TPrimitiveType::STRUCT);
-
-    auto make_field = [](const std::string& name, int32_t id, const TColumnType& type,
-                         std::optional<std::string> initial_default = std::nullopt) {
-        auto field = std::make_shared<schema::external::TField>();
-        field->__set_name(name);
-        field->__set_id(id);
-        field->__set_type(type);
-        field->__set_is_optional(true);
-        if (initial_default.has_value()) {
-            field->__set_initial_default_value(*initial_default);
-        }
-        schema::external::TFieldPtr ptr;
-        ptr.field_ptr = std::move(field);
-        ptr.__isset.field_ptr = true;
-        return ptr;
-    };
-
-    auto struct_field = make_field("s", 1, struct_type);
-    schema::external::TStructField nested_fields;
-    nested_fields.__set_fields({make_field("a", 2, int_type), make_field("b", 3, int_type, "7")});
-    struct_field.field_ptr->nestedField.__set_struct_field(nested_fields);
-    struct_field.field_ptr->__isset.nestedField = true;
-    schema::external::TStructField table_schema;
-    table_schema.__set_fields({struct_field});
-
-    auto assert_initial_default = [](const std::shared_ptr<TableSchemaChangeHelper::Node>& root) {
-        auto struct_node = root->get_children_node("s");
-        ASSERT_FALSE(struct_node->children_column_exists("b"));
-        const auto& initial_default = struct_node->children_initial_default("b");
-        ASSERT_NE(initial_default, nullptr);
-        Field value;
-        initial_default->get(0, value);
-        EXPECT_EQ(value.get<TYPE_INT>(), 7);
-    };
-
-    FieldSchema file_a;
-    file_a.name = "a";
-    file_a.field_id = 2;
-    file_a.data_type = DataTypeFactory::instance().create_data_type(TYPE_INT, true);
-    FieldSchema file_s;
-    file_s.name = "s";
-    file_s.field_id = 1;
-    file_s.children = {file_a};
-    file_s.data_type =
-            std::make_shared<DataTypeStruct>(DataTypes {file_a.data_type}, Strings {"a"});
-    FieldDescriptor parquet_schema;
-    parquet_schema._fields = {file_s};
-    parquet_schema.data_type =
-            std::make_shared<DataTypeStruct>(DataTypes {file_s.data_type}, Strings {"s"});
-    std::shared_ptr<TableSchemaChangeHelper::Node> parquet_node;
-    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
-                        table_schema, parquet_schema, parquet_node)
-                        .ok());
-    assert_initial_default(parquet_node);
-
-    auto orc_schema =
-            std::unique_ptr<orc::Type>(orc::Type::buildTypeFromString("struct<s:struct<a:int>>"));
-    const auto& attribute = IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE;
-    orc_schema->getSubtype(0)->setAttribute(attribute, "1");
-    orc_schema->getSubtype(0)->getSubtype(0)->setAttribute(attribute, "2");
-    std::shared_ptr<TableSchemaChangeHelper::Node> orc_node;
-    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
-                        table_schema, orc_schema.get(), attribute, orc_node)
-                        .ok());
-    assert_initial_default(orc_node);
 }
 
 TEST(MockTableSchemaChangeHelper, IcebergOrcSchemaChange) {

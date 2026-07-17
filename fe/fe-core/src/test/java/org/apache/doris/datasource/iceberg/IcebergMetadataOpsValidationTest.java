@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.ColumnPath;
-import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -37,7 +36,6 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
-import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.junit.Assert;
@@ -48,9 +46,6 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
@@ -403,92 +398,31 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
-    public void testModifyColumnRejectsDefaultMetadata() {
-        Schema schema = nestedSchema();
+    public void testNestedColumnOperationsRejectDefaultMetadata() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "s", Types.StructType.of(
+                Types.NestedField.optional(2, "existing", Types.IntegerType.get()))));
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
         Table icebergTable = Mockito.mock(Table.class);
-        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
         Mockito.when(icebergTable.schema()).thenReturn(schema);
-        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
 
-        Column topLevelDefaultColumn = new Column("id", Type.BIGINT, false, null, true, "7", "");
-        Column nestedDefaultColumn = new Column("a", Type.BIGINT, false, null, true, "7", "");
-        Column topLevelOnUpdateColumn = Mockito.spy(new Column("id", Type.BIGINT, true));
-        Column nestedOnUpdateColumn = Mockito.spy(new Column("a", Type.BIGINT, true));
-        Mockito.doReturn(true).when(topLevelOnUpdateColumn).hasOnUpdateDefaultValue();
+        Column nestedAddDefaultColumn = new Column("new_col", Type.BIGINT, false, null, true, "7", "");
+        Column nestedDefaultColumn = new Column("existing", Type.BIGINT, false, null, true, "7", "");
+        Column nestedOnUpdateColumn = Mockito.spy(new Column("existing", Type.BIGINT, true));
         Mockito.doReturn(true).when(nestedOnUpdateColumn).hasOnUpdateDefaultValue();
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
 
-            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("id"),
-                            topLevelDefaultColumn, null, 1L),
-                    "Modifying default values is not supported for Iceberg columns: id");
-            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("id"),
-                            topLevelOnUpdateColumn, null, 1L),
-                    "Modifying default values is not supported for Iceberg columns: id");
-            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.a"),
-                            nestedDefaultColumn, null, 1L),
-                    "Modifying default values is not supported for Iceberg columns: s.a");
-            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.a"),
-                            nestedOnUpdateColumn, null, 1L),
-                    "Modifying default values is not supported for Iceberg columns: s.a");
-        }
-
-        Mockito.verifyNoInteractions(updateSchema);
-    }
-
-    @Test
-    public void testAddColumnRejectsOnUpdateMetadata() {
-        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
-        Table icebergTable = Mockito.mock(Table.class);
-        Column onUpdateColumn = Mockito.spy(new Column("new_col", Type.DATETIME, true));
-        Mockito.doReturn(true).when(onUpdateColumn).hasOnUpdateDefaultValue();
-
-        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
-                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
-
-            assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.of("new_col"),
-                            onUpdateColumn, null, 1L),
-                    "ON UPDATE is not supported for Iceberg ADD COLUMN: new_col");
             assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.fromDotName("s.new_col"),
-                            onUpdateColumn, null, 1L),
-                    "ON UPDATE is not supported for Iceberg ADD COLUMN: new_col");
-            assertUserException(() -> ops.addColumns(dorisTable, Collections.singletonList(onUpdateColumn), 1L),
-                    "ON UPDATE is not supported for Iceberg ADD COLUMN: new_col");
-        }
-
-        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
-    }
-
-    @Test
-    public void testAddColumnRejectsUnsupportedDefaultsBeforeUpdateSchema() {
-        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
-        Table icebergTable = Mockito.mock(Table.class);
-        Column currentTimestamp = Mockito.spy(new Column("event_time", Type.DATETIME, false, null, true,
-                "CURRENT_TIMESTAMP", ""));
-        Column currentDate = Mockito.spy(new Column("event_date", Type.DATEV2, false, null, true,
-                "CURRENT_DATE", ""));
-        Column complexDefault = new Column("items", ArrayType.create(Type.INT, true), false, null, true,
-                "[]", "");
-        Mockito.doReturn(new DefaultValueExprDef("now"))
-                .when(currentTimestamp).getDefaultValueExprDef();
-        Mockito.doReturn(new DefaultValueExprDef("current_date"))
-                .when(currentDate).getDefaultValueExprDef();
-
-        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
-                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
-
-            assertUserException(() -> ops.addColumn(dorisTable, currentTimestamp, null, 1L),
-                    "Dynamic default value CURRENT_TIMESTAMP is not supported for Iceberg ADD COLUMN: event_time");
-            assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.fromDotName("s.event_date"),
-                            currentDate, null, 1L),
-                    "Dynamic default value CURRENT_DATE is not supported for Iceberg ADD COLUMN: event_date");
-            assertUserException(() -> ops.addColumn(dorisTable, complexDefault, null, 1L),
-                    "Complex type default value only supports NULL");
+                            nestedAddDefaultColumn, null, 1L),
+                    "DEFAULT and ON UPDATE are not supported for Iceberg nested ADD COLUMN: s.new_col");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.existing"),
+                            nestedDefaultColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: s.existing");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.existing"),
+                            nestedOnUpdateColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: s.existing");
         }
 
         Mockito.verify(icebergTable, Mockito.never()).updateSchema();
@@ -526,48 +460,6 @@ public class IcebergMetadataOpsValidationTest {
         }
 
         Mockito.verify(icebergTable, Mockito.never()).updateSchema();
-    }
-
-    @Test
-    public void testNestedAddColumnConvertsDorisDefaultsToIcebergLiterals() throws Throwable {
-        Schema schema = new Schema(Types.NestedField.optional(1, "s", Types.StructType.of(
-                Types.NestedField.optional(2, "existing", Types.IntegerType.get()))));
-        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
-        Table icebergTable = Mockito.mock(Table.class);
-        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
-        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
-        Mockito.when(icebergTable.schema()).thenReturn(schema);
-        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
-
-        Column flag = new Column("flag", Type.BOOLEAN, false, null, true, "1", "");
-        Column eventDate = new Column("event_date", Type.DATEV2, false, null, true,
-                "2024-01-02", "");
-        Column eventTime = new Column("event_time", ScalarType.createDatetimeV2Type(6), false, null, true,
-                "2024-01-02 03:04:05.123456", "");
-
-        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
-                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
-
-            ops.addColumn(dorisTable, ColumnPath.fromDotName("s.flag"), flag, null, 1L);
-            ops.addColumn(dorisTable, ColumnPath.fromDotName("s.event_date"), eventDate, null, 1L);
-            ops.addColumn(dorisTable, ColumnPath.fromDotName("s.event_time"), eventTime, null, 1L);
-        }
-
-        int expectedDate = Math.toIntExact(LocalDate.of(2024, 1, 2).toEpochDay());
-        long expectedTimestamp = ChronoUnit.MICROS.between(
-                LocalDateTime.of(1970, 1, 1, 0, 0),
-                LocalDateTime.of(2024, 1, 2, 3, 4, 5, 123456000));
-        Mockito.verify(updateSchema).addColumn(Mockito.eq("s"), Mockito.eq("flag"),
-                Mockito.eq(Types.BooleanType.get()), Mockito.eq(""),
-                Mockito.<Literal<?>>argThat(literal -> Boolean.TRUE.equals(literal.value())));
-        Mockito.verify(updateSchema).addColumn(Mockito.eq("s"), Mockito.eq("event_date"),
-                Mockito.eq(Types.DateType.get()), Mockito.eq(""),
-                Mockito.<Literal<?>>argThat(literal -> Integer.valueOf(expectedDate).equals(literal.value())));
-        Mockito.verify(updateSchema).addColumn(Mockito.eq("s"), Mockito.eq("event_time"),
-                Mockito.eq(Types.TimestampType.withoutZone()), Mockito.eq(""),
-                Mockito.<Literal<?>>argThat(literal -> Long.valueOf(expectedTimestamp).equals(literal.value())));
-        Mockito.verify(updateSchema, Mockito.times(3)).commit();
     }
 
     @Test

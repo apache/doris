@@ -206,34 +206,6 @@ public class AlterTableCommandTest {
     }
 
     @Test
-    void testRejectDefaultMetadataForIcebergModify() throws AnalysisException {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
-        for (String sql : Arrays.asList(
-                "ALTER TABLE t MODIFY COLUMN a BIGINT DEFAULT 7",
-                "ALTER TABLE t MODIFY COLUMN a BIGINT DEFAULT NULL",
-                "ALTER TABLE t MODIFY COLUMN ts DATETIME DEFAULT CURRENT_TIMESTAMP "
-                        + "ON UPDATE CURRENT_TIMESTAMP",
-                "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT 7",
-                "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT NULL",
-                "ALTER TABLE t MODIFY COLUMN s.ts DATETIME DEFAULT CURRENT_TIMESTAMP "
-                        + "ON UPDATE CURRENT_TIMESTAMP")) {
-            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
-            Assertions.assertTrue(exception.getMessage()
-                    .contains("DEFAULT and ON UPDATE are not supported for Iceberg MODIFY COLUMN"));
-        }
-
-        AlterTableCommand.checkColumnOperationsSupported(table,
-                parseAlter("ALTER TABLE t MODIFY COLUMN a BIGINT").getOps());
-        AlterTableCommand.checkColumnOperationsSupported(table,
-                parseAlter("ALTER TABLE t MODIFY COLUMN s.a BIGINT").getOps());
-        AlterTableCommand.checkColumnOperationsSupported(table,
-                parseAlter("ALTER TABLE t ADD COLUMN b BIGINT NULL DEFAULT 7").getOps());
-        AlterTableCommand.checkColumnOperationsSupported(table,
-                parseAlter("ALTER TABLE t ADD COLUMN s.b BIGINT NULL DEFAULT 7").getOps());
-    }
-
-    @Test
     void testRejectRollupForIcebergColumnOperations() {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         for (String sql : Arrays.asList(

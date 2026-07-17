@@ -48,7 +48,6 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
-#include "exec/scan/access_path_parser.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -2894,7 +2893,7 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
 
 // Scenario: when every projected array-element struct child is missing/default-only, the reader
 // still receives a full element projection and can materialize the default child without crashing.
-TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildUsesInitialDefault) {
+TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildFallsBackToFullElement) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_table_reader_list_only_missing_child_test";
     std::filesystem::remove_all(test_dir);
@@ -2905,8 +2904,6 @@ TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildUsesInitialDefau
 
     const auto string_type = std::make_shared<DataTypeString>();
     auto missing_child = make_table_column(99, "missing_child", string_type);
-    missing_child.default_expr = VExprContext::create_shared(VLiteral::create_shared(
-            missing_child.type, Field::create_field<TYPE_STRING>("fallback")));
     auto element_type =
             std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {"missing_child"});
     auto nullable_element_type = make_nullable(element_type);
@@ -2946,12 +2943,7 @@ TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildUsesInitialDefau
     const auto& element_struct =
             assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
     ASSERT_EQ(element_struct.get_columns().size(), 1);
-    const auto& missing_values = assert_cast<const ColumnString&>(
-            expect_not_null_nullable_nested_column(element_struct.get_column(0)));
-    ASSERT_EQ(missing_values.size(), 4);
-    for (size_t row = 0; row < missing_values.size(); ++row) {
-        EXPECT_EQ(missing_values.get_data_at(row).to_string(), "fallback");
-    }
+    expect_nullable_column_all_null(element_struct.get_column(0));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -3044,8 +3036,6 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     auto b_child = make_table_column(1, "renamed_b", nullable_string_type);
     b_child.name_mapping = {"b"};
     auto missing_child = make_table_column(99, "missing_child", string_type);
-    missing_child.default_expr = VExprContext::create_shared(VLiteral::create_shared(
-            missing_child.type, Field::create_field<TYPE_STRING>("fallback")));
     auto a_child = make_table_column(0, "renamed_a", nullable_int_type);
     a_child.name_mapping = {"a"};
     auto value_type = std::make_shared<DataTypeStruct>(
@@ -3094,17 +3084,13 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     ASSERT_EQ(value_struct.get_columns().size(), 3);
     const auto& b_values = assert_cast<const ColumnString&>(
             expect_not_null_nullable_nested_column(value_struct.get_column(0)));
-    const auto& missing_values = assert_cast<const ColumnString&>(
-            expect_not_null_nullable_nested_column(value_struct.get_column(1)));
+    const auto& missing_values = value_struct.get_column(1);
     const auto& a_values = assert_cast<const ColumnInt32&>(
             expect_not_null_nullable_nested_column(value_struct.get_column(2)));
     EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
     EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
     EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
-    ASSERT_EQ(missing_values.size(), 3);
-    for (size_t row = 0; row < missing_values.size(); ++row) {
-        EXPECT_EQ(missing_values.get_data_at(row).to_string(), "fallback");
-    }
+    expect_nullable_column_all_null(missing_values);
     EXPECT_EQ(a_values.get_element(0), 10);
     EXPECT_EQ(a_values.get_element(1), 20);
     EXPECT_EQ(a_values.get_element(2), 30);
@@ -4044,7 +4030,7 @@ TEST(TableReaderTest, ProjectedColumnsFillMissingParquetColumnWithDefault) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, ProjectedStructFillsMissingChildWithInitialDefault) {
+TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_struct_missing_child_test";
     std::filesystem::remove_all(test_dir);
@@ -4055,28 +4041,12 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithInitialDefault) {
 
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto string_type = std::make_shared<DataTypeString>();
+    auto id_child = make_table_column(0, "id", int_type);
+    auto missing_child = make_table_column(99, "missing_child", string_type);
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
-    auto missing_field = external_schema_field("missing_child", 99);
-    missing_field.field_ptr->__set_initial_default_value("fallback");
-    TFileScanRangeParams scan_params;
-    scan_params.__set_current_schema_id(200);
-    scan_params.__set_history_schema_info({external_schema(
-            200,
-            {external_struct_field("s", 100, {external_schema_field("id", 0), missing_field})})});
-    ProjectedColumnBuildContext build_context {.scan_params = &scan_params};
-    TFileScanSlotInfo slot_info;
-    TableReader schema_reader;
-    ASSERT_TRUE(schema_reader.annotate_projected_column(slot_info, &build_context, &struct_column)
-                        .ok());
-    ASSERT_TRUE(build_context.schema_column.has_value());
-    ASSERT_TRUE(AccessPathParser::build_nested_children(&struct_column,
-                                                        std::vector<TColumnAccessPath> {},
-                                                        &*build_context.schema_column)
-                        .ok());
-    ASSERT_EQ(struct_column.children.size(), 2);
-    ASSERT_NE(struct_column.children[1].default_expr, nullptr);
+    struct_column.children = {id_child, missing_child};
     std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -4086,7 +4056,7 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithInitialDefault) {
                                     .projected_columns = projected_columns,
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
-                                    .scan_params = &scan_params,
+                                    .scan_params = nullptr,
                                     .io_ctx = nullptr,
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
@@ -4107,9 +4077,7 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithInitialDefault) {
             expect_not_null_nullable_nested_column(struct_result.get_column(0)));
     ASSERT_EQ(struct_result.size(), 1);
     EXPECT_EQ(ids.get_element(0), 7);
-    const auto& missing_values =
-            expect_not_null_nullable_nested_column(struct_result.get_column(1));
-    EXPECT_EQ(missing_values.get_data_at(0).to_string(), "fallback");
+    expect_nullable_column_all_null(struct_result.get_column(1));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

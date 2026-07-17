@@ -67,11 +67,6 @@ public:
                     "children_column_exists should not be called on base TableInfoNode");
         }
 
-        virtual const ColumnPtr& children_initial_default(std::string table_column_name) const {
-            throw std::logic_error(
-                    "children_initial_default should not be called on base TableInfoNode");
-        }
-
         virtual std::shared_ptr<Node> get_element_node() const {
             throw std::logic_error("get_element_node should not be called on base TableInfoNode");
         }
@@ -83,8 +78,7 @@ public:
             throw std::logic_error("get_value_node should not be called on base TableInfoNode");
         }
 
-        virtual void add_not_exist_children(std::string table_column_name,
-                                            ColumnPtr initial_default = nullptr) {
+        virtual void add_not_exist_children(std::string table_column_name) {
             throw std::logic_error(
                     "add_not_exist_children should not be called on base TableInfoNode");
         };
@@ -137,10 +131,9 @@ public:
             const std::shared_ptr<Node> node;
             const std::string column_name;
             const bool exists;
-            const ColumnPtr initial_default;
         };
 
-        // table column name -> {node, file_column_name, exists_in_file, initial_default}
+        // table column name -> { node, file_column_name, exists_in_file}
         std::map<std::string, StructChild> children;
 
     public:
@@ -174,22 +167,14 @@ public:
             return children.at(table_column_name).exists;
         }
 
-        const ColumnPtr& children_initial_default(std::string table_column_name) const override {
-            DCHECK(children.contains(table_column_name));
-            DCHECK(!children_column_exists(table_column_name));
-            return children.at(table_column_name).initial_default;
-        }
-
-        void add_not_exist_children(std::string table_column_name,
-                                    ColumnPtr initial_default = nullptr) override {
-            children.emplace(table_column_name,
-                             StructChild {nullptr, "", false, std::move(initial_default)});
+        void add_not_exist_children(std::string table_column_name) override {
+            children.emplace(table_column_name, StructChild {nullptr, "", false});
         }
 
         void add_children(std::string table_column_name, std::string file_column_name,
                           std::shared_ptr<Node> children_node) override {
             children.emplace(table_column_name,
-                             StructChild {children_node, file_column_name, true, nullptr});
+                             StructChild {children_node, file_column_name, true});
         }
 
         const std::map<std::string, StructChild>& get_children() const { return children; }

@@ -223,17 +223,8 @@ public class ExternalUtilTest {
         col1.setUniqueId(101);
         Column col2 = new Column("c2", Type.VARCHAR, false);
         col2.setUniqueId(102);
-        StructType structType = new StructType(
-                new StructField("added_child", Type.INT),
-                new StructField("added_binary", Type.VARBINARY));
-        Column col3 = new Column("c3", structType, true);
-        col3.setUniqueId(103);
-        col3.getChildren().get(0).setUniqueId(104);
-        col3.getChildren().get(0).setDefaultValue("9");
-        col3.getChildren().get(1).setUniqueId(105);
-        col3.getChildren().get(1).setDefaultValue("ignored by Base64 transport");
 
-        List<Column> columns = Arrays.asList(col1, col2, col3);
+        List<Column> columns = Arrays.asList(col1, col2);
 
         Map<Integer, List<String>> nameMapping = new HashMap<>();
         nameMapping.put(col1.getUniqueId(), Arrays.asList("m_c1"));
@@ -241,7 +232,6 @@ public class ExternalUtilTest {
 
         Map<Integer, String> base64InitialDefaults = new HashMap<>();
         base64InitialDefaults.put(col2.getUniqueId(), "AAEC/w==");
-        base64InitialDefaults.put(105, "BAUGBw==");
         ExternalUtil.initSchemaInfoForAllColumn(
                 params, schemaId, columns, nameMapping, base64InitialDefaults);
 
@@ -254,11 +244,10 @@ public class ExternalUtilTest {
 
         TStructField rootField = tSchema.getRootField();
         Assert.assertNotNull(rootField);
-        Assert.assertEquals(3, rootField.getFieldsSize());
+        Assert.assertEquals(2, rootField.getFieldsSize());
 
         TField field1 = rootField.getFields().get(0).getFieldPtr();
         TField field2 = rootField.getFields().get(1).getFieldPtr();
-        TField field3 = rootField.getFields().get(2).getFieldPtr();
 
         Assert.assertEquals(col1.getName(), field1.getName());
         Assert.assertEquals(col1.getUniqueId(), field1.getId());
@@ -275,15 +264,5 @@ public class ExternalUtilTest {
         Assert.assertEquals(Arrays.asList("m_c2_a", "m_c2_b"), field2.getNameMapping());
         Assert.assertEquals("AAEC/w==", field2.getInitialDefaultValue());
         Assert.assertTrue(field2.isInitialDefaultValueIsBase64());
-
-        TField nestedField = field3.getNestedField().getStructField().getFields().get(0).getFieldPtr();
-        Assert.assertEquals(104, nestedField.getId());
-        Assert.assertEquals("9", nestedField.getInitialDefaultValue());
-        Assert.assertFalse(nestedField.isSetInitialDefaultValueIsBase64());
-
-        TField nestedBinary = field3.getNestedField().getStructField().getFields().get(1).getFieldPtr();
-        Assert.assertEquals(105, nestedBinary.getId());
-        Assert.assertEquals("BAUGBw==", nestedBinary.getInitialDefaultValue());
-        Assert.assertTrue(nestedBinary.isInitialDefaultValueIsBase64());
     }
 }

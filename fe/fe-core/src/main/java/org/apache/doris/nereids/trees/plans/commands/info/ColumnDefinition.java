@@ -27,6 +27,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -189,10 +190,6 @@ public class ColumnDefinition {
         return defaultValue.isPresent();
     }
 
-    public boolean hasOnUpdateDefaultValue() {
-        return onUpdateDefaultValue.isPresent();
-    }
-
     public boolean isVisible() {
         return isVisible;
     }
@@ -265,7 +262,7 @@ public class ColumnDefinition {
                 sb.append("DEFAULT ").append("NULL").append(" ");
             }
         }
-        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
+        sb.append("COMMENT ").append(LogicalPlanBuilderAssistant.quoteStringLiteral(getComment()));
 
         return sb.toString();
     }

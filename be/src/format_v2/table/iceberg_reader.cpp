@@ -37,7 +37,6 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
-#include "format/table/iceberg_initial_default.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/orc/orc_reader.h"
@@ -45,6 +44,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
 #include "io/file_factory.h"
+#include "util/url_coding.h"
 
 namespace doris::format::iceberg {
 
@@ -91,14 +91,32 @@ static Status build_missing_equality_delete_key_expr(const format::ColumnDefinit
         return Status::OK();
     }
 
-    ColumnPtr initial_default_column;
-    RETURN_IF_ERROR(doris::iceberg::parse_initial_default(
-            table_field.type, *table_field.initial_default_value,
-            table_field.initial_default_value_is_base64, table_field.name,
-            &initial_default_column));
-
     Field initial_default;
-    initial_default_column->get(0, initial_default);
+    // A VARBINARY Field keeps a non-owning StringView until VLiteral materializes it below.
+    std::string decoded_default;
+    if (table_field.initial_default_value_is_base64 ||
+        table_field.type->get_primitive_type() == TYPE_VARBINARY) {
+        // New FE versions mark every Iceberg UUID/BINARY/FIXED default as Base64 regardless of its
+        // Doris mapping. Keep the VARBINARY fallback for scan descriptors produced before that
+        // marker existed. Decode before parsing so STRING/CHAR and VARBINARY all compare against
+        // the raw bytes stored in equality-delete files.
+        if (!base64_decode(*table_field.initial_default_value, &decoded_default)) {
+            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
+                                           table_field.name);
+        }
+        if (table_field.type->get_primitive_type() == TYPE_VARBINARY) {
+            initial_default = Field::create_field<TYPE_VARBINARY>(StringView(decoded_default));
+        } else {
+            DORIS_CHECK(is_string_type(table_field.type->get_primitive_type()));
+            initial_default = Field::create_field<TYPE_STRING>(decoded_default);
+        }
+    } else {
+        // An added field's initial default is its logical value in every older data file that lacks
+        // the physical column. FE normalizes the string for the current Doris table type.
+        RETURN_IF_ERROR(table_field.type->get_serde()->from_fe_string(
+                *table_field.initial_default_value, initial_default));
+    }
+
     auto literal = VLiteral::create_shared(table_field.type, initial_default);
     if (table_field.type->equals(*delete_key_type)) {
         *key_expr = std::move(literal);

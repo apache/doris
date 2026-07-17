@@ -25,11 +25,9 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "format/generic_reader.h"
-#include "format/table/iceberg_initial_default.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -78,38 +76,6 @@ bool find_file_field_idx_by_name_mapping(
     }
 
     return table_field.__isset.name && try_match(table_field.name);
-}
-
-Status parse_iceberg_initial_default(const schema::external::TField& field,
-                                     ColumnPtr* initial_default) {
-    DORIS_CHECK(initial_default != nullptr);
-    initial_default->reset();
-    if (!field.__isset.initial_default_value) {
-        return Status::OK();
-    }
-    DORIS_CHECK(field.__isset.type);
-    const auto primitive_type = thrift_to_type(field.type.type);
-    DORIS_CHECK(!is_complex_type(primitive_type));
-    const auto type = DataTypeFactory::instance().create_data_type(
-            primitive_type, field.__isset.is_optional && field.is_optional,
-            field.type.__isset.precision ? field.type.precision : 0,
-            field.type.__isset.scale ? field.type.scale : 0,
-            field.type.__isset.len ? field.type.len : -1);
-    const bool is_base64 =
-            field.__isset.initial_default_value_is_base64 && field.initial_default_value_is_base64;
-    RETURN_IF_ERROR(doris::iceberg::parse_initial_default(type, field.initial_default_value,
-                                                          is_base64, field.name, initial_default));
-    return Status::OK();
-}
-
-Status add_missing_iceberg_child(
-        const std::shared_ptr<TableSchemaChangeHelper::StructNode>& struct_node,
-        const schema::external::TField& field) {
-    DORIS_CHECK(struct_node != nullptr);
-    ColumnPtr initial_default;
-    RETURN_IF_ERROR(parse_iceberg_initial_default(field, &initial_default));
-    struct_node->add_not_exist_children(field.name, std::move(initial_default));
-    return Status::OK();
 }
 
 } // namespace
@@ -482,7 +448,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
             struct_node->add_children(table_column_name,
                                       parquet_fields_schema[file_column_idx].name, field_node);
         } else {
-            RETURN_IF_ERROR(add_missing_iceberg_child(struct_node, *table_field.field_ptr));
+            struct_node->add_not_exist_children(table_column_name);
         }
     }
 
@@ -568,7 +534,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
                                                     exist_field_id));
                 struct_node->add_children(table_column_name, file_field.name, field_node);
             } else {
-                RETURN_IF_ERROR(add_missing_iceberg_child(struct_node, *table_field.field_ptr));
+                struct_node->add_not_exist_children(table_column_name);
             }
         }
         node = struct_node;
@@ -620,7 +586,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         }
 
         if (!matched) {
-            RETURN_IF_ERROR(add_missing_iceberg_child(struct_node, *table_field.field_ptr));
+            struct_node->add_not_exist_children(table_column_name);
             continue;
         }
 
@@ -724,7 +690,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
             }
 
             if (!matched) {
-                RETURN_IF_ERROR(add_missing_iceberg_child(struct_node, *table_field.field_ptr));
+                struct_node->add_not_exist_children(table_column_name);
                 continue;
             }
 
@@ -774,7 +740,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
             struct_node->add_children(table_column_name, orc_root->getFieldName(file_field_idx),
                                       field_node);
         } else {
-            RETURN_IF_ERROR(add_missing_iceberg_child(struct_node, *table_field.field_ptr));
+            struct_node->add_not_exist_children(table_column_name);
         }
     }
     node = struct_node;
@@ -891,7 +857,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         }
 
         if (!matched) {
-            RETURN_IF_ERROR(add_missing_iceberg_child(struct_node, *table_field.field_ptr));
+            struct_node->add_not_exist_children(table_column_name);
             continue;
         }
 

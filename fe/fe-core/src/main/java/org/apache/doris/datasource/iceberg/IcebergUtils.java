@@ -22,7 +22,6 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToExprNameVisitor;
@@ -65,9 +64,6 @@ import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
-import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -954,39 +950,32 @@ public class IcebergUtils {
     }
 
     public static Literal<?> parseIcebergLiteral(String value, org.apache.iceberg.types.Type type) {
-        return parseIcebergLiteral(value, null, type);
-    }
-
-    public static Literal<?> parseIcebergLiteral(
-            String value, Type dorisType, org.apache.iceberg.types.Type type) {
         if (value == null) {
             return null;
         }
         switch (type.typeId()) {
             case BOOLEAN:
                 try {
-                    return Literal.of(new BoolLiteral(value).getValue());
-                } catch (AnalysisException e) {
+                    return Literal.of(Boolean.parseBoolean(value));
+                } catch (IllegalArgumentException e) {
                     throw new IllegalArgumentException("Invalid Boolean string: " + value, e);
                 }
             case INTEGER:
+            case DATE:
                 try {
                     return Literal.of(Integer.parseInt(value));
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Int string: " + value, e);
                 }
             case LONG:
+            case TIME:
+            case TIMESTAMP:
+            case TIMESTAMP_NANO:
                 try {
                     return Literal.of(Long.parseLong(value));
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Long string: " + value, e);
                 }
-            case DATE:
-            case TIMESTAMP:
-            case TIMESTAMP_NANO:
-                return parseIcebergDateLiteral(value, dorisType, type);
-            case TIME:
-                return parseIcebergTemporalLiteral(value, value, type);
             case FLOAT:
                 try {
                     return Literal.of(Float.parseFloat(value));
@@ -1020,37 +1009,6 @@ public class IcebergUtils {
                 }
             default:
                 throw new IllegalArgumentException("Cannot parse unknown type: " + type);
-        }
-    }
-
-    private static Literal<?> parseIcebergDateLiteral(
-            String value, Type dorisType, org.apache.iceberg.types.Type type) {
-        String canonicalValue = value;
-        if (dorisType != null) {
-            try {
-                if (dorisType.isTimeStampTz()) {
-                    TimeStampTzType timestampTzType = (TimeStampTzType) DataType.fromCatalogType(dorisType);
-                    canonicalValue = TimestampTzLiteral.fromSessionTimeZone(timestampTzType, value).getStringValue();
-                } else {
-                    canonicalValue = DateLiteralUtils.createDateLiteral(value, dorisType).getStringValue();
-                }
-            } catch (AnalysisException | RuntimeException e) {
-                throw new IllegalArgumentException("Invalid date or timestamp string: " + value, e);
-            }
-        }
-        return parseIcebergTemporalLiteral(value, canonicalValue.replace(' ', 'T'), type);
-    }
-
-    private static Literal<?> parseIcebergTemporalLiteral(
-            String originalValue, String canonicalValue, org.apache.iceberg.types.Type type) {
-        try {
-            Literal<?> literal = Literal.of(canonicalValue).to(type);
-            if (literal == null) {
-                throw new IllegalArgumentException("Cannot convert value to Iceberg type " + type);
-            }
-            return literal;
-        } catch (RuntimeException e) {
-            throw new IllegalArgumentException("Invalid temporal string: " + originalValue, e);
         }
     }
 
@@ -1157,13 +1115,8 @@ public class IcebergUtils {
         return epochSecond * 1_000_000L + microSecond;
     }
 
-    private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField,
-            boolean enableMappingTimestampTz) {
+    private static void updateIcebergColumnUniqueId(Column column, Types.NestedField icebergField) {
         column.setUniqueId(icebergField.fieldId());
-        if (icebergField.initialDefault() != null) {
-            column.setDefaultValue(serializeInitialDefault(
-                    icebergField.type(), icebergField.initialDefault(), enableMappingTimestampTz));
-        }
         List<NestedField> icebergFields = Lists.newArrayList();
         switch (icebergField.type().typeId()) {
             case LIST:
@@ -1182,8 +1135,7 @@ public class IcebergUtils {
         if (column.getChildren() != null) {
             List<Column> childColumns = column.getChildren();
             for (int idx = 0; idx < childColumns.size(); idx++) {
-                updateIcebergColumnMetadata(
-                        childColumns.get(idx), icebergFields.get(idx), enableMappingTimestampTz);
+                updateIcebergColumnUniqueId(childColumns.get(idx), icebergFields.get(idx));
             }
         }
     }
@@ -1232,10 +1184,15 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
+            String initialDefault = null;
+            if (field.initialDefault() != null) {
+                initialDefault = serializeInitialDefault(field.type(), field.initialDefault(),
+                        enableMappingTimestampTz);
+            }
             Column column = new Column(field.name(),
                     IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
-                    true, null, true, null, field.doc(), true, -1);
-            updateIcebergColumnMetadata(column, field, enableMappingTimestampTz);
+                    true, null, true, initialDefault, field.doc(), true, -1);
+            updateIcebergColumnUniqueId(column, field);
             if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
                 Types.TimestampType timestampType = (Types.TimestampType) field.type();
                 if (timestampType.shouldAdjustToUTC()) {

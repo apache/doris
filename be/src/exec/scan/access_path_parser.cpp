@@ -87,9 +87,6 @@ void inherit_schema_metadata(format::ColumnDefinition* column,
         return;
     }
     column->name_mapping = schema_column->name_mapping;
-    column->default_expr = schema_column->default_expr;
-    column->initial_default_value = schema_column->initial_default_value;
-    column->initial_default_value_is_base64 = schema_column->initial_default_value_is_base64;
 }
 
 const format::ColumnDefinition* find_schema_child_by_path(

@@ -38,11 +38,9 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
-#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
-#include "format/table/iceberg_initial_default.h"
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
@@ -281,24 +279,6 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
     return column;
 }
 
-Status attach_initial_default_exprs(ColumnDefinition* column) {
-    DORIS_CHECK(column != nullptr);
-    if (column->initial_default_value.has_value()) {
-        ColumnPtr initial_default_column;
-        RETURN_IF_ERROR(doris::iceberg::parse_initial_default(
-                column->type, *column->initial_default_value,
-                column->initial_default_value_is_base64, column->name, &initial_default_column));
-        Field initial_default;
-        initial_default_column->get(0, initial_default);
-        column->default_expr =
-                VExprContext::create_shared(VLiteral::create_shared(column->type, initial_default));
-    }
-    for (auto& child : column->children) {
-        RETURN_IF_ERROR(attach_initial_default_exprs(&child));
-    }
-    return Status::OK();
-}
-
 const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
                                                          const ColumnDefinition& column) {
     if (params == nullptr || !params->__isset.history_schema_info ||
@@ -506,7 +486,6 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
         return Status::OK();
     }
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
-    RETURN_IF_ERROR(attach_initial_default_exprs(&*context->schema_column));
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
     return Status::OK();

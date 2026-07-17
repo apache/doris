@@ -40,11 +40,11 @@
 #include "format/generic_reader.h"
 #include "format/table/equality_delete.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
-#include "format/table/iceberg_initial_default.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
+#include "util/url_coding.h"
 
 namespace doris {
 class TIcebergDeleteFileDesc;
@@ -703,19 +703,34 @@ Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
                 "Missing Iceberg schema metadata for equality-delete field id {}", field_id);
     }
 
-    ColumnPtr value;
+    Field value;
+    // A VARBINARY Field keeps a non-owning StringView until create_column_const() below.
+    std::string decoded_default;
     if (table_field->__isset.initial_default_value) {
+        const auto nested_type = remove_nullable(delete_key_type);
         const bool default_is_base64 = (table_field->__isset.initial_default_value_is_base64 &&
                                         table_field->initial_default_value_is_base64) ||
                                        (table_field->__isset.type &&
                                         thrift_to_type(table_field->type.type) == TYPE_VARBINARY);
-        RETURN_IF_ERROR(doris::iceberg::parse_initial_default(
-                delete_key_type, table_field->initial_default_value, default_is_base64,
-                table_field->name, &value));
-    } else {
-        value = delete_key_type->create_column_const(1, Field());
+        if (default_is_base64) {
+            if (!base64_decode(table_field->initial_default_value, &decoded_default)) {
+                return Status::InvalidArgument(
+                        "Invalid Base64 Iceberg initial default for field {}", table_field->name);
+            }
+            if (nested_type->get_primitive_type() == TYPE_VARBINARY) {
+                value = Field::create_field<TYPE_VARBINARY>(StringView(decoded_default));
+            } else {
+                DORIS_CHECK(is_string_type(nested_type->get_primitive_type()));
+                value = Field::create_field<TYPE_STRING>(decoded_default);
+            }
+        } else {
+            RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(
+                    table_field->initial_default_value, value));
+        }
     }
-    const bool inserted = _missing_equality_delete_values.emplace(name, std::move(value)).second;
+    const bool inserted = _missing_equality_delete_values
+                                  .emplace(name, delete_key_type->create_column_const(1, value))
+                                  .second;
     DORIS_CHECK(inserted);
     this->register_synthesized_column_handler(
             name, [this, name](Block* block, size_t rows) -> Status {
@@ -729,10 +744,6 @@ Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_materialize_missing_equality_delete_column(
         Block* block, const std::string& name, const ColumnPtr& value, size_t rows) {
-    const auto one_row_value = value->convert_to_full_column_if_const();
-    auto materialized_value = one_row_value->clone_empty();
-    materialized_value->reserve(rows);
-    materialized_value->insert_many_from(*one_row_value, 0, rows);
     if (!this->col_name_to_block_idx_ref()->contains(name)) {
         // ORC must not register a key that is absent from the file as a physical child. In that
         // case the reader block has no slot for the synthesized key, so append one here before
@@ -742,7 +753,8 @@ Status IcebergReaderMixin<BaseReader>::_materialize_missing_equality_delete_colu
                 [&](const ColumnWithTypeAndName& col) { return col.name == name; });
         DORIS_CHECK(expand_col != _expand_columns.end());
         (*this->col_name_to_block_idx_ref())[name] = block->columns();
-        block->insert({std::move(materialized_value), expand_col->type, name});
+        block->insert({value->clone_resized(rows)->convert_to_full_column_if_const(),
+                       expand_col->type, name});
         return Status::OK();
     }
     const auto position = this->col_name_to_block_idx_ref()->at(name);
@@ -751,7 +763,8 @@ Status IcebergReaderMixin<BaseReader>::_materialize_missing_equality_delete_colu
     // MultiEqualityDelete hashes each key column directly. Materialize the repeated default so
     // every key has the batch row count; a ColumnConst keeps only one nested value and therefore
     // cannot participate in the row-wise multi-column hash contract.
-    block->get_by_position(position).column = std::move(materialized_value);
+    block->get_by_position(position).column =
+            value->clone_resized(rows)->convert_to_full_column_if_const();
     return Status::OK();
 }
 

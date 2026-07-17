@@ -153,13 +153,6 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("New nested field '" + nestedColumnPath.getFullPath()
                             + "' must be nullable");
                 }
-                // Column translation cannot distinguish an omitted default from an explicit DEFAULT NULL.
-                if (alterTableOp instanceof ModifyColumnOp && columnDefinition != null
-                        && (columnDefinition.hasDefaultValue()
-                            || columnDefinition.hasOnUpdateDefaultValue())) {
-                    throw new AnalysisException(
-                            "DEFAULT and ON UPDATE are not supported for Iceberg MODIFY COLUMN");
-                }
                 if (!isIcebergColumnSchemaOperation(alterTableOp)) {
                     continue;
                 }

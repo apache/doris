@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ColumnPath;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
@@ -78,6 +80,28 @@ public class IcebergNestedSchemaEvolutionParserTest {
                 RenameColumnOp.class, "arr.element.y");
         assertSingleClausePath("ALTER TABLE t RENAME COLUMN m.value.y TO y2",
                 RenameColumnOp.class, "m.value.y");
+    }
+
+    @Test
+    public void testNestedColumnDefaultClausesAreNotInGrammar() {
+        for (String sql : List.of(
+                "ALTER TABLE t ADD COLUMN s.b BIGINT NULL DEFAULT 7",
+                "ALTER TABLE t ADD COLUMN s.c BIGINT NULL DEFAULT NULL",
+                "ALTER TABLE t ADD COLUMN s.ts DATETIME NULL DEFAULT CURRENT_TIMESTAMP "
+                        + "ON UPDATE CURRENT_TIMESTAMP",
+                "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT 7",
+                "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT NULL",
+                "ALTER TABLE t MODIFY COLUMN s.ts DATETIME DEFAULT CURRENT_TIMESTAMP "
+                        + "ON UPDATE CURRENT_TIMESTAMP")) {
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql), sql);
+        }
+    }
+
+    @Test
+    public void testTopLevelColumnKeepsExistingDefaultGrammar() {
+        AddColumnOp add = assertSingleClausePath(
+                "ALTER TABLE t ADD COLUMN b BIGINT NULL DEFAULT 7", AddColumnOp.class, "b");
+        Assertions.assertTrue(add.getColumnDef().hasDefaultValue());
     }
 
     @Test
@@ -150,24 +174,59 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     @Test
-    public void testColumnDefinitionWithPathDecodesDefaultAndCommentLiterals() {
-        assertColumnDefinitionLiteralDecoding(false);
-        assertColumnDefinitionLiteralDecoding(true);
+    public void testColumnDefinitionCommentRoundTripEscapesQuotesAndBackslashes() {
+        assertColumnDefinitionCommentRoundTrip(false);
+        assertColumnDefinitionCommentRoundTrip(true);
     }
 
-    private void assertColumnDefinitionLiteralDecoding(boolean noBackslashEscapes) {
+    @Test
+    public void testRegularColumnDefinitionCommentRoundTripEscapesQuotesAndBackslashes() {
+        assertRegularColumnDefinitionCommentRoundTrip(false);
+        assertRegularColumnDefinitionCommentRoundTrip(true);
+    }
+
+    private void assertRegularColumnDefinitionCommentRoundTrip(boolean noBackslashEscapes) {
         try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
             mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
 
             String sqlPath = noBackslashEscapes ? "C:\\tmp\\" : "C:\\\\tmp\\\\";
-            AddColumnOp add = assertSingleClausePath(
-                    "ALTER TABLE t ADD COLUMN info.owner STRING DEFAULT 'owner''s " + sqlPath
-                            + "' COMMENT \"a\"\"b " + sqlPath + "\"",
-                    AddColumnOp.class, "info.owner");
+            String expectedComment = "owner's \"field\" C:\\tmp\\";
+            AddColumnsOp addColumns = assertSingleClause(
+                    "ALTER TABLE t ADD COLUMN (owner STRING NULL COMMENT 'owner''s \"field\" "
+                            + sqlPath + "', metric INT NULL)", AddColumnsOp.class);
+            Assertions.assertEquals(expectedComment,
+                    addColumns.getColumnDefinitions().get(0).getComment());
 
-            Assertions.assertEquals("owner's C:\\tmp\\", add.getColumnDef()
-                    .translateToCatalogStyleForSchemaChange().getDefaultValue());
-            Assertions.assertEquals("a\"b C:\\tmp\\", add.getColumnDef().getComment());
+            AddColumnsOp reparsedAddColumns = assertSingleClause(
+                    "ALTER TABLE t " + addColumns.toSql(), AddColumnsOp.class);
+            Assertions.assertEquals(expectedComment,
+                    reparsedAddColumns.getColumnDefinitions().get(0).getComment());
+        }
+    }
+
+    private void assertColumnDefinitionCommentRoundTrip(boolean noBackslashEscapes) {
+        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
+            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
+
+            String sqlPath = noBackslashEscapes ? "C:\\tmp\\" : "C:\\\\tmp\\\\";
+            String expectedComment = "owner's \"field\" C:\\tmp\\";
+            AddColumnOp add = assertSingleClausePath(
+                    "ALTER TABLE t ADD COLUMN info.owner STRING NULL COMMENT 'owner''s \"field\" "
+                            + sqlPath + "'",
+                    AddColumnOp.class, "info.owner");
+            Assertions.assertEquals(expectedComment, add.getColumnDef().getComment());
+            AddColumnOp reparsedAdd = assertSingleClausePath(
+                    "ALTER TABLE t " + add.toSql(), AddColumnOp.class, "info.owner");
+            Assertions.assertEquals(expectedComment, reparsedAdd.getColumnDef().getComment());
+
+            ModifyColumnOp modify = assertSingleClausePath(
+                    "ALTER TABLE t MODIFY COLUMN info.owner STRING COMMENT 'owner''s \"field\" "
+                            + sqlPath + "'",
+                    ModifyColumnOp.class, "info.owner");
+            Assertions.assertEquals(expectedComment, modify.getColumnDef().getComment());
+            ModifyColumnOp reparsedModify = assertSingleClausePath(
+                    "ALTER TABLE t " + modify.toSql(), ModifyColumnOp.class, "info.owner");
+            Assertions.assertEquals(expectedComment, reparsedModify.getColumnDef().getComment());
         }
     }
 
@@ -200,12 +259,7 @@ public class IcebergNestedSchemaEvolutionParserTest {
 
     private <T extends AlterTableOp> T assertSingleClausePath(String sql, Class<T> clauseClass,
             String expectedPath) {
-        Plan plan = parser.parseSingle(sql);
-        Assertions.assertInstanceOf(AlterTableCommand.class, plan);
-        List<AlterTableOp> clauses = ((AlterTableCommand) plan).getOps();
-        Assertions.assertEquals(1, clauses.size());
-        AlterTableOp clause = clauses.get(0);
-        Assertions.assertInstanceOf(clauseClass, clause);
+        T clause = assertSingleClause(sql, clauseClass);
         if (clause instanceof AddColumnOp) {
             Assertions.assertEquals(expectedPath, ((AddColumnOp) clause).getColumnPath().getFullPath());
         } else if (clause instanceof ModifyColumnOp) {
@@ -217,6 +271,16 @@ public class IcebergNestedSchemaEvolutionParserTest {
         } else if (clause instanceof RenameColumnOp) {
             Assertions.assertEquals(expectedPath, ((RenameColumnOp) clause).getColumnPath().getFullPath());
         }
+        return clause;
+    }
+
+    private <T extends AlterTableOp> T assertSingleClause(String sql, Class<T> clauseClass) {
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(AlterTableCommand.class, plan);
+        List<AlterTableOp> clauses = ((AlterTableCommand) plan).getOps();
+        Assertions.assertEquals(1, clauses.size());
+        AlterTableOp clause = clauses.get(0);
+        Assertions.assertInstanceOf(clauseClass, clause);
         return clauseClass.cast(clause);
     }
 }
