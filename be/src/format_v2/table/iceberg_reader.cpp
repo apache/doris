@@ -237,6 +237,11 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
     if (current_split_pruned()) {
         return Status::OK();
     }
+    // Iceberg data files are immutable once referenced by a snapshot; updates create new data files
+    // at new paths instead of overwriting existing files. This lets the Parquet V2 reader use page
+    // cache when the scan range does not carry an mtime, without extending V1's path::0 behavior to
+    // mutable Hive/local files.
+    mark_current_data_file_immutable();
     if (_is_table_level_count_active()) {
         return Status::OK();
     }
@@ -457,6 +462,9 @@ std::unique_ptr<io::FileDescription> IcebergTableReader::_delete_file_descriptio
     file_description->file_size = range.__isset.file_size ? range.file_size : -1;
     file_description->range_start_offset = range.__isset.start_offset ? range.start_offset : 0;
     file_description->range_size = range.__isset.size ? range.size : -1;
+    // Iceberg delete files follow the same immutable-file contract as data files: a snapshot
+    // references a fixed object and later changes publish a new file rather than replacing it.
+    file_description->is_immutable = true;
     if (range.__isset.fs_name) {
         file_description->fs_name = range.fs_name;
     }
@@ -814,25 +822,22 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     RETURN_IF_ERROR(_resolve_equality_delete_fields(delete_file, schema, &delete_fields, result));
 
     auto request = std::make_shared<format::FileScanRequest>();
-    auto build_block = [](const std::vector<format::ColumnDefinition>& fields) -> Block {
-        Block block;
-        for (const auto& field : fields) {
-            block.insert({field.type->create_column(), field.type, field.name});
-        }
-        return block;
-    };
+    Block delete_block_template;
     for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
-        const auto local_column_id = format::LocalColumnId(delete_fields[idx].file_local_id());
+        const auto& delete_field = delete_fields[idx];
+        const auto local_column_id = format::LocalColumnId(delete_field.file_local_id());
         request->non_predicate_columns.push_back(
                 format::LocalColumnIndex::top_level(local_column_id));
         request->local_positions.emplace(local_column_id, format::LocalIndex(idx));
+        delete_block_template.insert(
+                {delete_field.type->create_column(), delete_field.type, delete_field.name});
     }
     RETURN_IF_ERROR(reader->open(request));
 
-    MutableBlock mutable_delete_block(build_block(delete_fields));
+    MutableBlock mutable_delete_block(delete_block_template.clone_empty());
     bool eof = false;
     while (!eof) {
-        Block block = build_block(delete_fields);
+        Block block = delete_block_template.clone_empty();
         size_t read_rows = 0;
         RETURN_IF_ERROR(reader->get_block(&block, &read_rows, &eof));
         if (read_rows > 0) {

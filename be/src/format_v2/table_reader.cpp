@@ -117,6 +117,7 @@ std::string current_file_debug_string(const std::unique_ptr<ScanTask>& task) {
     out << "FileDescription{path=" << file.path << ", file_size=" << file.file_size
         << ", range_start_offset=" << file.range_start_offset << ", range_size=" << file.range_size
         << ", mtime=" << file.mtime << ", fs_name=" << file.fs_name
+        << ", is_immutable=" << file.is_immutable
         << ", file_cache_admission=" << file.file_cache_admission << "}";
     return out.str();
 }
@@ -526,7 +527,8 @@ Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
     _file_slot_descs = options.file_slot_descs;
     _push_down_agg_type = options.push_down_agg_type;
-    _condition_cache_digest = options.condition_cache_digest;
+    _initial_condition_cache_digest = options.condition_cache_digest;
+    _condition_cache_digest = _initial_condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
@@ -630,10 +632,11 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
         !file_request.delete_conjuncts.empty()) {
         return false;
     }
-    // Runtime filters can arrive late and their payload is not guaranteed to be represented by the
-    // scan-local digest. Without a read-only mode, a MISS could insert a bitmap for P AND RF under
-    // the digest for only P. This mirrors the old FileScanner guard.
-    return !contains_runtime_filter(file_request.conjuncts);
+    // Only scanner-driven splits provide a digest rebuilt from the exact RF snapshot. Keep the
+    // conservative behavior for standalone TableReader callers: their initial digest may describe
+    // only static predicate P and must not store P AND RF under that key.
+    return _condition_cache_digest_covers_current_split ||
+           !contains_runtime_filter(file_request.conjuncts);
 }
 
 Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_request) {
@@ -827,6 +830,17 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
     _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
+    _condition_cache_digest_covers_current_split = options.condition_cache_digest.has_value();
+    if (options.condition_cache_digest.has_value()) {
+        // The split snapshot may include RFs that arrived after TableReader::init(). Use the digest
+        // computed from that exact snapshot. Example: an initial P digest must not be used to store
+        // the bitmap for P AND late RF{7, 9}; the scanner supplies digest(P AND RF{7, 9}) here.
+        _condition_cache_digest = *options.condition_cache_digest;
+    } else {
+        // An explicit scanner digest is split-scoped. Restore the init-time digest when a later
+        // standalone split omits it instead of leaking the previous split's RF payload into its key.
+        _condition_cache_digest = _initial_condition_cache_digest;
+    }
     if (options.conjuncts.has_value()) {
         _conjuncts = *options.conjuncts;
     }

@@ -38,7 +38,17 @@ Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
     if (paimon_params.__isset.schema_id) {
         _split_schema_id = paimon_params.schema_id;
     }
-    return format::TableReader::prepare_split(options);
+    RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
+    // Paimon commits data-file changes by adding and logically deleting files in snapshots.
+    // Compaction also writes replacement files and commits them in a new snapshot instead of
+    // modifying an existing Parquet/ORC file in place. Native Paimon data files are therefore
+    // safe to cache by path and size when the split does not provide mtime. Serialized JNI splits
+    // do not reach this reader.
+    mark_current_data_file_immutable();
+    return Status::OK();
 }
 
 format::TableColumnMappingMode PaimonReader::mapping_mode() const {

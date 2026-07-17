@@ -135,7 +135,9 @@ struct TableReadOptions {
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
-    // Digest of stable pushed-down predicates. A zero digest disables condition cache.
+    // Initial digest of predicates available during scanner open. Scanner-driven splits override it
+    // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
+    // A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
 };
 
@@ -154,6 +156,10 @@ struct SplitReadOptions {
     // filter could arrive after synthetic rows have already been returned and those rows cannot be
     // retracted. Standalone TableReader callers have no scanner runtime-filter lifecycle.
     bool all_runtime_filters_applied = true;
+    // Digest for the exact scanner conjunct snapshot attached to this split. FileScannerV2 rebuilds
+    // it after collecting late-arrival RFs, so different RF payloads cannot share a cache entry. A
+    // zero value explicitly disables condition cache for this split.
+    std::optional<uint64_t> condition_cache_digest;
     ShardedKVCache* cache = nullptr;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
@@ -185,6 +191,14 @@ public:
 
 #ifdef BE_TEST
     size_t TEST_batch_size() const { return _batch_size; }
+    bool TEST_current_data_file_is_immutable() const {
+        DORIS_CHECK(_current_task != nullptr);
+        DORIS_CHECK(_current_task->data_file != nullptr);
+        DORIS_CHECK(_current_file_description.has_value());
+        DORIS_CHECK(_current_task->data_file->is_immutable ==
+                    _current_file_description->is_immutable);
+        return _current_task->data_file->is_immutable;
+    }
 #endif
 
     // Prepare for reading a new split/task.
@@ -318,6 +332,19 @@ public:
     }
 
 protected:
+    // TableReader keeps the active file description both in the scan task and separately for
+    // creating the physical reader. Table-format readers must update both copies when their
+    // snapshot protocol guarantees that a file path is never overwritten with different bytes.
+    // This guarantee lets readers safely build cache keys without mtime; it must not be used for
+    // ordinary Hive/TVF files whose paths may be overwritten in place.
+    void mark_current_data_file_immutable() {
+        DORIS_CHECK(_current_task != nullptr);
+        DORIS_CHECK(_current_task->data_file != nullptr);
+        DORIS_CHECK(_current_file_description.has_value());
+        _current_task->data_file->is_immutable = true;
+        _current_file_description->is_immutable = true;
+    }
+
     std::optional<ColumnDefinition> _find_current_table_column_by_field_id(int32_t field_id,
                                                                            DataTypePtr type) const;
 
@@ -1573,7 +1600,12 @@ protected:
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     size_t _batch_size = 0;
+    uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;
+    // True only when prepare_split() received a digest for the exact conjunct snapshot used by
+    // this split. Standalone callers that only supplied TableReadOptions::condition_cache_digest
+    // keep the conservative runtime-filter guard.
+    bool _condition_cache_digest_covers_current_split = false;
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;

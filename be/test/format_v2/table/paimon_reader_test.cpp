@@ -549,6 +549,21 @@ TEST(PaimonReaderTest, ResetsSplitSchemaIdBeforePreparingNextSplit) {
     EXPECT_EQ(reader.TEST_mapping_mode(), TableColumnMappingMode::BY_NAME);
 }
 
+TEST(PaimonReaderTest, NativeDataFilesAreMarkedImmutableForPageCache) {
+    paimon::PaimonReader reader;
+
+    for (const auto format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        SplitReadOptions split_options;
+        split_options.current_split_format = format;
+        split_options.current_range.__set_path("paimon-data-file");
+        split_options.current_range.__set_table_format_params(
+                make_paimon_schema_table_format_desc(100));
+
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        EXPECT_TRUE(reader.TEST_current_data_file_is_immutable());
+    }
+}
+
 // Scenario: Paimon reader should parse its bitmap deletion vector and let TableReader apply the
 // generated row-position delete predicate before returning table rows.
 TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {

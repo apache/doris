@@ -177,6 +177,7 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
                                              .partition_values = {},
                                              .conjuncts = std::nullopt,
                                              .partition_prune_conjuncts = {},
+                                             .condition_cache_digest = std::nullopt,
                                              .cache = nullptr,
                                              .current_range = {},
                                              .current_split_format = FileFormat::JNI,
