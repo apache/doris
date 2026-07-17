@@ -165,20 +165,26 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
         assertEquals(expectedRows, normalizedRows)
     }
 
-    def assertLineageProjectionReadable = { tableName ->
+    def assertLineageProjectionReadable = { tableName, expectNonNullLineage ->
         def rows = sql("""
             select new_new_id, _row_id, _last_updated_sequence_number
             from ${tableName}
             order by new_new_id
         """)
-        logger.info("Row lineage projection after equality delete and Puffin DV for ${tableName}: ${rows}")
-        // The registered equality-delete fixtures are v2 metadata upgraded to v3 at runtime.
-        // Historical data files do not carry first_row_id, so row lineage values should stay NULL.
+        logger.info("Row lineage projection for ${tableName}, expectNonNullLineage=${expectNonNullLineage}: ${rows}")
         assertTrue(rows.size() > 0, "Row lineage projection should return visible rows for ${tableName}")
         rows.each { row ->
-            assertEquals(null, row[1], "_row_id should be NULL for historical v2 data file in ${tableName}, row=${row}")
-            assertEquals(null, row[2],
-                    "_last_updated_sequence_number should be NULL for historical v2 data file in ${tableName}, row=${row}")
+            if (expectNonNullLineage) {
+                assertTrue(row[1] != null,
+                        "_row_id should be non-null after v2-to-v3 write in ${tableName}, row=${row}")
+                assertTrue(row[2] != null,
+                        "_last_updated_sequence_number should be non-null after v2-to-v3 write in ${tableName}, row=${row}")
+            } else {
+                assertEquals(null, row[1],
+                        "_row_id should be NULL before v2-to-v3 write in ${tableName}, row=${row}")
+                assertEquals(null, row[2],
+                        "_last_updated_sequence_number should be NULL before v2-to-v3 write in ${tableName}, row=${row}")
+            }
         }
     }
 
@@ -287,7 +293,7 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
                 assertSparkDorisBusinessRows(tableName)
                 assertSparkDorisAggregateRows(tableName)
                 assertSparkDorisRowsByPredicate(tableName, oldVersionPredicate)
-                assertLineageProjectionReadable(tableName)
+                assertLineageProjectionReadable(tableName, false)
                 assertOnlyEqualityDeleteFilesBeforeDorisDelete(tableName)
 
                 sql """
@@ -299,7 +305,7 @@ suite("test_iceberg_v3_row_lineage_equality_delete_dv_interop", "p0,external,ice
                 assertDorisAggregateRows(tableName, [["6", "6"]])
                 assertDorisRowsByPredicate(tableName, "new_new_id = 2", [])
                 assertSparkDorisRowsByPredicate(tableName, oldVersionPredicate)
-                assertLineageProjectionReadable(tableName)
+                assertLineageProjectionReadable(tableName, true)
                 assertEqualityDeleteAndPuffinDvCoexist(tableName)
             } finally {
                 unregisterSparkTable(tableName)
