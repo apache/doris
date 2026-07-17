@@ -77,7 +77,8 @@ Suite.metaClass.wait_for_last_col_change_finish = { table_name, OpTimeout ->
     def alter_res = []
 
     for (int t = 0; t <= OpTimeout; t += delta_time) {
-        alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+        alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}"
+                ORDER BY CreateTime DESC, JobId DESC LIMIT 1;"""
         if (!alter_res.isEmpty()) {
             def state = alter_res[0][9].toString()
             if (state.equalsIgnoreCase("CANCELLED")) {

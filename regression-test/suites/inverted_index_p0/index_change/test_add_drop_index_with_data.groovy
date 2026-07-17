@@ -262,12 +262,14 @@ suite("test_add_drop_index_with_data", "inverted_index"){
 
 
     // alter table drop multiple index
-    select_result = sql """
-                        ALTER TABLE ${indexTbName1}
-                            DROP INDEX idx_id,
-                            DROP INDEX idx_name,
-                            DROP INDEX idx_desc;
-                    """
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        select_result = sql """
+                            ALTER TABLE ${indexTbName1}
+                                DROP INDEX idx_id,
+                                DROP INDEX idx_name,
+                                DROP INDEX idx_desc;
+                        """
+    }
 
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
