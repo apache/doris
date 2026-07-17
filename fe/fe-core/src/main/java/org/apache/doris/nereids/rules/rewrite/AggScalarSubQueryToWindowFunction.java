@@ -593,8 +593,13 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         //
         // Nested outer-only filters (e.g. d.tag > 0) are safe below and can
         // stay in place after the filters are stripped.
-        List<LogicalFilter<Plan>> nestedOuterFilters = apply.left()
-                .collectToList(LogicalFilter.class::isInstance);
+        //
+        // Use a barrier-aware collector: filters below a retained unsafe
+        // filter are NOT collected, matching stripOuterFilters() semantics.
+        // Otherwise descendant predicates would be reinserted above the join
+        // while the originals remain below the unsafe filter — evaluated
+        // twice per joined row.
+        List<LogicalFilter<Plan>> nestedOuterFilters = collectStrippableFilters(apply.left());
         Set<ExprId> extractedConjunctExprIds = Sets.newHashSet();
         for (LogicalFilter<Plan> nf : nestedOuterFilters) {
             for (Expression conj : nf.getConjuncts()) {
@@ -748,6 +753,29 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     private static boolean isVolatileOrNoneMovable(Expression expr) {
         return expr.containsVolatileExpression()
                 || expr.containsType(NoneMovableFunction.class);
+    }
+
+    /** Collect LogicalFilter nodes that are safe to strip, stopping
+     *  recursion at unsafe-filter barriers (matching the semantics of
+     *  {@link #stripOuterFilters}). */
+    private static List<LogicalFilter<Plan>> collectStrippableFilters(Plan plan) {
+        List<LogicalFilter<Plan>> result = Lists.newArrayList();
+        collectStrippableFilters(plan, result);
+        return result;
+    }
+
+    private static void collectStrippableFilters(Plan plan, List<LogicalFilter<Plan>> result) {
+        if (plan instanceof LogicalFilter) {
+            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            result.add((LogicalFilter<Plan>) plan);
+            if (filter.getConjuncts().stream().anyMatch(
+                    AggScalarSubQueryToWindowFunction::isVolatileOrNoneMovable)) {
+                return; // unsafe filter — stop descending but still collected
+            }
+        }
+        for (Plan child : plan.children()) {
+            collectStrippableFilters(child, result);
+        }
     }
 
     /** True when {@code expr} references any column of a shared table

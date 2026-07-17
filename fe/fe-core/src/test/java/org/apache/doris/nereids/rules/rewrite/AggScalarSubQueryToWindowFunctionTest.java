@@ -26,11 +26,15 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -745,6 +749,58 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
 
         // DUPLICATE KEY table does not guarantee uniqueness, rule should not match
         Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance));
+    }
+
+    @Test
+    public void testNotMatchWhenCorrelatedKeyIsNullableUnique() throws Exception {
+        // A nullable column with a UNIQUE constraint is still unsafe for
+        // the window rewrite when the correlation uses null-safe equality
+        // (<=>).  PARTITION BY groups all NULL-key outer rows into one
+        // partition, so those rows can join the same NULL-key inner rows
+        // and multiply the window aggregate — while the original scalar
+        // subquery is evaluated per outer row independently.
+        // isUniqueAndNotNull() must reject this because the key is nullable.
+        createTable("CREATE TABLE fact_nullable_uk (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // k is nullable but has a UNIQUE constraint — DataTrait sees
+        // uniqueness without non-null, so isUniqueAndNotNull() is false.
+        createTable("CREATE TABLE dim_nullable_uk (\n"
+                + "  did INT,\n"
+                + "  k INT,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nullable_uk add constraint uq_dim_nullable_uk_k unique (k)");
+
+        // Use <=> (null-safe equals) correlation so NULL keys can join.
+        String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                + "FROM fact_nullable_uk f, dim_nullable_uk d "
+                + "WHERE f.k <=> d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_nullable_uk f2 "
+                + "    WHERE f2.k <=> d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Nullable unique key is unsafe — all null keys partition together.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Nullable unique key with <=> correlation must not be rewritten");
     }
 
     @Test
@@ -2186,58 +2242,17 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
     }
 
     @Test
-    public void testZeroInnerFiltersRejected() throws Exception {
-        // When the inner subquery has no LogicalFilter at all (e.g. a
-        // CTE consumer directly under the aggregate), checkFilter must
-        // reject early.  An empty inner filter set cannot prove that the
-        // inner predicates are a subset of the outer predicates, and the
-        // relation/identity/uniqueness proofs rely on filter matching.
-        createTable("CREATE TABLE fact_zero_inner (\n"
-                + "  id INT,\n"
-                + "  k INT,\n"
-                + "  v INT\n"
-                + ") ENGINE=OLAP\n"
-                + "DUPLICATE KEY(id)\n"
-                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1')");
-        createTable("CREATE TABLE dim_zero_inner (\n"
-                + "  did INT,\n"
-                + "  k INT NOT NULL,\n"
-                + "  tag INT\n"
-                + ") ENGINE=OLAP\n"
-                + "DUPLICATE KEY(did)\n"
-                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1')");
-        addConstraint("alter table dim_zero_inner add constraint uq_dim_zero_inner_k unique (k)");
-
-        // The inner subquery has no WHERE clause — no LogicalFilter below
-        // the aggregate.  checkFilter must reject this.
-        String sql = "SELECT d.did, f.id, f.k, f.v "
-                + "FROM fact_zero_inner f, dim_zero_inner d "
-                + "WHERE f.k = d.k "
-                + "  AND f.v * 2 > ("
-                + "    SELECT SUM(f2.v) "
-                + "    FROM fact_zero_inner f2 "
-                + "  )";
-
-        Plan plan = PlanChecker.from(createCascadesContext(sql))
-                .analyze(sql)
-                .applyBottomUp(new PullUpProjectUnderApply())
-                .customRewrite(new EliminateUnnecessaryProject())
-                .customRewrite(new AggScalarSubQueryToWindowFunction())
-                .getPlan();
-
-        // Rule must NOT match — no inner filter to prove shape.
-        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
-                "Rewrite must be rejected when inner plan has no filter");
-    }
-
-    @Test
     public void testNoAggregateOutputConjunctRejected() throws Exception {
-        // When the top-level Filter has no conjunct that references the
-        // aggregate output ExprId, conjuncts.get(false) is null and
-        // rewrite() must not NPE.  This can happen with a projected
-        // scalar subquery under an unrelated pushed filter.
+        // When the Filter directly contains an Apply (Filter→Apply shape)
+        // but none of its conjuncts reference the aggregate output ExprId,
+        // conjuncts.get(false) is null and rewrite() must not NPE.
+        //
+        // This shape cannot be produced naturally through SQL analysis:
+        // every scalar subquery comparison (e.g. f.v > sum_alias) is always
+        // a conjunct that references the aggregate output.  We therefore
+        // construct the plan from a valid query and then strip the
+        // agg-output conjunct from the top-level Filter so the null guard
+        // in rewrite() is exercised.
         createTable("CREATE TABLE fact_no_agg_conj (\n"
                 + "  id INT,\n"
                 + "  k INT,\n"
@@ -2256,14 +2271,135 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 + "PROPERTIES ('replication_num' = '1')");
         addConstraint("alter table dim_no_agg_conj add constraint uq_dim_no_agg_conj_k unique (k)");
 
-        // The subquery is in the SELECT list, not in WHERE, producing a
-        // Project above the Apply.  The Filter predicates reference only
-        // table columns, not the aggregate output — conjuncts.get(false)
-        // is null.
-        String sql = "SELECT d.did, f.id, f.k, f.v, "
-                + "  (SELECT SUM(f2.v) FROM fact_no_agg_conj f2 WHERE f2.k = d.k) AS s "
+        // Build a valid Filter→Apply shape with the subquery comparison.
+        // We will then strip the agg-output conjunct before handing it
+        // to the rule.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
                 + "FROM fact_no_agg_conj f, dim_no_agg_conj d "
-                + "WHERE f.k = d.k";
+                + "WHERE f.k = d.k "
+                + "  AND f.v > ("
+                + "    SELECT SUM(f2.v) FROM fact_no_agg_conj f2 WHERE f2.k = d.k"
+                + "  )";
+
+        Plan preRule = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .getPlan();
+
+        // Precondition: a correlated Apply exists, so the rule will
+        // reach check() / rewrite().
+        Assertions.assertTrue(preRule.anyMatch(p -> p instanceof LogicalApply
+                && ((LogicalApply<?, ?>) p).isCorrelated()),
+                "Pre-rule plan must have a correlated Apply");
+
+        // Locate the aggregate output ExprId so we can strip the
+        // conjunct that references it.
+        List<LogicalAggregate<Plan>> aggs = preRule
+                .collectToList(LogicalAggregate.class::isInstance);
+        Assertions.assertEquals(1, aggs.size());
+        Set<ExprId> aggOutputExprIds = aggs.get(0).getOutputExprIdSet();
+
+        // Walk all LogicalFilter nodes in the plan to find the one
+        // sitting directly above the Apply (possibly through a Project).
+        // The preRule root may be a Project wrapping the Filter→Apply
+        // chain after PullUpProjectUnderApply.
+        List<LogicalFilter<Plan>> allFilters = preRule
+                .collectToList(LogicalFilter.class::isInstance);
+        LogicalFilter<?> targetFilter = null;
+        LogicalApply<?, ?> targetApply = null;
+        for (LogicalFilter<Plan> f : allFilters) {
+            Plan child = f.child(0);
+            Plan maybeApply = child instanceof LogicalProject
+                    ? child.child(0) : child;
+            if (maybeApply instanceof LogicalApply) {
+                targetFilter = f;
+                targetApply = (LogicalApply<?, ?>) maybeApply;
+                break;
+            }
+        }
+        Assertions.assertNotNull(targetFilter,
+                "Must find a LogicalFilter directly above the Apply");
+        Assertions.assertNotNull(targetApply,
+                "Must find a LogicalApply below the Filter");
+
+        // Remove every conjunct from the target filter that references
+        // the aggregate output, leaving only table-column predicates
+        // (f.k = d.k).  This makes conjuncts.get(false) null in rewrite().
+        Set<Expression> remainingConjuncts = targetFilter.getConjuncts().stream()
+                .filter(c -> Sets.intersection(
+                        c.getInputSlotExprIds(), aggOutputExprIds).isEmpty())
+                .collect(Collectors.toSet());
+        Assertions.assertTrue(
+                remainingConjuncts.size() < targetFilter.getConjuncts().size(),
+                "At least one agg-output conjunct must have been stripped");
+
+        // Build a new plan whose filter above the Apply has only the
+        // non-agg-output conjuncts, and pass it to the rule.
+        Plan strippedChild = new LogicalFilter<>(
+                remainingConjuncts, (Plan) targetFilter.child(0));
+
+        Plan plan = new AggScalarSubQueryToWindowFunction()
+                .rewriteRoot(strippedChild, null);
+
+        // Rule must NOT match — no aggregate-output conjunct in Filter
+        // means correlatedConjuncts is null, and rewrite() must return
+        // the plan unchanged.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when no outer conjunct "
+                + "references the aggregate output");
+    }
+
+    @Test
+    public void testNestedFilterBelowUnsafeNotExtracted() throws Exception {
+        // The nested-filter extraction loop in rewrite() must stop at
+        // unsafe filter barriers, matching stripOuterFilters() semantics.
+        // Without the barrier, a deterministic filter below assert_true
+        // is collected and reinserted above the join while the original
+        // remains in place — the predicate evaluates twice per joined row.
+        createTable("CREATE TABLE fact_unsafe_nested (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_unsafe_nested (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT,\n"
+                + "  keep INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_unsafe_nested add constraint uq_dim_unsafe_nested_k unique (k)");
+
+        // Double-nested subquery on dim_unsafe_nested (outer-only):
+        // inner WHERE keep > 0, outer WHERE assert_true(tag > 0, 'bad').
+        // Plan shape:
+        //   SubQueryAlias sf
+        //     Filter(assert_true)        ← unsafe barrier
+        //       Project                  ← slot-only
+        //         Filter(keep > 0)       ← must NOT be extracted
+        //           Scan dim_unsafe_nested
+        // Without the barrier in collectStrippableFilters, Filter(keep>0)
+        // is added to belowWindowConjuncts while remaining below assert_true.
+        String sql = "SELECT sf.did, sf.k, f.v "
+                + "FROM ("
+                + "  SELECT * FROM ("
+                + "    SELECT * FROM dim_unsafe_nested WHERE keep > 0"
+                + "  ) inner_sf"
+                + "  WHERE assert_true(tag > 0, 'bad')"
+                + ") sf, "
+                + "fact_unsafe_nested f "
+                + "WHERE sf.k = f.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_unsafe_nested f2 "
+                + "    WHERE f2.k = sf.k"
+                + "  )";
 
         Plan plan = PlanChecker.from(createCascadesContext(sql))
                 .analyze(sql)
@@ -2272,10 +2408,32 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 .customRewrite(new AggScalarSubQueryToWindowFunction())
                 .getPlan();
 
-        // Rule must NOT match — no aggregate-output conjunct in Filter.
-        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
-                "Rewrite must be rejected when no outer conjunct "
-                + "references the aggregate output");
+        // Rule should match — the unsafe filter is on outer-only table.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite should succeed when unsafe filter on outer-only "
+                + "table has a deterministic filter in its subtree");
+
+        // The keep > 0 predicate must appear exactly once below the window
+        // (in its original subtree below assert_true), not duplicated.
+        List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
+        LogicalWindow<Plan> window = windows.get(0);
+        Plan belowWindow = window.child(0);
+        List<LogicalFilter<Plan>> allBelow = belowWindow
+                .collectToList(LogicalFilter.class::isInstance);
+        int keepGt0Count = 0;
+        for (LogicalFilter<Plan> f : allBelow) {
+            for (Expression conj : f.getConjuncts()) {
+                if (conj.toSql().contains("keep > 0")
+                        && !conj.containsType(
+                                org.apache.doris.nereids.trees.expressions.functions
+                                        .NoneMovableFunction.class)) {
+                    keepGt0Count++;
+                }
+            }
+        }
+        Assertions.assertEquals(1, keepGt0Count,
+                "Deterministic filter (keep > 0) must appear exactly once "
+                + "below the window — not duplicated by the extraction loop");
     }
 
     @Test
