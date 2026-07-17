@@ -82,21 +82,23 @@ suite("test_file_tvf_s3", "p0") {
             "format" = "parquet"
         );
         """
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            try {
-                order_qt_s3_tvf tvfSql
-                return
-            } catch (java.sql.SQLException e) {
-                boolean isS3ConnectTimeout = e.message?.contains("errCode = 202")
-                        && e.message?.contains("Failed to access object storage")
-                        && e.message?.contains("Connect timed out")
-                if (!isS3ConnectTimeout || attempt == 2) {
-                    throw e
+        quickTest("s3_tvf", tvfSql, true, {
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                try {
+                    return executeQueryByTag("s3_tvf", tvfSql)
+                } catch (java.sql.SQLException e) {
+                    boolean isS3ConnectTimeout = e.message?.contains("errCode = 202")
+                            && e.message?.contains("Failed to access object storage")
+                            && e.message?.contains("Connect timed out")
+                    if (!isS3ConnectTimeout || attempt == 2) {
+                        throw e
+                    }
+                    logger.warn("FILE TVF connection to S3 endpoint ${s3_endpoint} timed out, retrying once")
+                    sleep(5000)
                 }
-                logger.warn("FILE TVF connection to S3 endpoint ${s3_endpoint} timed out, retrying once")
-                sleep(5000)
             }
-        }
+            throw new IllegalStateException("Unreachable")
+        })
     }
 
 
