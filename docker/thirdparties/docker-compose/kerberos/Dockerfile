@@ -19,7 +19,7 @@ FROM apache/hive:3.1.3
 
 USER root
 
-RUN apt-get update \
+RUN apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
         krb5-admin-server \
         krb5-kdc \
