@@ -30,7 +30,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
-import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 
 import com.google.common.collect.Lists;
 import org.junit.After;

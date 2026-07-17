@@ -21,9 +21,9 @@ import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

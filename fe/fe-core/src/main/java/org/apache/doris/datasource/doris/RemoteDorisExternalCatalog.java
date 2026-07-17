@@ -21,8 +21,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
 import org.apache.doris.thrift.TNetworkAddress;
 

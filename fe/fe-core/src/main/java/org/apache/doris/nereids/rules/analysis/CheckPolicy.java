@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.datasource.ConnectorExpressionToNereidsConverter;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.connector.converter.ConnectorExpressionToNereidsConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.rules.Rule;

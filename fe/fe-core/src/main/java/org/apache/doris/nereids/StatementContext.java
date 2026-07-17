@@ -1337,7 +1337,7 @@ public class StatementContext implements Closeable {
 
     /**
      * Set the RAW data-file paths a distributed rewrite group must scope its scan to (post-flip neutral
-     * path, consumed by {@link org.apache.doris.datasource.PluginDrivenScanNode}).
+     * path, consumed by {@link org.apache.doris.datasource.scan.PluginDrivenScanNode}).
      */
     public void setRewriteSourceFilePaths(List<String> paths) {
         this.rewriteSourceFilePaths = paths;

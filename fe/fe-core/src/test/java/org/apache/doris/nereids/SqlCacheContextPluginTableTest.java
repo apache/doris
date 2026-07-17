@@ -21,7 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.nereids.SqlCacheContext.TableVersion;
 
 import com.google.common.collect.Maps;

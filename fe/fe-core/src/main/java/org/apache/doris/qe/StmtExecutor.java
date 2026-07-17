@@ -64,7 +64,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
