@@ -157,15 +157,18 @@ bool CacheSourceLocalState::_account_write_back(int64_t rows, int64_t bytes) {
     return true;
 }
 
-Status CacheSourceLocalState::_append_block_for_write_back(Block& block) {
+Status CacheSourceLocalState::_append_block_for_write_back(const Block& block) {
     if (!_account_write_back(block.rows(), block.allocated_bytes())) {
         return Status::OK();
     }
-    auto& cloned = _local_cache_blocks.emplace_back(Block::create_unique());
-    cloned->swap(block.clone_empty());
-    ScopedMutableBlock scoped_mutable_block(cloned.get());
-    auto& mutable_block = scoped_mutable_block.mutable_block();
-    RETURN_IF_ERROR(mutable_block.merge(block));
+    // Zero-copy snapshot: inserting shares the COW column pointers instead
+    // of cloning the payload. The cached columns stay alive (and immutable)
+    // through the decision's entry pin until QueryCache::insert() deep-copies
+    // the accumulated set once.
+    auto& kept = _local_cache_blocks.emplace_back(Block::create_unique());
+    for (const auto& column : block.get_columns_with_type_and_name()) {
+        kept->insert(column);
+    }
     return Status::OK();
 }
 
@@ -235,17 +238,24 @@ Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
             scoped_mutable_block.restore();
         }
         if (local_state._is_incremental && local_state._need_insert_cache) {
-            // The emitted block is already reordered to this query's slot
-            // orders; keep a copy so the written-back entry holds
-            // "cached + delta" under one consistent slot order.
-            RETURN_IF_ERROR(local_state._append_block_for_write_back(*block));
+            // Snapshot the cached block (already in this query's slot order)
+            // for the write-back, so the new entry holds "cached + delta"
+            // under one consistent slot order. The snapshot shares the COW
+            // columns of the pinned entry, so no payload is copied before
+            // the insert-time materialization.
+            RETURN_IF_ERROR(local_state._append_block_for_write_back(*cache_block_to_merge));
         }
     } else if (local_state._hit_cache_results != nullptr && !local_state._is_incremental) {
         // HIT: all cached blocks are emitted.
         *eos = true;
     } else {
         // MISS, or the delta phase of INCREMENTAL after the cached blocks.
-        Defer insert_cache([&] {
+        // The entry is committed only from the explicit success paths below,
+        // never during error unwinding: on the final delta block *eos is set
+        // BEFORE the block is merged, so a deferred/unconditional commit
+        // would publish an entry that is missing the failed block under the
+        // current version, and a later exact hit would silently serve it.
+        auto commit_entry_if_finished = [&]() {
             if (*eos) {
                 local_state.custom_profile()->add_info_string(
                         "InsertCache", std::to_string(local_state._need_insert_cache));
@@ -256,9 +266,18 @@ Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
                                                       local_state._current_query_cache_bytes,
                                                       local_state._insert_delta_count);
                     local_state._local_cache_blocks.clear();
+                    // Latch off so the commit is exactly-once by construction:
+                    // a spurious re-poll after eos (no in-tree driver does
+                    // this today) would otherwise re-publish the now-cleared,
+                    // EMPTY block set over the entry just inserted, and later
+                    // exact hits would silently serve an empty result. This
+                    // is the only source operator whose eos path carries a
+                    // global side effect, so it must not rely on the pull
+                    // protocol never poking it again.
+                    local_state._need_insert_cache = false;
                 }
             }
-        });
+        };
 
         std::unique_ptr<Block> output_block;
         int child_idx = 0;
@@ -269,6 +288,7 @@ Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
         *eos = !_has_data(state) && local_state._shared_state->data_queue.is_all_finish();
 
         if (!output_block) {
+            commit_entry_if_finished();
             return Status::OK();
         }
 
@@ -287,6 +307,7 @@ Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
         } else {
             *block = std::move(*output_block);
         }
+        commit_entry_if_finished();
     }
 
     local_state.reached_limit(block, eos);

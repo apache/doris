@@ -180,7 +180,11 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache1) {
                 block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5})));
         EXPECT_EQ(query_cache->get_element_count(), 1);
     }
-    EXPECT_TRUE(source_local_state->_need_insert_cache);
+    // A successful commit latches the flag off (the insert is exactly-once);
+    // that the query cached at all is asserted by the element count above,
+    // in contrast to test_no_hit_cache2 where the over-limit entry is
+    // dropped and the count stays 0.
+    EXPECT_FALSE(source_local_state->_need_insert_cache);
 }
 
 TEST_F(QueryCacheOperatorTest, test_no_hit_cache2) {
@@ -858,7 +862,7 @@ TEST_F(QueryCacheOperatorTest, test_incremental_reordered_write_back) {
     }
     // ONE output block reused across pulls, like the pipeline driver: the
     // second cached pull must permute correctly into the schema-carrying
-    // reused block before its write-back copy is taken.
+    // reused block before its write-back snapshot is taken.
     Block block;
     for (int i = 0; i < 2; ++i) {
         // Both cached blocks flow out permuted, without merge errors.
@@ -867,6 +871,18 @@ TEST_F(QueryCacheOperatorTest, test_incremental_reordered_write_back) {
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_FALSE(eos);
     }
+    // The write-back snapshots are zero-copy views over the pinned entry's
+    // columns (in this query's order), not payload copies: the single
+    // materialization happens at insert time.
+    const auto& pinned_blocks = *source_local_state->_cache_decision->handle.get_cache_result();
+    const auto& kept_blocks = source_local_state->_local_cache_blocks;
+    ASSERT_EQ(kept_blocks.size(), 2);
+    const auto* pinned_first_int64 = pinned_blocks[0]->get_by_position(1).column.get();
+    EXPECT_EQ(kept_blocks[0]->get_by_position(0).column.get(), pinned_first_int64);
+    EXPECT_EQ(kept_blocks[0]->get_by_position(1).column.get(),
+              pinned_blocks[0]->get_by_position(0).column.get());
+    EXPECT_EQ(kept_blocks[1]->get_by_position(0).column.get(),
+              pinned_blocks[1]->get_by_position(1).column.get());
     {
         // Then the delta.
         bool eos = false;
@@ -883,6 +899,9 @@ TEST_F(QueryCacheOperatorTest, test_incremental_reordered_write_back) {
     EXPECT_EQ(*handle.get_cache_slot_orders(), (std::vector<int> {10, 11}));
     const auto& cached_blocks = *handle.get_cache_result();
     EXPECT_EQ(cached_blocks.size(), 3);
+    // The insert materialized one cache-owned copy: the new entry does not
+    // alias the old pinned columns.
+    EXPECT_NE(cached_blocks[0]->get_by_position(0).column.get(), pinned_first_int64);
     Block expected0({ColumnHelper::create_column_with_name<DataTypeInt64>({10, 20}),
                      ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2})});
     EXPECT_TRUE(ColumnHelper::block_equal(*cached_blocks[0], expected0))
@@ -895,6 +914,106 @@ TEST_F(QueryCacheOperatorTest, test_incremental_reordered_write_back) {
                      ColumnHelper::create_column_with_name<DataTypeInt32>({4})});
     EXPECT_TRUE(ColumnHelper::block_equal(*cached_blocks[2], expected2))
             << cached_blocks[2]->dump_data();
+
+    {
+        // A spurious re-poll after eos must not re-publish: the commit is
+        // latched off after the insert, so with the write-back set already
+        // cleared the merged entry keeps its three blocks instead of being
+        // replaced by an EMPTY set under the same version.
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(eos);
+        doris::QueryCacheHandle repoll_handle;
+        EXPECT_TRUE(query_cache->lookup(cache_key, 114514, &repoll_handle));
+        EXPECT_EQ(repoll_handle.get_cache_result()->size(), 3);
+    }
+}
+
+TEST_F(QueryCacheOperatorTest, test_failed_final_delta_merge_publishes_nothing) {
+    // On the final delta block, eos is observed BEFORE the block is merged:
+    // if that merge fails, the entry must NOT be committed, or an incomplete
+    // prefix (cached blocks plus earlier deltas, missing the failed block)
+    // would be served as the current version by later exact hits. The
+    // malformed two-column final block makes the merge fail determinately.
+    sink = std::make_unique<CacheSinkOperatorX>();
+    source = std::make_unique<CacheSourceOperatorX>();
+    EXPECT_TRUE(source->set_child(child_op));
+    child_op->_mock_row_desc.reset(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[0] = 0;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+    cache_param.__set_allow_incremental(true);
+
+    std::string cache_key;
+    int64_t version = 0;
+    EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
+    {
+        CacheResult result;
+        result.push_back(std::make_unique<Block>());
+        *result.back() = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
+        query_cache->insert(cache_key, 100, result, {0}, 1, /*delta_count=*/0);
+    }
+
+    source->_cache_param = cache_param;
+    source->_query_cache_runtime = std::make_shared<QueryCacheRuntime>(cache_param, query_cache);
+    {
+        auto decision = std::make_shared<QueryCacheInstanceDecision>();
+        decision->mode = QueryCacheInstanceDecision::Mode::INCREMENTAL;
+        decision->key_valid = true;
+        decision->cache_key = cache_key;
+        decision->current_version = version;
+        decision->cached_version = 100;
+        decision->cached_delta_count = 0;
+        EXPECT_TRUE(query_cache->lookup_any_version(cache_key, &decision->handle));
+        source->_query_cache_runtime->inject_decision_for_test(cache_key, decision);
+    }
+    // Pin the schema-carrying reused-block shape (rationale in
+    // test_hit_cache_multi_block_reordered_slots): with the default empty row
+    // descriptor the reused block is wiped every pull and re-cloned from the
+    // incoming block, so the malformed final block would merge into a clone
+    // of itself and SUCCEED, unbinding this test from the bug it guards.
+    source->_row_descriptor._num_materialized_slots = 1;
+    create_local_state();
+    EXPECT_TRUE(source_local_state->_need_insert_cache);
+
+    {
+        // A good delta block, then a malformed final one.
+        auto good = ColumnHelper::create_block<DataTypeInt64>({6, 7});
+        EXPECT_TRUE(sink->sink(state.get(), &good, false).ok());
+        auto bad = Block({ColumnHelper::create_column_with_name<DataTypeInt64>({8}),
+                          ColumnHelper::create_column_with_name<DataTypeInt64>({9})});
+        EXPECT_TRUE(sink->sink(state.get(), &bad, true).ok());
+    }
+    Block block;
+    {
+        // Cached block, then the good delta block.
+        bool eos = false;
+        EXPECT_TRUE(source->get_block(state.get(), &block, &eos).ok());
+        EXPECT_FALSE(eos);
+        EXPECT_TRUE(source->get_block(state.get(), &block, &eos).ok());
+        EXPECT_FALSE(eos);
+    }
+    {
+        // The final block: eos flips to true first, then the merge fails.
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_FALSE(st.ok());
+    }
+
+    // Nothing was committed: no entry at the current version, and the stale
+    // entry still carries version 100 untouched.
+    doris::QueryCacheHandle handle;
+    EXPECT_FALSE(query_cache->lookup(cache_key, 114514, &handle));
+    doris::QueryCacheHandle stale_handle;
+    EXPECT_TRUE(query_cache->lookup_any_version(cache_key, &stale_handle));
+    EXPECT_EQ(stale_handle.get_cache_version(), 100);
 }
 
 } // namespace doris

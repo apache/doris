@@ -53,10 +53,14 @@ private:
     // itself still passes through to the parent). Returns whether the entry is
     // still cacheable.
     bool _account_write_back(int64_t rows, int64_t bytes);
-    // Clone `block` (already reordered to this query's slot orders) into the
-    // write-back set. Used in INCREMENTAL mode for the cached blocks, so the
-    // written-back entry holds "cached + delta" under one consistent order.
-    Status _append_block_for_write_back(Block& block);
+    // Snapshot `block` (already reordered to this query's slot orders) into
+    // the write-back set as a zero-copy view sharing its COW columns. Used in
+    // INCREMENTAL mode for the cached blocks, whose columns belong to the
+    // entry the decision pins: the write-back set then costs no extra memory
+    // until QueryCache::insert() performs the single cache-owned
+    // materialization, so a replacement peaks at old entry + new entry
+    // instead of three full payloads.
+    Status _append_block_for_write_back(const Block& block);
 
     QueryCache* _global_cache = QueryCache::instance();
 
