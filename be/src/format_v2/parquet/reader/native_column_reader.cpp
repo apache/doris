@@ -35,9 +35,9 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
-#include "format/parquet/vparquet_file_metadata.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_file_context.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format::parquet {
@@ -155,7 +155,7 @@ NativeColumnReader::~NativeColumnReader() {
 
 Status NativeColumnReader::create(
         const ParquetColumnSchema& column_schema, const format::LocalColumnIndex* projection,
-        io::FileReaderSPtr file, const FileMetaData* metadata, int row_group_id,
+        io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
         const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
         const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
@@ -204,8 +204,8 @@ Status NativeColumnReader::create(
 }
 
 Status NativeColumnReader::init(
-        io::FileReaderSPtr file, const FileMetaData* metadata, int row_group_id, FieldSchema* field,
-        std::shared_ptr<TableSchemaChangeHelper::Node> schema_node,
+        io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
+        FieldSchema* field, std::shared_ptr<TableSchemaChangeHelper::Node> schema_node,
         std::set<uint64_t> projected_column_ids, const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
         const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
@@ -308,7 +308,13 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     if (_nested && _profile.nested_batches != nullptr) {
         COUNTER_UPDATE(_profile.nested_batches, 1);
     }
-    _native_reader->release_batch_scratch(MAX_RETAINED_BATCH_SCRATCH_BYTES);
+    // Retained-capacity inspection walks the native reader tree. Check it periodically instead of
+    // on every small batch; row-group destruction is still the hard lifetime bound for scratch.
+    constexpr size_t SCRATCH_CHECK_BATCH_INTERVAL = 16;
+    if (++_batches_since_scratch_check >= SCRATCH_CHECK_BATCH_INTERVAL) {
+        _native_reader->release_batch_scratch(MAX_RETAINED_BATCH_SCRATCH_BYTES);
+        _batches_since_scratch_check = 0;
+    }
     if (*rows_read != rows) {
         return Status::Corruption("Native parquet reader returned {} rows, expected {} for {}",
                                   *rows_read, rows, _name);
@@ -381,11 +387,11 @@ Status NativeColumnReader::skip(int64_t rows) {
             remaining -= gap;
             continue;
         }
-        const int64_t selected_rows =
-                std::min(remaining, range.start + range.length - _logical_row_position);
+        const int64_t selected_rows = detail::bounded_native_lazy_skip_rows(
+                std::min(remaining, range.start + range.length - _logical_row_position));
         _skip_column->clear();
-        // resize() preserves survivor bytes from the previous select(). An all-filtered nested read
-        // consumes the raw bitmap, so every slot must be explicitly reset before a lazy skip.
+        // Pending skips can span many filtered batches and are replayed for every lazy column.
+        // Chunking here bounds each dense bitmap while preserving one logical scheduler skip.
         _filter_scratch.assign(static_cast<size_t>(selected_rows), 0);
         int64_t rows_read = 0;
         RETURN_IF_ERROR(read_with_filter(selected_rows, _filter_scratch.data(), true, _skip_column,

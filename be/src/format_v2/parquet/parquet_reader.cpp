@@ -436,6 +436,10 @@ Status ParquetReader::init(RuntimeState* state) {
                        _state->file_context.native_footer_read_calls);
         COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
                        _state->file_context.native_footer_cache_hits);
+        COUNTER_UPDATE(_parquet_profile.arrow_metadata_adapter_time,
+                       _state->file_context.arrow_metadata_adapter_time);
+        COUNTER_UPDATE(_parquet_profile.arrow_metadata_adapter_bytes,
+                       _state->file_context.arrow_metadata_adapter_bytes);
     }
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
@@ -545,7 +549,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.metadata, _state->file_context.file_reader.get(),
             _state->file_schema, *request_snapshot, scan_range, _state->enable_bloom_filter,
-            &row_group_plan, _state->timezone, _state->runtime_state));
+            &row_group_plan, _state->timezone, _state->runtime_state, &_state->file_context));
     if (_profile != nullptr) {
         _parquet_profile.update_pruning_stats(row_group_plan.pruning_stats);
     }

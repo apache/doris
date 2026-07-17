@@ -23,8 +23,8 @@
 
 #include "common/config.h"
 #include "format/parquet/schema_desc.h"
-#include "format/parquet/vparquet_file_metadata.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/reader/native/level_reader.h"
 #include "runtime/runtime_profile.h"
 
@@ -97,7 +97,7 @@ CountColumnReader::~CountColumnReader() {
     sync_profile();
 }
 
-Status CountColumnReader::create(io::FileReaderSPtr file, const FileMetaData* metadata,
+Status CountColumnReader::create(io::FileReaderSPtr file, const NativeParquetMetadata* metadata,
                                  int row_group_id, const ParquetColumnSchema& root_schema,
                                  const format::LocalColumnIndex* projection, io::IOContext* io_ctx,
                                  bool enable_page_cache, const std::string& page_cache_file_key,

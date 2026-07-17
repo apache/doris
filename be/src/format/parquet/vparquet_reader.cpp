@@ -368,8 +368,7 @@ Status ParquetReader::_open_file() {
             _reader_statistics.file_footer_read_calls += 1;
         } else {
             const auto& file_meta_cache_key =
-                    FileMetaCache::get_key(_tracing_file_reader, _file_description,
-                                           enable_mapping_varbinary, enable_mapping_timestamp_tz);
+                    FileMetaCache::get_key(_tracing_file_reader, _file_description);
             if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
                 RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
                                                     &meta_size, _io_ctx, enable_mapping_varbinary,

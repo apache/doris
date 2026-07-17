@@ -51,6 +51,7 @@
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/parquet/reader/native_column_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
@@ -344,6 +345,23 @@ void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group
     write_table(file_path, table, row_group_size, false, false, enable_statistics);
 }
 
+void write_long_prefix_parquet_file(const std::string& file_path, size_t rows) {
+    std::vector<int32_t> ids(rows);
+    std::vector<int32_t> first(rows);
+    std::vector<int32_t> second(rows);
+    std::iota(ids.begin(), ids.end(), 0);
+    for (size_t row = 0; row < rows; ++row) {
+        first[row] = static_cast<int32_t>(row + 10);
+        second[row] = static_cast<int32_t>(row + 20);
+    }
+    auto schema = arrow::schema({arrow::field("id", arrow::int32(), false),
+                                 arrow::field("first", arrow::int32(), false),
+                                 arrow::field("second", arrow::int32(), false)});
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array(ids), build_int32_array(first), build_int32_array(second)});
+    write_table(file_path, table, rows, false, false, false);
+}
+
 void write_binary_minmax_parquet_file(const std::string& file_path) {
     auto schema = arrow::schema({
             arrow::field("text", arrow::utf8(), false),
@@ -538,6 +556,34 @@ TEST(ParquetScanAdaptivePredicateTest, OrdersByObservedCostPerRejectedRow) {
     EXPECT_EQ(prefetched, std::vector<size_t>({1}));
 }
 
+TEST(ParquetScanAdaptivePredicateTest, SamplesWarmupThenAtLowFrequency) {
+    using format::parquet::detail::should_sample_adaptive_predicate;
+    for (size_t samples = 0; samples < 8; ++samples) {
+        EXPECT_TRUE(should_sample_adaptive_predicate(samples, samples));
+    }
+    EXPECT_FALSE(should_sample_adaptive_predicate(8, 9));
+    EXPECT_TRUE(should_sample_adaptive_predicate(8, 16));
+    EXPECT_FALSE(should_sample_adaptive_predicate(9, 17));
+    EXPECT_TRUE(should_sample_adaptive_predicate(9, 32));
+}
+
+TEST(ParquetScanSmallFileTest, StagesOnlyBoundedHttpObjects) {
+    using format::parquet::detail::should_stage_small_http_file;
+    EXPECT_TRUE(should_stage_small_http_file("http://host/tiny.parquet", 512, 1024));
+    EXPECT_TRUE(should_stage_small_http_file("https://host/tiny.parquet", 1024, 1024));
+    EXPECT_FALSE(should_stage_small_http_file("https://host/large.parquet", 1025, 1024));
+    EXPECT_FALSE(should_stage_small_http_file("/tmp/tiny.parquet", 512, 1024));
+    EXPECT_FALSE(should_stage_small_http_file("s3://bucket/tiny.parquet", 512, 1024));
+}
+
+TEST(ParquetScanSelectionTest, NativeLazySkipBitmapIsBounded) {
+    using format::parquet::detail::MAX_NATIVE_LAZY_SKIP_ROWS;
+    using format::parquet::detail::bounded_native_lazy_skip_rows;
+    EXPECT_EQ(bounded_native_lazy_skip_rows(1), 1);
+    EXPECT_EQ(bounded_native_lazy_skip_rows(MAX_NATIVE_LAZY_SKIP_ROWS + 1),
+              MAX_NATIVE_LAZY_SKIP_ROWS);
+}
+
 TEST_F(ParquetScanTest, PlanRowGroupsAppliesScanRangeBeforeStatistics) {
     write_int_pair_parquet_file(_file_path, 2);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
@@ -628,7 +674,8 @@ TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater
              .first_file_row = ConditionCacheContext::GRANULE_SIZE,
              .row_group_rows = ConditionCacheContext::GRANULE_SIZE,
              .selected_ranges = {{.start = 0, .length = ConditionCacheContext::GRANULE_SIZE}},
-             .page_skip_plans = {}});
+             .page_skip_plans = {},
+             .offset_indexes = {}});
 
     format::parquet::ParquetScanScheduler scheduler;
     scheduler.set_plan(std::move(plan));
@@ -1162,7 +1209,8 @@ TEST_F(ParquetScanTest, PredicateColumnsFilterRoundByRound) {
     while (!eof) {
         Block block = build_file_block(schema);
         size_t rows = 0;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        const auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
         if (rows == 0) {
             continue;
         }
@@ -1181,6 +1229,9 @@ TEST_F(ParquetScanTest, PredicateColumnsFilterRoundByRound) {
     EXPECT_EQ(counter_value(profile, "RawRowsRead"), 6);
     EXPECT_EQ(counter_value(profile, "SelectedRows"), 2);
     EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 4);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 1);
+    EXPECT_GT(counter_value(profile, "PredicateCompactionBytes"), 0);
+    ASSERT_NE(profile.get_counter("PredicateCompactionTime"), nullptr);
     EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 10);
     EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 4);
     EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 2);
@@ -1295,6 +1346,35 @@ TEST_F(ParquetScanTest, PendingLazySkipDoesNotCrossRowGroupReset) {
 
     EXPECT_EQ(scores, std::vector<int32_t>({30, 40, 50, 60}));
     EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 0);
+}
+
+TEST_F(ParquetScanTest, LongFilteredPrefixSkipsMultipleLazyColumnsInBoundedChunks) {
+    constexpr size_t ROWS = 70000;
+    write_long_prefix_parquet_file(_file_path, ROWS);
+    auto reader = create_reader();
+    reader->set_batch_size(1024);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(2)).ok());
+    request->conjuncts.push_back(
+            create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, ROWS - 1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_element(0), ROWS - 1);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_element(0), ROWS + 9);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(2).column).get_element(0), ROWS + 19);
 }
 
 // Scenario: a nested lazy column stays behind while id=1 is rejected. Flushing skip(1) must consume

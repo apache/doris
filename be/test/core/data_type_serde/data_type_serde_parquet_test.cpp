@@ -73,6 +73,13 @@ public:
         ++_dictionary_generation;
     }
 
+    template <typename T>
+    void set_fixed_dictionary(const std::vector<T>& values, std::vector<uint32_t> indices) {
+        std::vector<uint8_t> encoded(values.size() * sizeof(T));
+        memcpy(encoded.data(), values.data(), encoded.size());
+        set_dictionary(std::move(encoded), sizeof(T), std::move(indices));
+    }
+
     Status decode_fixed_values(size_t num_values, ParquetFixedValueConsumer& consumer) override {
         DORIS_CHECK_LE((_fixed_offset + num_values) * _value_width, _fixed_values.size());
         const uint8_t* begin = _fixed_values.data() + _fixed_offset * _value_width;
@@ -187,6 +194,138 @@ TEST(DataTypeSerDeParquetTest, RescalesFixedBinaryDecimalDirectly) {
     const auto& data = assert_cast<const ColumnDecimal64&>(*column).get_data();
     EXPECT_EQ(data[0].value, 12340);
     EXPECT_EQ(data[1].value, -12340);
+}
+
+TEST(DataTypeSerDeParquetTest, RescalesExactIntegerDecimalsWithoutRowFailures) {
+    TestParquetDecodeSource source;
+    source.set_fixed_values<int32_t>({12300, -98700, 2147483600});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .logical_type = ParquetLogicalType::DECIMAL,
+                                  .decimal_precision = 10,
+                                  .decimal_scale = 4};
+    ParquetMaterializationState state;
+    DataTypeDecimal64 type(9, 2);
+    auto column = type.create_column();
+
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 3, state).ok());
+    const auto& data = assert_cast<const ColumnDecimal64&>(*column).get_data();
+    // Exact scale reduction can stay on the fast integer path without per-row failure bookkeeping.
+    EXPECT_EQ(data[0].value, 123);
+    EXPECT_EQ(data[1].value, -987);
+    EXPECT_EQ(data[2].value, 21474836);
+}
+
+TEST(DataTypeSerDeParquetTest, DecimalScaleDownRejectsLossyPlainAndDictionaryValues) {
+    ParquetDecodeContext plain_context {.physical_type = ParquetPhysicalType::INT32,
+                                        .logical_type = ParquetLogicalType::DECIMAL,
+                                        .decimal_precision = 6,
+                                        .decimal_scale = 2};
+    DataTypeDecimal32 type(5, 1);
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int32_t>({1230, 1234});
+        IColumn::Filter null_map(2, 0);
+        ParquetMaterializationState state;
+        state.conversion_failure_null_map = &null_map;
+        auto column = type.create_column();
+
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, plain_context, 2, state)
+                            .ok());
+        const auto& data = assert_cast<const ColumnDecimal32&>(*column).get_data();
+        EXPECT_EQ(data[0].value, 123);
+        EXPECT_EQ(data[1].value, 0);
+        EXPECT_EQ(null_map, IColumn::Filter({0, 1}));
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int32_t>({1234});
+        ParquetMaterializationState state;
+        state.enable_strict_mode = true;
+        auto column = type.create_column();
+        EXPECT_FALSE(type.get_serde()
+                             ->read_column_from_parquet(*column, source, plain_context, 1, state)
+                             .ok());
+        EXPECT_EQ(column->size(), 0);
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_dictionary<int32_t>({1230, 1234}, {1, 0, 1});
+        auto dictionary_context = plain_context;
+        dictionary_context.encoding = ParquetValueEncoding::DICTIONARY;
+        IColumn::Filter null_map(3, 0);
+        ParquetMaterializationState state;
+        state.conversion_failure_null_map = &null_map;
+        auto column = type.create_column();
+
+        ASSERT_TRUE(
+                type.get_serde()
+                        ->read_column_from_parquet(*column, source, dictionary_context, 3, state)
+                        .ok());
+        const auto& data = assert_cast<const ColumnDecimal32&>(*column).get_data();
+        EXPECT_EQ(data[1].value, 123);
+        EXPECT_EQ(null_map, IColumn::Filter({1, 0, 1}));
+    }
+}
+
+TEST(DataTypeSerDeParquetTest, DecimalUsesWideIntermediateBeforeNarrowing) {
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                  .logical_type = ParquetLogicalType::DECIMAL,
+                                  .decimal_precision = 19,
+                                  .decimal_scale = 0};
+    DataTypeDecimal32 type(9, 0);
+    constexpr int64_t WRAPS_TO_ONE_IN_INT32 = 4294967297LL;
+    for (bool dictionary : {false, true}) {
+        TestParquetDecodeSource source;
+        if (dictionary) {
+            source.set_fixed_dictionary<int64_t>({WRAPS_TO_ONE_IN_INT32}, {0});
+            context.encoding = ParquetValueEncoding::DICTIONARY;
+        } else {
+            source.set_fixed_values<int64_t>({WRAPS_TO_ONE_IN_INT32});
+            context.encoding = ParquetValueEncoding::PLAIN;
+        }
+        IColumn::Filter null_map(1, 0);
+        ParquetMaterializationState state;
+        state.conversion_failure_null_map = &null_map;
+        auto column = type.create_column();
+
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, context, 1, state)
+                            .ok());
+        EXPECT_EQ(null_map, IColumn::Filter({1}));
+        EXPECT_EQ(assert_cast<const ColumnDecimal32&>(*column).get_data()[0].value, 0);
+    }
+}
+
+TEST(DataTypeSerDeParquetTest, DecimalAcceptsSignExtendedBinaryAfterWideExactScaling) {
+    const std::vector<uint8_t> values {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xCE,
+                                       0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFB, 0x32};
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY,
+                                  .logical_type = ParquetLogicalType::DECIMAL,
+                                  .type_length = 8,
+                                  .decimal_precision = 19,
+                                  .decimal_scale = 2};
+    DataTypeDecimal32 type(5, 1);
+    for (bool dictionary : {false, true}) {
+        TestParquetDecodeSource source;
+        if (dictionary) {
+            source.set_dictionary(values, 8, {1, 0});
+            context.encoding = ParquetValueEncoding::DICTIONARY;
+        } else {
+            source.set_fixed_bytes(values, 8);
+            context.encoding = ParquetValueEncoding::PLAIN;
+        }
+        ParquetMaterializationState state;
+        auto column = type.create_column();
+
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, context, 2, state)
+                            .ok());
+        const auto& data = assert_cast<const ColumnDecimal32&>(*column).get_data();
+        EXPECT_EQ(data[0].value, dictionary ? -123 : 123);
+        EXPECT_EQ(data[1].value, dictionary ? 123 : -123);
+    }
 }
 
 TEST(DataTypeSerDeParquetTest, ReusesTypedDictionary) {

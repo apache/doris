@@ -22,7 +22,6 @@
 #include <glog/logging.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <parquet/metadata.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -95,23 +94,6 @@ TEST_F(ParquetThriftReaderTest, normal) {
         LOG(WARNING) << "schema column repetition_type: " << value.repetition_type;
         LOG(WARNING) << "schema column num children: " << value.num_children;
     }
-}
-
-TEST_F(ParquetThriftReaderTest, ReusesArrowMetadataAdapterForCachedNativeFooter) {
-    auto local_fs = io::global_local_filesystem();
-    io::FileReaderSPtr reader;
-    ASSERT_TRUE(local_fs->open_file("./be/test/exec/test_data/parquet_scanner/localfile.parquet",
-                                    &reader)
-                        .ok());
-    std::unique_ptr<FileMetaData> metadata;
-    size_t meta_size = 0;
-    ASSERT_TRUE(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true, true).ok());
-
-    std::shared_ptr<::parquet::FileMetaData> first;
-    std::shared_ptr<::parquet::FileMetaData> second;
-    ASSERT_TRUE(metadata->get_arrow_metadata(&first).ok());
-    ASSERT_TRUE(metadata->get_arrow_metadata(&second).ok());
-    EXPECT_EQ(first, second);
 }
 
 TEST_F(ParquetThriftReaderTest, complex_nested_file) {

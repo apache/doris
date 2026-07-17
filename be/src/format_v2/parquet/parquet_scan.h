@@ -62,6 +62,11 @@ struct ParquetFileContext;
 struct ParquetColumnSchema;
 
 namespace detail {
+struct PredicateConjunctSchedule {
+    std::map<size_t, VExprContextSPtrs> single_column_conjuncts;
+    VExprContextSPtrs remaining_conjuncts;
+};
+
 struct AdaptivePredicateStats {
     double cost_per_input_row_ns = 0;
     double survival_ratio = 1;
@@ -75,6 +80,7 @@ std::vector<size_t> adaptive_prefetch_prefix(
         const std::vector<size_t>& ordered_positions,
         const std::unordered_map<size_t, AdaptivePredicateStats>& stats,
         double minimum_reach_probability);
+bool should_sample_adaptive_predicate(size_t samples, size_t batch_sequence);
 } // namespace detail
 
 // ============================================================================
@@ -93,6 +99,9 @@ struct RowGroupReadPlan {
     std::vector<RowRange> selected_ranges; // row ranges to read after page-index pruning
     std::map<int, ParquetPageSkipPlan>
             page_skip_plans; // leaf_column_id -> data pages that can be skipped completely
+    // Native planning already parsed these indexes. Transfer them to execution so narrowed scans
+    // do not issue the same remote index reads a second time while opening the row group.
+    std::unordered_map<int, tparquet::OffsetIndex> offset_indexes;
 };
 
 struct RowGroupScanPlan {
@@ -109,7 +118,8 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                const format::FileScanRequest& request,
                                const ParquetScanRange& scan_range, bool enable_bloom_filter,
                                RowGroupScanPlan* plan, const cctz::time_zone* timezone = nullptr,
-                               const RuntimeState* runtime_state = nullptr);
+                               const RuntimeState* runtime_state = nullptr,
+                               ParquetFileContext* file_context = nullptr);
 
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);
@@ -168,8 +178,12 @@ public:
                            bool* eof);
 
 private:
+    static constexpr size_t PROFILE_FLUSH_BATCH_INTERVAL = 16;
+
     void reset_current_row_group();
     void flush_current_reader_profiles();
+    const detail::PredicateConjunctSchedule& predicate_conjunct_schedule(
+            const format::FileScanRequest& request);
     std::vector<format::LocalColumnIndex> adaptive_predicate_prefetch_columns(
             const format::FileScanRequest& request) const;
 
@@ -248,6 +262,16 @@ private:
     // reallocating selection indices, dense filter bytes, or compacted-column positions.
     SelectionVector _selection;
     std::vector<uint32_t> _read_column_positions_scratch;
+    const format::FileScanRequest* _predicate_schedule_request = nullptr;
+    detail::PredicateConjunctSchedule _predicate_schedule;
+    std::vector<size_t> _predicate_positions_scratch;
+    std::unordered_map<size_t, size_t> _predicate_indices_by_position_scratch;
+    std::vector<size_t> _ordered_predicate_positions_scratch;
+    std::unordered_map<uint32_t, std::vector<SelectionVector::Index>>
+            _predicate_column_selection_scratch;
+    IColumn::Filter _predicate_compaction_filter_scratch;
+    size_t _predicate_batch_sequence = 0;
+    size_t _batches_since_profile_flush = 0;
     std::unordered_map<size_t, detail::AdaptivePredicateStats> _predicate_runtime_stats;
     double _predicate_survival_ratio = -1;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;

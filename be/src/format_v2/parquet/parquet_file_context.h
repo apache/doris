@@ -16,6 +16,7 @@
 #pragma once
 
 #include <arrow/io/interfaces.h>
+#include <gen_cpp/parquet_types.h>
 #include <parquet/api/reader.h>
 
 #include <cstddef>
@@ -23,12 +24,13 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
-#include "format/parquet/vparquet_file_metadata.h"
+#include "format/parquet/schema_desc.h"
 #include "io/fs/file_reader.h"
 #include "util/obj_lru_cache.h"
 
@@ -42,6 +44,33 @@ class RuntimeProfile;
 } // namespace doris
 
 namespace doris::format::parquet {
+
+struct NativeParquetPageIndex;
+
+// V2-owned footer/schema object. Keeping this adapter here prevents native scanning requirements
+// from changing the established v1 FileMetaData cache value or parser behavior.
+class NativeParquetMetadata {
+public:
+    NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size,
+                          std::vector<uint8_t> serialized_metadata);
+    ~NativeParquetMetadata();
+
+    Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz);
+    const tparquet::FileMetaData& to_thrift() const { return _metadata; }
+    const FieldDescriptor& schema() const { return _schema; }
+    Status get_arrow_metadata(std::shared_ptr<::parquet::FileMetaData>* metadata) const;
+    size_t arrow_metadata_mem_size() const;
+    size_t get_mem_size() const { return _parsed_size + _serialized_metadata.size(); }
+
+private:
+    tparquet::FileMetaData _metadata;
+    FieldDescriptor _schema;
+    size_t _parsed_size = 0;
+    std::vector<uint8_t> _serialized_metadata;
+    mutable std::mutex _arrow_metadata_mutex;
+    mutable std::shared_ptr<::parquet::FileMetaData> _arrow_metadata;
+    mutable size_t _arrow_metadata_mem_size = 0;
+};
 
 struct ParquetPageCacheRange {
     int64_t offset = 0;
@@ -142,6 +171,11 @@ size_t average_prefetch_range_size(const std::vector<ParquetPageCacheRange>& ran
 bool should_use_merge_range_reader(const std::vector<ParquetPageCacheRange>& ranges,
                                    size_t avg_io_size, bool is_in_memory_reader);
 
+// HTTP range servers may reject an overlong range near EOF even after accepting the capability
+// probe. Staging a bounded small HTTP object also turns all native page reads into memory copies.
+bool should_stage_small_http_file(std::string_view path, size_t file_size,
+                                  size_t in_memory_file_size);
+
 } // namespace detail
 
 struct ParquetFileContext {
@@ -153,14 +187,15 @@ struct ParquetFileContext {
     // MergeRangeFileReader policy as v1; large chunks and in-memory files keep native_file.
     io::FileReaderSPtr native_row_group_file;
     io::IOContext* native_io_ctx = nullptr;
-    // V1-compatible Thrift footer/schema used to construct Doris' native page/encoding readers.
-    // A cache hit is owned by native_meta_cache_handle; a miss without cache is owned by
-    // native_metadata_owner.
-    const FileMetaData* native_metadata = nullptr;
-    std::unique_ptr<FileMetaData> native_metadata_owner;
+    // V2-owned Thrift footer/schema used to construct native page/encoding readers. A cache hit is
+    // owned by native_meta_cache_handle; a miss without cache is owned by native_metadata_owner.
+    const NativeParquetMetadata* native_metadata = nullptr;
+    std::unique_ptr<NativeParquetMetadata> native_metadata_owner;
     ObjLRUCache::CacheHandle native_meta_cache_handle;
     int64_t native_footer_read_calls = 0;
     int64_t native_footer_cache_hits = 0;
+    int64_t arrow_metadata_adapter_time = 0;
+    int64_t arrow_metadata_adapter_bytes = 0;
     bool native_page_cache_enabled = false;
     std::string native_page_cache_file_key;
 
@@ -175,6 +210,11 @@ struct ParquetFileContext {
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,
             std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const;
+    Status load_native_page_indexes(int row_group_id,
+                                    const std::unordered_set<int>& leaf_column_ids,
+                                    std::unordered_map<int, NativeParquetPageIndex>* page_indexes,
+                                    int64_t* read_time = nullptr,
+                                    int64_t* parse_time = nullptr) const;
     // Register ranges for the remaining Arrow metadata/index adapter. Native data pages use the
     // v1-compatible page cache owned by BufferedFileStreamReader instead.
     void register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges);

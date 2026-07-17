@@ -87,6 +87,9 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr; // rows skipped by range gaps
     RuntimeProfile::Counter* column_read_time = nullptr;       // column read time (ns)
     RuntimeProfile::Counter* predicate_filter_time = nullptr;  // predicate filter time (ns)
+    RuntimeProfile::Counter* predicate_compaction_time = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_bytes = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_count = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr; // dictionary rewrite time (ns)
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time =
             nullptr; // expression/residual rewrite time (ns)
@@ -159,6 +162,8 @@ struct ParquetProfile {
     RuntimeProfile::Counter* column_read_time = nullptr;
 
     RuntimeProfile::Counter* parse_meta_time = nullptr;
+    RuntimeProfile::Counter* arrow_metadata_adapter_time = nullptr;
+    RuntimeProfile::Counter* arrow_metadata_adapter_bytes = nullptr;
     RuntimeProfile::Counter* parse_footer_time = nullptr;
     RuntimeProfile::Counter* file_reader_create_time = nullptr;
     RuntimeProfile::Counter* open_file_num = nullptr;
@@ -195,6 +200,9 @@ struct ParquetProfile {
     RuntimeProfile::Counter* parse_page_header_num = nullptr;
 
     RuntimeProfile::Counter* predicate_filter_time = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_time = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_bytes = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_count = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr;

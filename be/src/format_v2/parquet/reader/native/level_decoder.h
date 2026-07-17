@@ -59,6 +59,18 @@ public:
     size_t active_scratch_bytes() const { return _rle_scratch.size() * sizeof(uint16_t); }
 
 private:
+    bool accept_level(level_t level) {
+        if (level >= 0 && level <= _max_level) {
+            return true;
+        }
+        // Bit width rounds up to a power of two, so encoded values can fit the bit stream while
+        // still exceeding the schema maximum. Poison the decoder before any caller can use them.
+        _num_levels = 0;
+        _has_buffered_level = false;
+        _can_rewind = false;
+        return false;
+    }
+
     tparquet::Encoding::type _encoding;
     level_t _bit_width = 0;
     level_t _max_level = 0;

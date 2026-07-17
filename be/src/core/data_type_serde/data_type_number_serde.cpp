@@ -98,6 +98,22 @@ bool decoded_number_value_fits(SourceType value) {
     }
 }
 
+template <typename DorisCppType, typename SourceType>
+constexpr bool parquet_number_conversion_always_fits() {
+    if constexpr (std::is_floating_point_v<DorisCppType>) {
+        return true;
+    } else if constexpr (!std::is_integral_v<DorisCppType> || !std::is_integral_v<SourceType> ||
+                         std::is_same_v<DorisCppType, UInt8>) {
+        return false;
+    } else if constexpr (std::is_signed_v<DorisCppType> == std::is_signed_v<SourceType>) {
+        return sizeof(DorisCppType) >= sizeof(SourceType);
+    } else if constexpr (std::is_signed_v<DorisCppType>) {
+        return sizeof(DorisCppType) > sizeof(SourceType);
+    } else {
+        return false;
+    }
+}
+
 template <PrimitiveType DorisType, typename SourceType>
 Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view) {
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
@@ -212,6 +228,15 @@ Status append_parquet_number(PaddedPODArray<DorisCppType>& data, const uint8_t* 
         memcpy(data.data() + old_size, values, num_values * sizeof(SourceType));
         return Status::OK();
     }
+    if constexpr (parquet_number_conversion_always_fits<DorisCppType, SourceType>()) {
+        // A widening conversion cannot fail, so keeping range checks in the row loop only blocks
+        // auto-vectorization. Input can be unaligned at a Parquet page boundary; load explicitly.
+        for (size_t row = 0; row < num_values; ++row) {
+            data[old_size + row] = static_cast<DorisCppType>(
+                    unaligned_load<SourceType>(values + row * sizeof(SourceType)));
+        }
+        return Status::OK();
+    }
     for (size_t row = 0; row < num_values; ++row) {
         const auto value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
         if (!decoded_number_value_fits<DorisCppType>(value)) {
@@ -234,6 +259,15 @@ Status append_parquet_logical_integers(PaddedPODArray<DorisCppType>& data, const
                                        size_t num_values, ParquetMaterializationState* state) {
     const size_t old_size = data.size();
     data.resize(old_size + num_values);
+    if constexpr (parquet_number_conversion_always_fits<DorisCppType, LogicalType>()) {
+        for (size_t row = 0; row < num_values; ++row) {
+            const auto physical_value =
+                    unaligned_load<SourceType>(values + row * sizeof(SourceType));
+            data[old_size + row] =
+                    static_cast<DorisCppType>(static_cast<LogicalType>(physical_value));
+        }
+        return Status::OK();
+    }
     for (size_t row = 0; row < num_values; ++row) {
         const auto physical_value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
         const auto logical_value = static_cast<LogicalType>(physical_value);

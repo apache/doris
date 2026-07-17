@@ -15,11 +15,14 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -118,6 +121,14 @@ struct ParquetColumnStatistics {
     bool has_any_statistics() const { return has_null_count || has_min_max; }
 };
 
+struct NativeParquetPageIndex {
+    tparquet::ColumnIndex column_index;
+    tparquet::OffsetIndex offset_index;
+};
+
+bool can_use_parquet_page_index(const format::FileScanRequest& request,
+                                const RuntimeState* runtime_state);
+
 // ============================================================================
 // ============================================================================
 //     VExpr ZoneMap(TransformColumnStatistics + evaluate_zonemap_filter)
@@ -156,6 +167,14 @@ Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
+        std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
+        const RuntimeState* runtime_state = nullptr);
+
+Status select_row_group_ranges_by_native_page_index(
+        const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, int64_t row_group_rows,
         std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
         const RuntimeState* runtime_state = nullptr);

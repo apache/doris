@@ -40,15 +40,4 @@ std::string FileMetaCache::get_key(io::FileReaderSPtr file_reader,
             _file_description.file_size == -1 ? file_reader->size() : _file_description.file_size);
 }
 
-std::string FileMetaCache::get_key(io::FileReaderSPtr file_reader,
-                                   const io::FileDescription& file_description,
-                                   bool enable_mapping_varbinary,
-                                   bool enable_mapping_timestamp_tz) {
-    auto key = get_key(std::move(file_reader), file_description);
-    // Schema mapping changes the cached object, so those options are part of its identity.
-    key.push_back(static_cast<char>(enable_mapping_varbinary));
-    key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
-    return key;
-}
-
 } // namespace doris

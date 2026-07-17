@@ -52,6 +52,7 @@
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
+#include "util/unaligned.h"
 
 namespace doris::format::parquet {
 
@@ -761,6 +762,11 @@ void accumulate_zonemap_stats(const ZoneMapEvalContext& ctx, ParquetPruningStats
 }
 
 } // namespace
+
+bool can_use_parquet_page_index(const format::FileScanRequest& request,
+                                const RuntimeState* runtime_state) {
+    return config::enable_parquet_page_index && has_expr_zonemap_filter(request, runtime_state);
+}
 
 std::shared_ptr<segment_v2::ZoneMap> ParquetStatisticsUtils::MakeZoneMap(
         const ParquetColumnStatistics& statistics) {
@@ -1622,6 +1628,240 @@ Status select_row_group_ranges_by_page_index(
         const int64_t selected_rows = count_range_rows(*selected_ranges);
         DORIS_CHECK(selected_rows <= row_group_rows);
         pruning_stats->filtered_page_rows += row_group_rows - selected_rows;
+    }
+    return Status::OK();
+}
+
+namespace {
+
+template <typename ValueType>
+bool set_native_page_scalar_min_max(const tparquet::ColumnIndex& column_index,
+                                    const ParquetColumnSchema& column_schema, size_t page_idx,
+                                    DecodedValueKind kind, ParquetColumnStatistics* page_statistics,
+                                    const cctz::time_zone* timezone) {
+    if (page_idx >= column_index.min_values.size() || page_idx >= column_index.max_values.size() ||
+        column_index.min_values[page_idx].size() != sizeof(ValueType) ||
+        column_index.max_values[page_idx].size() != sizeof(ValueType)) {
+        return false;
+    }
+    const auto min_value = unaligned_load<ValueType>(column_index.min_values[page_idx].data());
+    const auto max_value = unaligned_load<ValueType>(column_index.max_values[page_idx].data());
+    if constexpr (std::is_same_v<ValueType, int64_t>) {
+        if (!timestamp_min_max_is_safe(column_schema, min_value, max_value, timezone)) {
+            return false;
+        }
+    }
+    if (!valid_min_max(min_value, max_value)) {
+        return true;
+    }
+    if (!set_decoded_field(column_schema, kind, min_value, &page_statistics->min_value, timezone) ||
+        !set_decoded_field(column_schema, kind, max_value, &page_statistics->max_value, timezone)) {
+        return false;
+    }
+    if (decoded_min_max_is_ordered(*page_statistics)) {
+        page_statistics->has_min_max = true;
+    }
+    return true;
+}
+
+bool build_native_page_statistics(const tparquet::ColumnIndex& column_index,
+                                  const ParquetColumnSchema& column_schema, size_t page_idx,
+                                  ParquetColumnStatistics* page_statistics,
+                                  const cctz::time_zone* timezone) {
+    DORIS_CHECK(page_statistics != nullptr);
+    *page_statistics = {};
+    if (!column_index.__isset.null_counts || page_idx >= column_index.null_pages.size() ||
+        page_idx >= column_index.null_counts.size()) {
+        return false;
+    }
+    page_statistics->has_null_count = true;
+    page_statistics->has_null = column_index.null_counts[page_idx] > 0;
+    page_statistics->has_not_null = !column_index.null_pages[page_idx];
+    if (!page_statistics->has_not_null) {
+        return true;
+    }
+    switch (column_schema.descriptor->physical_type()) {
+    case ::parquet::Type::BOOLEAN:
+        return set_native_page_scalar_min_max<uint8_t>(column_index, column_schema, page_idx,
+                                                       DecodedValueKind::BOOL, page_statistics,
+                                                       timezone);
+    case ::parquet::Type::INT32:
+        return set_native_page_scalar_min_max<int32_t>(
+                column_index, column_schema, page_idx,
+                decoded_value_kind(column_schema.type_descriptor), page_statistics, timezone);
+    case ::parquet::Type::INT64:
+        return set_native_page_scalar_min_max<int64_t>(
+                column_index, column_schema, page_idx,
+                decoded_value_kind(column_schema.type_descriptor), page_statistics, timezone);
+    case ::parquet::Type::FLOAT:
+        return set_native_page_scalar_min_max<float>(column_index, column_schema, page_idx,
+                                                     DecodedValueKind::FLOAT, page_statistics,
+                                                     timezone);
+    case ::parquet::Type::DOUBLE:
+        return set_native_page_scalar_min_max<double>(column_index, column_schema, page_idx,
+                                                      DecodedValueKind::DOUBLE, page_statistics,
+                                                      timezone);
+    case ::parquet::Type::BYTE_ARRAY:
+    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY: {
+        if (page_idx >= column_index.min_values.size() ||
+            page_idx >= column_index.max_values.size()) {
+            return false;
+        }
+        const auto& min_value = column_index.min_values[page_idx];
+        const auto& max_value = column_index.max_values[page_idx];
+        const bool fixed =
+                column_schema.descriptor->physical_type() == ::parquet::Type::FIXED_LEN_BYTE_ARRAY;
+        if (fixed &&
+            (column_schema.descriptor->type_length() <= 0 ||
+             min_value.size() != static_cast<size_t>(column_schema.descriptor->type_length()) ||
+             max_value.size() != static_cast<size_t>(column_schema.descriptor->type_length()))) {
+            return false;
+        }
+        const auto kind = fixed ? DecodedValueKind::FIXED_BINARY : DecodedValueKind::BINARY;
+        if (!set_decoded_binary_field(column_schema, kind,
+                                      StringRef(min_value.data(), min_value.size()),
+                                      &page_statistics->min_value, timezone) ||
+            !set_decoded_binary_field(column_schema, kind,
+                                      StringRef(max_value.data(), max_value.size()),
+                                      &page_statistics->max_value, timezone)) {
+            return false;
+        }
+        if (decoded_min_max_is_ordered(*page_statistics)) {
+            page_statistics->has_min_max = true;
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+RowRange native_page_row_range(const tparquet::OffsetIndex& offset_index, size_t page_idx,
+                               int64_t row_group_rows) {
+    const auto& locations = offset_index.page_locations;
+    const int64_t start = locations[page_idx].first_row_index;
+    const int64_t end = page_idx + 1 == locations.size() ? row_group_rows
+                                                         : locations[page_idx + 1].first_row_index;
+    return {.start = start, .length = end - start};
+}
+
+} // namespace
+
+Status select_row_group_ranges_by_native_page_index(
+        const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, int64_t row_group_rows,
+        std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
+        const RuntimeState* runtime_state) {
+    int64_t filter_time_sink = 0;
+    SCOPED_RAW_TIMER(pruning_stats == nullptr ? &filter_time_sink
+                                              : &pruning_stats->page_index_filter_time);
+    DORIS_CHECK(selected_ranges != nullptr);
+    selected_ranges->clear();
+    selected_ranges->push_back({.start = 0, .length = row_group_rows});
+    if (page_skip_plans != nullptr) {
+        page_skip_plans->clear();
+    }
+    if (row_group_rows <= 0 || !config::enable_parquet_page_index ||
+        !has_expr_zonemap_filter(request, runtime_state) || page_indexes.empty()) {
+        return Status::OK();
+    }
+    if (pruning_stats != nullptr) {
+        ++pruning_stats->page_index_read_calls;
+    }
+
+    std::map<int, VExprContextSPtrs> conjuncts_by_slot;
+    for (const auto& conjunct : request.conjuncts) {
+        const auto slot_index = expr_zonemap::single_slot_zonemap_index(conjunct);
+        if (slot_index >= 0) {
+            conjuncts_by_slot[slot_index].push_back(conjunct);
+        }
+    }
+    for (const auto& [slot_index, conjuncts] : conjuncts_by_slot) {
+        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
+        if (!file_column_id.has_value()) {
+            continue;
+        }
+        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
+        if (column_schema == nullptr || column_schema->descriptor == nullptr) {
+            continue;
+        }
+        const auto index_it = page_indexes.find(column_schema->leaf_column_id);
+        if (index_it == page_indexes.end()) {
+            continue;
+        }
+        const auto& indexes = index_it->second;
+        std::vector<RowRange> filter_ranges;
+        bool usable = true;
+        for (size_t page_idx = 0; page_idx < indexes.offset_index.page_locations.size();
+             ++page_idx) {
+            ParquetColumnStatistics statistics;
+            if (!build_native_page_statistics(indexes.column_index, *column_schema, page_idx,
+                                              &statistics, timezone)) {
+                usable = false;
+                break;
+            }
+            ZoneMapEvalContext ctx;
+            add_slot_zonemap(&ctx, slot_index, column_schema->type,
+                             ParquetStatisticsUtils::MakeZoneMap(statistics));
+            if (VExprContext::evaluate_zonemap_filter(conjuncts, ctx) !=
+                ZoneMapFilterResult::kNoMatch) {
+                append_row_range(
+                        native_page_row_range(indexes.offset_index, page_idx, row_group_rows),
+                        &filter_ranges);
+            }
+            if (pruning_stats != nullptr) {
+                pruning_stats->expr_zonemap_unusable_evals += ctx.stats.unusable_zonemap_eval_count;
+                pruning_stats->in_zonemap_point_check_count +=
+                        ctx.stats.in_zonemap_point_check_count;
+                pruning_stats->in_zonemap_range_only_count += ctx.stats.in_zonemap_range_only_count;
+            }
+        }
+        if (!usable) {
+            continue;
+        }
+        *selected_ranges = intersect_ranges(*selected_ranges, filter_ranges);
+        if (selected_ranges->empty()) {
+            if (pruning_stats != nullptr) {
+                pruning_stats->filtered_page_rows += row_group_rows;
+                ++pruning_stats->filtered_row_groups_by_page_index;
+            }
+            return Status::OK();
+        }
+    }
+
+    if (page_skip_plans != nullptr) {
+        std::vector<const ParquetColumnSchema*> leaves;
+        collect_request_leaf_schemas(file_schema, request, &leaves);
+        for (const auto* leaf : leaves) {
+            const auto index_it = page_indexes.find(leaf->leaf_column_id);
+            if (index_it == page_indexes.end() || leaf->descriptor == nullptr ||
+                leaf->descriptor->max_repetition_level() != 0) {
+                continue;
+            }
+            const auto& offset_index = index_it->second.offset_index;
+            ParquetPageSkipPlan skip_plan;
+            skip_plan.leaf_column_id = leaf->leaf_column_id;
+            skip_plan.skipped_pages.resize(offset_index.page_locations.size());
+            skip_plan.skipped_page_compressed_sizes.resize(offset_index.page_locations.size());
+            for (size_t page_idx = 0; page_idx < offset_index.page_locations.size(); ++page_idx) {
+                const auto range = native_page_row_range(offset_index, page_idx, row_group_rows);
+                if (range.length == 0 || ranges_intersect(*selected_ranges, range)) {
+                    continue;
+                }
+                skip_plan.skipped_pages[page_idx] = 1;
+                skip_plan.skipped_page_compressed_sizes[page_idx] =
+                        offset_index.page_locations[page_idx].compressed_page_size;
+                append_row_range(range, &skip_plan.skipped_ranges);
+            }
+            if (!skip_plan.empty()) {
+                page_skip_plans->emplace(skip_plan.leaf_column_id, std::move(skip_plan));
+            }
+        }
+    }
+    if (pruning_stats != nullptr) {
+        pruning_stats->filtered_page_rows += row_group_rows - count_range_rows(*selected_ranges);
     }
     return Status::OK();
 }

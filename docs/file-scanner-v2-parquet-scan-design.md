@@ -82,10 +82,11 @@ the production v2 path never instantiates the v1 `ParquetColumnReader`:
 | Compatibility removal | Remove Arrow data-read adapters after type/encoding/page/writer compatibility and performance gates pass. Production v2 never falls back from a selected native reader to Arrow; an unsupported combination returns an explicit error. |
 
 Data-page value scans and levels-only aggregate scans no longer use Arrow `RecordReader`, arrays, or
-builders. Arrow remains in footer/schema planning and dictionary/statistics probing. It is not a
-runtime fallback: after a column selects the native reader, decode errors are returned directly.
-The production target eventually removes the remaining Arrow metadata objects; tests may also use
-Arrow as a fixture writer or oracle.
+builders. V2 parses and owns the Thrift footer and physical schema; a lazy Arrow metadata adapter
+remains only for planner consumers that have not yet migrated. It is not a runtime fallback: after
+a column selects the native reader, decode errors are returned directly. The production target
+eventually removes that remaining planner adapter; tests may also use Arrow as a fixture writer or
+oracle.
 
 All new integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the correctness
 and performance control. Compatibility is demonstrated through differential tests and the explicit
@@ -379,7 +380,8 @@ but moves sparse range traversal inside the concrete decoder instead of repeated
 SerDe consumer for every selected run.
 
 The encoding chooses the cheapest inner loop. PLAIN fixed-width values gather ranges with bulk
-copies; PLAIN BYTE_ARRAY scans every length once but records only selected references; dictionary
+copies; PLAIN BYTE_ARRAY scans every length once and publishes compact source offsets, cumulative
+output offsets, and coalesced surviving spans directly to the SerDe; dictionary
 encoding decodes and validates the complete ID batch before gathering selected IDs; BOOLEAN,
 DELTA, and BYTE_STREAM_SPLIT batch-decode or reconstruct their stateful stream and compact selected
 values. This follows DuckDB's vector-at-a-time principle while preserving Doris's separate
@@ -400,7 +402,7 @@ that parsing step both feed the same level and value-decoder contracts.
 
 | Encoding family | Native responsibility |
 | --- | --- |
-| PLAIN | Fixed-width little-endian primitives, BOOLEAN bit packing, BYTE_ARRAY lengths, and FIXED_LEN_BYTE_ARRAY widths; identical POD types append by bulk copy, dense fixed-length strings use one byte-span copy plus offset synthesis, sparse fixed-width ranges consume contiguous spans directly, and sparse variable strings scan lengths once |
+| PLAIN | Fixed-width little-endian primitives, BOOLEAN bit packing, BYTE_ARRAY lengths, and FIXED_LEN_BYTE_ARRAY widths; identical POD types append by bulk copy, dense fixed-length strings use one byte-span copy plus offset synthesis, sparse fixed-width ranges consume contiguous spans directly, and variable strings reuse decoder-produced offsets without a `StringRef[]` staging pass |
 | RLE_DICTIONARY / PLAIN_DICTIONARY | Persist dictionary values for the Column Chunk, decode and validate the complete ID batch, then gather selected IDs |
 | RLE / BIT_PACKED levels | Decode definition/repetition levels and preserve runs across page and batch boundaries |
 | DELTA_BINARY_PACKED | Preserve block/mini-block state, decode one page-fragment batch, and compact selected values in-place |
@@ -421,6 +423,12 @@ the preceding reconstructed value and checks the reconstructed and aggregate byt
 RLE and DELTA skip paths operate in bounded chunks and reject short streams instead of advancing a
 partially consumed cursor as if the request succeeded.
 
+Level bit width is only a storage bound: for a schema maximum of 2, two bits can still encode the
+invalid value 3. Batch, run, and single-value level cursors therefore reject every decoded value
+above the schema maximum. Nested page traversal reserves only the requested parent-row frontier;
+an untrusted Page V1/V2 `num_values` cannot trigger an eager page-sized allocation before the level
+payload proves those entries exist.
+
 Compression has an exact-size contract. Snappy's encoded uncompressed length is checked against the
 destination capacity before decompression; Page V1, Page V2, and dictionary decode must then produce
 exactly the size declared in the page header. For the UNCOMPRESSED codec, dictionary compressed and
@@ -440,9 +448,10 @@ that row monotonicity alone cannot detect; otherwise sequential traversal preser
 
 Encoding decoders expose contiguous physical spans and advance encoded-stream cursors. The selected
 `DataTypeSerDe` consumes those spans and writes directly into the Doris mutable column. Fixed-width
-types append contiguous runs; string-like paths gather `StringRef` values in persistent decoder
-scratch before a batched append. References remain valid only while the page or dictionary buffer
-is pinned by the persistent leaf reader.
+types append contiguous runs. PLAIN BYTE_ARRAY publishes payload offsets, cumulative destination
+offsets, and coalesced survivor spans so string columns perform larger range copies without a
+`StringRef[]` staging array. Other binary encodings may use persistent references that remain valid
+only while the page or dictionary buffer is pinned by the persistent leaf reader.
 
 The direct path covers identical logical types, string-family compatibility, decimal
 precision/scale changes, integer changes, and FLOAT-to-DOUBLE widening. Less common table-schema
@@ -460,7 +469,10 @@ physical/logical conversion while appending to the final column.
 
 Decimal and FIXED_LEN_BYTE_ARRAY direct paths validate the physical byte width, decode big-endian
 two's-complement values with correct sign extension, and apply precision/scale conversion exactly
-once. Date, timestamp, INT96, unsigned annotations, CHAR/VARCHAR, and timezone conversions retain
+once. Decimal integer and binary inputs stay in a 256-bit intermediate through exact scale-down,
+scale-up overflow, and target-precision checks; discarded non-zero digits are conversion failures,
+and narrowing happens only after success. Date, timestamp, INT96, unsigned annotations,
+CHAR/VARCHAR, and timezone conversions retain
 the same semantic checks as the general conversion path. A fast path is enabled only when those
 checks prove the result is equivalent. In particular, legacy converted `TIMESTAMP_MILLIS` and
 `TIMESTAMP_MICROS` are UTC-adjusted, while an unannotated INT64 timestamp has distinct
@@ -513,9 +525,11 @@ key/value repetition vectors are intentionally not compared because a nested MAP
 additional repetition levels. STRUCT siblings similarly normalize repetition to the current parent
 boundary; deeper child collection repetition cannot redefine or invalidate the sibling shape.
 
-Level scratch is sized by decoded level entries, not by the 16-bit parent batch cap. Long repeated
-rows and long null/non-null runs are split into representable internal runs without introducing a
-new row boundary. Tests cover null ancestors, empty collections, null elements/values, nested
+Level scratch grows with level entries that were actually decoded, while its initial reservation is
+bounded by the requested parent-row frontier rather than the page header's untrusted value count.
+Long repeated rows can still grow incrementally beyond that frontier, and long null/non-null runs
+are split into representable internal runs without introducing a new row boundary. Tests cover null
+ancestors, empty collections, null elements/values, nested
 STRUCT-in-ARRAY and ARRAY-in-STRUCT shapes, sibling page misalignment, and rows spanning pages and
 batches.
 
@@ -643,7 +657,8 @@ flowchart TB
 
 | Mechanism | Cached or optimized object | Lifecycle and key | Problem addressed |
 | --- | --- | --- | --- |
-| Footer metadata cache | Immutable parsed native metadata and, for a v2 cold miss, the serialized footer bytes already fetched from storage | Stable file identity matching v1: path plus size and trustworthy modification/version information, with schema-affecting options in the parsed-object key | Avoid repeated footer I/O, Thrift parsing, schema construction, and v2's former Thrift re-serialization before Arrow metadata adaptation |
+| Footer metadata cache | V2-owned immutable Thrift metadata, v2 physical schema, and the serialized footer bytes already fetched from storage | Stable base file identity plus a v2 type discriminator and schema-affecting mapping options | Avoid repeated footer I/O, Thrift parsing, schema construction, unsafe cross-version cache casts, and Thrift re-serialization before Arrow metadata adaptation |
+| Small HTTP object staging | Complete object bytes for files at or below `in_memory_file_size` | Per-reader v2 wrapper; loaded once from byte zero and released with the file context | Collapse cold small-file requests and keep footer-cache-hit scans independent of server-specific near-EOF Range behavior |
 | FileCache | Remote file blocks | Related to filesystem/path and file version; may hit locally or through a peer | Avoid repeated object-storage access and support background prefetch |
 | Parquet Page Cache | Serialized bytes within registered Column Chunk ranges | Stable file key depends on path, mtime/version, and file size; disabled when mtime is unreliable | Reduce repeated page reads and support exact/subrange coverage |
 | Condition Cache | Condition-surviving granule bitmap | Managed by condition and file-range context | Reuse filtering results before reading columns |
@@ -651,19 +666,28 @@ flowchart TB
 
 ### Footer Cache Parity with V1
 
-V2 uses the same cacheability and invalidation policy as v1 rather than introducing a second notion
-of file identity. A hit returns immutable metadata that can be shared by readers; mutable Row Group,
-selection, decoder, and scratch state remains per reader. Path-only keys are insufficient. When a
-trustworthy version identity is unavailable, the footer is read and parsed without publishing a
-reusable entry. Parse failures, short files, encrypted/unsupported metadata, and schema-affecting
-option changes cannot populate or reuse a successful entry.
+V2 reuses the common stable file identity policy, but owns its footer parser, schema lifecycle,
+metadata payload type, and cache-key suffix entirely under `format_v2`. A v2 cache entry can be
+shared by v2 readers but can never be cast as a v1 metadata object. Mutable Row Group, selection,
+decoder, and scratch state remains per reader. Path-only keys are insufficient. Parse failures,
+short files, unsupported metadata, and schema-affecting option changes cannot populate or reuse a
+successful entry. No change to the v1 parser or metadata cache behavior is required.
 
-V2 calls the same footer parser/cache and key builder as v1. On either a cache hit or miss, the
-immutable native Thrift metadata is the owner. On a v2 cold miss, the parser also retains the exact
-serialized footer bytes already in memory, and the lazy Arrow planner adapter parses those bytes
-directly instead of serializing the new Thrift object again. V1 keeps retention disabled by default.
-The Arrow adapter is cached at the footer-object lifecycle; it is never the cache value and its
-lifetime does not enter the native decoder.
+On a v2 cold miss, the parser retains the exact serialized footer bytes already in memory, and the
+lazy Arrow planner adapter parses those bytes directly instead of serializing the Thrift object
+again. The adapter is cached inside the v2 footer-object lifecycle; it is never the cache payload
+type and its lifetime does not enter the native decoder. Production ColumnIndex/OffsetIndex planning reads and
+parses Compact Thrift indexes natively; adjacent per-leaf serialized ranges are coalesced, and the
+validated OffsetIndex objects are transferred into Row Group execution instead of being fetched a
+second time. The Arrow PageIndexReader path remains only as a test oracle. Until the remaining
+row-group metadata planner adapter is removed, its construction cost and retained tree size are
+visible as `ArrowMetadataAdapterTime/Bytes`.
+
+Before the footer lookup, v2 wraps bounded HTTP Parquet objects in an in-memory reader. The wrapper
+loads from byte zero on its first physical access, whether that access is a cold footer read or a
+warm data-page read after a footer-cache hit. This preserves identical cold/warm behavior for HTTP
+servers that advertise Range support but answer an overlong near-EOF range with HTTP 200, and keeps
+the compatibility policy out of the v1 reader.
 
 ### Page Cache Parity with V1
 
@@ -766,6 +790,11 @@ selection generation and batch shape, so every lazily materialized output reader
 bitmap without rebuilding an O(batch-size) array. Logical sizes reset per batch while ordinary
 capacity remains reusable.
 
+Fully rejected batches accumulate a logical lag for lazy columns. When a later batch survives, each
+lazy reader consumes that lag in at most 65,535-row dense-filter chunks. This keeps the scheduler's
+single logical skip while bounding adapter-owned bitmap capacity independently of prefix length and
+lazy projection width.
+
 ## 11. Correctness, Fallback, and Capability Boundaries
 
 V2 follows a prove-before-skip rule. Missing indexes, unsupported types, expressions that cannot be
@@ -803,9 +832,11 @@ then I/O/cache health. Total ScanTime alone does not identify the cause.
 The visible timer hierarchy is `FileScannerV2 -> TableReader -> FileReader -> IO`; the
 format-specific `ParquetReader` subtree belongs to `FileReader`. Scanner lifecycle and Split work,
 table-semantic restoration, format metadata/index/decode/materialization, and physical I/O are
-charged to their owning layer. Recursive native child-reader statistics are flushed at every batch
-boundary, including empty-selection and early-return paths, so a query cannot be slow merely because
-its counters are waiting for reader close.
+charged to their owning layer. Native child-reader statistics accumulate in plain integers and are
+published every 16 batches. Row Group reset, EOF, and reader close force the final delta before
+destroying the reader tree, so short files retain complete attribution without paying recursive
+profile publication on every tiny batch. Retained-scratch inspection uses the same amortized cadence
+and a Row Group remains its hard lifetime bound.
 
 ```mermaid
 flowchart TD
@@ -830,8 +861,9 @@ flowchart TD
 | Page index pruning | How many indexes were checked, pages/rows were pruned, ranges selected, and pages skipped? |
 | Dictionary row filter | How often were predicates rewritten, dictionaries read, bitmaps built, and attempts successful or rejected? |
 | Predicate / raw rows | How many rows were read and rejected, and was lazy materialization worthwhile? |
+| Predicate compaction | Did selection-first evaluation avoid repeated movement? Inspect `PredicateCompactionTime/Bytes/Count`; single-column rounds retain row mappings and compact at multi-column/delete/output boundaries. |
 | Avoided projected I/O | How many compressed bytes from projected physical chunks were avoided? `FilteredBytes` deliberately excludes unprojected nested children. |
-| Metadata lifecycle | How much time was spent reading the footer, parsing metadata, lazily materializing page indexes, and evaluating page-index predicates? |
+| Metadata lifecycle | How much time was spent reading the footer, adapting remaining Arrow planner metadata (`ArrowMetadataAdapterTime/Bytes`), natively reading/parsing page indexes, and evaluating page-index predicates? |
 | Parquet Page Cache | What were hit/miss/write counts and compressed/decompressed hit shapes? |
 | FileCache Profile | How many local/peer/remote bytes, waits, downloads, and hits occurred? |
 | Merge / request I/O | Were small reads merged, and were request count and read amplification reasonable? |

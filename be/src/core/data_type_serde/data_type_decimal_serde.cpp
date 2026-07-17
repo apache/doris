@@ -22,6 +22,7 @@
 #include <arrow/builder.h>
 #include <arrow/util/decimal.h>
 
+#include <algorithm>
 #include <limits>
 #include <type_traits>
 
@@ -189,24 +190,65 @@ Status read_decimal_decoded_values(IColumn& column, const DecodedColumnView& vie
 }
 
 template <PrimitiveType T>
-Status scale_parquet_decimal(typename PrimitiveTypeTraits<T>::CppType::NativeType value,
-                             int32_t source_scale, int32_t target_scale,
-                             typename PrimitiveTypeTraits<T>::CppType::NativeType* result) {
-    using NativeType = typename PrimitiveTypeTraits<T>::CppType::NativeType;
+wide::Int256 parquet_decimal_limit(UInt32 precision) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return wide::Int256(DataTypeDecimal<T>::get_max_digits_number(precision));
+    } else {
+        return wide::Int256(max_decimal_value<T>(precision).value);
+    }
+}
+
+template <PrimitiveType T>
+Status scale_parquet_decimal(wide::Int256 value, int32_t source_scale, int32_t target_scale,
+                             UInt32 target_precision, wide::Int256* result) {
     DORIS_CHECK(result != nullptr);
-    if (source_scale == target_scale) {
-        *result = value;
-        return Status::OK();
-    }
+    const auto limit = parquet_decimal_limit<T>(target_precision);
     if (source_scale > target_scale) {
-        *result = value / decimal_scale_multiplier<NativeType>(source_scale - target_scale);
-        return Status::OK();
+        const int64_t scale_delta = static_cast<int64_t>(source_scale) - target_scale;
+        if (scale_delta > BeConsts::MAX_DECIMAL256_PRECISION) {
+            if (value != 0) {
+                return Status::DataQualityError(
+                        "Parquet decimal loses precision while scaling from {} to {}", source_scale,
+                        target_scale);
+            }
+        } else {
+            // The precision bound above guarantees that narrowing the positive scale delta keeps
+            // the multiplier lookup in range.
+            const auto divisor =
+                    decimal_scale_multiplier<wide::Int256>(static_cast<UInt32>(scale_delta));
+            // Scale-down must be exact. Truncating before the target precision check silently
+            // changes source values and makes plain and dictionary decoding disagree with casts.
+            if (value % divisor != 0) {
+                return Status::DataQualityError(
+                        "Parquet decimal loses precision while scaling from {} to {}", source_scale,
+                        target_scale);
+            }
+            value /= divisor;
+        }
+    } else if (source_scale < target_scale) {
+        const int64_t scale_delta = static_cast<int64_t>(target_scale) - source_scale;
+        if (scale_delta > BeConsts::MAX_DECIMAL256_PRECISION) {
+            if (value != 0) {
+                return Status::DataQualityError(
+                        "Parquet decimal overflows while scaling from {} to {}", source_scale,
+                        target_scale);
+            }
+        } else {
+            // Keep the same checked narrowing invariant for scale-up as for exact scale-down.
+            const auto multiplier =
+                    decimal_scale_multiplier<wide::Int256>(static_cast<UInt32>(scale_delta));
+            if (value > limit / multiplier || value < -limit / multiplier) {
+                return Status::DataQualityError(
+                        "Parquet decimal overflows while scaling from {} to {}", source_scale,
+                        target_scale);
+            }
+            value *= multiplier;
+        }
     }
-    const auto multiplier = decimal_scale_multiplier<NativeType>(target_scale - source_scale);
-    if (common::mul_overflow(value, multiplier, *result)) {
-        return Status::DataQualityError("Parquet decimal overflows while scaling from {} to {}",
-                                        source_scale, target_scale);
+    if (value < -limit || value > limit) {
+        return Status::DataQualityError("Parquet decimal value is out of range");
     }
+    *result = value;
     return Status::OK();
 }
 
@@ -275,14 +317,48 @@ public:
         return Status::OK();
     }
 
+    Status consume_plain_byte_array(const char* encoded_data, const uint32_t* payload_offsets,
+                                    const uint32_t* value_offsets, size_t num_values,
+                                    const std::vector<ParquetSelectionRange>&) override {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            const size_t length = value_offsets[row + 1] - value_offsets[row];
+            auto status = append_binary_value(
+                    reinterpret_cast<const uint8_t*>(encoded_data + payload_offsets[row]), length,
+                    old_size + row);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = FieldType();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
 private:
     template <typename SourceType>
     Status append_integers(const uint8_t* values, size_t num_values) {
         const size_t old_size = _data.size();
         _data.resize(old_size + num_values);
+        constexpr int32_t SOURCE_DIGITS = std::numeric_limits<SourceType>::digits10 + 1;
+        if (_context.decimal_scale == _target_scale &&
+            SOURCE_DIGITS <= static_cast<int32_t>(_target_precision)) {
+            // The complete physical domain fits the target at the same scale, so narrowing cannot
+            // precede a failure check and the hot same-scale path needs no wide arithmetic.
+            for (size_t row = 0; row < num_values; ++row) {
+                const auto source_value =
+                        unaligned_load<SourceType>(values + row * sizeof(SourceType));
+                _data[old_size + row] = FieldType {NativeType(source_value)};
+            }
+            return Status::OK();
+        }
         for (size_t row = 0; row < num_values; ++row) {
             const auto source_value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
-            auto status = append_native_value(NativeType(source_value), old_size + row);
+            auto status = append_wide_value(wide::Int256(source_value), old_size + row);
             if (!status.ok()) {
                 if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
                     _data[old_size + row] = FieldType();
@@ -296,22 +372,21 @@ private:
     }
 
     Status append_binary_value(const uint8_t* value, size_t length, size_t output_row) {
-        if (UNLIKELY(length > sizeof(NativeType))) {
+        if (UNLIKELY(length > sizeof(wide::Int256))) {
             return Status::DataQualityError("Parquet decimal binary value is too wide: {}", length);
         }
-        return append_native_value(
-                decode_big_endian_signed_integer<NativeType>(value, cast_set<int>(length)),
+        return append_wide_value(
+                decode_big_endian_signed_integer<wide::Int256>(value, cast_set<int>(length)),
                 output_row);
     }
 
-    Status append_native_value(NativeType value, size_t output_row) {
-        NativeType scaled_value;
+    Status append_wide_value(wide::Int256 value, size_t output_row) {
+        wide::Int256 scaled_value;
         RETURN_IF_ERROR(scale_parquet_decimal<T>(value, _context.decimal_scale, _target_scale,
-                                                 &scaled_value));
-        if (!decoded_decimal_value_fits<T>(scaled_value, _target_precision)) {
-            return Status::DataQualityError("Parquet decimal value is out of range");
-        }
-        _data[output_row] = FieldType {scaled_value};
+                                                 _target_precision, &scaled_value));
+        // Narrow only after scaling and target-precision validation. In particular, an INT64 or a
+        // sign-extended binary value must never wrap through Decimal32 before it can be rejected.
+        _data[output_row] = FieldType {static_cast<NativeType>(scaled_value)};
         return Status::OK();
     }
 

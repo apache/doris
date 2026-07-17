@@ -99,6 +99,23 @@ public:
         return Status::OK();
     }
 
+    Status consume_plain_byte_array(
+            const char* encoded_data, const uint32_t* payload_offsets,
+            const uint32_t* value_offsets, size_t num_values,
+            const std::vector<ParquetSelectionRange>& value_spans) override {
+        if constexpr (requires(ColumnType& column) {
+                          column.insert_many_parquet_plain_byte_arrays(
+                                  encoded_data, payload_offsets, value_offsets, num_values,
+                                  value_spans);
+                      }) {
+            _column.insert_many_parquet_plain_byte_arrays(encoded_data, payload_offsets,
+                                                          value_offsets, num_values, value_spans);
+            return Status::OK();
+        }
+        return ParquetBinaryValueConsumer::consume_plain_byte_array(
+                encoded_data, payload_offsets, value_offsets, num_values, value_spans);
+    }
+
 private:
     ColumnType& _column;
 };

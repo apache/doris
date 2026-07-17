@@ -94,6 +94,9 @@ size_t LevelDecoder::get_levels(level_t* levels, size_t n) {
         n = std::min((size_t)_num_levels, n);
         size_t num_decoded = 0;
         if (_has_buffered_level && n > 0) {
+            if (!accept_level(_buffered_level)) {
+                return 0;
+            }
             levels[num_decoded++] = _buffered_level;
             _has_buffered_level = false;
         }
@@ -103,7 +106,11 @@ size_t LevelDecoder::get_levels(level_t* levels, size_t n) {
             const size_t batch_decoded =
                     _rle_decoder.GetBatch(_rle_scratch.data(), cast_set<uint32_t>(remaining));
             for (size_t i = 0; i < batch_decoded; ++i) {
-                levels[num_decoded + i] = cast_set<level_t>(_rle_scratch[i]);
+                const level_t level = cast_set<level_t>(_rle_scratch[i]);
+                if (!accept_level(level)) {
+                    return 0;
+                }
+                levels[num_decoded + i] = level;
             }
             num_decoded += batch_decoded;
         }
@@ -114,9 +121,14 @@ size_t LevelDecoder::get_levels(level_t* levels, size_t n) {
         n = std::min((size_t)_num_levels, n);
         size_t decoded = 0;
         for (; decoded < n; ++decoded) {
-            if (!_bit_packed_decoder.GetValue(_bit_width, &levels[decoded])) {
+            level_t level = -1;
+            if (!_bit_packed_decoder.GetValue(_bit_width, &level)) {
                 break;
             }
+            if (!accept_level(level)) {
+                return 0;
+            }
+            levels[decoded] = level;
         }
         _num_levels -= decoded;
         return decoded;
@@ -136,6 +148,9 @@ size_t LevelDecoder::get_next_run(level_t* val, size_t max_run) {
         if (_has_buffered_level) {
             *val = _buffered_level;
             _has_buffered_level = false;
+            if (!accept_level(*val)) {
+                return 0;
+            }
             decoded = 1;
         } else {
             uint16_t first = 0;
@@ -143,12 +158,16 @@ size_t LevelDecoder::get_next_run(level_t* val, size_t max_run) {
                 return 0;
             }
             *val = cast_set<level_t>(first);
+            if (!accept_level(*val)) {
+                return 0;
+            }
             decoded = 1;
         }
         while (decoded < max_run) {
             const int32_t repeats = _rle_decoder.NextNumRepeats();
             if (repeats > 0) {
                 const level_t repeated = cast_set<level_t>(_rle_decoder.GetRepeatedValue(0));
+                if (!accept_level(repeated)) return 0;
                 if (repeated != *val) break;
                 const int32_t consume = std::min(repeats, cast_set<int32_t>(max_run - decoded));
                 _rle_decoder.GetRepeatedValue(consume);
@@ -159,6 +178,7 @@ size_t LevelDecoder::get_next_run(level_t* val, size_t max_run) {
             uint16_t literal = 0;
             if (!_rle_decoder.GetLiteralValues(1, &literal)) break;
             const level_t next = cast_set<level_t>(literal);
+            if (!accept_level(next)) return 0;
             if (next != *val) {
                 // Batch RLE has no physical rewind; retain the one-value lookahead logically.
                 _buffered_level = next;
@@ -175,12 +195,16 @@ size_t LevelDecoder::get_next_run(level_t* val, size_t max_run) {
         !_bit_packed_decoder.GetValue(_bit_width, val)) {
         return 0;
     }
+    if (!accept_level(*val)) {
+        return 0;
+    }
     size_t decoded = 1;
     while (decoded < max_run) {
         level_t next = -1;
         if (!_bit_packed_decoder.GetValue(_bit_width, &next)) {
             break;
         }
+        if (!accept_level(next)) return 0;
         if (next != *val) {
             // The lookahead belongs to the following run, so cursor APIs must leave it unread.
             _bit_packed_decoder.Rewind(_bit_width);
@@ -212,6 +236,9 @@ level_t LevelDecoder::get_next() {
         decoded = _bit_packed_decoder.GetValue(_bit_width, &next);
     }
     if (!decoded) {
+        return -1;
+    }
+    if (!accept_level(next)) {
         return -1;
     }
     --_num_levels;

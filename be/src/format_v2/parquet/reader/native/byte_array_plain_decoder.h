@@ -53,17 +53,23 @@ public:
     Status skip_values(size_t num_values) override;
 
     void release_scratch(size_t max_retained_bytes) override {
-        release_vector_if_oversized(&_binary_values, max_retained_bytes);
+        release_vector_if_oversized(&_payload_offsets, max_retained_bytes);
+        release_vector_if_oversized(&_value_offsets, max_retained_bytes);
+        release_vector_if_oversized(&_value_spans, max_retained_bytes);
     }
     size_t retained_scratch_bytes() const override {
-        return _binary_values.capacity() * sizeof(StringRef);
+        return (_payload_offsets.capacity() + _value_offsets.capacity()) * sizeof(uint32_t) +
+               _value_spans.capacity() * sizeof(ParquetSelectionRange);
     }
     size_t active_scratch_bytes() const override {
-        return _binary_values.size() * sizeof(StringRef);
+        return (_payload_offsets.size() + _value_offsets.size()) * sizeof(uint32_t) +
+               _value_spans.size() * sizeof(ParquetSelectionRange);
     }
 
 private:
-    std::vector<StringRef> _binary_values;
+    std::vector<uint32_t> _payload_offsets;
+    std::vector<uint32_t> _value_offsets;
+    std::vector<ParquetSelectionRange> _value_spans;
 };
 
 } // namespace doris::format::parquet::native

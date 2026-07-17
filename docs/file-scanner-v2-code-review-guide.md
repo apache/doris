@@ -120,6 +120,9 @@ format-specific checklist when reviewing Parquet or ORC.
 
 - V2 must instantiate only readers and decoders under `be/src/format_v2/parquet/`; calls into the
   v1 `ParquetColumnReader` or edits under `be/src/format/parquet/` are review blockers.
+- Footer parsing, schema-ID assignment, retained serialized bytes, and the cached metadata payload
+  must also be v2-owned. Reusing a stable base file identity is allowed, but require a v2 cache type
+  discriminator so v1/v2 metadata objects can never be cross-cast.
 - Trace the hot path as `ColumnReader -> Decoder span/cursor API -> DataTypeSerDe -> Doris Column`.
   Decoder must not accept a Doris column or target type, and the path must not create Arrow arrays,
   builders, `DecodedColumnView`, or another decoded leaf batch.
@@ -171,6 +174,9 @@ format-specific checklist when reviewing Parquet or ORC.
   addition/multiplication for byte extents; bound BYTE_ARRAY dictionary entry counts and IDs before
   allocation/indexing; and require DELTA_BYTE_ARRAY prefixes to fit the previous reconstructed
   value. BOOLEAN RLE and DELTA skip paths must consume bounded chunks and fail on short streams.
+- Validate every decoded definition/repetition level against the schema maximum in batch, run, and
+  single-value cursor APIs. Page value counts must not drive eager nested scratch allocation;
+  reserve from the requested parent-row frontier and cover tiny-payload huge-count Page V1/V2 files.
 - Before Snappy decompression, inspect the encoded uncompressed length and validate destination
   capacity. Page V1, Page V2, and dictionary pages must produce exactly the declared decoded size;
   an UNCOMPRESSED dictionary page must also declare equal compressed and uncompressed sizes.
@@ -199,9 +205,16 @@ format-specific checklist when reviewing Parquet or ORC.
   DATETIME, TIME, and DECIMAL failures insert a default nested value and mark the corresponding NULL
   only in non-strict mode; strict or non-nullable reads return the error. Dictionary failures follow
   the selected dictionary IDs to output rows.
+- Keep Parquet decimals in a source-width or wider intermediate until exact scaling, target
+  precision, and overflow checks succeed. Scale-down with a non-zero remainder is a conversion
+  failure; plain and dictionary integer/binary paths must narrow only afterward.
 - For cold small-file tests, separate footer I/O/Thrift parse from Arrow metadata adaptation. V2 may
   retain the already-read serialized footer to avoid serializing the same Thrift object again; v1
   opens must not retain those bytes by default.
+- For HTTP Parquet objects at or below `in_memory_file_size`, v2 stages the complete object from
+  byte zero before native page access. Verify both cold and footer-cache-hit scans: some Range
+  servers accept the capability probe but return HTTP 200 for a near-EOF overlong range, so warm
+  scans must not depend on the footer read having populated an incidental transport buffer.
 - Identical fixed-width POD values append with one bulk copy. FIXED_LEN_BYTE_ARRAY strings copy the
   dense byte span once and synthesize offsets; validate this execution contract without flaky
   wall-clock assertions.
@@ -231,8 +244,28 @@ format-specific checklist when reviewing Parquet or ORC.
 - For safe staged single-column predicates, review the observed cost/rejection ordering and its
   cold-start behavior. Reordering is allowed only after every candidate has a sample; prefetch may
   stop at a low-probability reach prefix, while output-column prefetch may start early only after a
-  learned high survival ratio. Cache the batch SelectionVector's dense bitmap by generation so a
-  wide lazy projection does not rebuild the same O(batch) filter for every column.
+  learned high survival ratio. Static conjunct schedules and position maps belong to the scanner
+  lifecycle; after eight warm-up samples, per-predicate clocks should be sampled only periodically.
+  Cache the batch SelectionVector's dense bitmap by generation so a wide lazy projection does not
+  rebuild the same O(batch) filter for every column.
+- Single-column predicate rounds may keep previously read columns in their original row mappings.
+  Require one alignment compaction before multi-column, delete, or output boundaries, and expose
+  its time, bytes, and count instead of charging repeated movement invisibly to predicate time.
+  Reused compaction masks must be fully cleared when coordinate-space sizes shrink.
+- PLAIN BYTE_ARRAY must not parse lengths in both decoder and destination column. Review the direct
+  payload-offset/cumulative-offset contract, uint32 overflow checks, surviving-span coverage, and
+  the legacy consumer fallback for non-string logical types.
+- Production PageIndex planning must consume native Compact Thrift ColumnIndex/OffsetIndex objects.
+  Coalesce adjacent serialized index ranges and transfer validated OffsetIndexes into execution so
+  the Row Group does not read them twice. Arrow PageIndexReader is a test oracle; any remaining
+  Arrow metadata adapter must expose its time and retained bytes until it is removed.
+- Fixed-width conversion fast paths may remove row branches only when the source domain provably
+  fits the target domain. Narrowing, timestamp, decimal scaling, strict rollback, and non-strict
+  NULL marking must retain corrupt-value tests.
+- Recursive reader-profile publication and retained-scratch inspection should be amortized, but Row
+  Group reset/EOF/close must force the final profile delta before reader destruction.
+- Accumulated lazy-column skips must not allocate one dense byte per rejected prefix row. Require a
+  fixed chunk bound (including multiple lazy columns) or a level-only/all-filtered cursor contract.
 - Register Parquet Page Cache ranges only for surviving projected Column Chunks, require a stable
   file-version key, and assess FileCache, MergeRange, prefetch, requests, and read amplification
   together.

@@ -19,7 +19,9 @@
 
 #include <gen_cpp/parquet_types.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -33,7 +35,6 @@
 #include "format_v2/parquet/reader/native/column_reader.h"
 
 namespace doris {
-class FileMetaData;
 class RuntimeState;
 namespace io {
 struct IOContext;
@@ -41,6 +42,16 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::format::parquet {
+
+class NativeParquetMetadata;
+
+namespace detail {
+inline constexpr int64_t MAX_NATIVE_LAZY_SKIP_ROWS = std::numeric_limits<uint16_t>::max();
+
+inline int64_t bounded_native_lazy_skip_rows(int64_t rows) {
+    return std::min(rows, MAX_NATIVE_LAZY_SKIP_ROWS);
+}
+} // namespace detail
 
 // Production adapter from FileScannerV2's selection-oriented reader contract to Doris' native
 // Parquet page/encoding reader. The owned native reader decodes page bytes directly into the final
@@ -58,7 +69,7 @@ class NativeColumnReader final : public ParquetColumnReader {
 public:
     static Status create(const ParquetColumnSchema& column_schema,
                          const format::LocalColumnIndex* projection, io::FileReaderSPtr file,
-                         const FileMetaData* metadata, int row_group_id,
+                         const NativeParquetMetadata* metadata, int row_group_id,
                          const std::vector<RowRange>& selected_ranges,
                          const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
                          const cctz::time_zone* timezone, io::IOContext* io_ctx,
@@ -85,7 +96,7 @@ private:
     NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr projected_type,
                        ParquetColumnReaderProfile profile);
 
-    Status init(io::FileReaderSPtr file, const FileMetaData* metadata, int row_group_id,
+    Status init(io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
                 FieldSchema* field, std::shared_ptr<TableSchemaChangeHelper::Node> schema_node,
                 std::set<uint64_t> projected_column_ids,
                 const std::vector<RowRange>& selected_ranges,
@@ -121,6 +132,7 @@ private:
     // FileScannerV2 batch contributes only its delta to RuntimeProfile.
     native::ColumnReader::ColumnStatistics _reported_native_stats;
     std::vector<uint8_t> _filter_scratch;
+    size_t _batches_since_scratch_check = 0;
     MutableColumnPtr _skip_column;
     MutableColumnPtr _dictionary_id_column;
     MutableColumnPtr _matched_dictionary_ids;

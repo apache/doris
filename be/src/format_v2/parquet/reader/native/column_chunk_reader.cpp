@@ -412,6 +412,15 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     }
     int32_t page_num_values = _page_reader->is_header_v2() ? header->data_page_header_v2.num_values
                                                            : header->data_page_header.num_values;
+    if (page_num_values < 0 || page_num_values > _metadata.num_values ||
+        (!OFFSET_INDEX &&
+         static_cast<uint64_t>(page_num_values) >
+                 static_cast<uint64_t>(_metadata.num_values) - _chunk_parsed_values)) {
+        // Page counts are untrusted and feed both level decoders and scratch sizing. Bound each
+        // page by the column metadata before converting to unsigned counters.
+        return Status::Corruption("Parquet data page value count {} exceeds column total {}",
+                                  page_num_values, _metadata.num_values);
+    }
     _remaining_rep_nums = page_num_values;
     _remaining_def_nums = page_num_values;
     _remaining_num_values = page_num_values;
@@ -1024,7 +1033,13 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_nested_rows(
     }
     *cross_page = false;
     *result_rows = 0;
-    rep_levels.reserve(rep_levels.size() + _remaining_rep_nums);
+    // Reserve only the requested row frontier. One nested row may legitimately contain more
+    // values and grow the vector incrementally, but a forged page count must not allocate gigabytes
+    // before the level stream proves those values exist.
+    const size_t requested_frontier =
+            max_rows == std::numeric_limits<size_t>::max() ? max_rows : max_rows + 1;
+    rep_levels.reserve(rep_levels.size() +
+                       std::min<size_t>(_remaining_rep_nums, requested_frontier));
     while (_remaining_rep_nums) {
         level_t rep_level = _rep_level_get_next();
         if (UNLIKELY(rep_level < 0)) {

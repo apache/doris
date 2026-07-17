@@ -27,13 +27,13 @@
 #include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
-class FileMetaData;
 namespace io {
 struct IOContext;
 }
 } // namespace doris
 
 namespace doris::format::parquet {
+class NativeParquetMetadata;
 struct ParquetColumnSchema;
 // Shape-only COUNT(nullable_col) reader. It uses v2's native LevelReader, so BYTE_ARRAY payloads
 // are skipped in the encoding stream and never copied into Arrow builders or Doris strings.
@@ -41,8 +41,8 @@ class CountColumnReader {
 public:
     ~CountColumnReader();
 
-    static Status create(io::FileReaderSPtr file, const FileMetaData* metadata, int row_group_id,
-                         const ParquetColumnSchema& root_schema,
+    static Status create(io::FileReaderSPtr file, const NativeParquetMetadata* metadata,
+                         int row_group_id, const ParquetColumnSchema& root_schema,
                          const format::LocalColumnIndex* projection, io::IOContext* io_ctx,
                          bool enable_page_cache, const std::string& page_cache_file_key,
                          ParquetColumnReaderProfile profile,

@@ -93,15 +93,9 @@ public:
                     micros /= 1000;
                 }
             }
-            const bool negative = micros < 0;
-            const uint64_t abs_micros = negative ? uint64_t(-(micros + 1)) + 1 : uint64_t(micros);
-            _data[old_size + row] =
-                    TimeValue::make_time(abs_micros / TimeValue::ONE_HOUR_MICROSECONDS,
-                                         (abs_micros % TimeValue::ONE_HOUR_MICROSECONDS) /
-                                                 TimeValue::ONE_MINUTE_MICROSECONDS,
-                                         (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) /
-                                                 TimeValue::ONE_SECOND_MICROSECONDS,
-                                         abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
+            // Doris TIMEV2 stores signed microseconds in a double. Splitting into calendar fields
+            // and immediately recombining them is an identity operation with several divisions.
+            _data[old_size + row] = static_cast<TimeValue::TimeType>(micros);
         }
         return Status::OK();
     }

@@ -64,6 +64,31 @@ public:
     std::vector<StringRef> refs;
 };
 
+class CapturePlainBinaryLayoutConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef*, size_t) override {
+        legacy_consume_called = true;
+        return Status::InternalError("PLAIN BYTE_ARRAY used the legacy StringRef path");
+    }
+
+    Status consume_plain_byte_array(
+            const char* encoded_data, const uint32_t* payload_offsets,
+            const uint32_t* value_offsets, size_t num_values,
+            const std::vector<ParquetSelectionRange>& value_spans) override {
+        base = encoded_data;
+        source_offsets.assign(payload_offsets, payload_offsets + num_values);
+        output_offsets.assign(value_offsets, value_offsets + num_values + 1);
+        spans = value_spans;
+        return Status::OK();
+    }
+
+    const char* base = nullptr;
+    bool legacy_consume_called = false;
+    std::vector<uint32_t> source_offsets;
+    std::vector<uint32_t> output_offsets;
+    std::vector<ParquetSelectionRange> spans;
+};
+
 class CaptureFixedConsumer final : public ParquetFixedValueConsumer {
 public:
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
@@ -248,6 +273,32 @@ Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t
     return chunk_reader.load_page_data();
 }
 
+Status load_malformed_nested_page(tparquet::PageHeader header, const std::vector<uint8_t>& payload,
+                                  int64_t metadata_values = std::numeric_limits<int32_t>::max(),
+                                  level_t max_repetition_level = 1) {
+    auto bytes = serialize_page(header, payload);
+    MemoryBufferedReader reader(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(metadata_values);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    FieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.repetition_level = max_repetition_level;
+    field.definition_level = 0;
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<true, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
+                                                context);
+    RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.load_page_data());
+    std::vector<level_t> rep_levels;
+    size_t result_rows = 0;
+    bool cross_page = false;
+    return chunk_reader.load_page_nested_rows(rep_levels, 1, &result_rows, &cross_page);
+}
+
 TEST(ParquetV2NativeDecoderTest, ByteArrayDictionaryReferencesOwnedPageAndValidatesIndices) {
     int32_t dictionary_length = 0;
     auto dictionary = make_byte_array_dictionary({"alpha", "beta"}, &dictionary_length);
@@ -401,6 +452,41 @@ TEST(ParquetV2NativeDecoderTest, SparsePlainAndBooleanDecodeOnceAndPreserveCurso
     CaptureFixedConsumer trailing_rle_boolean;
     ASSERT_TRUE(decoder->decode_fixed_values(1, trailing_rle_boolean).ok());
     EXPECT_EQ(trailing_rle_boolean.values<uint8_t>(), std::vector<uint8_t>({1}));
+}
+
+TEST(ParquetV2NativeDecoderTest, PlainByteArrayPublishesOffsetsAndCoalescedSelectionSpans) {
+    const std::vector<std::string> strings {"zero", "one",  "two", "three",
+                                            "four", "five", "six", "seven"};
+    auto encoded = encode_plain_byte_arrays(strings);
+    Slice slice(encoded.data(), encoded.size());
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::BYTE_ARRAY, tparquet::Encoding::PLAIN, decoder)
+                        .ok());
+    ASSERT_TRUE(decoder->set_data(&slice).ok());
+
+    const ParquetSelection selection {
+            .total_values = 7,
+            .selected_values = 4,
+            .ranges = {{.first = 1, .count = 2}, {.first = 5, .count = 2}}};
+    CapturePlainBinaryLayoutConsumer consumer;
+    ASSERT_TRUE(decoder->decode_selected_binary_values(selection, consumer).ok());
+    EXPECT_FALSE(consumer.legacy_consume_called);
+    EXPECT_EQ(consumer.output_offsets, std::vector<uint32_t>({0, 3, 6, 10, 13}));
+    ASSERT_EQ(consumer.source_offsets.size(), selection.selected_values);
+    EXPECT_EQ(std::string_view(consumer.base + consumer.source_offsets[0], 3), "one");
+    EXPECT_EQ(std::string_view(consumer.base + consumer.source_offsets[1], 3), "two");
+    EXPECT_EQ(std::string_view(consumer.base + consumer.source_offsets[2], 4), "five");
+    EXPECT_EQ(std::string_view(consumer.base + consumer.source_offsets[3], 3), "six");
+    ASSERT_EQ(consumer.spans.size(), 2);
+    EXPECT_EQ(consumer.spans[0].first, 0);
+    EXPECT_EQ(consumer.spans[0].count, 2);
+    EXPECT_EQ(consumer.spans[1].first, 2);
+    EXPECT_EQ(consumer.spans[1].count, 2);
+
+    CaptureBinaryConsumer trailing;
+    ASSERT_TRUE(decoder->decode_binary_values(1, trailing).ok());
+    ASSERT_EQ(trailing.refs.size(), 1);
+    EXPECT_EQ(trailing.refs[0].to_string_view(), "seven");
 }
 
 TEST(ParquetV2NativeDecoderTest, SparsePlainFixedDecodeDoesNotRetainGatherBuffer) {
@@ -659,6 +745,55 @@ TEST(ParquetV2NativeDecoderTest, BitPackedLevelCursorOperationsPreservePosition)
     ASSERT_TRUE(rle_decoder.init(&truncated_levels, tparquet::Encoding::RLE, 1, 1).ok());
     level_t truncated_value = -1;
     EXPECT_EQ(rle_decoder.get_levels(&truncated_value, 1), 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, RejectsLevelsAboveSchemaMaximumOnEveryDecodePath) {
+    auto make_decoder = [](tparquet::Encoding::type encoding) {
+        static char encoded[] = {0x03}; // width=2 value=3, while the schema maximum is 2.
+        static char rle_encoded[] = {0x02, 0x00, 0x00, 0x00, 0x02, 0x03};
+        Slice levels = encoding == tparquet::Encoding::BIT_PACKED
+                               ? Slice(encoded, sizeof(encoded))
+                               : Slice(rle_encoded, sizeof(rle_encoded));
+        LevelDecoder decoder;
+        EXPECT_TRUE(decoder.init(&levels, encoding, 2, 1).ok());
+        return decoder;
+    };
+
+    for (auto encoding : {tparquet::Encoding::BIT_PACKED, tparquet::Encoding::RLE}) {
+        {
+            auto decoder = make_decoder(encoding);
+            level_t value = -1;
+            EXPECT_EQ(decoder.get_levels(&value, 1), 0);
+        }
+        {
+            auto decoder = make_decoder(encoding);
+            level_t value = -1;
+            EXPECT_EQ(decoder.get_next_run(&value, 1), 0);
+        }
+        {
+            auto decoder = make_decoder(encoding);
+            EXPECT_EQ(decoder.get_next(), -1);
+        }
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, NestedReadersRejectRleAndBitPackedLevelsAboveMaximum) {
+    for (auto encoding : {tparquet::Encoding::RLE, tparquet::Encoding::BIT_PACKED}) {
+        const std::vector<uint8_t> payload = encoding == tparquet::Encoding::RLE
+                                                     ? std::vector<uint8_t> {2, 0, 0, 0, 2, 3}
+                                                     : std::vector<uint8_t> {3};
+        tparquet::PageHeader header;
+        header.type = tparquet::PageType::DATA_PAGE;
+        header.__set_compressed_page_size(payload.size());
+        header.__set_uncompressed_page_size(payload.size());
+        header.__isset.data_page_header = true;
+        header.data_page_header.__set_num_values(1);
+        header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+        header.data_page_header.__set_repetition_level_encoding(encoding);
+        header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+
+        EXPECT_TRUE(load_malformed_nested_page(header, payload, 1, 2).is<ErrorCode::CORRUPTION>());
+    }
 }
 
 TEST(ParquetV2NativeDecoderTest, TruncatedBooleanStreamsFailWhileSkipping) {
@@ -1091,6 +1226,34 @@ TEST(ParquetV2NativeDecoderTest, PageHeaderRejectsSignedAndV2LevelSizeCorruption
     impossible_counts.data_page_header_v2.__set_repetition_levels_byte_length(0);
     impossible_counts.data_page_header_v2.__set_num_nulls(2);
     EXPECT_TRUE(parse_header(impossible_counts).is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, HugeNestedPageCountsDoNotPreallocateFromHeaders) {
+    for (auto page_type : {tparquet::PageType::DATA_PAGE, tparquet::PageType::DATA_PAGE_V2}) {
+        tparquet::PageHeader header;
+        header.type = page_type;
+        header.__set_compressed_page_size(4);
+        header.__set_uncompressed_page_size(4);
+        if (page_type == tparquet::PageType::DATA_PAGE) {
+            header.__isset.data_page_header = true;
+            header.data_page_header.__set_num_values(std::numeric_limits<int32_t>::max());
+            header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+            header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+            header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+        } else {
+            header.__isset.data_page_header_v2 = true;
+            header.data_page_header_v2.__set_num_values(std::numeric_limits<int32_t>::max());
+            header.data_page_header_v2.__set_num_rows(1);
+            header.data_page_header_v2.__set_num_nulls(0);
+            header.data_page_header_v2.__set_encoding(tparquet::Encoding::PLAIN);
+            header.data_page_header_v2.__set_repetition_levels_byte_length(0);
+            header.data_page_header_v2.__set_definition_levels_byte_length(0);
+            header.data_page_header_v2.__set_is_compressed(false);
+        }
+        // The four-byte V1 level length (or V2 value payload) contains no advertised levels. The
+        // reader must report corruption without reserving INT_MAX level slots first.
+        EXPECT_TRUE(load_malformed_nested_page(header, {0, 0, 0, 0}).is<ErrorCode::CORRUPTION>());
+    }
 }
 
 TEST(ParquetV2NativeDecoderTest, PageDecompressionRejectsBothSizeMismatchDirections) {

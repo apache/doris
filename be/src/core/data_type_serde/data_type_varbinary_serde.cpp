@@ -44,6 +44,16 @@ public:
         return Status::OK();
     }
 
+    Status consume_plain_byte_array(const char* encoded_data, const uint32_t* payload_offsets,
+                                    const uint32_t* value_offsets, size_t num_values,
+                                    const std::vector<ParquetSelectionRange>&) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            _column.insert_data(encoded_data + payload_offsets[row],
+                                value_offsets[row + 1] - value_offsets[row]);
+        }
+        return Status::OK();
+    }
+
 private:
     ColumnVarbinary& _column;
 };

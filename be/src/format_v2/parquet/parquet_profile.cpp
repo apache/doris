@@ -106,6 +106,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RawRowsRead", TUnit::UNIT, parquet_profile, 1);
     column_read_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ColumnReadTime", parquet_profile, 1);
     parse_meta_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ParseMetaTime", parquet_profile, 1);
+    arrow_metadata_adapter_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowMetadataAdapterTime", parquet_profile, 1);
+    arrow_metadata_adapter_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ArrowMetadataAdapterBytes", TUnit::BYTES, parquet_profile, 1);
     parse_footer_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ParseFooterTime", parquet_profile, 1);
     file_reader_create_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileReaderCreateTime", parquet_profile, 1);
@@ -165,6 +169,12 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                          parquet_profile, 1);
     predicate_filter_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "PredicateFilterTime", parquet_profile, 1);
+    predicate_compaction_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "PredicateCompactionTime", parquet_profile, 1);
+    predicate_compaction_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PredicateCompactionBytes",
+                                                              TUnit::BYTES, parquet_profile, 1);
+    predicate_compaction_count = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PredicateCompactionCount",
+                                                              TUnit::UNIT, parquet_profile, 1);
     dict_filter_rewrite_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "DictFilterRewriteTime", parquet_profile, 1);
     dict_filter_expr_rewrite_time =
@@ -273,6 +283,9 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .range_gap_skipped_rows = range_gap_skipped_rows,
             .column_read_time = column_read_time,
             .predicate_filter_time = predicate_filter_time,
+            .predicate_compaction_time = predicate_compaction_time,
+            .predicate_compaction_bytes = predicate_compaction_bytes,
+            .predicate_compaction_count = predicate_compaction_count,
             .dict_filter_rewrite_time = dict_filter_rewrite_time,
             .dict_filter_expr_rewrite_time = dict_filter_expr_rewrite_time,
             .dict_filter_read_dict_time = dict_filter_read_dict_time,

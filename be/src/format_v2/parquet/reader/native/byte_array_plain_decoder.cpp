@@ -18,6 +18,7 @@
 #include "format_v2/parquet/reader/native/byte_array_plain_decoder.h"
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 #include "core/column/column.h"
@@ -38,25 +39,44 @@ Status read_length(const Slice* data, size_t* offset, uint32_t* length) {
 
 Status ByteArrayPlainDecoder::decode_binary_values(size_t num_values,
                                                    ParquetBinaryValueConsumer& consumer) {
-    _binary_values.clear();
-    _binary_values.reserve(num_values);
+    _payload_offsets.clear();
+    _payload_offsets.reserve(num_values);
+    _value_offsets.clear();
+    _value_offsets.reserve(num_values + 1);
+    _value_offsets.push_back(0);
     for (size_t row = 0; row < num_values; ++row) {
         uint32_t length = 0;
         RETURN_IF_ERROR(read_length(_data, &_offset, &length));
         if (UNLIKELY(_offset > _data->size || length > _data->size - _offset)) {
             return Status::IOError("Can't read enough bytes in Parquet plain decoder");
         }
-        _binary_values.emplace_back(_data->data + _offset, length);
+        if (UNLIKELY(_offset > std::numeric_limits<uint32_t>::max() ||
+                     length > std::numeric_limits<uint32_t>::max() - _value_offsets.back())) {
+            return Status::IOError("Parquet plain BYTE_ARRAY batch exceeds uint32 offsets");
+        }
+        _payload_offsets.push_back(static_cast<uint32_t>(_offset));
+        _value_offsets.push_back(_value_offsets.back() + length);
         _offset += length;
     }
-    return consumer.consume(_binary_values.data(), _binary_values.size());
+    _value_spans.clear();
+    if (num_values != 0) {
+        _value_spans.push_back({.first = 0, .count = num_values});
+    }
+    return consumer.consume_plain_byte_array(_data->data, _payload_offsets.data(),
+                                             _value_offsets.data(), num_values, _value_spans);
 }
 
 Status ByteArrayPlainDecoder::decode_selected_binary_values(const ParquetSelection& selection,
                                                             ParquetBinaryValueConsumer& consumer) {
-    _binary_values.clear();
-    _binary_values.reserve(selection.selected_values);
+    _payload_offsets.clear();
+    _payload_offsets.reserve(selection.selected_values);
+    _value_offsets.clear();
+    _value_offsets.reserve(selection.selected_values + 1);
+    _value_offsets.push_back(0);
+    _value_spans.clear();
+    _value_spans.reserve(selection.ranges.size());
     size_t range_index = 0;
+    size_t selected_in_range = 0;
     for (size_t row = 0; row < selection.total_values; ++row) {
         uint32_t length = 0;
         RETURN_IF_ERROR(read_length(_data, &_offset, &length));
@@ -65,18 +85,35 @@ Status ByteArrayPlainDecoder::decode_selected_binary_values(const ParquetSelecti
         }
         while (range_index < selection.ranges.size() &&
                row >= selection.ranges[range_index].first + selection.ranges[range_index].count) {
+            if (selected_in_range != 0) {
+                _value_spans.push_back({.first = _payload_offsets.size() - selected_in_range,
+                                        .count = selected_in_range});
+                selected_in_range = 0;
+            }
             ++range_index;
         }
         if (range_index < selection.ranges.size() && row >= selection.ranges[range_index].first) {
-            _binary_values.emplace_back(_data->data + _offset, length);
+            if (UNLIKELY(_offset > std::numeric_limits<uint32_t>::max() ||
+                         length > std::numeric_limits<uint32_t>::max() - _value_offsets.back())) {
+                return Status::IOError("Parquet plain BYTE_ARRAY selection exceeds uint32 offsets");
+            }
+            _payload_offsets.push_back(static_cast<uint32_t>(_offset));
+            _value_offsets.push_back(_value_offsets.back() + length);
+            ++selected_in_range;
         }
         _offset += length;
     }
-    DORIS_CHECK_EQ(_binary_values.size(), selection.selected_values);
-    if (_binary_values.empty()) {
+    if (selected_in_range != 0) {
+        _value_spans.push_back(
+                {.first = _payload_offsets.size() - selected_in_range, .count = selected_in_range});
+    }
+    DORIS_CHECK_EQ(_payload_offsets.size(), selection.selected_values);
+    if (_payload_offsets.empty()) {
         return Status::OK();
     }
-    return consumer.consume(_binary_values.data(), _binary_values.size());
+    return consumer.consume_plain_byte_array(_data->data, _payload_offsets.data(),
+                                             _value_offsets.data(), _payload_offsets.size(),
+                                             _value_spans);
 }
 
 Status ByteArrayPlainDecoder::skip_values(size_t num_values) {

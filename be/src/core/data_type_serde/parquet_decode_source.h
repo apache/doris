@@ -121,6 +121,23 @@ class ParquetBinaryValueConsumer {
 public:
     virtual ~ParquetBinaryValueConsumer() = default;
     virtual Status consume(const StringRef* values, size_t num_values) = 0;
+
+    // PLAIN BYTE_ARRAY decoders already have to parse every length prefix. Publish the parsed
+    // source and destination offsets so string columns do not rebuild an equally large StringRef
+    // array and rescan all lengths before copying. Spans are expressed in output coordinates and
+    // preserve adjacent surviving runs for consumers that can amortize range setup.
+    virtual Status consume_plain_byte_array(const char* encoded_data,
+                                            const uint32_t* payload_offsets,
+                                            const uint32_t* value_offsets, size_t num_values,
+                                            const std::vector<ParquetSelectionRange>& value_spans) {
+        std::vector<StringRef> values;
+        values.reserve(num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            values.emplace_back(encoded_data + payload_offsets[row],
+                                value_offsets[row + 1] - value_offsets[row]);
+        }
+        return consume(values.data(), values.size());
+    }
 };
 
 // Physical value ranges selected from one page-bounded decode request. Definition-level NULLs are
