@@ -59,6 +59,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -2729,7 +2730,7 @@ void ColumnVariant::Subcolumn::deserialize_from_binary_column(const ColumnString
     const auto& data_ref = value->get_data_at(row);
     const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
     const PrimitiveType type =
-            TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
+            storage_field_type_to_primitive_type(static_cast<FieldType>(*start_data));
     auto check_end = [&](const uint8_t* end_ptr) {
         DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
     };

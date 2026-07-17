@@ -56,134 +56,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
-    switch (primitiveType) {
-    case PrimitiveType::INVALID_TYPE:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    case PrimitiveType::TYPE_NULL:
-        return FieldType::OLAP_FIELD_TYPE_NONE;
-    case PrimitiveType::TYPE_BOOLEAN:
-        return FieldType::OLAP_FIELD_TYPE_BOOL;
-    case PrimitiveType::TYPE_TINYINT:
-        return FieldType::OLAP_FIELD_TYPE_TINYINT;
-    case PrimitiveType::TYPE_SMALLINT:
-        return FieldType::OLAP_FIELD_TYPE_SMALLINT;
-    case PrimitiveType::TYPE_INT:
-        return FieldType::OLAP_FIELD_TYPE_INT;
-    case PrimitiveType::TYPE_BIGINT:
-        return FieldType::OLAP_FIELD_TYPE_BIGINT;
-    case PrimitiveType::TYPE_LARGEINT:
-        return FieldType::OLAP_FIELD_TYPE_LARGEINT;
-    case PrimitiveType::TYPE_FLOAT:
-        return FieldType::OLAP_FIELD_TYPE_FLOAT;
-    case PrimitiveType::TYPE_DOUBLE:
-        return FieldType::OLAP_FIELD_TYPE_DOUBLE;
-    case PrimitiveType::TYPE_VARCHAR:
-        return FieldType::OLAP_FIELD_TYPE_VARCHAR;
-    case PrimitiveType::TYPE_DATE:
-        return FieldType::OLAP_FIELD_TYPE_DATE;
-    case PrimitiveType::TYPE_DATETIME:
-        return FieldType::OLAP_FIELD_TYPE_DATETIME;
-    case PrimitiveType::TYPE_BINARY:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_CHAR:
-        return FieldType::OLAP_FIELD_TYPE_CHAR;
-    case PrimitiveType::TYPE_STRUCT:
-        return FieldType::OLAP_FIELD_TYPE_STRUCT;
-    case PrimitiveType::TYPE_ARRAY:
-        return FieldType::OLAP_FIELD_TYPE_ARRAY;
-    case PrimitiveType::TYPE_MAP:
-        return FieldType::OLAP_FIELD_TYPE_MAP;
-    case PrimitiveType::TYPE_HLL:
-        return FieldType::OLAP_FIELD_TYPE_HLL;
-    case PrimitiveType::TYPE_DECIMALV2:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_BITMAP:
-        return FieldType::OLAP_FIELD_TYPE_BITMAP;
-    case PrimitiveType::TYPE_STRING:
-        return FieldType::OLAP_FIELD_TYPE_STRING;
-    case PrimitiveType::TYPE_QUANTILE_STATE:
-        return FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
-    case PrimitiveType::TYPE_DATEV2:
-        return FieldType::OLAP_FIELD_TYPE_DATEV2;
-    case PrimitiveType::TYPE_DATETIMEV2:
-        return FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
-    case PrimitiveType::TYPE_TIMESTAMPTZ:
-        return FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
-    case PrimitiveType::TYPE_TIMEV2:
-        return FieldType::OLAP_FIELD_TYPE_TIMEV2;
-    case PrimitiveType::TYPE_DECIMAL32:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL32;
-    case PrimitiveType::TYPE_DECIMAL64:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL64;
-    case PrimitiveType::TYPE_DECIMAL128I:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
-    case PrimitiveType::TYPE_DECIMAL256:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL256;
-    case PrimitiveType::TYPE_JSONB:
-        return FieldType::OLAP_FIELD_TYPE_JSONB;
-    case PrimitiveType::TYPE_VARIANT:
-        return FieldType::OLAP_FIELD_TYPE_VARIANT;
-    case PrimitiveType::TYPE_IPV4:
-        return FieldType::OLAP_FIELD_TYPE_IPV4;
-    case PrimitiveType::TYPE_IPV6:
-        return FieldType::OLAP_FIELD_TYPE_IPV6;
-    case PrimitiveType::TYPE_AGG_STATE:
-        return FieldType::OLAP_FIELD_TYPE_AGG_STATE;
-    default:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    }
-}
-
-PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
-    static const PrimitiveType mapping[] = {
-            /*  0 */ PrimitiveType::INVALID_TYPE,
-            /*  1 OLAP_FIELD_TYPE_TINYINT           */ PrimitiveType::TYPE_TINYINT,
-            /*  2 OLAP_FIELD_TYPE_UNSIGNED_TINYINT  */ PrimitiveType::INVALID_TYPE,
-            /*  3 OLAP_FIELD_TYPE_SMALLINT          */ PrimitiveType::TYPE_SMALLINT,
-            /*  4 OLAP_FIELD_TYPE_UNSIGNED_SMALLINT */ PrimitiveType::INVALID_TYPE,
-            /*  5 OLAP_FIELD_TYPE_INT               */ PrimitiveType::TYPE_INT,
-            /*  6 OLAP_FIELD_TYPE_UNSIGNED_INT      */ PrimitiveType::INVALID_TYPE,
-            /*  7 OLAP_FIELD_TYPE_BIGINT            */ PrimitiveType::TYPE_BIGINT,
-            /*  8 OLAP_FIELD_TYPE_UNSIGNED_BIGINT   */ PrimitiveType::INVALID_TYPE,
-            /*  9 OLAP_FIELD_TYPE_LARGEINT          */ PrimitiveType::TYPE_LARGEINT,
-            /* 10 OLAP_FIELD_TYPE_FLOAT             */ PrimitiveType::TYPE_FLOAT,
-            /* 11 OLAP_FIELD_TYPE_DOUBLE            */ PrimitiveType::TYPE_DOUBLE,
-            /* 12 OLAP_FIELD_TYPE_DISCRETE_DOUBLE   */ PrimitiveType::INVALID_TYPE,
-            /* 13 OLAP_FIELD_TYPE_CHAR              */ PrimitiveType::TYPE_CHAR,
-            /* 14 OLAP_FIELD_TYPE_DATE              */ PrimitiveType::TYPE_DATE,
-            /* 15 OLAP_FIELD_TYPE_DATETIME          */ PrimitiveType::TYPE_DATETIME,
-            /* 16 OLAP_FIELD_TYPE_DECIMAL           */ PrimitiveType::INVALID_TYPE,
-            /* 17 OLAP_FIELD_TYPE_VARCHAR           */ PrimitiveType::TYPE_VARCHAR,
-            /* 18 OLAP_FIELD_TYPE_STRUCT            */ PrimitiveType::TYPE_STRUCT,
-            /* 19 OLAP_FIELD_TYPE_ARRAY             */ PrimitiveType::TYPE_ARRAY,
-            /* 20 OLAP_FIELD_TYPE_MAP               */ PrimitiveType::TYPE_MAP,
-            /* 21 OLAP_FIELD_TYPE_UNKNOWN           */ PrimitiveType::INVALID_TYPE,
-            /* 22 OLAP_FIELD_TYPE_NONE              */ PrimitiveType::TYPE_NULL,
-            /* 23 OLAP_FIELD_TYPE_HLL               */ PrimitiveType::TYPE_HLL,
-            /* 24 OLAP_FIELD_TYPE_BOOL              */ PrimitiveType::TYPE_BOOLEAN,
-            /* 25 OLAP_FIELD_TYPE_BITMAP            */ PrimitiveType::TYPE_BITMAP,
-            /* 26 OLAP_FIELD_TYPE_STRING            */ PrimitiveType::TYPE_STRING,
-            /* 27 OLAP_FIELD_TYPE_QUANTILE_STATE    */ PrimitiveType::TYPE_QUANTILE_STATE,
-            /* 28 OLAP_FIELD_TYPE_DATEV2            */ PrimitiveType::TYPE_DATEV2,
-            /* 29 OLAP_FIELD_TYPE_DATETIMEV2        */ PrimitiveType::TYPE_DATETIMEV2,
-            /* 30 OLAP_FIELD_TYPE_TIMEV2            */ PrimitiveType::TYPE_TIMEV2,
-            /* 31 OLAP_FIELD_TYPE_DECIMAL32         */ PrimitiveType::TYPE_DECIMAL32,
-            /* 32 OLAP_FIELD_TYPE_DECIMAL64         */ PrimitiveType::TYPE_DECIMAL64,
-            /* 33 OLAP_FIELD_TYPE_DECIMAL128I       */ PrimitiveType::TYPE_DECIMAL128I,
-            /* 34 OLAP_FIELD_TYPE_JSONB             */ PrimitiveType::TYPE_JSONB,
-            /* 35 OLAP_FIELD_TYPE_VARIANT           */ PrimitiveType::TYPE_VARIANT,
-            /* 36 OLAP_FIELD_TYPE_AGG_STATE         */ PrimitiveType::TYPE_AGG_STATE,
-            /* 37 OLAP_FIELD_TYPE_DECIMAL256        */ PrimitiveType::TYPE_DECIMAL256,
-            /* 38 OLAP_FIELD_TYPE_IPV4              */ PrimitiveType::TYPE_IPV4,
-            /* 39 OLAP_FIELD_TYPE_IPV6              */ PrimitiveType::TYPE_IPV6,
-            /* 40 OLAP_FIELD_TYPE_TIMESTAMPTZ       */ PrimitiveType::TYPE_TIMESTAMPTZ,
-    };
-
-    int idx = static_cast<int>(type);
-    return mapping[idx];
-}
-
 FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     std::string upper_type_str = type_str;
     std::transform(type_str.begin(), type_str.end(), upper_type_str.begin(),
@@ -239,6 +111,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     } else if (0 == upper_type_str.compare("DECIMAL256")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL256;
     } else if (0 == upper_type_str.compare(0, 7, "DECIMAL")) {
+        // Keep this generic prefix match after all specific DECIMAL types; otherwise DECIMAL32,
+        // DECIMAL64, DECIMAL128I, and DECIMAL256 would all be classified as DECIMAL.
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
         type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
