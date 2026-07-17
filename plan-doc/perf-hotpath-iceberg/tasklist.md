@@ -15,7 +15,7 @@
 
 | ID | 优先级 | 覆盖发现 | 主题（一句话） | 依赖 | 状态 | commit |
 |---|---|---|---|---|---|---|
-| PERF-01 | P0 | C1 C4 C6 C10 C16 | 一次规划 3~7 次远程 loadTable → 胖 handle(查询内单实例)+ 跨查询 IcebergTableCache(挂 Connector);~~convertPredicate 收窄~~已删(红队证伪) | — | 🚧 设计定稿,待实现 | |
+| PERF-01 | P0 | C1 C4 C6 C10 C16 | 一次规划 3~7 次远程 loadTable → 胖 handle(查询内单实例)+ 跨查询 IcebergTableCache(挂 Connector);~~convertPredicate 收窄~~已删(红队证伪) | — | ✅ 完成 | `484f0e0c125` |
 | PERF-02 | P0 | C7 C22 C23 | 分区视图每查询重扫 PARTITIONS 元数据表 → `(table,snapshotId)` 缓存 + MTMV refresh pin | 与 01 共享快照 pin 机制 | ⏳ | |
 | PERF-03 | P0 | C2 C11 | #64134 复活：`file_format_type` 兜底走整表 planFiles → memoize / 从枚举反推 | 受益于 01 的失效收窄（消第二次） | ⏳ | |
 | PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 两条旁路接回 | — | ⏳ | |
@@ -31,7 +31,7 @@
 
 ## P0 — 无缓存/兜底类，触发面=所有 iceberg 查询
 
-### [ ] PERF-01 — 簇1：per-planning-pass Table memo（C1 C4 C6 C10 C16）
+### [x] PERF-01 — 簇1：胖 handle(查询内) + 跨查询 IcebergTableCache（C1 C4 C6 C10 C16） · ✅ `484f0e0c125`
 - **病灶**：`IcebergCatalogOps.loadTable:340` 是对 SDK `catalog.loadTable()` 的裸委派（每次 = metastore RPC + metadata.json 读）；全仓无 `CachingCatalog`，`IcebergLatestSnapshotCache` 只存 `(snapshotId,schemaId)` 不存 Table。SPI 各入口各自 load ⇒ 一次带 WHERE 的查询 **3~7 次** loadTable（7 个调用点见报告簇1 表）。放大器 = `convertPredicate:795-798` **无条件**清空 `cachedPropertiesResult` ⇒ 整份 properties（loadTable/format/schema thrift+base64/凭证 overlay，全是 filter 不变量）第二次重算。
 - **修复方向**：以 `beginQuerySnapshot` 已有的 pin 为天然 key，做 per-planning-pass 的 **Table memo**（键 `(TableIdentifier, pinnedSnapshotId)`，挂长生命周期 `IcebergConnector` 或随 handle 传递），让 `getColumnHandles / resolveTable / streamingSplitEstimate / planScan` 共享一次 load；同时把 `convertPredicate` 失效**收窄**到真正依赖 conjunct 的 prop（谓词对 properties 的唯一影响仅 pushdown-predicates 一个 prop）。
 - **收益**：每查询 −3~6 次远程往返 ≈ 规划延迟 −0.2~1.5s；metastore/REST QPS 除以 3~7。
