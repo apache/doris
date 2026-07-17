@@ -86,6 +86,20 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     auto* index = cache->inflight_write_buffer_index();
     ASSERT_NE(service, nullptr);
     ASSERT_NE(index, nullptr);
+    const uint64_t baseline_submitted = service->_submitted_metric->get_value();
+    const uint64_t baseline_submitted_bytes = service->_submitted_bytes_metric->get_value();
+    const uint64_t baseline_finished = service->_finished_metric->get_value();
+    const uint64_t baseline_persisted_blocks = service->_persisted_blocks_metric->get_value();
+    const uint64_t baseline_persisted_bytes = service->_persisted_bytes_metric->get_value();
+    const int64_t baseline_submit_latency_count = service->_submit_latency_metric->count();
+    const int64_t baseline_buffer_alloc_latency_count =
+            service->_buffer_alloc_latency_metric->count();
+    const int64_t baseline_queue_wait_latency_count = service->_queue_wait_latency_metric->count();
+    const int64_t baseline_worker_task_latency_count =
+            service->_worker_task_latency_metric->count();
+    const int64_t baseline_get_or_set_latency_count = service->_get_or_set_latency_metric->count();
+    const int64_t baseline_append_latency_count = service->_append_latency_metric->count();
+    const int64_t baseline_finalize_latency_count = service->_finalize_latency_metric->count();
 
     constexpr size_t block_size = 4096;
     const auto hash = BlockFileCache::hash("async_single_task");
@@ -119,7 +133,23 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     ASSERT_TRUE(service->try_submit(std::move(task)));
     ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(service->queued_count(), 0);
+    EXPECT_EQ(service->active_task_count(), 0);
     EXPECT_EQ(index->lookup(hash, 0, epoch), nullptr);
+    EXPECT_EQ(service->_submitted_metric->get_value() - baseline_submitted, 1);
+    EXPECT_EQ(service->_submitted_bytes_metric->get_value() - baseline_submitted_bytes, block_size);
+    EXPECT_EQ(service->_finished_metric->get_value() - baseline_finished, 1);
+    EXPECT_EQ(service->_persisted_blocks_metric->get_value() - baseline_persisted_blocks, 1);
+    EXPECT_EQ(service->_persisted_bytes_metric->get_value() - baseline_persisted_bytes, block_size);
+    EXPECT_EQ(service->_submit_latency_metric->count() - baseline_submit_latency_count, 1);
+    EXPECT_EQ(service->_buffer_alloc_latency_metric->count() - baseline_buffer_alloc_latency_count,
+              1);
+    EXPECT_EQ(service->_queue_wait_latency_metric->count() - baseline_queue_wait_latency_count, 1);
+    EXPECT_EQ(service->_worker_task_latency_metric->count() - baseline_worker_task_latency_count,
+              1);
+    EXPECT_EQ(service->_get_or_set_latency_metric->count() - baseline_get_or_set_latency_count, 1);
+    EXPECT_EQ(service->_append_latency_metric->count() - baseline_append_latency_count, 1);
+    EXPECT_EQ(service->_finalize_latency_metric->count() - baseline_finalize_latency_count, 1);
 
     ReadStatistics read_stats;
     CacheContext context;
@@ -215,7 +245,10 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitRejectsWhileWorkerIsActive) {
     };
     EXPECT_FALSE(service->try_submit(std::move(rejected_task)));
     EXPECT_EQ(service->pending_count(), 1);
-    EXPECT_GE(service->stats().rejected, 1);
+    EXPECT_EQ(service->queued_count(), 0);
+    EXPECT_EQ(service->active_task_count(), 1);
+    EXPECT_EQ(service->_active_get_or_set_count.load(std::memory_order_relaxed), 1);
+    EXPECT_GE(service->_reject_backpressure_metric->get_value(), 1);
 
     {
         std::lock_guard lock(mutex);
@@ -265,7 +298,8 @@ TEST_F(AsyncCacheWriteServiceTest, WatchdogDropsExpiredTaskAndCleansInflightEntr
     ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
     EXPECT_EQ(index->lookup(hash, 0, epoch), nullptr);
-    EXPECT_GE(service->stats().watchdog_timeout, 1);
+    EXPECT_GE(service->_watchdog_warn_metric->get_value(), 1);
+    EXPECT_GE(service->_watchdog_drop_metric->get_value(), 1);
 
     ReadStatistics read_stats;
     CacheContext context;
@@ -408,9 +442,9 @@ TEST_F(AsyncCacheWriteServiceTest, ExistingAndDeletingCellsKeepTheirOwners) {
     ASSERT_TRUE(service->try_submit(std::move(task)));
     ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
-    EXPECT_GE(service->stats().skip_downloaded, 1);
-    EXPECT_GE(service->stats().skip_downloading, 1);
-    EXPECT_GE(service->stats().skip_deleting, 1);
+    EXPECT_GE(service->_skip_downloaded_metric->get_value(), 1);
+    EXPECT_GE(service->_skip_downloading_metric->get_value(), 1);
+    EXPECT_GE(service->_skip_deleting_metric->get_value(), 1);
 
     std::string actual(cell_size, '\0');
     ASSERT_TRUE(downloaded_block->read(Slice(actual.data(), actual.size()), 0).ok());
@@ -472,6 +506,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCach
         std::unique_lock lock(mutex);
         ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return before_append; }));
     }
+    EXPECT_EQ(service->_active_append_count.load(std::memory_order_relaxed), 1);
 
     fs::path cache_file;
     {
@@ -494,6 +529,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCach
     cv.notify_all();
     ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(service->_active_append_count.load(std::memory_order_relaxed), 0);
 
     bool removed = false;
     for (int attempt = 0; attempt < 5000; ++attempt) {
@@ -554,7 +590,7 @@ TEST_F(AsyncCacheWriteServiceTest, PartialOverlapIsSkippedWithoutOutOfBoundsWrit
     };
     ASSERT_TRUE(service->try_submit(std::move(task)));
     ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-    EXPECT_GE(service->stats().skip_partial_overlap, 1);
+    EXPECT_GE(service->_skip_partial_overlap_metric->get_value(), 1);
 
     FileBlocks blocks;
     bool fully_covered = false;
@@ -661,7 +697,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
     ASSERT_EQ(active_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     ASSERT_EQ(queued_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
-    EXPECT_GE(service->stats().drop_stale_epoch, 2);
+    EXPECT_GE(service->_drop_stale_epoch_metric->get_value(), 2);
 
     ReadStatistics read_stats;
     CacheContext context;
@@ -852,7 +888,7 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
                 if (record_drain_samples) {
                     // This excludes active tasks, unlike pending_count(), and therefore observes
                     // the actual MPMC backlog after each dequeue.
-                    drain_queue_sizes.emplace_back(service->_queue.size_approx());
+                    drain_queue_sizes.emplace_back(service->queued_count());
                 }
             },
             &guard);
@@ -892,7 +928,9 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
         });
     }
 
-    const auto baseline_stats = service->stats();
+    const uint64_t baseline_submitted = service->_submitted_metric->get_value();
+    const uint64_t baseline_rejected = service->_rejected_metric->get_value();
+    const uint64_t baseline_backpressure = service->_reject_backpressure_metric->get_value();
     ASSERT_TRUE(service->try_submit(std::move(tasks[0])));
     {
         std::unique_lock lock(mutex);
@@ -931,8 +969,7 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
     // timing.
     for (size_t wave = 0; wave < fill_wave_count; ++wave) {
         submit_wave(1 + wave * producer_count * fill_tasks_per_producer, fill_tasks_per_producer);
-        EXPECT_EQ(service->_queue.size_approx(),
-                  (wave + 1) * producer_count * fill_tasks_per_producer);
+        EXPECT_EQ(service->queued_count(), (wave + 1) * producer_count * fill_tasks_per_producer);
         EXPECT_EQ(service->pending_count(),
                   1 + (wave + 1) * producer_count * fill_tasks_per_producer);
     }
@@ -944,11 +981,12 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
     EXPECT_EQ(producer_rejects.load(std::memory_order_relaxed), rejected_producer_tasks);
     EXPECT_GT(producer_rejects.load(std::memory_order_relaxed),
               producer_accepts.load(std::memory_order_relaxed));
-    EXPECT_EQ(service->_queue.size_approx(), accepted_producer_tasks);
+    EXPECT_EQ(service->queued_count(), accepted_producer_tasks);
     EXPECT_EQ(service->pending_count(), max_pending_tasks);
-    const auto pressured_stats = service->stats();
-    EXPECT_EQ(pressured_stats.submitted - baseline_stats.submitted, max_pending_tasks);
-    EXPECT_EQ(pressured_stats.rejected - baseline_stats.rejected, rejected_producer_tasks);
+    EXPECT_EQ(service->_submitted_metric->get_value() - baseline_submitted, max_pending_tasks);
+    EXPECT_EQ(service->_rejected_metric->get_value() - baseline_rejected, rejected_producer_tasks);
+    EXPECT_EQ(service->_reject_backpressure_metric->get_value() - baseline_backpressure,
+              rejected_producer_tasks);
 
     // Producers have stopped. Grow from one to four consumers while writes remain blocked, then
     // remove the artificial delay and increase the batch size to model faster disk consumption.
@@ -959,7 +997,7 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
         std::unique_lock lock(mutex);
         ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
                                 [&]() { return consumer_entries == fast_worker_count; }));
-        EXPECT_EQ(service->_queue.size_approx(), accepted_producer_tasks - (fast_worker_count - 1));
+        EXPECT_EQ(service->queued_count(), accepted_producer_tasks - (fast_worker_count - 1));
         record_drain_samples = true;
         slow_consumers = false;
     }
@@ -971,7 +1009,7 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
                                 [&]() { return finished_tasks == max_pending_tasks; }));
     }
     EXPECT_EQ(service->pending_count(), 0);
-    EXPECT_EQ(service->_queue.size_approx(), 0);
+    EXPECT_EQ(service->queued_count(), 0);
     EXPECT_TRUE(std::any_of(drain_queue_sizes.begin(), drain_queue_sizes.end(), [&](size_t size) {
         return size > 0 && size <= accepted_producer_tasks / 2;
     }));
