@@ -148,26 +148,37 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // and the credential-gated catalogs pass null; the query-scoped fat handle (IcebergTableHandle) works
     // regardless. Consumed only by resolveTableForRead.
     private final IcebergTableCache tableCache;
+    // PERF-02: cross-query partition-view cache (null = no cross-query layer; the convenience ctors used by
+    // direct-construction tests pass null). Consumed by getMvccPartitionView / listPartitions / listPartitionNames.
+    private final IcebergPartitionCache partitionCache;
 
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
-        this(catalogOps, properties, context, new IcebergLatestSnapshotCache(0L, 1), null);
+        this(catalogOps, properties, context, new IcebergLatestSnapshotCache(0L, 1), null, null);
     }
 
     /** Convenience ctor without a cross-query table cache (tableCache null); used by MVCC/statistics tests. */
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, null);
+        this(catalogOps, properties, context, latestSnapshotCache, null, null);
+    }
+
+    /** Convenience ctor without a partition-view cache (partitionCache null). */
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+            ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
+            IcebergTableCache tableCache) {
+        this(catalogOps, properties, context, latestSnapshotCache, tableCache, null);
     }
 
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
-            IcebergTableCache tableCache) {
+            IcebergTableCache tableCache, IcebergPartitionCache partitionCache) {
         this.catalogOps = catalogOps;
         this.properties = properties;
         this.context = context;
         this.latestSnapshotCache = latestSnapshotCache;
         this.tableCache = tableCache;
+        this.partitionCache = partitionCache;
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -1490,7 +1501,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             return context.executeAuthenticated(() -> {
                 Table table = resolveTableForRead(iceHandle);
-                return Optional.of(IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId()));
+                return Optional.of(IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId(),
+                        TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache));
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to build iceberg MVCC partition view, error message is:"
@@ -1518,7 +1530,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                             iceHandle.getDbName(), iceHandle.getTableName(), e);
                     return Collections.<String>emptyList();
                 }
-                return IcebergPartitionUtils.listPartitionNames(table);
+                return IcebergPartitionUtils.listPartitionNames(table,
+                        TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to list iceberg partition names, error message is:"
@@ -1549,7 +1562,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                             iceHandle.getDbName(), iceHandle.getTableName(), e);
                     return Collections.<ConnectorPartitionInfo>emptyList();
                 }
-                return IcebergPartitionUtils.listPartitions(table);
+                return IcebergPartitionUtils.listPartitions(table,
+                        TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to list iceberg partitions, error message is:"

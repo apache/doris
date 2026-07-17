@@ -164,6 +164,10 @@ public class IcebergConnector implements Connector {
     // (iceberg.rest.session=user / REST vended-credentials) — see the constructor. The query-scoped fat handle
     // (IcebergTableHandle.resolvedTable) is always on and independent of this field.
     private final IcebergTableCache tableCache;
+    // PERF-02: cross-query partition-view cache (the raw PARTITIONS-scan result, keyed by (table, snapshotId)).
+    // Built unconditionally — the cached value is pure metadata with no FileIO/credential, so no credential gate
+    // (unlike tableCache); only the TTL knob disables it.
+    private final IcebergPartitionCache partitionCache;
     private final IcebergManifestCache manifestCache = new IcebergManifestCache();
     // commit-bridge supply (S4 part 2): per-catalog stash carrying a row-level DML's non-equality delete supply
     // across the scan->write seam — the scan provider fills it (keyed by queryId), the write provider drains it
@@ -205,6 +209,9 @@ public class IcebergConnector implements Connector {
                 ? null
                 : new IcebergTableCache(
                         resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // PERF-02: partition-view cache. Pure metadata (no credentials) -> no gate; same TTL/capacity as above.
+        this.partitionCache = new IcebergPartitionCache(
+                resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
     }
 
     /**
@@ -229,7 +236,7 @@ public class IcebergConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new IcebergConnectorMetadata(
-                newCatalogBackedOps(session), properties, context, latestSnapshotCache, tableCache);
+                newCatalogBackedOps(session), properties, context, latestSnapshotCache, tableCache, partitionCache);
     }
 
     /**
@@ -543,6 +550,7 @@ public class IcebergConnector implements Connector {
         if (tableCache != null) {
             tableCache.invalidate(TableIdentifier.of(dbName, tableName));
         }
+        partitionCache.invalidate(TableIdentifier.of(dbName, tableName));
     }
 
     /**
@@ -562,6 +570,7 @@ public class IcebergConnector implements Connector {
         if (tableCache != null) {
             tableCache.invalidateDb(dbName);
         }
+        partitionCache.invalidateDb(dbName);
     }
 
     /**
@@ -577,6 +586,7 @@ public class IcebergConnector implements Connector {
         if (tableCache != null) {
             tableCache.invalidateAll();
         }
+        partitionCache.invalidateAll();
         manifestCache.invalidateAll();
     }
 
@@ -609,6 +619,11 @@ public class IcebergConnector implements Connector {
     /** Test-only: the cross-query table cache, or {@code null} when disabled by the credential gate (PERF-01). */
     IcebergTableCache tableCacheForTest() {
         return tableCache;
+    }
+
+    /** Test-only: the cross-query partition-view cache (PERF-02; always built, no credential gate). */
+    IcebergPartitionCache partitionCacheForTest() {
+        return partitionCache;
     }
 
     @Override

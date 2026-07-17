@@ -238,4 +238,58 @@ public class IcebergConnectorCacheTest {
         connector.invalidateAll();
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
     }
+
+    // ==================== PERF-02: partition-view cache (no gate) + invalidation ====================
+
+    private static IcebergPartitionCache.Key partKey(String db, String tbl, long snapshotId) {
+        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+    }
+
+    @Test
+    public void partitionCacheBuiltForAllCatalogsIncludingCredentialGatedOnes() {
+        // The partition-view cache stores pure metadata (no FileIO/credential), so unlike the table cache it is
+        // built for EVERY catalog -- including per-user session and REST vended-credentials, which disable the
+        // table cache. MUTATION: gating the partition cache on the credential flags -> null here -> red.
+        Assertions.assertNotNull(
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).partitionCacheForTest(),
+                "a plain catalog builds the partition cache");
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        Assertions.assertNotNull(
+                new IcebergConnector(vended, new RecordingConnectorContext()).partitionCacheForTest(),
+                "a vended-credentials catalog still builds the partition cache (metadata carries no credentials)");
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        Assertions.assertNotNull(
+                new IcebergConnector(session, new RecordingConnectorContext()).partitionCacheForTest(),
+                "a per-user session catalog still builds the partition cache");
+    }
+
+    @Test
+    public void refreshHooksInvalidatePartitionCache() {
+        // The REFRESH hooks must clear the partition-view cache too (else external DDL/writes would stay invisible
+        // beyond the pin): REFRESH TABLE drops that table's snapshot entries, REFRESH DATABASE that db's, REFRESH
+        // CATALOG everything. MUTATION: an invalidate* hook not touching partitionCache -> a stale entry survives
+        // -> a size assert below red.
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergPartitionCache cache = connector.partitionCacheForTest();
+        Assertions.assertNotNull(cache);
+        cache.getOrLoad(partKey("db1", "t1", 1L), Collections::emptyList);
+        cache.getOrLoad(partKey("db1", "t1", 2L), Collections::emptyList);
+        cache.getOrLoad(partKey("db1", "t2", 1L), Collections::emptyList);
+        cache.getOrLoad(partKey("db2", "t1", 1L), Collections::emptyList);
+        Assertions.assertEquals(4, cache.size());
+
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops both snapshot entries of db1.t1");
+
+        connector.invalidateDb("db1");
+        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops db1's remaining table");
+
+        connector.invalidateAll();
+        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
 }
