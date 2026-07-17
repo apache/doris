@@ -38,6 +38,19 @@ suite("test_cold_data_compaction_fault_injection", "nonConcurrent") {
         }
     }
     def tabletName = "test_cold_data_compaction_fault_injection"
+    def cumulativeScoreDebugPoint = "Tablet._calc_cumulative_compaction_score.return"
+    def coldDataOutputDebugPoint = "ColdDataCompaction::modify_rowsets.block"
+
+    def getRowsetCount = {
+        def tablets = sql_return_maparray("show tablets from ${tabletName}")
+        assertEquals(1, tablets.size())
+        def (code, out, err) = curl("GET", tablets[0].CompactionStatus)
+        logger.info("Show tablet status: code=${code}, out=${out}, err=${err}")
+        assertEquals(0, code)
+        def tabletJson = parseJson(out.trim())
+        assert tabletJson.rowsets instanceof List
+        return ((List<String>) tabletJson.rowsets).size()
+    }
 
     def customBeConfig = [
         cold_data_compaction_score_threshold : 4
@@ -116,25 +129,41 @@ suite("test_cold_data_compaction_fault_injection", "nonConcurrent") {
 
     // 5 RowSets + 1 meta
     assertEquals(6, filesBeforeCompaction.size())
+    def rowsetCountBeforeCompaction = getRowsetCount()
+    // 1 empty base RowSet + 5 inserted RowSets.
+    assertEquals(6, rowsetCountBeforeCompaction)
 
     try {
         GetDebugPoint().clearDebugPointsForAllBEs()
-        GetDebugPoint().enableDebugPointForAllBEs("Tablet._calc_cumulative_compaction_score.return")
+        GetDebugPoint().enableDebugPointForAllBEs(cumulativeScoreDebugPoint)
+        GetDebugPoint().enableDebugPointForAllBEs(coldDataOutputDebugPoint,
+                [tablet_id: tabletId])
         // trigger cold data compaction
         sql """alter table ${tabletName} set ("disable_auto_compaction" = "false")"""
 
-        // wait until compaction finish
+        // Cold-data compaction has written its output rowset, but the injected block prevents
+        // it from replacing the input rowsets in tablet metadata.
         retryUntilTimeout(900, {
             def filesAfterCompaction = getS3Client().listObjects(
                     new ListObjectsRequest().withBucketName(getS3BucketName()).withPrefix(s3Prefix+ "/data/${tabletId}")).getObjectSummaries()
-            logger.info("${tabletName}'s remote file number is ${filesAfterCompaction.size()}")
-            // 1 RowSet + 1 meta
-            return filesAfterCompaction.size() == 7
+            def rowsetCount = getRowsetCount()
+            logger.info("${tabletName}'s remote file number is ${filesAfterCompaction.size()}, rowset count is ${rowsetCount}")
+            // 5 input data files + 1 output data file + 1 meta, while tablet metadata still
+            // references the original 6 RowSets (including the empty base RowSet).
+            return filesAfterCompaction.size() == 7 && rowsetCount == rowsetCountBeforeCompaction
+        })
+
+        GetDebugPoint().disableDebugPointForAllBEs(coldDataOutputDebugPoint)
+        retryUntilTimeout(900, {
+            def rowsetCount = getRowsetCount()
+            logger.info("${tabletName}'s rowset count after releasing cold-data compaction is ${rowsetCount}")
+            return rowsetCount == 1
         })
 
         sql "drop table ${tabletName} force"
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("Tablet._calc_cumulative_compaction_score.return")
+        GetDebugPoint().disableDebugPointForAllBEs(coldDataOutputDebugPoint)
+        GetDebugPoint().disableDebugPointForAllBEs(cumulativeScoreDebugPoint)
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
     }

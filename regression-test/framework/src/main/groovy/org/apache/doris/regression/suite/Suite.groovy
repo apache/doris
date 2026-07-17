@@ -3563,7 +3563,7 @@ class Suite implements GroovyInterceptable {
             def beIp = ipList.get(id)
             def bePort = portList.get(id)
             logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
-            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s&persist=false", beIp, bePort, paramName, paramValue))
             assertTrue(out.contains("OK"))
         }
     }
@@ -3577,7 +3577,7 @@ class Suite implements GroovyInterceptable {
             def bePort = portList.get(id)
             def paramValue = backendId_to_params.get(id)
             logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
-            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s&persist=false", beIp, bePort, paramName, paramValue))
             assertTrue(out.contains("OK"))
         }
     }
