@@ -134,8 +134,8 @@ TEST(DebugPointsTest, ConcurrentReplacementSurvivesExhaustedLookup) {
     std::barrier sync_point(2);
     std::shared_ptr<DebugPoint> lookup_result;
     std::thread lookup_thread([&] {
-        lookup_result = DebugPoints::instance()->get_debug_point_if(
-                "conditional", [&](const DebugPoint&) {
+        lookup_result =
+                DebugPoints::instance()->get_debug_point_if("conditional", [&](const DebugPoint&) {
                     sync_point.arrive_and_wait();
                     sync_point.arrive_and_wait();
                     return true;
