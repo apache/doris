@@ -519,9 +519,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
 
-    if (config::s3_client_http_scheme == "http") {
-        aws_config.scheme = Aws::Http::Scheme::HTTP;
-    }
+    set_s3_client_http_scheme(aws_config, config::s3_client_http_scheme);
 
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);

@@ -52,4 +52,9 @@ std::string normalize_http_uri(const std::string& uri) {
     }
     return result;
 }
+
+std::string strip_uri_scheme(const std::string& uri) {
+    const auto scheme_end = uri.find("://");
+    return scheme_end == std::string::npos ? uri : uri.substr(scheme_end + 3);
+}
 } // namespace doris

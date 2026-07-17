@@ -45,4 +45,12 @@ namespace doris {
     *   returns "https://account.blob.core.windows.net/container"
     */
     std::string normalize_http_uri(const std::string& uri);
+
+    /**
+     * Removes the URI scheme prefix from an endpoint.
+     *
+     * @param uri The endpoint to strip, such as https://example.com
+     * @return The endpoint without its scheme, or the original value when no scheme is present
+     */
+    std::string strip_uri_scheme(const std::string& uri);
 } // namespace doris

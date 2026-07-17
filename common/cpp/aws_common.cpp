@@ -17,7 +17,10 @@
 
 #include "aws_common.h"
 
+#include <aws/core/client/ClientConfiguration.h>
 #include <glog/logging.h>
+
+#include "util.h"
 
 namespace doris {
 
@@ -83,5 +86,12 @@ std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_
         }
     }
     return "";
+}
+
+void set_s3_client_http_scheme(Aws::Client::ClientConfiguration& client_config,
+                               const std::string& scheme) {
+    client_config.endpointOverride = strip_uri_scheme(client_config.endpointOverride);
+    client_config.scheme =
+            scheme == "http" ? Aws::Http::Scheme::HTTP : Aws::Http::Scheme::HTTPS;
 }
 }

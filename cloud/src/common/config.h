@@ -327,7 +327,7 @@ CONF_String(priority_networks, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
 
-// http scheme in S3Client to use. E.g. http or https
+// HTTP scheme used by S3Client. The endpoint's own scheme is ignored.
 CONF_String(s3_client_http_scheme, "http");
 CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";

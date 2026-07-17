@@ -21,6 +21,10 @@
 
 #include <filesystem>
 
+namespace Aws::Client {
+struct ClientConfiguration;
+}
+
 namespace doris {
     //AWS Credentials Provider Type
     enum class CredProviderType {
@@ -39,5 +43,10 @@ namespace doris {
     CredProviderType cred_provider_type_from_string(const std::string& type);
 
     std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
+
+    // Configures the S3 client transport scheme and removes any scheme embedded in the endpoint
+    // override so that the configured value is authoritative.
+    void set_s3_client_http_scheme(Aws::Client::ClientConfiguration& client_config,
+                                   const std::string& scheme);
 
     } // namespace doris
