@@ -377,6 +377,7 @@ message TxnCoordinatorPB {
 message RoutineLoadProgressPB {
     map<int32, int64> partition_to_offset = 1;
     optional RoutineLoadJobStatisticPB stat = 2;
+    // Error log URLs and first error messages are transient diagnostics and are not stored here.
 }
 
 message RLTaskTxnCommitAttachmentPB {
@@ -389,6 +390,7 @@ message RLTaskTxnCommitAttachmentPB {
     optional int64 task_execution_time_ms = 7;
     optional RoutineLoadProgressPB progress = 8;
     optional string error_log_url = 9;
+    optional string first_error_msg = 10;
 }
 
 message RoutineLoadJobStatisticPB {
