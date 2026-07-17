@@ -34,3 +34,14 @@
 - **结果**：全 iceberg 模块 **932 pass / 0 fail / 1 skip**（`install -am`），checkstyle 绿。summary 见 `designs/FIX-PERF-01-table-memo-summary.md`。
 - **构建坑记录**：本 worktree `${revision}` CI 版本 + 未 flatten 的已装 pom → `-pl iceberg` 单模块永远解析不到 `fe-connector:pom:${revision}`（`-Drevision=` 不透传到传递依赖 pom）；且 `-am test` 只到 test 相不产 hms-hive-shade 的 shade jar（缺 `HiveConf`）。**可靠跑法 = `mvn install -pl fe-connector/fe-connector-iceberg -am -Dtest=<iceberg 类列表> -DfailIfNoTests=false -Dmaven.build.cache.enabled=false`**（reactor 解析 revision + 到 install 相产 shade jar + 上游 0 匹配测试快速跳过）。
 - **下一步**：见 HANDOFF —— PERF-02（分区视图跨查询缓存 + MTMV refresh pin，复用本任务的 `(table, snapshotId)` pin 与胖 handle 模式）。
+
+---
+
+## 2026-07-18 — session 2（续）：PERF-02 实现 + 全绿（commit `518d0599cbf`）
+
+- **复核确认审计簇3**：分区表分析期 `materializeLatest → getMvccPartitionView/listPartitions → IcebergPartitionUtils.loadRawPartitions`（PARTITIONS 元数据表扫描，读该快照全部 manifest）跨查询零缓存；三消费方（MVCC 视图 / SHOW PARTITIONS / selectedPartitionNum）同源。**关键复核发现**：PERF-01 已消掉本簇 `loadTable` 那半，剩余 = PARTITIONS 扫描；且三方法内部才把 snapshotId 解析成具体值 → 缓存必须在 `IcebergPartitionUtils` 内按解析后 snapshotId 建键（非 metadata 层）。**vs master**：master 把 loadPartitionInfo 缓在 TTL'd tableEntry，故这是重构丢失的回退（非 eligible 分区表则是 selectedPartitionNum 特性引入的新增未缓存成本）。
+- **实现（连接器侧，一个 `[perf]` commit）**：新增 `IcebergPartitionCache`（键 `(TableIdentifier, snapshotId)`、值 raw 分区列表、**无凭证 gate**——纯元数据）；`IcebergPartitionUtils` 三方法加 `(id, cache)` 参 + 旧签名重载、`loadRawPartitions` 拆 cache-aware + uncached、`IcebergRawPartition` 改包内可见；`IcebergConnector` 无条件构造 + 传入 + 三失效钩子 + test 访问器；`IcebergConnectorMetadata` ctor 加参 + 三处传 `(TableIdentifier, cache)`。
+- **范围决定（用户认可）**：**MTMV refresh 级 pin 不做**——`ttl>0` 时 `IcebergLatestSnapshotCache` 已稳定一次 refresh 内 snapshotId，本缓存据此把 4~6 次重复坍缩成 1，无需改 fe-core；仅 `ttl=0` 无缓存目录残留既有枚举偏移边角，超范围。
+- **度量守门（新）**：`IcebergPartitionUtilsTest.partitionScanIsCachedAcrossRepeatsAndConsumersAtSameSnapshot` —— 真分区表重复 `buildMvccPartitionView` + `listPartitions` 同快照 → `loadCountForTest()==1`。另 `IcebergPartitionCacheTest`（含 `ValidationException` 透传+不缓存）、连接器 gate/失效诸测。
+- **结果**：全 iceberg 模块 **943 pass / 0 fail / 1 skip**，checkstyle 绿。summary 见 `designs/FIX-PERF-02-partition-view-cache-summary.md`。0 回归（无需改任何现有测试）。
+- **下一步**：见 HANDOFF —— PERF-03（#64134 planFiles 兜底复活：`file_format_type` 无 write-format 时走整表 planFiles 反推格式 → memoize / 从枚举反推）。

@@ -16,7 +16,7 @@
 | ID | 优先级 | 覆盖发现 | 主题（一句话） | 依赖 | 状态 | commit |
 |---|---|---|---|---|---|---|
 | PERF-01 | P0 | C1 C4 C6 C10 C16 | 一次规划 3~7 次远程 loadTable → 胖 handle(查询内单实例)+ 跨查询 IcebergTableCache(挂 Connector);~~convertPredicate 收窄~~已删(红队证伪) | — | ✅ 完成 | `484f0e0c125` |
-| PERF-02 | P0 | C7 C22 C23 | 分区视图每查询重扫 PARTITIONS 元数据表 → `(table,snapshotId)` 缓存 + MTMV refresh pin | 与 01 共享快照 pin 机制 | ⏳ | |
+| PERF-02 | P0 | C7 C22 C23 | 分区视图每查询重扫 PARTITIONS 元数据表 → `(table,snapshotId)` 缓存(连接器侧,无凭证 gate);MTMV refresh pin 判定为多余(靠 latestSnapshotCache 稳定快照坍缩,不改 fe-core) | 与 01 共享快照 pin 机制 | ✅ 完成 | `518d0599cbf` |
 | PERF-03 | P0 | C2 C11 | #64134 复活：`file_format_type` 兜底走整表 planFiles → memoize / 从枚举反推 | 受益于 01 的失效收窄（消第二次） | ⏳ | |
 | PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 两条旁路接回 | — | ⏳ | |
 | PERF-05 | P1 | C9 | information_schema.tables 循环内每表 loadTable（只为拿 comment） → 随表缓存 / 惰性取 | — | ⏳ | |
@@ -38,7 +38,7 @@
 - **约束**：memo 放**连接器侧**，**不得**在 fe-core 加 Table 缓存或属性派生（见 README 铁律）。
 - **依赖**：无。**建议第一个做** —— 收益最大，且其失效收窄是 PERF-03、PERF-10 的前置。
 
-### [ ] PERF-02 — 簇3：分区视图跨查询缓存 + MTMV refresh pin（C7 C22 C23）
+### [x] PERF-02 — 簇3：分区视图跨查询缓存（C7 C22 C23） · ✅ `518d0599cbf`
 - **病灶**：分析期 `loadSnapshot → materializeLatest:126` 对分区表走 `IcebergPartitionUtils.loadRawPartitions:709-718` = PARTITIONS 元数据表 `planFiles()+rows()`（SDK 聚合读该快照**全部** data+delete manifest）。`StatementContext` 只在单语句内 memoize，跨查询零缓存（legacy 二级分区缓存在 CACHE-P1 决策中被有意放弃）。MTMV 放大（C22）：一次 refresh 里 `isValidRelatedTable/alignMvPartition/generateRelatedPartitionDescs/getAndCopyPartitionItems` 各 materialize 同视图 **4~6 次**（无 refresh 级 pin，且引入枚举点间快照偏移风险）。
 - **修复方向**：按 `(TableIdentifier, snapshotId)` 缓存分区视图（pin 在 `beginQuerySnapshot` 后已在 handle 上），挂 `fe-connector-cache`；MTMV 侧在 `MTMVRefreshContext` 加 refresh 级 `MvccSnapshot` pin。
 - **依赖**：与 PERF-01 共享 `(table, snapshotId)` 快照 pin —— 先做 01 立住模式，02 复用。
