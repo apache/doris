@@ -492,20 +492,11 @@ public class HyperGraph {
             // B and C before A — but s can only be emitted when {A,B} is complete.
             // Using subTreeNodes (e.g. {A,B}) forces the predicate edge to require the
             // full source subtree, matching the emission key in nodeToProjectedAliases.
-            // Exception: a bare Slot-forwarding alias (e.g. s = A.k) substitutes
-            // values without changing evaluation count; mapping to subTreeNodes would
-            // block beneficial {A,C} joins before B. Keep those on the underlying
-            // slot's bitmap — the emission boundary is still enforced by
-            // nodeToProjectedAliases keyed by subTreeNodes.
-            long mapNodes;
-            if (isNullableSide && alias.child() instanceof Slot) {
-                mapNodes = bitmap;
-            } else if (isNullableSide) {
-                mapNodes = subTreeNodes;
-            } else {
-                mapNodes = bitmap;
-            }
-            slotToHyperNodeMap.put(aliasSlot, mapNodes);
+            // Note: always use subTreeNodes for nullable-side aliases. A Slot-forwarding
+            // alias (e.g. s=A.k) that shares a Project with expression aliases cannot
+            // safely use the minimal bitmap — its layer only emits at {A,B}, so exposing
+            // it as {A} would let DPHyp form predicate edges before the alias exists.
+            slotToHyperNodeMap.put(aliasSlot, isNullableSide ? subTreeNodes : bitmap);
             // Do not add aliases on the nullable side of outer joins to aliasReplaceMap.
             // Aliases on the nullable side (e.g., COALESCE(v, 0) AS dv on the right side of
             // a LEFT JOIN) must execute BEFORE the outer join's null-extension.
