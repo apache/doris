@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.systable;
 
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.PluginDrivenSysExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 
 /**
  * Generic {@link NativeSysTable} for plugin-driven connectors.

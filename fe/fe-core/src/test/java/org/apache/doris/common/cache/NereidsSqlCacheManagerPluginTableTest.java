@@ -24,7 +24,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.nereids.SqlCacheContext;
 
 import org.junit.jupiter.api.Assertions;
