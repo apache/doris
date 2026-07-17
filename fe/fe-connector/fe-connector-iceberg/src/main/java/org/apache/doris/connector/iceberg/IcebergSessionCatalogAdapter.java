@@ -23,10 +23,10 @@ import org.apache.doris.connector.api.DorisConnectorException;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.ViewCatalog;
-import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
 import java.util.Map;
@@ -37,7 +37,7 @@ import java.util.Optional;
  * {@link ConnectorSession}) to Iceberg REST {@code SessionCatalog} calls, re-migrated from the pre-P6 fe-core
  * {@code IcebergSessionCatalogAdapter} and retargeted off the neutral SPI (no fe-core imports).
  *
- * <p>When {@code iceberg.rest.session=user}, the connector holds a SINGLE shared {@link RESTSessionCatalog}
+ * <p>When {@code iceberg.rest.session=user}, the connector holds a SINGLE shared {@link BaseViewSessionCatalog}
  * (never one-per-user, exactly as Trino / #63068) and this adapter mints a per-request session-bound
  * {@link Catalog}/{@link ViewCatalog} from it via {@code asCatalog(ctx)} / {@code asViewCatalog(ctx)}, carrying
  * the user's OAuth2/delegated credential in the {@link SessionCatalog.SessionContext}. A request without a
@@ -51,15 +51,17 @@ class IcebergSessionCatalogAdapter {
     // credential-less requests on the graceful path; the connector never routes session=user through it.
     private final Catalog catalog;
     // The session-aware REST catalog (empty for a non-REST / non-session catalog). asCatalog(ctx)/asViewCatalog(ctx)
-    // attach the per-user delegated credential. A SINGLE shared instance — never one-per-user.
-    private final Optional<RESTSessionCatalog> sessionCatalog;
+    // attach the per-user delegated credential. A SINGLE shared instance — never one-per-user. Held as the
+    // BaseViewSessionCatalog supertype so it can be the ReauthenticatingRestSessionCatalog wrapper (401 re-auth)
+    // or a bare RESTSessionCatalog; per-user asCatalog(ctx) inherits the wrapper's recovery when wrapped.
+    private final Optional<BaseViewSessionCatalog> sessionCatalog;
     private final DelegatedTokenMode delegatedTokenMode;
 
-    IcebergSessionCatalogAdapter(Catalog catalog, RESTSessionCatalog sessionCatalog) {
+    IcebergSessionCatalogAdapter(Catalog catalog, BaseViewSessionCatalog sessionCatalog) {
         this(catalog, sessionCatalog, DelegatedTokenMode.ACCESS_TOKEN);
     }
 
-    IcebergSessionCatalogAdapter(Catalog catalog, RESTSessionCatalog sessionCatalog,
+    IcebergSessionCatalogAdapter(Catalog catalog, BaseViewSessionCatalog sessionCatalog,
             DelegatedTokenMode delegatedTokenMode) {
         this.catalog = catalog;
         this.sessionCatalog = Optional.ofNullable(sessionCatalog);
@@ -109,7 +111,7 @@ class IcebergSessionCatalogAdapter {
         return new SessionCatalog.SessionContext(session.getSessionId(), null, credentials, ImmutableMap.of());
     }
 
-    private RESTSessionCatalog requireSessionCatalog() {
+    private BaseViewSessionCatalog requireSessionCatalog() {
         if (!sessionCatalog.isPresent()) {
             throw new DorisConnectorException("Iceberg REST user session requires a session-aware Iceberg catalog");
         }
