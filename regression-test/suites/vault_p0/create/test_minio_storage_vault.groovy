@@ -45,7 +45,7 @@ suite ("test_minio_storage_vault") {
          CREATE STORAGE VAULT IF NOT EXISTS ${vaultName}
          PROPERTIES (
              "type"="S3",
-             "s3.endpoint"="http://${extMinioHost}:${extMinioPort}",
+             "s3.endpoint"="${extMinioHost}:${extMinioPort}",
              "s3.access_key" = "${extMinioAk}",
              "s3.secret_key" = "${extMinioSk}",
              "s3.region" = "${extMinioRegion}",
@@ -75,7 +75,7 @@ suite ("test_minio_storage_vault") {
         CREATE STORAGE VAULT IF NOT EXISTS ${vaultNameNotSetPathStyle}
          PROPERTIES (
              "type"="S3",
-             "s3.endpoint"="http://${extMinioHost}:${extMinioPort}",
+             "s3.endpoint"="${extMinioHost}:${extMinioPort}",
              "s3.access_key" = "${extMinioAk}",
              "s3.secret_key" = "${extMinioSk}",
              "s3.region" = "${extMinioRegion}",
@@ -109,7 +109,7 @@ suite ("test_minio_storage_vault") {
         CREATE STORAGE VAULT IF NOT EXISTS ${vaultNameHostStyle}
          PROPERTIES (
              "type"="S3",
-             "s3.endpoint"="http://${extMinioDomain}:${extMinioPort}",
+             "s3.endpoint"="${extMinioDomain}:${extMinioPort}",
              "s3.access_key" = "${extMinioAk}",
              "s3.secret_key" = "${extMinioSk}",
              "s3.region" = "${extMinioRegion}",

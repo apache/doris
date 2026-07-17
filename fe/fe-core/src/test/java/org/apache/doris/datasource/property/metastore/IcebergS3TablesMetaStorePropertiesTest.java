@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
@@ -30,9 +29,7 @@ import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
 
@@ -41,19 +38,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergS3TablesMetaStorePropertiesTest {
-
-    private String originalS3ClientHttpScheme;
-
-    @BeforeEach
-    public void setUpS3ClientHttpScheme() {
-        originalS3ClientHttpScheme = Config.s3_client_http_scheme;
-        Config.s3_client_http_scheme = "https";
-    }
-
-    @AfterEach
-    public void restoreS3ClientHttpScheme() {
-        Config.s3_client_http_scheme = originalS3ClientHttpScheme;
-    }
 
     /**
      * Call private buildS3CatalogProperties to fill catalogProps without initializing S3TablesCatalog
@@ -70,7 +54,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
     public void s3FileIOCredentialPropertiesUseSharedS3Properties() {
         Map<String, String> props = new HashMap<>();
         props.put("s3.region", "us-east-1");
-        props.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
         props.put("s3.access_key", "AKID");
         props.put("s3.secret_key", "SECRET");
         props.put("s3.session_token", "TOKEN");

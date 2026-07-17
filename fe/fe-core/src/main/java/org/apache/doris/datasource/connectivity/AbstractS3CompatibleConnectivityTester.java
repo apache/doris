@@ -62,7 +62,7 @@ public abstract class AbstractS3CompatibleConnectivityTester implements StorageC
         String endpoint = properties.getEndpoint();
 
         try (S3Client client = S3Util.buildS3Client(
-                URI.create(S3Util.buildEndpointUrl(endpoint)),
+                URI.create(endpoint),
                 properties.getRegion(),
                 Boolean.parseBoolean(properties.getUsePathStyle()),
                 properties.getAwsCredentialsProvider())) {

@@ -108,13 +108,6 @@ public class CreateStageCommandTest extends TestWithFeService {
         Assertions.assertEquals("tmp_ak", objectStoreInfoPB.getAk());
         Assertions.assertEquals("tmp_sk", objectStoreInfoPB.getSk());
         Assertions.assertEquals(Provider.COS, objectStoreInfoPB.getProvider());
-
-        sql = "create stage if not exists ex_stage_1 "
-                + OBJ_INFO.replace("cos.ap-beijing.myqcloud.com", "http://cos.ap-beijing.myqcloud.com") + ")";
-        ObjectStoreInfoPB explicitHttpObjectStoreInfoPB =
-                getCreateStageCommand(sql).getStageProperties().getObjectStoreInfoPB();
-        Assertions.assertEquals("http://cos.ap-beijing.myqcloud.com",
-                explicitHttpObjectStoreInfoPB.getEndpoint());
     }
 
     @Test

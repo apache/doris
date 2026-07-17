@@ -21,25 +21,6 @@ import java.io.File;
 
 public class Config extends ConfigBase {
 
-    @Override
-    public void init(String configFile) throws Exception {
-        super.init(configFile);
-        validateS3ClientHttpScheme();
-    }
-
-    @Override
-    public void initCustom(String customConfigFile) throws Exception {
-        super.initCustom(customConfigFile);
-        validateS3ClientHttpScheme();
-    }
-
-    private static void validateS3ClientHttpScheme() {
-        if (!"http".equals(s3_client_http_scheme) && !"https".equals(s3_client_http_scheme)) {
-            throw new IllegalArgumentException("Invalid s3_client_http_scheme: " + s3_client_http_scheme
-                    + ", only http and https are supported");
-        }
-    }
-
     @ConfField(description = {"The path of the user-defined configuration file, used to store fe_custom.conf. "
             + "Configurations in this file will override those in fe.conf"})
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
@@ -3267,11 +3248,6 @@ public class Config extends ConfigBase {
             "The allowlist for S3 load endpoints. If it is empty, no allowlist will be set. "
                     + "For example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
-
-    @ConfField(description = {
-            "The scheme added to S3 endpoints without an explicit scheme. Valid values are http and https."},
-            options = {"http", "https"})
-    public static String s3_client_http_scheme = "http";
 
     @ConfField(mutable = true, description = {
             "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "

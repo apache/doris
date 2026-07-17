@@ -38,7 +38,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
@@ -146,7 +145,7 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
     private void tryConnect(String endpoint) throws Exception {
         HttpURLConnection connection = null;
         try {
-            String urlStr = S3Util.buildEndpointUrl(endpoint);
+            String urlStr = "http://" + endpoint;
             // TODO: Server-Side Request Forgery Check is still need?
             URL url = new URL(urlStr);
             SecurityChecker.getInstance().startSSRFChecking(urlStr);

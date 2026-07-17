@@ -155,8 +155,7 @@ public class StageProperties extends CopyProperties {
      * getObjectStoreInfoPB
      */
     public ObjectStoreInfoPB getObjectStoreInfoPB() {
-        ObjectStoreInfoPB.Builder builder = ObjectStoreInfoPB.newBuilder()
-                .setEndpoint(properties.get(ENDPOINT))
+        ObjectStoreInfoPB.Builder builder = ObjectStoreInfoPB.newBuilder().setEndpoint(properties.get(ENDPOINT))
                 .setRegion(properties.get(REGION)).setBucket(properties.get(BUCKET)).setPrefix(properties.get(PREFIX))
                 .setProvider(Provider.valueOf(properties.get(PROVIDER).toUpperCase()));
         if (getAccessType() == StageAccessType.AKSK) {

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
-import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.metacache.CacheSpec;
@@ -267,7 +266,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     private void toS3FileIOProperties(AbstractS3CompatibleProperties s3Properties, Map<String, String> options) {
         // Common properties - only set if not blank
         if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
-            options.put(S3FileIOProperties.ENDPOINT, S3Util.buildEndpointUrl(s3Properties.getEndpoint()));
+            options.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
         }
         if (StringUtils.isNotBlank(s3Properties.getUsePathStyle())) {
             options.put(S3FileIOProperties.PATH_STYLE_ACCESS, s3Properties.getUsePathStyle());
