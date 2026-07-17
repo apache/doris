@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -471,33 +470,28 @@ public abstract class RoutineLoadJob
         }
     }
 
-    public void validateTargetTable(Database db, OlapTable targetTable) throws UserException {
-        validateTargetTable(db, targetTable, Maps.newHashMap(), uniqueKeyUpdateMode);
+    public void validateTargetTable(Database db, OlapTable targetTable,
+            Map<String, String> alteredJobProperties, TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode)
+            throws UserException {
+        targetTable.readLock();
+        try {
+            unprotectedValidateTargetTable(db, targetTable, alteredJobProperties, effectiveUniqueKeyUpdateMode);
+        } finally {
+            targetTable.readUnlock();
+        }
     }
 
-    public void validateTargetTable(Database db, OlapTable targetTable,
+    protected void unprotectedValidateTargetTable(Database db, OlapTable targetTable,
             Map<String, String> alteredJobProperties, TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode)
             throws UserException {
         if (isMultiTable) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
-        List<ImportColumnDesc> columnsInfo = null;
-        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
-            columnsInfo = new ArrayList<>(columnDescs.descs);
-        }
-        checkMeta(targetTable, new RoutineLoadDesc(columnSeparator, lineDelimiter, columnsInfo, precedingFilter,
-                whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol));
         validateAlterJobProperties(targetTable, alteredJobProperties, effectiveUniqueKeyUpdateMode);
-
-        targetTable.readLock();
-        try {
-            NereidsRoutineLoadTaskInfo taskInfo = toNereidsRoutineLoadTaskInfo();
-            taskInfo.applyAlterPropertiesForValidation(alteredJobProperties, effectiveUniqueKeyUpdateMode);
-            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable, taskInfo);
-            planner.plan(new TUniqueId(0, 0));
-        } finally {
-            targetTable.readUnlock();
-        }
+        NereidsRoutineLoadTaskInfo taskInfo = toNereidsRoutineLoadTaskInfo();
+        taskInfo.applyAlterPropertiesForValidation(alteredJobProperties, effectiveUniqueKeyUpdateMode);
+        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable, taskInfo);
+        planner.plan(new TUniqueId(0, 0));
     }
 
     public void validateAlterJobProperties(OlapTable targetTable, Map<String, String> alteredJobProperties,
@@ -537,7 +531,7 @@ public abstract class RoutineLoadJob
         Map<String, String> alteredJobProperties = command.getAnalyzedJobProperties();
         TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(
                 uniqueKeyUpdateMode, alteredJobProperties);
-        if (!command.hasTargetTable() && effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
             return;
         }
 
@@ -545,19 +539,12 @@ public abstract class RoutineLoadJob
         if (db == null) {
             throw new DdlException("Database not found: " + dbId);
         }
-        long effectiveTableId = command.hasTargetTable() ? command.getTargetTableId() : tableId;
-        Table table = db.getTableNullable(effectiveTableId);
+        Table table = db.getTableNullable(tableId);
         if (table == null) {
-            throw new DdlException("Table not found: " + effectiveTableId);
+            throw new DdlException("Table not found: " + tableId);
         }
         if (!(table instanceof OlapTable)) {
-            throw new DdlException(command.hasTargetTable()
-                    ? "Routine load target table must be an OLAP table"
-                    : "Partial update is only supported for OLAP tables");
-        }
-        if (command.hasTargetTable()) {
-            validateTargetTable(db, (OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
-            return;
+            throw new DdlException("Partial update is only supported for OLAP tables");
         }
         validateAlterJobProperties((OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
     }
@@ -2147,6 +2134,7 @@ public abstract class RoutineLoadJob
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
             if (!command.hasTargetTable()) {
+                validateAlterJobPropertiesForMutation(command);
                 unprotectApplyAlter(command);
                 return;
             }
@@ -2166,6 +2154,12 @@ public abstract class RoutineLoadJob
                 }
                 table.readLock();
                 try {
+                    Map<String, String> alteredJobProperties = command.getAnalyzedJobProperties();
+                    TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(
+                            uniqueKeyUpdateMode, alteredJobProperties);
+                    unprotectedValidateTargetTable(
+                            db, (OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
+                    // Keep target binding and its journal ordered with concurrent table DDL.
                     unprotectApplyAlter(command);
                 } finally {
                     table.readUnlock();
@@ -2179,12 +2173,10 @@ public abstract class RoutineLoadJob
     }
 
     private void unprotectApplyAlter(AlterRoutineLoadCommand command) throws UserException {
-        validateAlterJobPropertiesForMutation(command);
         unprotectModifyProperties(command);
         if (command.hasTargetTable()) {
-            this.tableId = command.getTargetTableId();
+            tableId = command.getTargetTableId();
         }
-
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
                 command.getAnalyzedJobProperties(), command.getDataSourceProperties(), command.getTargetTableId());
         Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);

@@ -507,8 +507,6 @@ suite("test_routine_load_alter","p0") {
                 }
                 alterTopicAdmin.close()
             }
-            sql "truncate table ${srcTableName}"
-            sql "truncate table ${dstTableName}"
         }
     }
 }

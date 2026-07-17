@@ -337,8 +337,8 @@ supportedAlterStatement
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier
             (
                 SET TARGET TABLE EQ targetTable=STRING_LITERAL
-                | (loadProperty (COMMA loadProperty)*)?
-            )
+                | loadProperty (COMMA loadProperty)*
+            )?
             properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier

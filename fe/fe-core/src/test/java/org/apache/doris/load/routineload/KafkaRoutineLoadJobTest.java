@@ -296,11 +296,12 @@ public class KafkaRoutineLoadJobTest {
             Assert.assertTrue(tableLocked.get());
             targetValidated.set(true);
             return null;
-        }).when(routineLoadJob).validateTargetTable(Mockito.eq(database), Mockito.eq(targetTable),
+        }).when(routineLoadJob).unprotectedValidateTargetTable(Mockito.eq(database), Mockito.eq(targetTable),
                 Mockito.anyMap(), Mockito.eq(TUniqueKeyUpdateMode.UPSERT));
         Mockito.doAnswer(invocation -> {
             Assert.assertTrue(databaseLocked.get());
             Assert.assertTrue(tableLocked.get());
+            Assert.assertEquals(2L, routineLoadJob.getTableId());
             return null;
         }).when(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
 

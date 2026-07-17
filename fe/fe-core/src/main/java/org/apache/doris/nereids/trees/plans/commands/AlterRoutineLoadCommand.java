@@ -136,10 +136,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         this(labelNameInfo, null, Maps.newHashMap(), jobProperties, null, dataSourceMapProperties);
     }
 
-    public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo, String targetTableName) {
-        this(labelNameInfo, targetTableName, Maps.newHashMap(), Maps.newHashMap(), null, Maps.newHashMap());
-    }
-
     public String getDbName() {
         return labelNameInfo.getDb();
     }
@@ -203,7 +199,8 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
         // check data source properties
         checkDataSourceProperties(job);
-        TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(job);
+        TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = RoutineLoadJob.getEffectiveUniqueKeyUpdateMode(
+                job.getUniqueKeyUpdateMode(), analyzedJobProperties);
         if (hasTargetTable()) {
             validateTargetTable(ctx, job, effectiveUniqueKeyUpdateMode);
         } else {
@@ -379,16 +376,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
         Table table = db.getTableOrAnalysisException(job.getTableName());
-        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
-            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
-        }
         job.validateAlterJobProperties((OlapTable) table, analyzedJobProperties, effectiveUniqueKeyUpdateMode);
-    }
-
-    private TUniqueKeyUpdateMode getEffectiveUniqueKeyUpdateMode(RoutineLoadJob job) {
-        return RoutineLoadJob.getEffectiveUniqueKeyUpdateMode(
-                job.getUniqueKeyUpdateMode(), analyzedJobProperties);
     }
 
     private void validateTargetTable(ConnectContext ctx, RoutineLoadJob job,
@@ -417,10 +405,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
                 && !(olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true, the olap table must be with random distribution");
-        }
-        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                && !olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
         job.validateTargetTable(db, olapTable, analyzedJobProperties, effectiveUniqueKeyUpdateMode);
         this.targetTableId = olapTable.getId();

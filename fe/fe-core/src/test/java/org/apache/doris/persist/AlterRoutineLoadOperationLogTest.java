@@ -51,6 +51,7 @@ public class AlterRoutineLoadOperationLogTest {
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         long jobId = 1000;
+        long targetTableId = 2001;
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "5");
 
@@ -64,8 +65,10 @@ public class AlterRoutineLoadOperationLogTest {
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
+        Assert.assertEquals(0L, new AlterRoutineLoadJobOperationLog(
+                jobId, jobProperties, routineLoadDataSourceProperties).getTargetTableId());
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties, targetTableId);
         log.write(out);
         out.flush();
         out.close();
@@ -85,39 +88,9 @@ public class AlterRoutineLoadOperationLogTest {
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
+        Assert.assertEquals(targetTableId, log2.getTargetTableId());
 
         in.close();
-    }
-
-
-    @Test
-    public void testSerializeAlterRoutineLoadOperationLogWithTargetTableId() throws Exception {
-        long jobId = 1000;
-        long targetTableId = 2001;
-        Map<String, String> jobProperties = Maps.newHashMap();
-        Map<String, String> dataSourceProperties = Maps.newHashMap();
-        dataSourceProperties.put("property.group.id", "mygroup");
-        KafkaDataSourceProperties routineLoadDataSourceProperties = new KafkaDataSourceProperties(
-                dataSourceProperties);
-        routineLoadDataSourceProperties.setAlter(true);
-        routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
-        routineLoadDataSourceProperties.analyze();
-
-        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId, jobProperties,
-                routineLoadDataSourceProperties, targetTableId);
-
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        try (DataOutputStream out = new DataOutputStream(byteArrayOutputStream)) {
-            log.write(out);
-        }
-
-        AlterRoutineLoadJobOperationLog readLog;
-        try (DataInputStream in = new DataInputStream(
-                new ByteArrayInputStream(byteArrayOutputStream.toByteArray()))) {
-            readLog = AlterRoutineLoadJobOperationLog.read(in);
-        }
-
-        Assert.assertEquals(targetTableId, readLog.getTargetTableId());
     }
 
     @Test

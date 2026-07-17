@@ -531,6 +531,18 @@ public class RoutineLoadJobTest {
     }
 
     @Test
+    public void testValidateFixedPartialUpdateRequiresMowTable() {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        OlapTable targetTable = Mockito.mock(OlapTable.class);
+        Mockito.when(targetTable.getEnableUniqueKeyMergeOnWrite()).thenReturn(false);
+
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> job.validateAlterJobProperties(targetTable, Maps.newHashMap(),
+                        TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS));
+        Assert.assertTrue(exception.getMessage().contains("PARTIAL_COLUMNS"));
+    }
+
+    @Test
     public void testValidateFlexiblePartialUpdateUsesAlteredProperties() throws Exception {
         KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
         OlapTable targetTable = Mockito.mock(OlapTable.class);
