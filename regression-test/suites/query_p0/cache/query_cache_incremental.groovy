@@ -25,7 +25,9 @@
 // the incremental path really fires: the early stale queries must increase
 // query_cache_stale_hit_total, and the two designed fallback phases (a
 // delete predicate in the delta, a merge-on-write backfill that rewrites
-// history) must increase query_cache_incremental_fallback_total.
+// history) must increase query_cache_incremental_fallback_total. The final
+// phase covers a long-dormant entry whose first reuse faces a large,
+// many-rowset delta that goes through the parallel scanner builder.
 suite("query_cache_incremental") {
     def querySql = """
         SELECT
@@ -253,4 +255,70 @@ suite("query_cache_incremental") {
     sql "INSERT INTO test_query_cache_incremental_mow VALUES ('2026-01-06',200,7)"
     checkConsistency(uniqueQuerySql)
     order_qt_mow_final "${uniqueQuerySql}"
+
+    // A cache entry can sit dormant while loads keep landing: the merge-count
+    // threshold bounds prior write-backs, not the versions accumulated while
+    // the entry is idle, so the delta of the first stale query after a long
+    // idle stretch can be arbitrarily large. Such a delta must flow through
+    // the parallel scanner builder like any full scan (split by segment rows)
+    // and still merge correctly with the cached blocks. enable_parallel_scan
+    // is on by default; the tiny per-scanner row bound forces the builder to
+    // really split the delta into many scanners instead of collapsing to one.
+    sql "set enable_parallel_scan=true"
+    sql "set parallel_scan_min_rows_per_scanner=16"
+    sql "DROP TABLE IF EXISTS test_query_cache_incremental_dormant"
+    sql """
+        CREATE TABLE test_query_cache_incremental_dormant (
+            dt DATE,
+            user_id INT,
+            url STRING,
+            cost BIGINT
+        )
+        ENGINE=OLAP
+        DUPLICATE KEY(dt, user_id)
+        PARTITION BY RANGE(dt)
+        (
+            PARTITION p20260101 VALUES LESS THAN ("2026-01-15")
+        )
+        DISTRIBUTED BY HASH(user_id) BUCKETS 1
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        )
+    """
+    def dormantQuerySql = """
+        SELECT
+            url,
+            SUM(cost) AS total_cost,
+            COUNT(*) AS cnt
+        FROM test_query_cache_incremental_dormant
+        WHERE dt >= '2026-01-01'
+          AND dt < '2026-01-15'
+        GROUP BY url
+    """
+    sql "INSERT INTO test_query_cache_incremental_dormant VALUES ('2026-01-01',1,'/a',10)"
+    // Fill the entry at the small initial version, then leave it dormant
+    // while 30 loads land on the single-tablet partition: a 30-rowset,
+    // couple-hundred-row suffix that splits into a dozen or more scanners
+    // under the 16-row bound.
+    checkConsistency(dormantQuerySql)
+    for (int i = 1; i <= 30; i++) {
+        sql """
+            INSERT INTO test_query_cache_incremental_dormant VALUES
+            ('2026-01-02',${i},'/a',${i}),
+            ('2026-01-03',${i},'/b',${i}),
+            ('2026-01-04',${i},'/c',${i}),
+            ('2026-01-05',${i},'/d',${i}),
+            ('2026-01-06',${i},'/e',${i}),
+            ('2026-01-07',${i},'/f',${i}),
+            ('2026-01-08',${i},'/g',${i})
+        """
+    }
+    // The first query after the idle stretch must still take the incremental
+    // path on local storage and agree with the uncached result. The loads
+    // landed moments ago, so a boundary-crossing base compaction inside this
+    // window is as unlikely as in the first-round assertions above (an
+    // in-window cumulative compaction keeps the capture, and therefore the
+    // assertion, intact).
+    checkStaleIncremental(dormantQuerySql)
 }

@@ -698,12 +698,6 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     bool read_row_binlog =
             p._olap_scan_node.__isset.read_row_binlog && p._olap_scan_node.read_row_binlog;
     bool has_tso_predicate = _scan_ranges[0]->__isset.start_tso || _scan_ranges[0]->__isset.end_tso;
-    // Query cache incremental merge: the read sources captured in prepare()
-    // only cover the delta versions (cached_version, current_version], which
-    // is all the scanners need; no version plumbing is required here.
-    const bool cache_incremental =
-            _query_cache_decision != nullptr &&
-            _query_cache_decision->mode == QueryCacheInstanceDecision::Mode::INCREMENTAL;
 
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
     // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
@@ -711,10 +705,16 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // And the user send a query like select userid,count(*) from base table group by userid.
     // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
     // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
-    // Incremental merge deltas are small by construction, so the parallel
-    // scanner builder (which redistributes rowsets by size) is pointless for
-    // them; use plain scanners instead.
-    if (enable_parallel_scan && !cache_incremental && !p._should_run_serial &&
+    // Query cache incremental merge needs no special case here: the read
+    // sources captured in prepare() already cover exactly the delta versions
+    // (cached_version, current_version], and the parallel scanner builder
+    // consumes the captured read sources as they are. The delta is NOT small
+    // by construction (an entry can sit dormant for arbitrarily many versions
+    // before it is reused; the merge-count threshold bounds prior write-backs,
+    // not idle accumulation), so a large suffix is split by rowset/segment
+    // rows like any full scan, while a small delta naturally collapses to a
+    // single scanner through min_rows_per_scanner.
+    if (enable_parallel_scan && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)
         // binlog<row> need to be read in order
