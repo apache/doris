@@ -233,8 +233,13 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     @Override
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
-        if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
+        if (table instanceof IcebergExternalTable) {
             return true;
+        } else if (table instanceof IcebergSysExternalTable) {
+            // Position deletes use the native reader, which supports nested column pruning. Other
+            // Iceberg system tables are materialized as StructLike rows by the SDK and consumed by
+            // ordinal in the JNI reader, so their nested struct layout must remain unchanged.
+            return ((IcebergSysExternalTable) table).isPositionDeletesTable();
         } else if (table instanceof HMSExternalTable) {
             HMSExternalTable hmsTable = (HMSExternalTable) table;
             if (hmsTable.getDlaType() == HMSExternalTable.DLAType.HUDI) {

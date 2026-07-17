@@ -181,7 +181,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setSlotId(slot.getId().asInt());
             TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
-            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
+            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -210,7 +210,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setSlotId(slot.getId().asInt());
             TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
-            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
+            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
@@ -226,6 +226,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return TColumnCategory.PARTITION_KEY;
         }
         return TColumnCategory.REGULAR;
+    }
+
+    protected boolean isFileSlot(TColumnCategory category) {
+        return category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED;
     }
 
     public void setTableSample(TableSample tSample) {
