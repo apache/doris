@@ -100,6 +100,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     private final String dataSourceType;
     private final Map<String, String> dataSourceMapProperties;
     private long targetTableId;
+    private long loadPropertyTableId;
     private boolean isPartialUpdate;
 
     // save analyzed job properties.
@@ -160,6 +161,10 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         return targetTableId;
     }
 
+    public long getLoadPropertyTableId() {
+        return loadPropertyTableId;
+    }
+
     public boolean hasDataSourceProperty() {
         return MapUtils.isNotEmpty(dataSourceMapProperties);
     }
@@ -194,6 +199,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                 .getJob(getDbName(), getJobName());
         if (MapUtils.isNotEmpty(loadPropertyMap)) {
+            this.loadPropertyTableId = job.getTableId();
             this.routineLoadDesc = CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
                     job.getDbFullName(), job.getTableName(), job.isMultiTable(), job.getMergeType());
         }

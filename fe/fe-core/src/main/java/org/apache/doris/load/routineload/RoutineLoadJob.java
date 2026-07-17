@@ -1567,6 +1567,9 @@ public abstract class RoutineLoadJob
 
     protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
         checkStateTransform(jobState);
+        if (jobState == JobState.NEED_SCHEDULE) {
+            beforeTransitionToNeedSchedule(isReplay);
+        }
         switch (jobState) {
             case RUNNING:
                 executeRunning();
@@ -1598,6 +1601,9 @@ public abstract class RoutineLoadJob
                 Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
             }
         }
+    }
+
+    protected void beforeTransitionToNeedSchedule(boolean isReplay) throws UserException {
     }
 
     private void executeRunning() {
@@ -2127,72 +2133,11 @@ public abstract class RoutineLoadJob
         }
     }
 
-    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
-        writeLock();
-        try {
-            if (getState() != JobState.PAUSED) {
-                throw new DdlException("Only supports modification of PAUSED jobs");
-            }
-            if (!command.hasTargetTable()) {
-                validateAlterJobPropertiesForMutation(command);
-            }
+    public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
 
-            // Data-source preparation may perform external I/O. Keep it outside DB/table metadata locks.
-            PreparedAlter preparedAlter = prepareAlter(command);
-            if (!command.hasTargetTable()) {
-                unprotectApplyAlter(command, preparedAlter);
-                return;
-            }
-
-            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-            if (db == null) {
-                throw new DdlException("Database not found: " + dbId);
-            }
-            db.readLock();
-            try {
-                Table table = db.getTableNullable(command.getTargetTableId());
-                if (table == null) {
-                    throw new DdlException("Table not found: " + command.getTargetTableId());
-                }
-                if (!(table instanceof OlapTable)) {
-                    throw new DdlException("Routine load target table must be an OLAP table");
-                }
-                table.readLock();
-                try {
-                    Map<String, String> alteredJobProperties = command.getAnalyzedJobProperties();
-                    TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(
-                            uniqueKeyUpdateMode, alteredJobProperties);
-                    unprotectedValidateTargetTable(
-                            db, (OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
-                    unprotectApplyAlter(command, preparedAlter);
-                } finally {
-                    table.readUnlock();
-                }
-            } finally {
-                db.readUnlock();
-            }
-        } finally {
-            writeUnlock();
-        }
+    public boolean appliesRoutineLoadDescAtomically() {
+        return false;
     }
-
-    private void unprotectApplyAlter(AlterRoutineLoadCommand command, PreparedAlter preparedAlter)
-            throws UserException {
-        preparedAlter.apply();
-        if (command.hasTargetTable()) {
-            tableId = command.getTargetTableId();
-        }
-        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                command.getAnalyzedJobProperties(), command.getDataSourceProperties(), command.getTargetTableId());
-        Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
-    }
-
-    @FunctionalInterface
-    protected interface PreparedAlter {
-        void apply() throws UserException;
-    }
-
-    protected abstract PreparedAlter prepareAlter(AlterRoutineLoadCommand command) throws UserException;
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
@@ -2200,6 +2145,15 @@ public abstract class RoutineLoadJob
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
+        modifyCommonJobProperties(jobProperties, false);
+    }
+
+    protected void modifyCommonJobPropertiesForKafka(Map<String, String> jobProperties) throws UserException {
+        modifyCommonJobProperties(jobProperties, true);
+    }
+
+    private void modifyCommonJobProperties(Map<String, String> jobProperties,
+            boolean explicitUniqueKeyUpdateModeTakesPrecedence) throws UserException {
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
@@ -2231,16 +2185,20 @@ public abstract class RoutineLoadJob
                     jobProperties.remove(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
         }
 
-        boolean hasExplicitUniqueKeyUpdateMode = jobProperties.containsKey(
-                CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
-        if (hasExplicitUniqueKeyUpdateMode) {
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
             String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
             TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
+            if (!explicitUniqueKeyUpdateModeTakesPrecedence
+                    && newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                validateFlexiblePartialUpdateForAlter();
+            }
             this.uniqueKeyUpdateMode = newMode;
             this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
-            jobProperties.remove(CreateRoutineLoadInfo.PARTIAL_COLUMNS);
+            if (explicitUniqueKeyUpdateModeTakesPrecedence) {
+                jobProperties.remove(CreateRoutineLoadInfo.PARTIAL_COLUMNS);
+            }
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
@@ -2253,6 +2211,43 @@ public abstract class RoutineLoadJob
             }
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        }
+    }
+
+    private void validateFlexiblePartialUpdateForAlter() throws UserException {
+        if (isMultiTable) {
+            throw new DdlException("Flexible partial update is not supported in multi-table load");
+        }
+
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbId);
+        }
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            throw new DdlException("Table not found: " + tableId);
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException("Flexible partial update is only supported for OLAP tables");
+        }
+        OlapTable olapTable = (OlapTable) table;
+
+        olapTable.validateForFlexiblePartialUpdate();
+        String format = this.jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        if (!"json".equalsIgnoreCase(format)) {
+            throw new DdlException("Flexible partial update only supports JSON format, but current job uses: "
+                    + format);
+        }
+        if (Boolean.parseBoolean(this.jobProperties.getOrDefault(
+                JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
+            throw new DdlException("Flexible partial update does not support fuzzy_parse");
+        }
+        String jsonPaths = getJsonPaths();
+        if (jsonPaths != null && !jsonPaths.isEmpty()) {
+            throw new DdlException("Flexible partial update does not support jsonpaths");
+        }
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
+            throw new DdlException("Flexible partial update does not support COLUMNS specification");
         }
     }
 

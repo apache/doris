@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -61,6 +62,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -109,6 +111,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private String brokerList;
     @SerializedName("tp")
     private String topic;
+    @SerializedName("pendingCloudProgressReset")
+    private PendingCloudProgressReset pendingCloudProgressReset;
     // optional, user want to load partitions.
     @SerializedName("cskp")
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
@@ -438,9 +442,22 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // For cloud mode, should update cloud progress from meta service,
         // then update progress with default offset from Kafka if necessary.
         if (Config.isCloudMode()) {
+            resetPendingCloudProgress();
             updateCloudProgress();
         }
         updateNewPartitionProgress();
+    }
+
+    @Override
+    protected void beforeTransitionToNeedSchedule(boolean isReplay) throws UserException {
+        if (pendingCloudProgressReset == null) {
+            return;
+        }
+        if (isReplay) {
+            pendingCloudProgressReset = null;
+            return;
+        }
+        resetPendingCloudProgress();
     }
 
     @Override
@@ -772,11 +789,80 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected PreparedAlter prepareAlter(AlterRoutineLoadCommand command) throws UserException {
+    public boolean appliesRoutineLoadDescAtomically() {
+        return true;
+    }
+
+    @Override
+    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
-        PreparedKafkaProperties preparedDataSourceProperties = prepareDataSourceProperties(dataSourceProperties, false);
-        return () -> modifyPropertiesInternal(jobProperties, dataSourceProperties, preparedDataSourceProperties);
+
+        writeLock();
+        try {
+            if (getState() != JobState.PAUSED) {
+                throw new DdlException("Only supports modification of PAUSED jobs");
+            }
+            if (command.getRoutineLoadDesc() != null && command.getLoadPropertyTableId() != tableId) {
+                throw new DdlException("Routine load target table changed while validating load properties; "
+                        + "please retry ALTER ROUTINE LOAD");
+            }
+            if (!command.hasTargetTable()) {
+                validateAlterJobPropertiesForMutation(command);
+            }
+
+            // Kafka offset resolution may perform external I/O. Keep it outside DB/table metadata locks.
+            PreparedKafkaProperties preparedDataSourceProperties =
+                    prepareDataSourceProperties(dataSourceProperties, false);
+            if (!command.hasTargetTable()) {
+                unprotectApplyAlter(command, dataSourceProperties, preparedDataSourceProperties);
+                return;
+            }
+
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                throw new DdlException("Database not found: " + dbId);
+            }
+            db.readLock();
+            try {
+                Table table = db.getTableNullable(command.getTargetTableId());
+                if (table == null) {
+                    throw new DdlException("Table not found: " + command.getTargetTableId());
+                }
+                if (!(table instanceof OlapTable)) {
+                    throw new DdlException("Routine load target table must be an OLAP table");
+                }
+                table.readLock();
+                try {
+                    TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(
+                            uniqueKeyUpdateMode, jobProperties);
+                    unprotectedValidateTargetTable(
+                            db, (OlapTable) table, jobProperties, effectiveUniqueKeyUpdateMode);
+                    unprotectApplyAlter(command, dataSourceProperties, preparedDataSourceProperties);
+                } finally {
+                    table.readUnlock();
+                }
+            } finally {
+                db.readUnlock();
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void unprotectApplyAlter(AlterRoutineLoadCommand command,
+            KafkaDataSourceProperties dataSourceProperties,
+            PreparedKafkaProperties preparedDataSourceProperties) throws UserException {
+        modifyPropertiesInternal(command.getAnalyzedJobProperties(), dataSourceProperties,
+                preparedDataSourceProperties);
+        if (command.hasTargetTable()) {
+            tableId = command.getTargetTableId();
+        }
+        setRoutineLoadDesc(command.getRoutineLoadDesc());
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(id,
+                command.getAnalyzedJobProperties(), dataSourceProperties, command.getTargetTableId(),
+                command.getRoutineLoadDesc());
+        Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
     }
 
     private List<Pair<Integer, Long>> resolveOffsets(KafkaDataSourceProperties dataSourceProperties,
@@ -831,6 +917,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
             }
 
+            mergePendingCloudProgressReset(dataSourceSnapshot, kafkaPartitionOffsets);
+
             // modify broker list
             if (!Strings.isNullOrEmpty(dataSourceProperties.getBrokerList())) {
                 this.brokerList = dataSourceSnapshot.brokerList;
@@ -838,7 +926,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         if (!jobProperties.isEmpty()) {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
-            modifyCommonJobProperties(copiedJobProperties);
+            modifyCommonJobPropertiesForKafka(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
             if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
                 String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
@@ -864,14 +952,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
             kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
         }
-        if (!kafkaPartitionOffsets.isEmpty()
+        if (!isReplay && !kafkaPartitionOffsets.isEmpty()
                 && (!dataSourceSnapshot.resetProgress || CollectionUtils.isNotEmpty(customKafkaPartitions))) {
             ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
         }
 
         if (!isReplay) {
             kafkaPartitionOffsets = resolveOffsets(dataSourceProperties, dataSourceSnapshot);
-            resetCloudProgressIfNeeded(dataSourceSnapshot, kafkaPartitionOffsets);
         }
         return new PreparedKafkaProperties(dataSourceSnapshot, copyPartitionOffsets(kafkaPartitionOffsets));
     }
@@ -884,28 +971,48 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return copiedPartitionOffsets;
     }
 
-    private void resetCloudProgressIfNeeded(KafkaDataSourceSnapshot dataSourceSnapshot,
-            List<Pair<Integer, Long>> kafkaPartitionOffsets) throws DdlException {
+    private void mergePendingCloudProgressReset(KafkaDataSourceSnapshot dataSourceSnapshot,
+            List<Pair<Integer, Long>> kafkaPartitionOffsets) {
         if (!Config.isCloudMode() || (!dataSourceSnapshot.resetProgress && kafkaPartitionOffsets.isEmpty())) {
             return;
         }
 
+        Map<Integer, Long> partitionOffsetMap = new HashMap<>();
+        for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
+            // MS stores the last consumed offset, while FE progress stores the next offset to consume.
+            partitionOffsetMap.put(pair.first, pair.second - 1);
+        }
+        PendingCloudProgressReset newReset = new PendingCloudProgressReset(
+                dataSourceSnapshot.resetProgress, partitionOffsetMap);
+        if (pendingCloudProgressReset == null || newReset.clearProgress) {
+            pendingCloudProgressReset = newReset;
+        } else {
+            pendingCloudProgressReset.partitionToOffset.putAll(newReset.partitionToOffset);
+        }
+    }
+
+    private Cloud.ResetRLProgressRequest.Builder newResetCloudProgressRequest() {
         Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(dbId);
         builder.setJobId(id);
-        if (!kafkaPartitionOffsets.isEmpty()) {
-            Map<Integer, Long> partitionOffsetMap = new HashMap<>();
-            for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
-                // The reason why the value recorded in MS in cloud mode needs to be subtracted by one is
-                // this value will be incremented when pulling MS persistent progress data and updating memory
-                // in routineLoadJob.updateCloudProgress().
-                partitionOffsetMap.put(pair.first, pair.second - 1);
-            }
-            builder.putAllPartitionToOffset(partitionOffsetMap);
+        return builder;
+    }
+
+    private void resetPendingCloudProgress() throws DdlException {
+        if (pendingCloudProgressReset == null) {
+            return;
         }
-        resetCloudProgress(builder);
+        if (pendingCloudProgressReset.clearProgress) {
+            resetCloudProgress(newResetCloudProgressRequest());
+        }
+        if (!pendingCloudProgressReset.partitionToOffset.isEmpty()) {
+            Cloud.ResetRLProgressRequest.Builder builder = newResetCloudProgressRequest();
+            builder.putAllPartitionToOffset(pendingCloudProgressReset.partitionToOffset);
+            resetCloudProgress(builder);
+        }
+        pendingCloudProgressReset = null;
     }
 
     private KafkaDataSourceSnapshot stageDataSourceProperties(KafkaDataSourceProperties dataSourceProperties)
@@ -916,6 +1023,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> alteredCustomProperties = dataSourceProperties.getCustomKafkaProperties();
         boolean customPropertiesChanged = MapUtils.isNotEmpty(alteredCustomProperties);
         if (customPropertiesChanged) {
+            if (alteredCustomProperties.containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName())
+                    && !alteredCustomProperties.containsKey(
+                            KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName())) {
+                stagedCustomProperties.remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
+            }
             stagedCustomProperties.putAll(alteredCustomProperties);
             Pair<Map<String, String>, String> convertedProperties = buildConvertedCustomProperties(
                     stagedCustomProperties, stagedKafkaDefaultOffset);
@@ -964,6 +1076,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
+    private static class PendingCloudProgressReset {
+        @SerializedName("clearProgress")
+        private boolean clearProgress;
+        @SerializedName("partitionToOffset")
+        private Map<Integer, Long> partitionToOffset = new HashMap<>();
+
+        private PendingCloudProgressReset(boolean clearProgress, Map<Integer, Long> partitionToOffset) {
+            this.clearProgress = clearProgress;
+            this.partitionToOffset.putAll(partitionToOffset);
+        }
+    }
+
     private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {
         Cloud.ResetRLProgressResponse response;
         try {
@@ -991,6 +1115,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (log.getTargetTableId() != 0) {
                 this.tableId = log.getTargetTableId();
             }
+            setRoutineLoadDesc(log.getRoutineLoadDesc());
         } catch (UserException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);

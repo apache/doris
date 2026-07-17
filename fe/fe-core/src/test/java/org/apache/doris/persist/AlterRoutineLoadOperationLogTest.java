@@ -17,9 +17,12 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
@@ -67,8 +70,10 @@ public class AlterRoutineLoadOperationLogTest {
 
         Assert.assertEquals(0L, new AlterRoutineLoadJobOperationLog(
                 jobId, jobProperties, routineLoadDataSourceProperties).getTargetTableId());
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(new Separator("|"), null, null,
+                null, null, null, null, LoadTask.MergeType.APPEND, null);
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties, targetTableId);
+                jobProperties, routineLoadDataSourceProperties, targetTableId, routineLoadDesc);
         log.write(out);
         out.flush();
         out.close();
@@ -89,6 +94,8 @@ public class AlterRoutineLoadOperationLogTest {
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
         Assert.assertEquals(targetTableId, log2.getTargetTableId());
+        Assert.assertEquals("|", log2.getRoutineLoadDesc().getColumnSeparator().getOriSeparator());
+        Assert.assertEquals(LoadTask.MergeType.APPEND, log2.getRoutineLoadDesc().getMergeType());
 
         in.close();
     }
