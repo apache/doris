@@ -885,6 +885,9 @@ TEST_F(WorkloadGroupManagerTest, recently_cancelled_query_delays_process_mem_exc
 // For NONE policy, the old code never called set_mem_limit during refresh (user_set > user_set
 // is always false), so a limit lowered by handle_paused_queries would never recover.
 TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_none_policy) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 200,
                                .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
@@ -916,6 +919,9 @@ TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_none_policy
 // query_weighted_mem_limit = wg_high_water_mark which is typically > user_set_mem_limit.
 // The old code's condition (user_set > query_weighted) would be false, preventing restoration.
 TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_dynamic_policy) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 200,
                                .memory_low_watermark = 80,
@@ -978,6 +984,9 @@ TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_fixed_polic
 // Test: When WG concurrency decreases (queries finish), remaining queries should get
 // higher per-query limits in FIXED policy.
 TEST_F(WorkloadGroupManagerTest, limit_increases_when_concurrency_decreases) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 200,
                                .memory_low_watermark = 80,
