@@ -184,4 +184,42 @@ public class NullableAliasTest extends SqlTestBase {
         Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
         Assertions.assertNotNull(plan);
     }
+
+    @Test
+    void testVolatileProjectAsClusterBoundary() {
+        // uuid() on the nullable side: the Project is treated as a cluster
+        // boundary (isValidProject returns false because uuid() is volatile),
+        // falling through to addDPHyperNode like an aggregate node.
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id, sum(T2.score + T3.s) "
+                        + "from T1 left join T2 on T1.id = T2.id "
+                        + "left join ("
+                        + "  select T1.id, (coalesce(T2.score, 0) + uuid_numeric()) as s "
+                        + "  from T1 inner join T2 on T1.id = T2.id"
+                        + ") T3 on T1.id = T3.id "
+                        + "group by T1.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+    }
+
+    @Test
+    void testVolatileAliasOnNullableSide() {
+        // uuid() alias on nullable side of LEFT JOIN.
+        // The Project containing uuid() is a cluster boundary, so DPHyp
+        // treats it as a leaf node and does not reorder across it.
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id, sum(ifnull(T2.score, 0) + T3.dv) "
+                        + "from T1 left join T2 on T1.id = T2.id "
+                        + "left join ("
+                        + "  select T1.id, uuid_numeric() as dv "
+                        + "  from T1 inner join T2 on T1.id = T2.id"
+                        + ") T3 on T1.id = T3.id "
+                        + "group by T1.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+    }
 }
