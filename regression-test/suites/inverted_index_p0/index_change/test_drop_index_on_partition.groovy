@@ -45,8 +45,14 @@ suite("test_drop_index_on_partition", "inverted_index") {
     // create inverted index
     sql "CREATE INDEX idx_v2 ON ${tableName1}(v2) USING INVERTED"
     wait_for_last_col_change_finish(tableName1, timeout)
-    run_index_change_job_and_wait(tableName1, timeout) {
-        build_index_on_table("idx_v2", tableName1)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName1, timeout) {
+            build_index_on_table("idx_v2", tableName1)
+        }
+        def physical_index_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */
+                k1 FROM ${tableName1} WHERE v2 MATCH 'foo bar'"""
+        assertEquals(1, physical_index_result.size())
+        assertEquals(10, physical_index_result[0][0])
     }
 
     // verify index exists
@@ -107,8 +113,14 @@ suite("test_drop_index_on_partition", "inverted_index") {
 
     sql "CREATE INDEX idx_v1 ON ${tableName2}(v1) USING INVERTED"
     wait_for_last_col_change_finish(tableName2, timeout)
-    run_index_change_job_and_wait(tableName2, timeout) {
-        build_index_on_table("idx_v1", tableName2)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName2, timeout) {
+            build_index_on_table("idx_v1", tableName2)
+        }
+        def physical_index_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */
+                k1 FROM ${tableName2} WHERE v1 MATCH 'hello'"""
+        assertEquals(1, physical_index_result.size())
+        assertEquals(10, physical_index_result[0][0])
     }
 
     previous_job_ids = snapshot_build_index_job_ids(tableName2)
@@ -226,8 +238,14 @@ suite("test_drop_index_on_partition", "inverted_index") {
 
     sql "CREATE INDEX idx_v1 ON ${tableName5}(v1) USING INVERTED"
     wait_for_last_col_change_finish(tableName5, timeout)
-    run_index_change_job_and_wait(tableName5, timeout) {
-        build_index_on_table("idx_v1", tableName5)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName5, timeout) {
+            build_index_on_table("idx_v1", tableName5)
+        }
+        def physical_index_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */
+                k1 FROM ${tableName5} WHERE v1 MATCH 'hello world'"""
+        assertEquals(1, physical_index_result.size())
+        assertEquals(10, physical_index_result[0][0])
     }
 
     previous_job_ids = snapshot_build_index_job_ids(tableName5)

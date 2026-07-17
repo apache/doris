@@ -42,6 +42,8 @@ Suite.metaClass.wait_for_new_build_index_jobs_finish = { table_name, OpTimeout, 
             assertTrue(false, "build index job cancelled, result: ${alter_res}")
         }
         if (!alter_res.isEmpty() && alter_res.every { it[7] == "FINISHED" }) {
+            // FE registers all sibling jobs before the DDL returns, so the first
+            // nonempty all-FINISHED observation is complete, even at the deadline.
             logger.info(table_name + " build index jobs finished, detail: " + alter_res)
             finished = true
             break
