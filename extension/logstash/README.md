@@ -39,6 +39,30 @@ jruby -S gem build logstash-output-doris.gemspec
 
 Produces `logstash-output-doris-<version>-java.gem`.
 
+## HTTP timeouts (v1.2.2+)
+
+To avoid worker threads hanging forever on TCP half-open connections, the
+plugin configures HttpClient4 timeouts and enables `SO_KEEPALIVE`:
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `connect_timeout_ms` | `60000` | TCP connect timeout |
+| `connection_request_timeout_ms` | `60000` | Timeout leasing a connection from the pool |
+| `socket_timeout_ms` | `600000` | Socket read timeout (response wait) |
+
+Example:
+
+```
+output {
+  doris {
+    http_hosts => ["http://fe:8030"]
+    ...
+    connect_timeout_ms => 60000
+    socket_timeout_ms => 600000
+  }
+}
+```
+
 ## Install
 
 The jars are already vendored inside the gem, so the install hook does not
