@@ -1170,7 +1170,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, fuzzy = true, description = {
             "开启后 FileScanNode 会在支持的查询场景使用 FileScannerV2，默认开启",
             "When enabled, FileScanNode uses FileScannerV2 for supported query scans. Enabled by default."})
-    public boolean enableFileScannerV2 = true;
+    public boolean enableFileScannerV2 = false;
 
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
