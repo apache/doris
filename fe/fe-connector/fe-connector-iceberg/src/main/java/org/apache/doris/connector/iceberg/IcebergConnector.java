@@ -43,6 +43,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -146,10 +147,12 @@ public class IcebergConnector implements Connector {
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile Catalog icebergCatalog;
-    // Session-aware REST catalog + adapter, built ONLY for a REST catalog configured iceberg.rest.session=user
-    // (#63068). The RESTSessionCatalog is a SINGLE shared instance; per-request asCatalog(ctx)/asViewCatalog(ctx)
-    // (through the adapter) attach the querying user's delegated credential. Both null for every other catalog.
-    private volatile RESTSessionCatalog restSessionCatalog;
+    // Session-aware REST catalog, built for every REST catalog (plain or iceberg.rest.session=user). A SINGLE
+    // shared instance, held as the ReauthenticatingRestSessionCatalog wrapper (BaseViewSessionCatalog) that
+    // recovers from a 401 on the catalog's own identity by rebuilding the client (upstream #64966). For
+    // session=user the adapter attaches the querying user's delegated credential per request (#63068). Null for
+    // every non-REST catalog; sessionCatalogAdapter is null unless session=user.
+    private volatile BaseViewSessionCatalog restSessionCatalog;
     private volatile IcebergSessionCatalogAdapter sessionCatalogAdapter;
     // T08 connector-internal caches (D6, 0 SPI). Final per-catalog fields: a REFRESH CATALOG rebuilds the
     // connector (PluginDrivenExternalCatalog.onClose nulls + recreates it) and thus drops both caches. The
@@ -366,8 +369,17 @@ public class IcebergConnector implements Connector {
         }
         if (IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)) {
             Catalog catalog = getOrCreateCatalog();
-            if (catalog instanceof RESTCatalog) {
-                Map<String, String> merged = ((RESTCatalog) catalog).properties();
+            // The server-merged config (Iceberg warehouse / Polaris default-base-location) lives on the REST
+            // session catalog we now hold (the wrapped RESTSessionCatalog; its properties() delegates to the raw
+            // one, exactly what RESTCatalog.properties() returned). Fall back to a bare RESTCatalog defensively.
+            Map<String, String> merged = null;
+            BaseViewSessionCatalog sc = restSessionCatalog;
+            if (sc != null) {
+                merged = sc.properties();
+            } else if (catalog instanceof RESTCatalog) {
+                merged = ((RESTCatalog) catalog).properties();
+            }
+            if (merged != null) {
                 location = toS3Location(merged.get(CatalogProperties.WAREHOUSE_LOCATION));
                 if (location == null) {
                     location = toS3Location(merged.get(REST_DEFAULT_BASE_LOCATION));
@@ -458,7 +470,18 @@ public class IcebergConnector implements Connector {
                 IcebergConnectorProperties.REST_VIEW_ENABLED, "true"));
         Optional<String> externalCatalogName =
                 Optional.ofNullable(properties.get(IcebergConnectorProperties.EXTERNAL_CATALOG_NAME));
-        return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog(),
+        Catalog sharedCatalog = getOrCreateCatalog();
+        // Plain REST now holds the bare (wrapped) RESTSessionCatalog: its asCatalog(empty) is a Catalog +
+        // SupportsNamespaces but NOT a ViewCatalog, so inject the view facet asViewCatalog(empty) explicitly (what
+        // the all-in-one RESTCatalog used to carry inline). session=user routes views per-user elsewhere, so the
+        // shared path keeps its existing behavior (no injection here).
+        BaseViewSessionCatalog sc = restSessionCatalog;
+        if (sc != null && !isUserSessionEnabled()) {
+            ViewCatalog sharedViewCatalog = sc.asViewCatalog(SessionCatalog.SessionContext.createEmpty());
+            return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(sharedCatalog, sharedViewCatalog,
+                    restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
+        }
+        return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(sharedCatalog,
                 restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
     }
 
@@ -718,11 +741,12 @@ public class IcebergConnector implements Connector {
                 break;
         }
 
-        // REST + iceberg.rest.session=user: build a session-aware RESTSessionCatalog (not the all-in-one
-        // RESTCatalog) so per-request asCatalog(ctx)/asViewCatalog(ctx) can attach the querying user's delegated
-        // credential (#63068). The default (non-delegated) catalog is asCatalog(empty), identical to what a
-        // RESTCatalog exposes; the shared session catalog + adapter are memoized for the per-user routing.
-        if (isUserSessionEnabled()) {
+        // Every REST catalog (plain or iceberg.rest.session=user) is built as a session-aware RESTSessionCatalog
+        // (not the all-in-one RESTCatalog) wrapped for 401 re-authentication. The default (non-delegated) catalog
+        // is asCatalog(empty), identical to what a RESTCatalog exposes; wrapping it recovers a catalog-identity
+        // token expiry (#64966), and for session=user the shared session catalog + adapter also drive per-request
+        // asCatalog(ctx)/asViewCatalog(ctx) delegated-credential routing (#63068).
+        if (IcebergConnectorProperties.TYPE_REST.equals(flavor)) {
             return buildRestSessionCatalogDefault(catalogName, catalogProps, conf);
         }
 
@@ -733,13 +757,15 @@ public class IcebergConnector implements Connector {
     }
 
     /**
-     * Builds the default catalog for a {@code iceberg.rest.session=user} REST catalog: a SINGLE shared
+     * Builds the default catalog for a REST catalog (plain or {@code iceberg.rest.session=user}): a SINGLE shared
      * {@link RESTSessionCatalog} (built directly — NOT via {@code CatalogUtil.buildIcebergCatalog}, which returns
-     * the all-in-one {@code RESTCatalog} and hides the session catalog behind a private field). Its
-     * {@code asCatalog(empty)} is the default (non-delegated) catalog; its {@code asCatalog(ctx)} /
-     * {@code asViewCatalog(ctx)} are used per request by {@link #sessionCatalogAdapter}. Memoizes
-     * {@link #restSessionCatalog} + {@link #sessionCatalogAdapter} as a side effect. The optional
-     * {@code iceberg.rest.session-timeout} maps to the iceberg AuthSession timeout.
+     * the all-in-one {@code RESTCatalog} and hides the session catalog behind a private field), wrapped in a
+     * {@link ReauthenticatingRestSessionCatalog} so an expired/rejected catalog-identity token (HTTP 401) rebuilds
+     * the client and retries once instead of wedging until the FE restarts (upstream #64966). Its
+     * {@code asCatalog(empty)} is the default (non-delegated) catalog; for {@code session=user} its
+     * {@code asCatalog(ctx)} / {@code asViewCatalog(ctx)} are used per request by {@link #sessionCatalogAdapter}.
+     * Memoizes {@link #restSessionCatalog} (always) and {@link #sessionCatalogAdapter} (session=user only) as a
+     * side effect. The optional {@code iceberg.rest.session-timeout} maps to the iceberg AuthSession timeout.
      */
     private Catalog buildRestSessionCatalogDefault(String catalogName, Map<String, String> catalogProps,
             Configuration conf) {
@@ -751,21 +777,59 @@ public class IcebergConnector implements Connector {
         if (StringUtils.isNotBlank(sessionTimeout)) {
             sessionProps.put(CatalogProperties.AUTH_SESSION_TIMEOUT_MS, sessionTimeout);
         }
+        boolean userSession = isUserSessionEnabled();
         IcebergSessionCatalogAdapter.DelegatedTokenMode tokenMode =
                 IcebergSessionCatalogAdapter.DelegatedTokenMode.fromString(properties.getOrDefault(
                         IcebergConnectorProperties.REST_DELEGATED_TOKEN_MODE,
                         IcebergConnectorProperties.DELEGATED_TOKEN_MODE_ACCESS_TOKEN));
-        LOG.info("Creating Iceberg REST user-session catalog '{}' (delegated-token-mode={})", catalogName, tokenMode);
+        // Frozen catalog-identity properties for the 401-recovery rebuild: an unmodifiable copy so the rebuild
+        // always re-resolves from the catalog's OWN credential and can never capture a per-user delegated token.
+        Map<String, String> frozenProps = Collections.unmodifiableMap(new HashMap<>(sessionProps));
+        LOG.info("Creating Iceberg REST catalog '{}' (userSession={}, delegated-token-mode={})",
+                catalogName, userSession, tokenMode);
         return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_REST, () -> {
-            RESTSessionCatalog sessionCatalog = new RESTSessionCatalog();
-            CatalogUtil.configureHadoopConf(sessionCatalog, conf);
-            sessionCatalog.initialize(catalogName, sessionProps);
+            RESTSessionCatalog rawSessionCatalog = newRestSessionCatalog(catalogName, sessionProps, conf);
+            // Wrap so a 401 on the catalog's own identity rebuilds the client and retries once. The wrapper is a
+            // thin BaseViewSessionCatalog: asCatalog(empty)/asViewCatalog(empty) and the per-user asCatalog(ctx)
+            // all call back into it, so every path inherits recovery; per-user requests are excluded by the
+            // wrapper's own request-level gate (a request carrying a delegated credential is never recovered).
+            ReauthenticatingRestSessionCatalog sessionCatalog = new ReauthenticatingRestSessionCatalog(
+                    rawSessionCatalog, () -> rebuildRestSessionCatalog(catalogName, frozenProps, conf));
             Catalog defaultCatalog = sessionCatalog.asCatalog(SessionCatalog.SessionContext.createEmpty());
             this.restSessionCatalog = sessionCatalog;
-            this.sessionCatalogAdapter =
-                    new IcebergSessionCatalogAdapter(defaultCatalog, sessionCatalog, tokenMode);
+            if (userSession) {
+                this.sessionCatalogAdapter =
+                        new IcebergSessionCatalogAdapter(defaultCatalog, sessionCatalog, tokenMode);
+            }
             return defaultCatalog;
         });
+    }
+
+    /** Builds and initializes a bare Iceberg {@link RESTSessionCatalog} (fresh REST client + OAuth2 token fetch). */
+    private RESTSessionCatalog newRestSessionCatalog(String catalogName, Map<String, String> props,
+            Configuration conf) {
+        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog();
+        CatalogUtil.configureHadoopConf(sessionCatalog, conf);
+        sessionCatalog.initialize(catalogName, props);
+        return sessionCatalog;
+    }
+
+    /**
+     * Rebuilds the REST session catalog for 401 re-authentication, under the plugin classloader pin. The initial
+     * build runs inside {@link #buildCatalogAuthenticated} (i.e. {@code context.executeAuthenticated}); this rebuild
+     * fires later on whatever thread hit the 401, so it must re-apply the same pin or iceberg's reflective REST /
+     * iceberg-aws client build split-brains against the app loader (see {@code pinIcebergWorkerPoolToPluginClassLoader}
+     * and {@code TcclPinningConnectorContext}). Uses the frozen catalog-identity props, so it can never mint the
+     * shared client with a per-user token.
+     */
+    private RESTSessionCatalog rebuildRestSessionCatalog(String catalogName, Map<String, String> props,
+            Configuration conf) {
+        try {
+            return context.executeAuthenticated(() -> newRestSessionCatalog(catalogName, props, conf));
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to rebuild Iceberg REST client for re-authentication (catalog="
+                    + catalogName + "): " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -1235,11 +1299,14 @@ public class IcebergConnector implements Connector {
             }
             icebergCatalog = null;
         }
-        // The session=user default catalog (asCatalog(empty)) is a lightweight view and NOT Closeable, so close
-        // the shared underlying RESTSessionCatalog (its REST client + OAuth2 auth resources) explicitly here.
-        RESTSessionCatalog sc = restSessionCatalog;
+        // The default catalog (asCatalog(empty)) is a lightweight view and NOT Closeable, so close the shared
+        // underlying REST session catalog (its REST client + OAuth2 auth resources) explicitly here. It is the
+        // ReauthenticatingRestSessionCatalog wrapper, a Closeable that closes its current delegate.
+        BaseViewSessionCatalog sc = restSessionCatalog;
         if (sc != null) {
-            sc.close();
+            if (sc instanceof java.io.Closeable) {
+                ((java.io.Closeable) sc).close();
+            }
             restSessionCatalog = null;
             sessionCatalogAdapter = null;
         }
