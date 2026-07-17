@@ -1002,7 +1002,7 @@ public class IcebergRestPropertiesTest {
         try (S3FileIO fileIO = new S3FileIO()) {
             fileIO.initialize(fileIOProperties);
             Assertions.assertEquals(URI.create("https://oss-cn-beijing.aliyuncs.com"),
-                    fileIO.client().serviceClientConfiguration().endpointOverride());
+                    fileIO.client().serviceClientConfiguration().endpointOverride().orElseThrow());
         }
     }
 
