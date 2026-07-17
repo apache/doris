@@ -536,6 +536,7 @@ DECLARE_mInt64(vertical_compaction_max_segment_size);
 DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 // Enable RLE batch Put optimization for compaction
 DECLARE_mBool(enable_rle_batch_put_optimization);
+DECLARE_Bool(enable_bmi2_optimizations);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);

@@ -112,5 +112,14 @@ TEST(BitPackingTest, PdepUnpackTruncatedInput) {
     test_truncated_input<uint32_t>();
 }
 
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+TEST(BitPackingTest, DisableBmi2Optimizations) {
+    const bool was_enabled = config::enable_bmi2_optimizations;
+    config::enable_bmi2_optimizations = false;
+    EXPECT_FALSE(PdepUnpack::is_supported());
+    config::enable_bmi2_optimizations = was_enabled;
+}
+#endif
+
 } // namespace
 } // namespace doris

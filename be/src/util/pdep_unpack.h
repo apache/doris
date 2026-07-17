@@ -28,12 +28,15 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/config.h"
+
 namespace doris {
 
 class PdepUnpack {
 public:
     static bool is_supported() {
-        return __builtin_cpu_supports("bmi2") && __builtin_cpu_supports("avx2");
+        return config::enable_bmi2_optimizations && __builtin_cpu_supports("bmi2") &&
+               __builtin_cpu_supports("avx2");
     }
 
     template <typename T, int BIT_WIDTH>
