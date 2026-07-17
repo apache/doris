@@ -35,6 +35,7 @@ suite("test_p_seq_publish_read_from_old") {
         ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
         PROPERTIES(
         "replication_num" = "1",
+        "disable_auto_compaction" = "true",
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
         "function_column.sequence_col" = "v1",

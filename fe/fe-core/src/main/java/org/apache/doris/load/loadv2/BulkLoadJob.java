@@ -325,6 +325,20 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         for (NereidsDataDescription dataDescription : command.getDataDescriptions()) {
             dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         }
+        // This replay path re-parses originStmt and skips LoadCommand.run(), which is where file
+        // paths are normalized on fresh submission. Concrete filesystems only accept their native
+        // schemes, so re-apply the same normalization (e.g. cos:// with s3.* properties -> s3://)
+        // before the paths land in BrokerFileGroup, or a pending job rescheduled after an FE
+        // restart / master failover would fail scheme validation and be cancelled.
+        BrokerDesc brokerDesc = command.getBrokerDesc();
+        if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
+            for (NereidsDataDescription dataDescription : command.getDataDescriptions()) {
+                List<String> filePaths = dataDescription.getFilePaths();
+                for (int i = 0; i < filePaths.size(); i++) {
+                    filePaths.set(i, brokerDesc.getFileLocation(filePaths.get(i)));
+                }
+            }
+        }
         checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
     }
 
