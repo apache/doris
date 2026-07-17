@@ -18,6 +18,8 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;

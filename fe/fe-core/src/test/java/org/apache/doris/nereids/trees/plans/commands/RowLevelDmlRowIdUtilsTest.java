@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

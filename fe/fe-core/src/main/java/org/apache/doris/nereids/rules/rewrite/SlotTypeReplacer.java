@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;

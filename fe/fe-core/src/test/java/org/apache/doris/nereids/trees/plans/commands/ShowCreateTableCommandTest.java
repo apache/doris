@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.PluginDrivenSysExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
