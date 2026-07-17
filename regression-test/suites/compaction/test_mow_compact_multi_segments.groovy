@@ -208,6 +208,7 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     assertEquals(code, 0)
     def compactJson = parseJson(out.trim())
     logger.info("compact json: " + compactJson)
+    waitForCompaction(tablet)
     // check generate 1 segment
     waitForTabletSegmentNum(tablet, 2, 1)
     sql """ select * from ${tableName} limit 1; """
