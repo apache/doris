@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <barrier>
 #include <condition_variable>
 #include <cstring>
 #include <future>
@@ -816,8 +817,10 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
 
     constexpr size_t producer_count = 4;
     constexpr size_t fill_wave_count = 4;
-    constexpr size_t accepted_producer_tasks = producer_count * fill_wave_count;
-    constexpr size_t rejected_tasks_per_producer = 12;
+    constexpr size_t fill_tasks_per_producer = 4;
+    constexpr size_t accepted_producer_tasks =
+            producer_count * fill_wave_count * fill_tasks_per_producer;
+    constexpr size_t rejected_tasks_per_producer = 32;
     constexpr size_t rejected_producer_tasks = producer_count * rejected_tasks_per_producer;
     constexpr size_t total_producer_tasks = accepted_producer_tasks + rejected_producer_tasks;
     constexpr size_t max_pending_tasks = accepted_producer_tasks + 1;
@@ -904,8 +907,10 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
     const auto submit_wave = [&](size_t first_task, size_t tasks_per_producer) {
         std::vector<std::thread> producers;
         producers.reserve(producer_count);
+        std::barrier producer_start(producer_count);
         for (size_t producer_id = 0; producer_id < producer_count; ++producer_id) {
             producers.emplace_back([&, producer_id]() {
+                producer_start.arrive_and_wait();
                 const size_t producer_first = first_task + producer_id * tasks_per_producer;
                 for (size_t task_offset = 0; task_offset < tasks_per_producer; ++task_offset) {
                     if (service->try_submit(std::move(tasks[producer_first + task_offset]))) {
@@ -921,12 +926,15 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
         }
     };
 
-    // With the only consumer blocked, each producer wave adds four queued tasks. The stable
-    // snapshots make backlog growth deterministic instead of depending on polling timing.
+    // With the only consumer blocked, every producer continuously submits several tasks per wave.
+    // The stable snapshots make backlog growth deterministic instead of depending on polling
+    // timing.
     for (size_t wave = 0; wave < fill_wave_count; ++wave) {
-        submit_wave(1 + wave * producer_count, 1);
-        EXPECT_EQ(service->_queue.size_approx(), (wave + 1) * producer_count);
-        EXPECT_EQ(service->pending_count(), 1 + (wave + 1) * producer_count);
+        submit_wave(1 + wave * producer_count * fill_tasks_per_producer, fill_tasks_per_producer);
+        EXPECT_EQ(service->_queue.size_approx(),
+                  (wave + 1) * producer_count * fill_tasks_per_producer);
+        EXPECT_EQ(service->pending_count(),
+                  1 + (wave + 1) * producer_count * fill_tasks_per_producer);
     }
 
     // The queue is now bounded by max_pending_tasks. A larger concurrent burst must be dropped by
