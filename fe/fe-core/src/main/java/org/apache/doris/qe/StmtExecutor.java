@@ -164,6 +164,7 @@ import org.apache.thrift.TSerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -233,6 +234,17 @@ public class StmtExecutor {
 
     private StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy,
             Instant statementStartTime) {
+        this(context, originStmt, isProxy, new StatementContext(context, originStmt, statementStartTime));
+    }
+
+    private StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy,
+            Instant statementStartTime, ZoneId statementTimeZone) {
+        this(context, originStmt, isProxy,
+                new StatementContext(context, originStmt, statementStartTime, statementTimeZone));
+    }
+
+    private StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy,
+            StatementContext statementContext) {
         Preconditions.checkState(context.getConnectType().equals(ConnectType.MYSQL));
         this.context = context;
         if (context != null) {
@@ -241,7 +253,7 @@ public class StmtExecutor {
         this.originStmt = originStmt;
         this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = isProxy;
-        this.statementContext = new StatementContext(context, originStmt, statementStartTime);
+        this.statementContext = statementContext;
         this.context.setStatementContext(statementContext);
         this.profile = new Profile(
                 this.context.getSessionVariable().enableProfile(),
@@ -257,6 +269,12 @@ public class StmtExecutor {
 
     public StmtExecutor(ConnectContext context, String stmt, Instant statementStartTime) {
         this(context, new OriginStatement(stmt, 0), false, statementStartTime);
+        this.stmtName = stmt;
+    }
+
+    public StmtExecutor(ConnectContext context, String stmt, Instant statementStartTime,
+            ZoneId statementTimeZone) {
+        this(context, new OriginStatement(stmt, 0), false, statementStartTime, statementTimeZone);
         this.stmtName = stmt;
     }
 

@@ -28,12 +28,15 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.util.DBObjects;
@@ -52,6 +55,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.text.MessageFormat;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -276,6 +280,8 @@ public abstract class BaseAnalysisTask {
 
     protected Instant statementStartTime = Instant.now();
 
+    protected ZoneId statementTimeZone = ZoneId.systemDefault();
+
     @VisibleForTesting
     public BaseAnalysisTask() {
 
@@ -306,6 +312,8 @@ public abstract class BaseAnalysisTask {
 
     public void execute() throws Exception {
         statementStartTime = Instant.now();
+        statementTimeZone = ZoneId.of(VariableMgr.getDefaultSessionVariable().getTimeZone(),
+                TimeUtils.timeZoneAliasMap);
         prepareExecution();
         try {
             doExecute();
@@ -645,12 +653,16 @@ public abstract class BaseAnalysisTask {
         }
     }
 
+    protected StmtExecutor createStmtExecutor(ConnectContext connectContext, String sql) {
+        return new StmtExecutor(connectContext, sql, statementStartTime, statementTimeZone);
+    }
+
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         String queryId = "";
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
-            stmtExecutor = new StmtExecutor(a.connectContext, sql, statementStartTime);
+            stmtExecutor = createStmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
                 if (MetricRepo.isInit) {
@@ -689,7 +701,7 @@ public abstract class BaseAnalysisTask {
 
     protected void runInsert(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-            stmtExecutor = new StmtExecutor(r.connectContext, sql, statementStartTime);
+            stmtExecutor = createStmtExecutor(r.connectContext, sql);
             try {
                 stmtExecutor.execute();
                 QueryState queryState = stmtExecutor.getContext().getState();

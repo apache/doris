@@ -224,6 +224,9 @@ void Reusable::update_runtime_state(const PTabletKeyLookupRequest& request) {
     if (request.has_timestamp_ms()) {
         _runtime_state->set_query_time(request.timestamp_ms(), request.nano_seconds());
     }
+    for (const auto& output_expr : _output_exprs_ctxs) {
+        output_expr->root()->reset_constant_col();
+    }
 }
 
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {

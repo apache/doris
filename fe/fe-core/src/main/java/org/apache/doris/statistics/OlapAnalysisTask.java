@@ -36,7 +36,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -144,7 +143,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
         ResultRow resultRow;
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-            stmtExecutor = new StmtExecutor(r.connectContext, sql, statementStartTime);
+            stmtExecutor = createStmtExecutor(r.connectContext, sql);
             resultRow = stmtExecutor.executeInternalQuery().get(0);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime) + " Min max SQL: "

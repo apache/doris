@@ -564,20 +564,23 @@ suite("test_point_query") {
             assertNotEquals(result1[0], result2[0])
         }
 
-        // The second execution reuses the cached direct point-query path. SET_VAR must still
-        // be applied before building the lightweight lookup request.
-        sql "set time_zone = '+08:00'"
+        // The second execution reuses the cached direct point-query path. Its constant
+        // expressions must be materialized with the current execution's time zone.
+        sql "set time_zone = '+00:00'"
         try (PreparedStatement pstmt = prepareStatement("select /*+ SET_VAR("
-                + "debug_skip_fold_constant=true,time_zone='+00:00') */ "
+                + "debug_skip_fold_constant=true) */ "
                 + "from_unixtime(20) from regression_test_point_query_p0.table_3821461 "
                 + "where col1 = ? and col2 = ? and loc3 = 'aabc'")) {
             pstmt.setInt(1, 20)
             pstmt.setInt(2, 30)
-            for (int i = 0; i < 2; i++) {
-                try (ResultSet rs = pstmt.executeQuery()) {
-                    assertTrue(rs.next())
-                    assertEquals("1970-01-01 00:00:20", rs.getString(1))
-                }
+            try (ResultSet rs = pstmt.executeQuery()) {
+                assertTrue(rs.next())
+                assertEquals("1970-01-01 00:00:20", rs.getString(1))
+            }
+            sql "set time_zone = '+08:00'"
+            try (ResultSet rs = pstmt.executeQuery()) {
+                assertTrue(rs.next())
+                assertEquals("1970-01-01 08:00:20", rs.getString(1))
             }
         }
         def sessionTimeZone = sql "select @@time_zone"
