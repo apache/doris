@@ -269,6 +269,16 @@ public class TypeCoercionUtilsTest {
                 Assertions.assertEquals(decimal380, decimalStringCast.getDataType());
                 Assertions.assertTrue(decimalStringCast.isLosslessDecimalCast());
 
+                DecimalV3Type decimal54 = DecimalV3Type.createDecimalV3Type(5, 4);
+                EqualTo decimalChar = new EqualTo(
+                        new SlotReference("decimal_col", decimal54),
+                        new SlotReference("char_col", CharType.createCharType(255)));
+                decimalChar = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalChar);
+                DecimalV3Type decimal386 = DecimalV3Type.createDecimalV3Type(38, 6);
+                Assertions.assertEquals(decimal386, decimalChar.left().getDataType());
+                Assertions.assertEquals(decimal386, decimalChar.right().getDataType());
+                Assertions.assertTrue(((Cast) decimalChar.right()).isLosslessDecimalCast());
+
                 NullSafeEqual nullSafeDecimalString = new NullSafeEqual(
                         new SlotReference("decimal_col", decimal380),
                         new SlotReference("string_col", StringType.INSTANCE));

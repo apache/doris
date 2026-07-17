@@ -508,8 +508,7 @@ public class TypeCoercionUtils {
         int targetScale = Math.max(decimalV3Type.getScale(),
                 Math.min(SessionVariable.getDecimalOverFlowScale(), maxScale));
         targetScale = Math.min(targetScale, maxScale);
-        return Optional.of(DecimalV3Type.createDecimalV3Type(
-                Math.min(integerPart + targetScale, maxPrecision), targetScale));
+        return Optional.of(DecimalV3Type.createDecimalV3Type(maxPrecision, targetScale));
     }
 
     /**
