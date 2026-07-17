@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TFileFormatType;
 
 import lombok.Data;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileFormat;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,6 +54,8 @@ public class IcebergSplit extends FileSplit {
     private Long firstRowId = null;
     private Long lastUpdatedSequenceNumber = null;
     private String serializedSplit;
+    // maybe mixed file format type in one table. so need record it for every split
+    private FileFormat splitFileFormat;
     private boolean positionDeleteSystemTableSplit = false;
     private TFileFormatType positionDeleteFileFormat;
     private int positionDeleteContent;
