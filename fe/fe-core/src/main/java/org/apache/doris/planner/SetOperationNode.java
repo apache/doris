@@ -73,6 +73,8 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId;
 
+    private DistributionMode distributionMode = DistributionMode.PARTITIONED;
+
     private boolean isColocate = false;
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, StatisticalType statisticalType) {
@@ -201,6 +203,14 @@ public abstract class SetOperationNode extends PlanNode {
         return numInstances;
     }
 
+    public DistributionMode getDistributionMode() {
+        return distributionMode;
+    }
+
+    public void setDistributionMode(DistributionMode distributionMode) {
+        this.distributionMode = distributionMode;
+    }
+
     public boolean isBucketShuffle() {
         return distributionMode.equals(DistributionMode.BUCKET_SHUFFLE);
     }
@@ -229,7 +239,15 @@ public abstract class SetOperationNode extends PlanNode {
                     : LocalExchangeType.NOOP;
         } else {
             // Intersect / Except
-            if (AddLocalExchange.isColocated(this)) {
+            if (AddLocalExchange.isColocated(this) || isBucketShuffle()) {
+                // COLOCATE / BUCKET_SHUFFLE: every child is distributed by the basic child's
+                // storage bucket function (basic side scans buckets directly, other sides come
+                // from bucket-shuffle exchanges), so all children must stay aligned by that
+                // bucket function locally. requireBucketHash keeps bucket-distributed children
+                // as-is and re-aligns a serial (NOOP-claim) child with a BUCKET_HASH_SHUFFLE
+                // local exchange — same pattern as HashJoinNode's colocate/bucket-shuffle
+                // branch. An execution-hash require here would locally re-partition one side
+                // by a different hash function and break build/probe alignment.
                 requireChild = LocalExchangeTypeRequire.requireBucketHash();
                 outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
             } else {
