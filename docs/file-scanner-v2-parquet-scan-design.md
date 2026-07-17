@@ -432,8 +432,9 @@ Chunk range validator. Writer compatibility derived from `created_by` may add at
 file-bounded PARQUET-816 padding, or override the pre-Arrow-3 Data Page V2 compressed flag. Page
 iteration ignores auxiliary `INDEX_PAGE`/unknown pages without consuming a logical data-page
 ordinal. OffsetIndex is published only when its rows and non-overlapping physical page ranges are
-strictly increasing and remain inside that validated Column Chunk; otherwise sequential traversal
-preserves correctness.
+strictly increasing, its first location equals the owning `data_page_offset`, and every location
+remains inside that validated Column Chunk. The metadata anchor rejects uniformly shifted indexes
+that row monotonicity alone cannot detect; otherwise sequential traversal preserves correctness.
 
 ### 7.3 Direct Materialization and Scratch Reuse
 
@@ -464,6 +465,9 @@ the same semantic checks as the general conversion path. A fast path is enabled 
 checks prove the result is equivalent. In particular, legacy converted `TIMESTAMP_MILLIS` and
 `TIMESTAMP_MICROS` are UTC-adjusted, while an unannotated INT64 timestamp has distinct
 local/unspecified semantics; data decode and statistics pruning share this interpretation.
+Timestamp conversion validates millisecond scaling before multiplication, validates INT96
+nanos-of-day before widened Julian-day arithmetic, and rejects values outside Doris years
+0001-9999. Plain, dictionary, and decoded-value inputs share these bounds.
 
 Direct conversion also preserves load-mode error semantics. A nullable target in non-strict mode
 stores the nested default and marks the exact output row NULL for numeric, date/time, timestamp, and

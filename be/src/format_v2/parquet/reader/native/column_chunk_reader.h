@@ -66,7 +66,7 @@ ParquetReaderCompat parquet_reader_compat(const std::string& created_by);
 Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size_t file_size,
                                   bool parquet_816_padding, ColumnChunkRange* range);
 bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunkRange& chunk_range,
-                           int64_t row_count);
+                           int64_t data_page_offset, int64_t row_count);
 
 struct ColumnChunkReaderStatistics {
     int64_t decompress_time = 0;

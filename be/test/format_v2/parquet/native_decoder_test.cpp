@@ -1173,19 +1173,35 @@ TEST(ParquetV2NativeDecoderTest, OffsetIndexValidationRejectsBackwardAndOverlapp
     second.__set_compressed_page_size(20);
     second.__set_first_row_index(10);
     index.page_locations = {first, second};
-    EXPECT_FALSE(validate_offset_index(index, range, 20));
+    EXPECT_FALSE(validate_offset_index(index, range, 110, 20));
 
     second.__set_offset(140);
     second.__set_first_row_index(0);
     index.page_locations = {first, second};
-    EXPECT_FALSE(validate_offset_index(index, range, 20));
+    EXPECT_FALSE(validate_offset_index(index, range, 110, 20));
 
     second.__set_first_row_index(10);
     index.page_locations = {first, second};
-    EXPECT_TRUE(validate_offset_index(index, range, 20));
+    EXPECT_TRUE(validate_offset_index(index, range, 110, 20));
 
     range = {.offset = std::numeric_limits<size_t>::max(), .length = 2};
-    EXPECT_FALSE(validate_offset_index(index, range, 20));
+    EXPECT_FALSE(validate_offset_index(index, range, 110, 20));
+}
+
+TEST(ParquetV2NativeDecoderTest, OffsetIndexValidationRejectsShiftedFirstDataPage) {
+    ColumnChunkRange range {.offset = 100, .length = 100};
+    tparquet::OffsetIndex index;
+    tparquet::PageLocation first;
+    first.__set_offset(120);
+    first.__set_compressed_page_size(20);
+    first.__set_first_row_index(0);
+    tparquet::PageLocation second;
+    second.__set_offset(140);
+    second.__set_compressed_page_size(20);
+    second.__set_first_row_index(10);
+    index.page_locations = {first, second};
+
+    EXPECT_FALSE(validate_offset_index(index, range, 100, 20));
 }
 
 TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsIndexPageBeforeInitializingDataDecoder) {

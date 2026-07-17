@@ -22,7 +22,6 @@
 
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
-#include <limits>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -33,6 +32,7 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "core/data_type_serde/parquet_timestamp.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
@@ -50,22 +50,6 @@ namespace doris {
 static const int64_t micro_to_nano_second = 1000;
 
 namespace {
-
-#pragma pack(1)
-struct DecodedInt96Timestamp {
-    int64_t nanos_of_day;
-    int32_t julian_day;
-
-    int64_t to_timestamp_micros() const {
-        static constexpr int32_t JULIAN_EPOCH_OFFSET_DAYS = 2440588;
-        static constexpr int64_t MICROS_IN_DAY = 86400000000;
-        static constexpr int64_t NANOS_PER_MICROSECOND = 1000;
-        return (julian_day - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY +
-               nanos_of_day / NANOS_PER_MICROSECOND;
-    }
-};
-#pragma pack()
-static_assert(sizeof(DecodedInt96Timestamp) == 12);
 
 Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
                                            int64_t timestamp_micros) {
@@ -108,9 +92,9 @@ Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
     return Status::OK();
 }
 
-void append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data,
-                                             int64_t timestamp_micros,
-                                             const cctz::time_zone& timezone) {
+Status append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data,
+                                               int64_t timestamp_micros,
+                                               const cctz::time_zone& timezone) {
     static constexpr int64_t MICROS_PER_SECOND = 1000000;
 
     int64_t epoch_seconds = timestamp_micros / MICROS_PER_SECOND;
@@ -123,35 +107,23 @@ void append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data,
     DateV2Value<DateTimeV2ValueType> datetime_value;
     datetime_value.from_unixtime(epoch_seconds, timezone);
     datetime_value.set_microsecond(static_cast<uint32_t>(micros_of_second));
+    if (!datetime_value.is_valid_date()) {
+        return Status::DataQualityError(
+                "Decoded DATETIMEV2 timestamp is outside the target timezone range: micros={}",
+                timestamp_micros);
+    }
     data.push_back(datetime_value);
+    return Status::OK();
 }
 
-int64_t decoded_timestamp_micros(const DecodedColumnView& view, int64_t value) {
+ParquetTimeUnit decoded_parquet_time_unit(const DecodedColumnView& view) {
     if (view.time_unit == DecodedTimeUnit::MILLIS) {
-        return value * 1000;
+        return ParquetTimeUnit::MILLIS;
     }
     if (view.time_unit == DecodedTimeUnit::NANOS) {
-        return value / 1000;
+        return ParquetTimeUnit::NANOS;
     }
-    return value;
-}
-
-Status parquet_timestamp_micros(const ParquetDecodeContext& context, int64_t value,
-                                int64_t* result) {
-    if (context.time_unit == ParquetTimeUnit::MILLIS) {
-        if (value > std::numeric_limits<int64_t>::max() / 1000 ||
-            value < std::numeric_limits<int64_t>::min() / 1000) {
-            return Status::DataQualityError("Parquet timestamp overflows microseconds");
-        }
-        *result = value * 1000;
-        return Status::OK();
-    }
-    if (context.time_unit == ParquetTimeUnit::NANOS) {
-        *result = value / 1000;
-        return Status::OK();
-    }
-    *result = value;
-    return Status::OK();
+    return ParquetTimeUnit::MICROS;
 }
 
 class DateTimeV2ParquetConsumer final : public ParquetFixedValueConsumer {
@@ -168,19 +140,20 @@ public:
         const auto& timezone = _context.timezone == nullptr ? utc_timezone : *_context.timezone;
         for (size_t row = 0; row < num_values; ++row) {
             int64_t timestamp_micros;
+            Status status;
             if (_context.physical_type == ParquetPhysicalType::INT96) {
-                DORIS_CHECK_EQ(value_width, sizeof(DecodedInt96Timestamp));
-                timestamp_micros = unaligned_load<DecodedInt96Timestamp>(
-                                           values + row * sizeof(DecodedInt96Timestamp))
-                                           .to_timestamp_micros();
-                append_datetimev2_from_utc_epoch_micros(_data, timestamp_micros, timezone);
-                continue;
+                DORIS_CHECK_EQ(value_width, sizeof(ParquetInt96Timestamp));
+                status = parquet_int96_timestamp_micros(
+                        unaligned_load<ParquetInt96Timestamp>(values +
+                                                              row * sizeof(ParquetInt96Timestamp)),
+                        &timestamp_micros);
+            } else {
+                DORIS_CHECK(_context.physical_type == ParquetPhysicalType::INT64);
+                DORIS_CHECK_EQ(value_width, sizeof(int64_t));
+                status = parquet_timestamp_micros(
+                        _context.time_unit, unaligned_load<int64_t>(values + row * sizeof(int64_t)),
+                        &timestamp_micros);
             }
-            DORIS_CHECK(_context.physical_type == ParquetPhysicalType::INT64);
-            DORIS_CHECK_EQ(value_width, sizeof(int64_t));
-            auto status = parquet_timestamp_micros(
-                    _context, unaligned_load<int64_t>(values + row * sizeof(int64_t)),
-                    &timestamp_micros);
             if (!status.ok()) {
                 if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
                     _data.emplace_back();
@@ -189,11 +162,11 @@ public:
                 _data.resize(old_size);
                 return status;
             }
-            if (_context.timestamp_is_adjusted_to_utc) {
-                append_datetimev2_from_utc_epoch_micros(_data, timestamp_micros, timezone);
-                continue;
-            }
-            status = append_datetimev2_from_epoch_micros(_data, timestamp_micros);
+            status = _context.physical_type == ParquetPhysicalType::INT96 ||
+                                     _context.timestamp_is_adjusted_to_utc
+                             ? append_datetimev2_from_utc_epoch_micros(_data, timestamp_micros,
+                                                                       timezone)
+                             : append_datetimev2_from_epoch_micros(_data, timestamp_micros);
             if (!status.ok()) {
                 if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
                     _data.emplace_back();
@@ -653,7 +626,7 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
     auto& data = assert_cast<ColumnDateTimeV2&>(column).get_data();
     const auto old_size = data.size();
     if (view.value_kind == DecodedValueKind::INT96) {
-        const auto* values = reinterpret_cast<const DecodedInt96Timestamp*>(view.values);
+        const auto* values = reinterpret_cast<const ParquetInt96Timestamp*>(view.values);
         static const auto utc_timezone = cctz::utc_time_zone();
         const auto& timezone = view.timezone == nullptr ? utc_timezone : *view.timezone;
         for (int64_t row = 0; row < view.row_count; ++row) {
@@ -661,8 +634,19 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
                 data.push_back(DateV2Value<DateTimeV2ValueType>());
                 continue;
             }
-            append_datetimev2_from_utc_epoch_micros(data, values[row].to_timestamp_micros(),
-                                                    timezone);
+            int64_t timestamp_micros;
+            auto status = parquet_int96_timestamp_micros(values[row], &timestamp_micros);
+            if (status.ok()) {
+                status = append_datetimev2_from_utc_epoch_micros(data, timestamp_micros, timezone);
+            }
+            if (!status.ok()) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
+                data.resize(old_size);
+                return status;
+            }
         }
         return Status::OK();
     }
@@ -675,19 +659,22 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
             data.push_back(DateV2Value<DateTimeV2ValueType>());
             continue;
         }
-        const int64_t timestamp_micros = decoded_timestamp_micros(view, values[row]);
-        if (view.timestamp_is_adjusted_to_utc) {
-            append_datetimev2_from_utc_epoch_micros(data, timestamp_micros, timezone);
-        } else {
-            auto st = append_datetimev2_from_epoch_micros(data, timestamp_micros);
-            if (!st.ok()) {
-                if (decoded_column_view_can_null_on_conversion_failure(view)) {
-                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
-                    continue;
-                }
-                data.resize(old_size);
-                return st;
+        int64_t timestamp_micros;
+        auto status = parquet_timestamp_micros(decoded_parquet_time_unit(view), values[row],
+                                               &timestamp_micros);
+        if (status.ok()) {
+            status = view.timestamp_is_adjusted_to_utc
+                             ? append_datetimev2_from_utc_epoch_micros(data, timestamp_micros,
+                                                                       timezone)
+                             : append_datetimev2_from_epoch_micros(data, timestamp_micros);
+        }
+        if (!status.ok()) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
             }
+            data.resize(old_size);
+            return status;
         }
     }
     return Status::OK();

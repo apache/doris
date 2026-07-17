@@ -39,6 +39,17 @@
 namespace doris {
 namespace {
 
+#pragma pack(1)
+struct TestParquetInt96Timestamp {
+    int64_t nanos_of_day;
+    int32_t julian_day;
+};
+#pragma pack()
+static_assert(sizeof(TestParquetInt96Timestamp) == 12);
+
+constexpr int32_t JULIAN_UNIX_EPOCH = 2440588;
+constexpr int64_t NANOS_PER_DAY = 86400000000000LL;
+
 class TestParquetDecodeSource final : public ParquetDecodeSource {
 public:
     template <typename T>
@@ -297,6 +308,205 @@ TEST(DataTypeSerDeParquetTest, MaterializesTimestampTzDirectly) {
     EXPECT_EQ(data[0].microsecond(), 999999);
     EXPECT_EQ(data[1].second(), 1);
     EXPECT_EQ(data[1].microsecond(), 1);
+}
+
+TEST(DataTypeSerDeParquetTest, ValidatesInt96BeforeDateTimeMaterialization) {
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<TestParquetInt96Timestamp>(
+                {{0, JULIAN_UNIX_EPOCH}, {NANOS_PER_DAY - 1, JULIAN_UNIX_EPOCH}});
+        ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT96,
+                                      .logical_type = ParquetLogicalType::TIMESTAMP};
+        ParquetMaterializationState state;
+        DataTypeDateTimeV2 type(6);
+        auto column = type.create_column();
+
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, context, 2, state)
+                            .ok());
+        EXPECT_EQ(type.to_string(*column, 0), "1970-01-01 00:00:00.000000");
+        EXPECT_EQ(type.to_string(*column, 1), "1970-01-01 23:59:59.999999");
+    }
+
+    const std::vector<TestParquetInt96Timestamp> invalid_values {
+            {NANOS_PER_DAY, JULIAN_UNIX_EPOCH},
+            {-1, JULIAN_UNIX_EPOCH},
+            {0, std::numeric_limits<int32_t>::max()}};
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values(invalid_values);
+        ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT96,
+                                      .logical_type = ParquetLogicalType::TIMESTAMP};
+        ParquetMaterializationState state;
+        DataTypeDateTimeV2 type(6);
+        auto column = type.create_column();
+
+        EXPECT_FALSE(type.get_serde()
+                             ->read_column_from_parquet(*column, source, context, 3, state)
+                             .ok());
+        EXPECT_EQ(column->size(), 0);
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values(invalid_values);
+        ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT96,
+                                      .logical_type = ParquetLogicalType::TIMESTAMP};
+        IColumn::Filter null_map(3, 0);
+        ParquetMaterializationState state;
+        state.conversion_failure_null_map = &null_map;
+        DataTypeDateTimeV2 type(6);
+        auto column = type.create_column();
+
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, context, 3, state)
+                            .ok());
+        EXPECT_EQ(column->size(), 3);
+        EXPECT_EQ(null_map, IColumn::Filter({1, 1, 1}));
+    }
+}
+
+TEST(DataTypeSerDeParquetTest, Int96DictionaryFailuresFollowDecodedIds) {
+    const std::vector<TestParquetInt96Timestamp> dictionary_values {
+            {0, JULIAN_UNIX_EPOCH}, {NANOS_PER_DAY, JULIAN_UNIX_EPOCH}};
+    std::vector<uint8_t> dictionary(sizeof(TestParquetInt96Timestamp) * dictionary_values.size());
+    memcpy(dictionary.data(), dictionary_values.data(), dictionary.size());
+    TestParquetDecodeSource source;
+    source.set_dictionary(std::move(dictionary), sizeof(TestParquetInt96Timestamp), {1, 0, 1});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT96,
+                                  .encoding = ParquetValueEncoding::DICTIONARY,
+                                  .logical_type = ParquetLogicalType::TIMESTAMP};
+    IColumn::Filter null_map(3, 0);
+    ParquetMaterializationState state;
+    state.conversion_failure_null_map = &null_map;
+    DataTypeDateTimeV2 type(6);
+    auto column = type.create_column();
+
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 3, state).ok());
+    EXPECT_EQ(column->size(), 3);
+    EXPECT_EQ(null_map, IColumn::Filter({1, 0, 1}));
+    EXPECT_EQ(type.to_string(*column, 1), "1970-01-01 00:00:00.000000");
+}
+
+TEST(DataTypeSerDeParquetTest, TimestampTzChecksUnitOverflowAndTargetRange) {
+    constexpr int64_t MIN_TIMESTAMP_MICROS = -62135596800000000LL;
+    constexpr int64_t MAX_TIMESTAMP_MICROS = 253402300799999999LL;
+    constexpr int64_t YEAR_10000_MILLIS = 253402300800000LL;
+
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int64_t>({MIN_TIMESTAMP_MICROS, MAX_TIMESTAMP_MICROS});
+        ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                      .logical_type = ParquetLogicalType::TIMESTAMP,
+                                      .time_unit = ParquetTimeUnit::MICROS,
+                                      .timestamp_is_adjusted_to_utc = true};
+        ParquetMaterializationState state;
+        DataTypeTimeStampTz type(6);
+        auto column = type.create_column();
+
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, context, 2, state)
+                            .ok());
+        const auto& data = assert_cast<const ColumnTimeStampTz&>(*column).get_data();
+        EXPECT_EQ(data[0].year(), 1);
+        EXPECT_EQ(data[1].year(), 9999);
+        EXPECT_EQ(data[1].microsecond(), 999999);
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int64_t>({std::numeric_limits<int64_t>::max()});
+        ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                      .logical_type = ParquetLogicalType::TIMESTAMP,
+                                      .time_unit = ParquetTimeUnit::MILLIS,
+                                      .timestamp_is_adjusted_to_utc = true};
+        ParquetMaterializationState state;
+        DataTypeTimeStampTz type(6);
+        auto column = type.create_column();
+
+        EXPECT_FALSE(type.get_serde()
+                             ->read_column_from_parquet(*column, source, context, 1, state)
+                             .ok());
+        EXPECT_EQ(column->size(), 0);
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int64_t>({std::numeric_limits<int64_t>::max(), YEAR_10000_MILLIS});
+        ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                      .logical_type = ParquetLogicalType::TIMESTAMP,
+                                      .time_unit = ParquetTimeUnit::MILLIS,
+                                      .timestamp_is_adjusted_to_utc = true};
+        IColumn::Filter null_map(2, 0);
+        ParquetMaterializationState state;
+        state.conversion_failure_null_map = &null_map;
+        DataTypeTimeStampTz type(6);
+        auto column = type.create_column();
+
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, context, 2, state)
+                            .ok());
+        EXPECT_EQ(column->size(), 2);
+        EXPECT_EQ(null_map, IColumn::Filter({1, 1}));
+    }
+}
+
+TEST(DataTypeSerDeParquetTest, TimestampTzDecodedValuesUseTheSameBounds) {
+    constexpr int64_t YEAR_10000_MILLIS = 253402300800000LL;
+    const std::vector<int64_t> values {std::numeric_limits<int64_t>::max(), YEAR_10000_MILLIS, 0};
+    NullMap conversion_failures(3, 0);
+    DecodedColumnView view {.value_kind = DecodedValueKind::INT64,
+                            .time_unit = DecodedTimeUnit::MILLIS,
+                            .row_count = 3,
+                            .values = reinterpret_cast<const uint8_t*>(values.data()),
+                            .enable_strict_mode = false,
+                            .conversion_failure_null_map = &conversion_failures};
+    DataTypeTimeStampTz type(6);
+    auto column = type.create_column();
+
+    ASSERT_TRUE(type.get_serde()->read_column_from_decoded_values(*column, view).ok());
+    EXPECT_EQ(column->size(), 3);
+    EXPECT_EQ(conversion_failures, NullMap({1, 1, 0}));
+    EXPECT_EQ(assert_cast<const ColumnTimeStampTz&>(*column).get_data()[2].year(), 1970);
+}
+
+TEST(DataTypeSerDeParquetTest, TimestampTzDictionaryFailuresFollowDecodedIds) {
+    constexpr int64_t YEAR_10000_MILLIS = 253402300800000LL;
+    const std::vector<int64_t> dictionary_values {0, YEAR_10000_MILLIS};
+    std::vector<uint8_t> dictionary(sizeof(int64_t) * dictionary_values.size());
+    memcpy(dictionary.data(), dictionary_values.data(), dictionary.size());
+    TestParquetDecodeSource source;
+    source.set_dictionary(std::move(dictionary), sizeof(int64_t), {1, 0, 1});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                  .encoding = ParquetValueEncoding::DICTIONARY,
+                                  .logical_type = ParquetLogicalType::TIMESTAMP,
+                                  .time_unit = ParquetTimeUnit::MILLIS,
+                                  .timestamp_is_adjusted_to_utc = true};
+    IColumn::Filter null_map(3, 0);
+    ParquetMaterializationState state;
+    state.conversion_failure_null_map = &null_map;
+    DataTypeTimeStampTz type(6);
+    auto column = type.create_column();
+
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 3, state).ok());
+    EXPECT_EQ(column->size(), 3);
+    EXPECT_EQ(null_map, IColumn::Filter({1, 0, 1}));
+    EXPECT_EQ(assert_cast<const ColumnTimeStampTz&>(*column).get_data()[1].year(), 1970);
+}
+
+TEST(DataTypeSerDeParquetTest, Int96DecodedValuesRejectInvalidNanos) {
+    const std::vector<TestParquetInt96Timestamp> values {{NANOS_PER_DAY, JULIAN_UNIX_EPOCH}};
+    NullMap conversion_failures(1, 0);
+    DecodedColumnView view {.value_kind = DecodedValueKind::INT96,
+                            .row_count = 1,
+                            .values = reinterpret_cast<const uint8_t*>(values.data()),
+                            .enable_strict_mode = false,
+                            .conversion_failure_null_map = &conversion_failures};
+    DataTypeDateTimeV2 type(6);
+    auto column = type.create_column();
+
+    ASSERT_TRUE(type.get_serde()->read_column_from_decoded_values(*column, view).ok());
+    EXPECT_EQ(column->size(), 1);
+    EXPECT_EQ(conversion_failures, NullMap({1}));
 }
 
 TEST(DataTypeSerDeParquetTest, MaterializesFixedBinaryAsVarbinaryDirectly) {

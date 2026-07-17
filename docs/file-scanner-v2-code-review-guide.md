@@ -129,6 +129,10 @@ format-specific checklist when reviewing Parquet or ORC.
 - Treat legacy Parquet `TIMESTAMP_MILLIS` and `TIMESTAMP_MICROS` converted types as UTC-adjusted.
   Do not give them the local/unspecified semantics of an unannotated INT64 timestamp; data decode,
   statistics conversion, and min/max pruning must use the same timezone rule.
+- Route plain, dictionary, and decoded timestamp inputs through one checked conversion contract.
+  Validate INT96 nanos-of-day before widened Julian-day arithmetic, reject unit scaling overflow,
+  and enforce Doris year 0001-9999 before materialization. Conversion failures must follow the same
+  strict/non-strict and dictionary-ID propagation rules as other direct types.
 - Verify schema-change routing separately from physical decode. Integer, FLOAT-to-DOUBLE, decimal,
   and string-family changes should use the direct target-SerDe path. Other supported logical casts
   may use one persistent generic `ColumnTypeConverter` source column; its value/null-map sizes must
@@ -182,9 +186,10 @@ format-specific checklist when reviewing Parquet or ORC.
   must fit the file. Apply the PARQUET-816 tail padding only to affected parquet-mr versions, cap it
   at 100 bytes, and keep it inside the file. Scalar and levels-only COUNT readers share this helper.
 - Treat OffsetIndex as one optional, all-or-nothing navigation structure. Require first row zero,
-  strictly increasing row ordinals and physical offsets, positive sizes, non-overlapping page
-  ranges, and containment in the owning Column Chunk. Discard a malformed index before selecting
-  the indexed reader.
+  the first physical location to equal the owning ColumnMetaData `data_page_offset`, strictly
+  increasing row ordinals and physical offsets, positive sizes, non-overlapping page ranges, and
+  containment in the owning Column Chunk. Discard a malformed index before selecting the indexed
+  reader.
 - Page iteration skips `INDEX_PAGE` and unknown auxiliary pages before initializing a data decoder.
   Dictionary pages retain their special first-page handling; a later dictionary page is corrupt.
 - Derive writer workarounds once from `created_by` and pass them through scalar, nested, page-cache,

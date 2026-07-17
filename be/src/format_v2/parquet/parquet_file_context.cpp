@@ -691,8 +691,10 @@ Status ParquetFileContext::load_native_offset_indexes(
             RETURN_IF_ERROR(native::compute_column_chunk_range(
                     native_row_group.columns[leaf_column_id].meta_data, native_file->size(),
                     compat.parquet_816_padding, &chunk_range));
-            if (!native::validate_offset_index(native_index, chunk_range,
-                                               native_row_group.num_rows)) {
+            if (!native::validate_offset_index(
+                        native_index, chunk_range,
+                        native_row_group.columns[leaf_column_id].meta_data.data_page_offset,
+                        native_row_group.num_rows)) {
                 // OffsetIndex is optional. Reject the complete index instead of letting one bad
                 // location redirect an indexed reader outside its owning column chunk.
                 continue;

@@ -97,12 +97,15 @@ Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size
 }
 
 bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunkRange& chunk_range,
-                           int64_t row_count) {
-    if (index.page_locations.empty() || row_count < 0 ||
+                           int64_t data_page_offset, int64_t row_count) {
+    if (index.page_locations.empty() || data_page_offset < 0 || row_count < 0 ||
         index.page_locations.front().first_row_index != 0 ||
+        index.page_locations.front().offset != data_page_offset ||
         chunk_range.length > std::numeric_limits<size_t>::max() - chunk_range.offset) {
         return false;
     }
+    // Row indexes alone cannot detect a uniformly shifted OffsetIndex. Anchor its first location
+    // to the owning metadata so page-to-row mapping cannot silently move by one physical page.
     const uint64_t chunk_begin = chunk_range.offset;
     const uint64_t chunk_end = chunk_begin + chunk_range.length;
     uint64_t previous_end = chunk_begin;
