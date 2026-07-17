@@ -119,7 +119,7 @@ public class IvmPlanSignatureGenerator {
     }
 
     private boolean isIgnorableSinkHiddenProjection(NamedExpression expression) {
-        return Column.DELETE_SIGN.equals(expression.getName()) || Column.VERSION_COL.equals(expression.getName());
+        return IvmUtil.isCommonHiddenSlot(expression.getName());
     }
 
     private CanonicalNode canonicalAggregate(LogicalAggregate<?> agg) {

@@ -25,7 +25,10 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
@@ -33,9 +36,11 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -44,9 +49,26 @@ import java.util.Optional;
  * Column name constants are defined in {@link Column}.
  */
 public class IvmUtil {
+    // Hidden storage columns shared by every IVM, rather than IVM-layout columns such as row-id and agg state.
+    public static final Map<String, Literal> COMMON_HIDDEN_SLOTS = ImmutableMap.of(
+            Column.DELETE_SIGN, new TinyIntLiteral((byte) 0),
+            Column.VERSION_COL, new BigIntLiteral(0L),
+            Column.SEQUENCE_COL, new BigIntLiteral(0L));
 
     public static boolean isIvmHiddenColumn(String columnName) {
         return columnName != null && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX);
+    }
+
+    public static boolean isCommonHiddenSlot(String columnName) {
+        return COMMON_HIDDEN_SLOTS.containsKey(columnName);
+    }
+
+    public static Literal getCommonHiddenSlotDefault(String columnName) {
+        Literal defaultValue = COMMON_HIDDEN_SLOTS.get(columnName);
+        if (defaultValue == null) {
+            throw new AnalysisException("not an IVM common hidden slot: " + columnName);
+        }
+        return defaultValue;
     }
 
     /**

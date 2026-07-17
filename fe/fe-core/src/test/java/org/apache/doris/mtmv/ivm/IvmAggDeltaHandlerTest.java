@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -99,9 +100,16 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     private void assertSinkProjectMatchesSinkColumns(AggRewriteResult result) {
         Assertions.assertEquals(result.mtmv.getInsertedColumnNames(), result.sink.getColNames());
         List<String> expectedProjectOutputs = new ArrayList<>(result.mtmv.getInsertedColumnNames());
+        expectedProjectOutputs.add(Column.SEQUENCE_COL);
         expectedProjectOutputs.add(Column.DELETE_SIGN);
         Assertions.assertEquals(expectedProjectOutputs, result.finalProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toList()));
+        NamedExpression sequence = result.finalProject.getProjects().stream()
+                .filter(expression -> Column.SEQUENCE_COL.equals(expression.getName()))
+                .findFirst().orElseThrow();
+        Assertions.assertInstanceOf(Alias.class, sequence);
+        Assertions.assertInstanceOf(BigIntLiteral.class, ((Alias) sequence).child());
+        Assertions.assertEquals(0L, ((BigIntLiteral) ((Alias) sequence).child()).getValue());
     }
 
     private LogicalOlapScan buildMowScan(long tableId, String tableName, boolean delta) {
@@ -361,6 +369,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
         Assertions.assertEquals(result.mtmv.getInsertedColumnNames(), result.sink.getColNames());
         List<String> expectedProjectOutputs = new ArrayList<>(result.mtmv.getInsertedColumnNames());
+        expectedProjectOutputs.add(Column.SEQUENCE_COL);
         expectedProjectOutputs.add(Column.DELETE_SIGN);
         Assertions.assertEquals(expectedProjectOutputs, result.finalProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toList()));

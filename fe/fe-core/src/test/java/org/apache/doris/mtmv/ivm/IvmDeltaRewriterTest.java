@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -36,14 +37,11 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
@@ -53,10 +51,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 class IvmDeltaRewriterTest extends IvmDeltaTestBase {
@@ -243,11 +244,42 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         Assertions.assertInstanceOf(LogicalProject.class, rewritten);
         LogicalProject<?> finalProject = (LogicalProject<?>) rewritten;
-        Assertions.assertEquals(3, finalProject.getOutput().size());
+        Assertions.assertEquals(4, finalProject.getOutput().size());
         Assertions.assertEquals("id", finalProject.getOutput().get(0).getName());
         Assertions.assertEquals("name", finalProject.getOutput().get(1).getName());
-        Assertions.assertEquals(Column.DELETE_SIGN, finalProject.getOutput().get(2).getName());
+        Assertions.assertEquals(Column.SEQUENCE_COL, finalProject.getOutput().get(2).getName());
+        Assertions.assertEquals(Column.DELETE_SIGN, finalProject.getOutput().get(3).getName());
         Assertions.assertNotNull(finalProject.child());
+    }
+
+    @Test
+    void testGetSequencePrefixEncodesRefreshVersionAndDeltaIndex() throws Exception {
+        IvmDeltaRewriter rewriter = new IvmDeltaRewriter();
+
+        long prefix = invokeGetSequencePrefix(rewriter, 7L, 5);
+
+        Assertions.assertEquals((7L << 11) | (5L << 1), prefix);
+    }
+
+    @Test
+    void testGetSequencePrefixRejectsOutOfRangeDeltaIndex() throws Exception {
+        IvmDeltaRewriter rewriter = new IvmDeltaRewriter();
+
+        InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
+                () -> invokeSequencePrefixMethod().invoke(rewriter, 1L, 1024));
+        Assertions.assertInstanceOf(IllegalStateException.class, exception.getCause());
+        Assertions.assertTrue(exception.getCause().getMessage().contains("invalid IVM delta plan index"));
+    }
+
+    private long invokeGetSequencePrefix(IvmDeltaRewriter rewriter, long refreshVersion, int deltaPlanIndex)
+            throws Exception {
+        return (long) invokeSequencePrefixMethod().invoke(rewriter, refreshVersion, deltaPlanIndex);
+    }
+
+    private Method invokeSequencePrefixMethod() throws NoSuchMethodException {
+        Method method = IvmDeltaRewriter.class.getDeclaredMethod("getSequencePrefix", long.class, int.class);
+        method.setAccessible(true);
+        return method;
     }
 
     // ==================== generateDeltaPlans tests ====================
@@ -301,6 +333,8 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                 .generateMergedDeltaPlan(scan, rewriteContext(streams), NO_EXCLUSIONS, true);
 
         Assertions.assertNotNull(mergedPlan);
+        Assertions.assertTrue(mergedPlan.getOutput().stream()
+                .anyMatch(slot -> Column.SEQUENCE_COL.equals(slot.getName())));
         List<LogicalOlapScan> scans = collectScans(mergedPlan);
         Assertions.assertEquals(1, scans.size());
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans.get(0)));
@@ -590,53 +624,4 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(deltaScan));
     }
 
-    // Inner class to expose package-private applyBinlogOrderRewrite for testing
-    private static class TestableApplyBinlogOrderRewrite {
-        Plan exposeApplyBinlogOrderRewrite(Plan mergedPlan, IvmRefreshContext ctx) {
-            return new IvmDeltaRewriter().applyBinlogOrderRewrite(mergedPlan, ctx);
-        }
-    }
-
-    @Test
-    void testBinlogOrderRewriteProducesFojPlan() {
-        // Build a manually constructed plan with all required columns:
-        // id, name, row_id, dml_factor, baseOp (mimics visitor-rewritten delta plan)
-        OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
-        enableRowBinlog(table);
-        table.setQualifiedDbName("test_db");
-        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
-                ImmutableList.of("test_db"));
-        Slot idSlot = scan.getOutput().get(0);
-        Slot nameSlot = scan.getOutput().get(1);
-
-        Alias rowIdAlias = new Alias(idSlot, Column.IVM_ROW_ID_COL);
-        Alias dmlAlias = new Alias(new TinyIntLiteral((byte) 1), Column.IVM_DML_FACTOR_COL);
-        Alias baseOpAlias = new Alias(new TinyIntLiteral((byte) 1), Column.IVM_BASE_OP_COL);
-
-        LogicalProject<?> plan = new LogicalProject<>(
-                ImmutableList.of(idSlot, nameSlot, rowIdAlias, dmlAlias, baseOpAlias), scan);
-        IvmRefreshContext ctx = new IvmRefreshContext(mockMtmv(), new ConnectContext(), new IvmRewriteResult());
-
-        Plan fojPlan = new TestableApplyBinlogOrderRewrite().exposeApplyBinlogOrderRewrite(plan, ctx);
-
-        // Verify: CTE tree — LogicalCTEAnchor(Producer, IF Project(FOJ(...)))
-        Assertions.assertInstanceOf(LogicalCTEAnchor.class, fojPlan);
-        LogicalCTEAnchor<?, ?> anchor = (LogicalCTEAnchor<?, ?>) fojPlan;
-        Assertions.assertInstanceOf(LogicalCTEProducer.class, anchor.left());
-        Assertions.assertInstanceOf(LogicalProject.class, anchor.right());
-        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) ((LogicalProject<?>) anchor.right()).child();
-        Assertions.assertEquals(JoinType.FULL_OUTER_JOIN, join.getJoinType());
-
-        // Verify: FOJ branches are SubQueryAlias wrapping Filter wrapping CTE Consumer
-        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, join.left());
-        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, join.right());
-
-        // Verify: output has dmlFactor and baseOp (FOJ preserves them)
-        Assertions.assertTrue(fojPlan.getOutput().stream()
-                .anyMatch(s -> Column.IVM_DML_FACTOR_COL.equals(s.getName())),
-                "FOJ output should contain dmlFactor");
-        Assertions.assertTrue(fojPlan.getOutput().stream()
-                .anyMatch(s -> Column.IVM_BASE_OP_COL.equals(s.getName())),
-                "FOJ output should contain baseOp");
-    }
 }
