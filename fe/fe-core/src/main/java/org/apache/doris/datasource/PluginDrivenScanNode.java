@@ -285,7 +285,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return;
         }
         ConnectorMetadata metadata = connector.getMetadata(connectorSession);
-        ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
+        List<Expr> pushableConjuncts = filterPushableConjuncts(
+                metadata.supportsCastPredicatePushdown(connectorSession));
+        if (pushableConjuncts.isEmpty()) {
+            filteredToOriginalIndex = null;
+            return;
+        }
+        ConnectorFilterConstraint constraint = buildFilterConstraint(pushableConjuncts);
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(connectorSession, currentHandle, constraint);
         if (result.isPresent()) {
@@ -297,8 +303,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // - non-null means some/all predicates remain → keep conjuncts (conservative)
             ConnectorExpression remaining = filterResult.getRemainingFilter();
             if (remaining == null) {
-                conjuncts.clear();
-                LOG.debug("Filter fully pushed down for plugin-driven scan, cleared conjuncts");
+                if (filteredToOriginalIndex == null) {
+                    conjuncts.clear();
+                } else {
+                    Set<Integer> pushedIndices = new HashSet<>(filteredToOriginalIndex);
+                    List<Expr> remainingConjuncts = new ArrayList<>();
+                    for (int i = 0; i < conjuncts.size(); i++) {
+                        if (!pushedIndices.contains(i)) {
+                            remainingConjuncts.add(conjuncts.get(i));
+                        }
+                    }
+                    conjuncts.clear();
+                    conjuncts.addAll(remainingConjuncts);
+                }
+                LOG.debug("Filter fully pushed down for plugin-driven scan");
             } else {
                 // Partial or full remaining: keep all conjuncts for BE-side evaluation.
                 // Fine-grained conjunct removal (matching individual remaining sub-expressions
@@ -320,16 +338,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * The limit is still passed to planScan() as a parameter for
      * connectors that handle limit directly in planScan().</p>
      */
-    private void tryPushDownLimit() {
-        if (limit <= 0) {
+    private void tryPushDownLimit(long connectorLimit) {
+        if (connectorLimit <= 0) {
             return;
         }
         ConnectorMetadata metadata = connector.getMetadata(connectorSession);
         Optional<LimitApplicationResult<ConnectorTableHandle>> result =
-                metadata.applyLimit(connectorSession, currentHandle, limit);
+                metadata.applyLimit(connectorSession, currentHandle, connectorLimit);
         if (result.isPresent()) {
             currentHandle = result.get().getHandle();
-            LOG.debug("Limit {} pushed down via applyLimit for plugin-driven scan", limit);
+            LOG.debug("Limit {} pushed down via applyLimit for plugin-driven scan", connectorLimit);
         }
     }
 
@@ -354,8 +372,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        long connectorLimit = ExprToConnectorExpressionConverter.canPushDownLimit(conjuncts)
+                ? limit : -1;
         // Attempt limit and projection pushdown via SPI protocol
-        tryPushDownLimit();
+        tryPushDownLimit(connectorLimit);
 
         ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
         if (scanProvider == null) {
@@ -368,7 +388,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
 
         List<ConnectorScanRange> ranges = scanProvider.planScan(
-                connectorSession, currentHandle, columns, remainingFilter, limit);
+                connectorSession, currentHandle, columns, remainingFilter, connectorLimit);
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
@@ -583,28 +603,32 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             filteredToOriginalIndex = null;
             return Optional.empty();
         }
-        List<Expr> pushableConjuncts = conjuncts;
         ConnectorMetadata metadata = connector.getMetadata(connectorSession);
-        if (!metadata.supportsCastPredicatePushdown(connectorSession)) {
-            filteredToOriginalIndex = new ArrayList<>();
-            pushableConjuncts = new ArrayList<>();
-            for (int i = 0; i < conjuncts.size(); i++) {
-                if (!containsCastExpr(conjuncts.get(i))) {
-                    pushableConjuncts.add(conjuncts.get(i));
-                    filteredToOriginalIndex.add(i);
-                }
-            }
-            // If no filtering occurred, clear the mapping (1:1)
-            if (filteredToOriginalIndex.size() == conjuncts.size()) {
-                filteredToOriginalIndex = null;
-            }
-        } else {
-            filteredToOriginalIndex = null;
-        }
+        List<Expr> pushableConjuncts = filterPushableConjuncts(
+                metadata.supportsCastPredicatePushdown(connectorSession));
         if (pushableConjuncts.isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(ExprToConnectorExpressionConverter.convertConjuncts(pushableConjuncts));
+    }
+
+    private List<Expr> filterPushableConjuncts(boolean supportsCastPredicatePushdown) {
+        filteredToOriginalIndex = new ArrayList<>();
+        List<Expr> pushableConjuncts = new ArrayList<>();
+        for (int i = 0; i < conjuncts.size(); i++) {
+            Expr conjunct = conjuncts.get(i);
+            boolean losslessDecimalCast =
+                    ExprToConnectorExpressionConverter.containsLosslessDecimalCast(conjunct);
+            if (!losslessDecimalCast
+                    && (supportsCastPredicatePushdown || !containsCastExpr(conjunct))) {
+                pushableConjuncts.add(conjunct);
+                filteredToOriginalIndex.add(i);
+            }
+        }
+        if (filteredToOriginalIndex.size() == conjuncts.size()) {
+            filteredToOriginalIndex = null;
+        }
+        return pushableConjuncts;
     }
 
     private static boolean containsCastExpr(Expr expr) {

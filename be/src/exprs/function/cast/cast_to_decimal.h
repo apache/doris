@@ -102,16 +102,24 @@ struct CastToDecimal {
             }
 
             int64_t exponent_magnitude = 0;
+            bool exponent_overflow = false;
             while (pos < end) {
                 unsigned char ch = static_cast<unsigned char>(data[pos]);
                 if (!std::isdigit(ch)) {
                     return false;
                 }
-                if (exponent_magnitude > (std::numeric_limits<int64_t>::max() - (ch - '0')) / 10) {
-                    return first_non_zero == 0;
+                if (!exponent_overflow) {
+                    if (exponent_magnitude >
+                        (std::numeric_limits<int64_t>::max() - (ch - '0')) / 10) {
+                        exponent_overflow = true;
+                    } else {
+                        exponent_magnitude = exponent_magnitude * 10 + (ch - '0');
+                    }
                 }
-                exponent_magnitude = exponent_magnitude * 10 + (ch - '0');
                 ++pos;
+            }
+            if (exponent_overflow) {
+                return first_non_zero == 0;
             }
             exponent = negative_exponent ? -exponent_magnitude : exponent_magnitude;
         }
@@ -829,7 +837,8 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
             RETURN_IF_ERROR(
                     serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
             block.get_by_position(result).column = std::move(column_to);
-        } else if constexpr (Mode == CastModeType::LosslessMode) {
+        } else if constexpr (Mode == CastModeType::LosslessMode ||
+                             Mode == CastModeType::StrictLosslessMode) {
             auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             auto& nullable_to = *nullable_col_to;
             nullable_to.resize(col_from->size());
@@ -843,19 +852,30 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
             size_t current_offset = 0;
             UInt32 precision = decimal_to_type->get_precision();
             UInt32 scale = decimal_to_type->get_scale();
-            CastParameters params;
+            [[maybe_unused]] CastParameters params;
             params.is_strict = false;
             for (size_t i = 0; i < col_from->size(); ++i) {
                 size_t next_offset = offsets[i];
                 size_t string_size = next_offset - current_offset;
                 bool source_is_null = null_map != nullptr && null_map[i];
                 values_to[i] = {};
-                bool parsed =
-                        !source_is_null &&
-                        CastToDecimal::from_string_lossless(
-                                StringRef(reinterpret_cast<const char*>(&chars[current_offset]),
-                                          string_size),
-                                values_to[i], precision, scale, params);
+                StringRef source(reinterpret_cast<const char*>(&chars[current_offset]),
+                                 string_size);
+                bool parsed = false;
+                if constexpr (Mode == CastModeType::StrictLosslessMode) {
+                    if (!source_is_null &&
+                        CastToDecimal::parse_string(source, values_to[i], precision, scale) !=
+                                StringParser::PARSE_SUCCESS) {
+                        return Status::InvalidArgument("parse number fail, string: '{}'",
+                                                       std::string(source.data, source.size));
+                    }
+                    parsed = !source_is_null && CastToDecimal::is_lossless_decimal_string(
+                                                        source.data, source.size, precision, scale);
+                } else {
+                    parsed = !source_is_null &&
+                             CastToDecimal::from_string_lossless(source, values_to[i], precision,
+                                                                 scale, params);
+                }
                 null_map_to[i] = !parsed;
                 current_offset = next_offset;
             }

@@ -41,6 +41,8 @@ TEST(LosslessDecimalCastTest, StringMustBeExactlyRepresentable) {
     EXPECT_FALSE(lossless("100abc", 38, 0));
     EXPECT_FALSE(lossless("+.", 38, 0));
     EXPECT_FALSE(lossless("999999999999999999999999999999999999999", 38, 0));
+    EXPECT_TRUE(lossless("0e9223372036854775808", 38, 0));
+    EXPECT_FALSE(lossless("0e9223372036854775808x", 38, 0));
 }
 
 TEST(LosslessDecimalCastTest, ParseOnlyExactValues) {
@@ -55,6 +57,10 @@ TEST(LosslessDecimalCastTest, ParseOnlyExactValues) {
 
     EXPECT_FALSE(CastToDecimal::from_string_lossless(StringRef("100.4", 5), value, 38, 0, params));
     EXPECT_FALSE(CastToDecimal::from_string_lossless(StringRef("100abc", 6), value, 38, 0, params));
+    EXPECT_TRUE(CastToDecimal::from_string_lossless(StringRef("0e9223372036854775808", 21), value,
+                                                    38, 0, params));
+    EXPECT_FALSE(CastToDecimal::from_string_lossless(StringRef("0e9223372036854775808x", 22), value,
+                                                     38, 0, params));
 }
 
 TEST(LosslessDecimalCastTest, HandlesCancellingExponent) {

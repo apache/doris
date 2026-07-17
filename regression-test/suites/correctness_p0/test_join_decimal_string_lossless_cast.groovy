@@ -44,7 +44,8 @@ suite("test_join_decimal_string_lossless_cast") {
             (1, 100),
             (2, 9007199254740992),
             (3, 9007199254740993),
-            (4, 99999999999999999999999999999999999999)
+            (4, 99999999999999999999999999999999999999),
+            (5, 0)
     """
     sql """
         insert into test_join_decimal_string_value values
@@ -56,10 +57,12 @@ suite("test_join_decimal_string_lossless_cast") {
             ('9007199254740992'),
             ('9007199254740993'),
             ('99999999999999999999999999999999999999'),
-            ('999999999999999999999999999999999999999')
+            ('999999999999999999999999999999999999999'),
+            ('0e9223372036854775808'),
+            ('0e9223372036854775808x')
     """
 
-    sql """set enable_strict_cast = true"""
+    sql """set enable_strict_cast = false"""
 
     test {
         sql """
@@ -77,7 +80,29 @@ suite("test_join_decimal_string_lossless_cast") {
             from test_join_decimal_string_numeric n
             join test_join_decimal_string_value s on n.k = s.k
         """
-        result([[5L]])
+        result([[6L]])
+    }
+
+    sql """set enable_strict_cast = true"""
+
+    test {
+        sql """
+            select count(*)
+            from test_join_decimal_string_numeric n
+            join test_join_decimal_string_value s on n.k = s.k
+            where n.id = 1 and s.k = '100abc'
+        """
+        exception "parse number fail"
+    }
+
+    test {
+        sql """
+            select count(*)
+            from test_join_decimal_string_numeric n
+            join test_join_decimal_string_value s on n.k = s.k
+            where n.id = 4 and s.k = '999999999999999999999999999999999999999'
+        """
+        exception "parse number fail"
     }
 
     sql """set enable_strict_cast = ${originStrictCast[0][0]}"""
