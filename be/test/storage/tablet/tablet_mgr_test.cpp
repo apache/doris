@@ -549,8 +549,10 @@ TEST_F(TabletMgrTest, SweepShutdownTabletsFallsBackForInvalidConfigs) {
     reset_shutdown_tablets(tablets);
     tablets.clear();
 
-    ASSERT_TRUE(config::set_config("shutdown_tablet_sweep_round_budget", "0", false, false).ok());
-    ASSERT_TRUE(config::set_config("shutdown_tablet_sweep_interval_ms", "-1", false, false).ok());
+    // Inject invalid values directly so the test exercises the use-site fallback logic instead of
+    // depending on whether set_config() accepts invalid dynamic updates in the current runtime.
+    config::shutdown_tablet_sweep_round_budget = 0;
+    config::shutdown_tablet_sweep_interval_ms = -1;
     int move_attempts = 0;
     std::vector<int> wait_intervals;
     Status sweep_st = _tablet_mgr->_sweep_shutdown_tablets(
