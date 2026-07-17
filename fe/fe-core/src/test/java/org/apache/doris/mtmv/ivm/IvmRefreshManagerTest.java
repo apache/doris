@@ -74,7 +74,7 @@ public class IvmRefreshManagerTest {
 
         Assertions.assertInstanceOf(UnboundTableSink.class, command.getLogicalQuery());
         UnboundTableSink<?> sink = (UnboundTableSink<?>) command.getLogicalQuery();
-        Assertions.assertEquals(List.of("k1", Column.IVM_ROW_ID_COL), sink.getColNames());
+        Assertions.assertEquals(insertedColumns, sink.getColNames());
     }
 
     @Test

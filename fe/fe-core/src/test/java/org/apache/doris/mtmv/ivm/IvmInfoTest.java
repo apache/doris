@@ -17,43 +17,27 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.persist.gson.GsonUtils;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class IvmInfoTest {
-
+class IvmInfoTest {
     @Test
-    public void testCopyConstructor() {
+    void testRefreshVersionAdvancesAfterCommittedRefresh() {
         IvmInfo info = new IvmInfo();
-        info.setEnableIvm(true);
-        info.setBinlogBroken(true);
-        info.setPlanSignature("abc123");
 
-        IvmInfo copy = new IvmInfo(info);
-
-        Assertions.assertTrue(copy.isEnableIvm());
-        Assertions.assertTrue(copy.isBinlogBroken());
-        Assertions.assertEquals("abc123", copy.getPlanSignature());
+        Assertions.assertEquals(0, info.getRefreshVersion());
+        info.advanceRefreshVersion();
+        Assertions.assertEquals(1, info.getRefreshVersion());
     }
 
     @Test
-    public void testCopyConstructorDeepCopiesIndependent() {
+    void testRefreshVersionPersistsThroughGson() {
         IvmInfo info = new IvmInfo();
-        info.setPlanSignature("original");
+        info.advanceRefreshVersion();
 
-        IvmInfo copy = new IvmInfo(info);
-        copy.setPlanSignature("modified");
-
-        // Modifications to copy should not affect original
-        Assertions.assertEquals("original", info.getPlanSignature());
-        Assertions.assertEquals("modified", copy.getPlanSignature());
-    }
-
-    @Test
-    public void testDefaultValues() {
-        IvmInfo info = new IvmInfo();
-        Assertions.assertFalse(info.isEnableIvm());
-        Assertions.assertFalse(info.isBinlogBroken());
-        Assertions.assertNull(info.getPlanSignature());
+        IvmInfo recovered = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(info), IvmInfo.class);
+        Assertions.assertEquals(1, recovered.getRefreshVersion());
     }
 }
