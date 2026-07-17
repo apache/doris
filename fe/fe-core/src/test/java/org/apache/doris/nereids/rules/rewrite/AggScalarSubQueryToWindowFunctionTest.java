@@ -2542,6 +2542,167 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         }
     }
 
+    @Test
+    public void testSkipStorageEngineMergeRejected() throws Exception {
+        // skip_storage_engine_merge = true tells BE to skip merging
+        // multiple versions of the same key.  The scan may return
+        // duplicate key rows, so DataTrait must not advertise uniqueness
+        // even for tables that are otherwise unique (declared constraints,
+        // OLAP key metadata).  The WinMagic rewrite must be suppressed.
+        createTable("CREATE TABLE fact_sse (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_sse (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_sse add constraint uq_dim_sse_k unique (k)");
+
+        boolean saved = connectContext.getSessionVariable().skipStorageEngineMerge;
+        connectContext.getSessionVariable().skipStorageEngineMerge = true;
+        try {
+            String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                    + "FROM fact_sse f, dim_sse d "
+                    + "WHERE f.k = d.k "
+                    + "  AND f.v * 2 > ("
+                    + "    SELECT SUM(f2.v) "
+                    + "    FROM fact_sse f2 "
+                    + "    WHERE f2.k = d.k"
+                    + "  )";
+
+            Plan plan = PlanChecker.from(createCascadesContext(sql))
+                    .analyze(sql)
+                    .applyBottomUp(new PullUpProjectUnderApply())
+                    .applyTopDown(new PushDownFilterThroughProject())
+                    .customRewrite(new EliminateUnnecessaryProject())
+                    .customRewrite(new AggScalarSubQueryToWindowFunction())
+                    .getPlan();
+
+            Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                    "skipStorageEngineMerge exposes unmerged versions — "
+                    + "uniqueness is not guaranteed, rewrite must be rejected");
+        } finally {
+            connectContext.getSessionVariable().skipStorageEngineMerge = saved;
+        }
+    }
+
+    @Test
+    public void testSkipDeleteBitmapRejected() throws Exception {
+        // skip_delete_bitmap = true on a UNIQUE_KEYS table makes deleted
+        // (replaced) rows visible alongside their replacements.  Two rows
+        // with the same unique key coexist, so DataTrait must not
+        // advertise uniqueness.  The WinMagic rewrite must be suppressed.
+        createTable("CREATE TABLE fact_sdb (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // UNIQUE_KEYS table — the UNIQUE KEY model would normally make
+        // DataTrait advertise uniqueness on the key column k.
+        // Key columns must be declared first in the schema.
+        createTable("CREATE TABLE dim_sdb (\n"
+                + "  k INT NOT NULL,\n"
+                + "  did INT,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "UNIQUE KEY(k)\n"
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+
+        boolean saved = connectContext.getSessionVariable().skipDeleteBitmap;
+        connectContext.getSessionVariable().skipDeleteBitmap = true;
+        try {
+            String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                    + "FROM fact_sdb f, dim_sdb d "
+                    + "WHERE f.k = d.k "
+                    + "  AND f.v * 2 > ("
+                    + "    SELECT SUM(f2.v) "
+                    + "    FROM fact_sdb f2 "
+                    + "    WHERE f2.k = d.k"
+                    + "  )";
+
+            Plan plan = PlanChecker.from(createCascadesContext(sql))
+                    .analyze(sql)
+                    .applyBottomUp(new PullUpProjectUnderApply())
+                    .applyTopDown(new PushDownFilterThroughProject())
+                    .customRewrite(new EliminateUnnecessaryProject())
+                    .customRewrite(new AggScalarSubQueryToWindowFunction())
+                    .getPlan();
+
+            Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                    "skipDeleteBitmap exposes replaced rows with same key — "
+                    + "uniqueness is not guaranteed, rewrite must be rejected");
+        } finally {
+            connectContext.getSessionVariable().skipDeleteBitmap = saved;
+        }
+    }
+
+    @Test
+    public void testReadMorAsDupRejected() throws Exception {
+        // read_mor_as_dup_tables = '*' on a MOR table makes the scan read
+        // it as a DUPLICATE table, so the declared unique key cannot be
+        // trusted.  DataTrait must not advertise uniqueness and the
+        // WinMagic rewrite must be suppressed.
+        createTable("CREATE TABLE fact_rmd (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        // MOR table: UNIQUE_KEYS with enable_unique_key_merge_on_write = false.
+        // Key columns must be declared first in the schema.
+        createTable("CREATE TABLE dim_rmd (\n"
+                + "  k INT NOT NULL,\n"
+                + "  did INT,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "UNIQUE KEY(k)\n"
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', "
+                + "'enable_unique_key_merge_on_write' = 'false')");
+
+        String saved = connectContext.getSessionVariable().readMorAsDupTables;
+        connectContext.getSessionVariable().readMorAsDupTables = "*";
+        try {
+            String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                    + "FROM fact_rmd f, dim_rmd d "
+                    + "WHERE f.k = d.k "
+                    + "  AND f.v * 2 > ("
+                    + "    SELECT SUM(f2.v) "
+                    + "    FROM fact_rmd f2 "
+                    + "    WHERE f2.k = d.k"
+                    + "  )";
+
+            Plan plan = PlanChecker.from(createCascadesContext(sql))
+                    .analyze(sql)
+                    .applyBottomUp(new PullUpProjectUnderApply())
+                    .applyTopDown(new PushDownFilterThroughProject())
+                    .customRewrite(new EliminateUnnecessaryProject())
+                    .customRewrite(new AggScalarSubQueryToWindowFunction())
+                    .getPlan();
+
+            Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                    "readMorAsDup reads MOR table as DUPLICATE — "
+                    + "uniqueness is not guaranteed, rewrite must be rejected");
+        } finally {
+            connectContext.getSessionVariable().readMorAsDupTables = saved;
+        }
+    }
+
     private void check(String sql) {
         System.out.printf("Test:\n%s\n\n", sql);
         Plan plan = PlanChecker.from(createCascadesContext(sql))

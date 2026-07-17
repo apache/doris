@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -963,6 +964,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
+        // Duplicate-producing scan modes invalidate all uniqueness
+        // guarantees regardless of table metadata or declared constraints.
+        // When the BE returns unmerged versions or duplicate key rows, the
+        // WinMagic window-function rewrite (and any other rule relying on
+        // uniqueness) would produce wrong results.
+        if (isDuplicateProducingScanMode()) {
+            return;
+        }
         super.computeUnique(builder);
         if (this.selectedIndexId != getTable().getBaseIndexId()) {
             /*
@@ -1010,19 +1019,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             builder.addUniqueSlot(originalPlan.getLogicalProperties().getTrait());
             builder.replaceUniqueBy(constructReplaceMap(mtmv));
         } else if (getTable().getKeysType().isAggregationFamily() && !getTable().isRandomDistribution()) {
-            // When skipDeleteBitmap is set to true, in the unique model, rows that are replaced due to having the same
-            // unique key will also be read. As a result, the uniqueness of the unique key cannot be guaranteed.
-            if (ConnectContext.get().getSessionVariable().skipDeleteBitmap
-                    && getTable().getKeysType() == KeysType.UNIQUE_KEYS) {
-                return;
-            }
-            // When readMorAsDup is enabled, MOR tables are read as DUP, so uniqueness cannot be guaranteed.
-            if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
-                    && getTable().isMorTable()
-                    && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
-                        getTable().getQualifiedDbName(), getTable().getName())) {
-                return;
-            }
+            // skipDeleteBitmap / readMorAsDup / skipStorageEngineMerge are
+            // handled by isDuplicateProducingScanMode() at the top of this
+            // method, so uniqueness for those modes is already suppressed.
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
                 if (!(slot instanceof SlotReference)) {
@@ -1098,6 +1097,36 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             builder.addFuncDepsDG(originalPlan.getLogicalProperties().getTrait());
             builder.replaceFuncDepsBy(constructReplaceMap(mtmv));
         }
+    }
+
+    /**
+     * Whether the scan is configured with a session variable that makes
+     * the BE return potentially duplicate rows even for declared unique
+     * keys.  In these modes any uniqueness guarantee — whether from OLAP
+     * key metadata or from user-declared PRIMARY KEY / UNIQUE constraints
+     * — is unreliable.
+     */
+    private boolean isDuplicateProducingScanMode() {
+        SessionVariable sv = ConnectContext.get().getSessionVariable();
+        // skipStorageEngineMerge: BE returns unmerged versions — all
+        // table types may have duplicate key rows.
+        if (sv.skipStorageEngineMerge) {
+            return true;
+        }
+        // skipDeleteBitmap: on UNIQUE_KEYS tables, rows that were replaced
+        // due to the same key are also read, so the key duplicates.
+        if (sv.skipDeleteBitmap && getTable().getKeysType() == KeysType.UNIQUE_KEYS) {
+            return true;
+        }
+        // readMorAsDup: MOW tables are read as DUPLICATE — uniqueness
+        // of the declared key is not guaranteed.
+        if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
+                && getTable().isMorTable()
+                && sv.isReadMorAsDupEnabled(
+                    getTable().getQualifiedDbName(), getTable().getName())) {
+            return true;
+        }
+        return false;
     }
 
     @Override
