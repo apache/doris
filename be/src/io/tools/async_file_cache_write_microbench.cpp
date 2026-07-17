@@ -81,6 +81,7 @@ DEFINE_int32(producer_threads, 16, "Concurrent foreground readers or task produc
 DEFINE_int32(reader_workers, 16, "Async write workers used by the reader comparison");
 DEFINE_string(worker_counts, "1,4,16",
               "Comma-separated async write worker counts used by service scaling cases");
+DEFINE_uint64(repetitions, 5, "Measured repetitions of every selected benchmark case");
 DEFINE_uint64(backpressure_pending_tasks, 64,
               "Pending-task limit used by the saturated service case");
 DEFINE_uint64(queue_sample_interval_us, 50,
@@ -215,7 +216,8 @@ Status validate_flags(const std::vector<std::string>& modes,
     if (FLAGS_service_task_size == 0 || FLAGS_service_task_size > FLAGS_block_size ||
         FLAGS_service_key_count == 0 || FLAGS_index_operations_per_thread == 0 ||
         FLAGS_index_key_count == 0 || FLAGS_backpressure_pending_tasks == 0 ||
-        FLAGS_queue_sample_interval_us == 0 || FLAGS_timeout_seconds == 0) {
+        FLAGS_queue_sample_interval_us == 0 || FLAGS_timeout_seconds == 0 ||
+        FLAGS_repetitions == 0) {
         return Status::InvalidArgument(
                 "operation counts, timeouts, and 0 < service_task_size <= block_size are required");
     }
@@ -390,7 +392,7 @@ public:
             ExecEnv::GetInstance()->set_file_cache_factory(nullptr);
             _factory.reset();
         }
-        if (!FLAGS_keep_cache) {
+        if (_owns_cache_path && !FLAGS_keep_cache) {
             std::error_code error;
             std::filesystem::remove_all(FLAGS_cache_path, error);
         }
@@ -399,6 +401,55 @@ public:
     /// Configure globals, create the cache, and wait for its asynchronous metadata open.
     /// @param cache_capacity Bytes reserved for the benchmark's normal queue.
     Status initialize(size_t cache_capacity) {
+        std::error_code error;
+        const auto cache_path =
+                std::filesystem::absolute(FLAGS_cache_path, error).lexically_normal();
+        if (error) {
+            return Status::IOError("failed to resolve cache path {}: {}", FLAGS_cache_path,
+                                   error.message());
+        }
+        const auto current_path = std::filesystem::current_path(error);
+        if (error) {
+            return Status::IOError("failed to resolve current directory: {}", error.message());
+        }
+        if (cache_path == cache_path.root_path() || cache_path == current_path) {
+            return Status::InvalidArgument("cache path must be a dedicated subdirectory: {}",
+                                           cache_path.string());
+        }
+        const bool cache_path_exists = std::filesystem::exists(cache_path, error);
+        if (error) {
+            return Status::IOError("failed to inspect cache path {}: {}", cache_path.string(),
+                                   error.message());
+        }
+        if (cache_path_exists) {
+            const bool cache_path_is_directory = std::filesystem::is_directory(cache_path, error);
+            if (error) {
+                return Status::IOError("failed to inspect cache path {}: {}", cache_path.string(),
+                                       error.message());
+            }
+            if (!cache_path_is_directory) {
+                return Status::InvalidArgument("cache path is not a directory: {}",
+                                               cache_path.string());
+            }
+            const bool cache_path_is_empty = std::filesystem::is_empty(cache_path, error);
+            if (error) {
+                return Status::IOError("failed to inspect cache path {}: {}", cache_path.string(),
+                                       error.message());
+            }
+            if (!cache_path_is_empty) {
+                return Status::InvalidArgument(
+                        "cache path must not exist or must be an empty directory: {}",
+                        cache_path.string());
+            }
+        } else {
+            std::filesystem::create_directories(cache_path, error);
+            if (error) {
+                return Status::IOError("failed to create cache path {}: {}", cache_path.string(),
+                                       error.message());
+            }
+        }
+        _owns_cache_path = true;
+
         config::enable_async_file_cache_write = true;
         config::enable_async_file_cache_write_inflight_write_buffer_index = true;
         config::enable_read_cache_file_directly = false;
@@ -422,14 +473,6 @@ public:
         ExecEnv::GetInstance()->set_file_cache_open_fd_cache(std::make_unique<FDCache>());
         _factory = std::make_unique<FileCacheFactory>();
         ExecEnv::GetInstance()->set_file_cache_factory(_factory.get());
-
-        std::error_code error;
-        std::filesystem::remove_all(FLAGS_cache_path, error);
-        std::filesystem::create_directories(FLAGS_cache_path, error);
-        if (error) {
-            return Status::IOError("failed to create cache path {}: {}", FLAGS_cache_path,
-                                   error.message());
-        }
 
         FileCacheSettings settings;
         settings.capacity = cache_capacity;
@@ -492,6 +535,7 @@ public:
 private:
     std::unique_ptr<FileCacheFactory> _factory;
     BlockFileCache* _cache {nullptr};
+    bool _owns_cache_path {false};
 };
 
 /// Verify that a complete range can be resolved from the final cache state.
@@ -538,7 +582,8 @@ struct AsyncWriteResult {
 
 /// Print one machine-readable line without hiding the foreground/drain distinction.
 /// @param result Completed benchmark result.
-void print_async_write_result(const AsyncWriteResult& result) {
+/// @param repetition One-based repetition index.
+void print_async_write_result(const AsyncWriteResult& result, size_t repetition) {
     const double foreground_ops_per_sec =
             static_cast<double>(result.operations) / result.foreground_seconds;
     const double persisted_mib_per_sec =
@@ -548,9 +593,10 @@ void print_async_write_result(const AsyncWriteResult& result) {
                     : 0;
     std::cout << std::fixed << std::setprecision(3) << "RESULT"
               << " benchmark=" << result.benchmark << " variant=" << result.variant
-              << " producers=" << result.producers << " workers=" << result.workers
-              << " operations=" << result.operations << " accepted=" << result.accepted
-              << " rejected=" << result.rejected << " persisted=" << result.persisted
+              << " repetition=" << repetition << " producers=" << result.producers
+              << " workers=" << result.workers << " operations=" << result.operations
+              << " accepted=" << result.accepted << " rejected=" << result.rejected
+              << " persisted=" << result.persisted
               << " bytes_per_operation=" << result.bytes_per_operation
               << " foreground_seconds=" << result.foreground_seconds
               << " drain_seconds=" << result.drain_seconds
@@ -568,8 +614,9 @@ void print_async_write_result(const AsyncWriteResult& result) {
 /// @param environment Shared real cache, cleared before the case.
 /// @param mode Explicit write policy applied to every CachedRemoteFileReader.
 /// @param variant Stable output label.
-Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode,
-                       std::string variant) {
+/// @param repetition One-based repetition index included in output.
+Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode, std::string variant,
+                       size_t repetition) {
     DORIS_CHECK(environment != nullptr);
     RETURN_IF_ERROR(environment->clear_cache());
     RETURN_IF_ERROR(environment->configure_service(
@@ -684,7 +731,7 @@ Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode,
             .peak_inflight = sampler.peak_inflight(),
             .latency = summarize_latencies(latencies),
     };
-    print_async_write_result(result);
+    print_async_write_result(result, repetition);
     return Status::OK();
 }
 
@@ -700,8 +747,9 @@ struct ServiceTaskRecord {
 /// @param variant Stable output label.
 /// @param workers Active service consumers.
 /// @param max_pending Bounded pending-task limit.
+/// @param repetition One-based repetition index included in output.
 Status run_service_case(BenchmarkEnvironment* environment, std::string variant, size_t workers,
-                        size_t max_pending) {
+                        size_t max_pending, size_t repetition) {
     DORIS_CHECK(environment != nullptr);
     RETURN_IF_ERROR(environment->clear_cache());
     RETURN_IF_ERROR(environment->configure_service(workers, max_pending));
@@ -847,16 +895,18 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
             .peak_inflight = sampler.peak_inflight(),
             .latency = summarize_latencies(latencies),
     };
-    print_async_write_result(result);
+    print_async_write_result(result, repetition);
     return Status::OK();
 }
 
 /// Print one inflight-index result using the same latency field names as write cases.
-void print_index_result(std::string_view variant, size_t operations, double elapsed_seconds,
-                        const LatencySummary& latency) {
+/// @param repetition One-based repetition index.
+void print_index_result(std::string_view variant, size_t repetition, size_t operations,
+                        double elapsed_seconds, const LatencySummary& latency) {
     std::cout << std::fixed << std::setprecision(3) << "RESULT benchmark=index"
-              << " variant=" << variant << " producers=" << FLAGS_producer_threads
-              << " operations=" << operations << " elapsed_seconds=" << elapsed_seconds
+              << " variant=" << variant << " repetition=" << repetition
+              << " producers=" << FLAGS_producer_threads << " operations=" << operations
+              << " elapsed_seconds=" << elapsed_seconds
               << " operations_per_sec=" << static_cast<double>(operations) / elapsed_seconds
               << " avg_us=" << latency.average_us << " p50_us=" << latency.p50_us
               << " p95_us=" << latency.p95_us << " p99_us=" << latency.p99_us
@@ -867,10 +917,12 @@ void print_index_result(std::string_view variant, size_t operations, double elap
 /// @param variant Stable output label.
 /// @param key_count Number of distinct cache hashes used by the workload.
 /// @param populate Whether every lookup should hit a pre-populated entry.
-Status run_index_case(std::string variant, size_t key_count, bool populate) {
+/// @param repetition One-based repetition index included in output.
+Status run_index_case(std::string variant, size_t key_count, bool populate, size_t repetition) {
     const size_t producer_count = static_cast<size_t>(FLAGS_producer_threads);
     const size_t operations_per_thread = static_cast<size_t>(FLAGS_index_operations_per_thread);
-    InflightWriteBufferIndex index(64, FLAGS_cache_path + "_index_" + variant);
+    InflightWriteBufferIndex index(
+            64, FLAGS_cache_path + "_index_" + variant + "_" + std::to_string(repetition));
     std::vector<UInt128Wrapper> hashes;
     hashes.reserve(key_count);
     const uint64_t epoch = 1;
@@ -918,7 +970,7 @@ Status run_index_case(std::string variant, size_t key_count, bool populate) {
     }
 
     const size_t total_operations = producer_count * operations_per_thread;
-    print_index_result(variant, total_operations,
+    print_index_result(variant, repetition, total_operations,
                        std::chrono::duration<double>(end - start).count(),
                        summarize_latencies(latencies));
     return Status::OK();
@@ -939,26 +991,33 @@ Status run_benchmarks(const std::vector<std::string>& modes,
     RETURN_IF_ERROR(environment.initialize(cache_capacity));
     std::cout << "CONFIG cache_path=" << FLAGS_cache_path << " cache_capacity=" << cache_capacity
               << " block_size=" << FLAGS_block_size << " request_size=" << FLAGS_request_size
-              << " producer_threads=" << FLAGS_producer_threads << '\n';
+              << " producer_threads=" << FLAGS_producer_threads
+              << " repetitions=" << FLAGS_repetitions << '\n';
 
-    if (mode_enabled(modes, "reader")) {
-        RETURN_IF_ERROR(run_reader_case(&environment, CacheWriteMode::SYNC_WRITE, "sync_write"));
-        RETURN_IF_ERROR(run_reader_case(&environment, CacheWriteMode::ASYNC_WRITE, "async_write"));
-    }
-    if (mode_enabled(modes, "service")) {
-        for (size_t workers : worker_counts) {
-            RETURN_IF_ERROR(run_service_case(
-                    &environment, "drain_workers_" + std::to_string(workers), workers,
-                    static_cast<size_t>(FLAGS_service_operations + workers)));
+    for (size_t repetition = 1; repetition <= FLAGS_repetitions; ++repetition) {
+        if (mode_enabled(modes, "reader")) {
+            RETURN_IF_ERROR(run_reader_case(&environment, CacheWriteMode::SYNC_WRITE, "sync_write",
+                                            repetition));
+            RETURN_IF_ERROR(run_reader_case(&environment, CacheWriteMode::ASYNC_WRITE,
+                                            "async_write", repetition));
         }
-        RETURN_IF_ERROR(run_service_case(
-                &environment, "backpressure", worker_counts.back(),
-                std::min<size_t>(FLAGS_backpressure_pending_tasks, FLAGS_service_operations)));
-    }
-    if (mode_enabled(modes, "index")) {
-        RETURN_IF_ERROR(run_index_case("sharded_miss", FLAGS_index_key_count, false));
-        RETURN_IF_ERROR(run_index_case("sharded_hit", FLAGS_index_key_count, true));
-        RETURN_IF_ERROR(run_index_case("hot_key_hit", 1, true));
+        if (mode_enabled(modes, "service")) {
+            for (size_t workers : worker_counts) {
+                RETURN_IF_ERROR(run_service_case(
+                        &environment, "drain_workers_" + std::to_string(workers), workers,
+                        static_cast<size_t>(FLAGS_service_operations + workers), repetition));
+            }
+            RETURN_IF_ERROR(run_service_case(
+                    &environment, "backpressure", worker_counts.back(),
+                    std::min<size_t>(FLAGS_backpressure_pending_tasks, FLAGS_service_operations),
+                    repetition));
+        }
+        if (mode_enabled(modes, "index")) {
+            RETURN_IF_ERROR(
+                    run_index_case("sharded_miss", FLAGS_index_key_count, false, repetition));
+            RETURN_IF_ERROR(run_index_case("sharded_hit", FLAGS_index_key_count, true, repetition));
+            RETURN_IF_ERROR(run_index_case("hot_key_hit", 1, true, repetition));
+        }
     }
     return Status::OK();
 }
@@ -969,6 +1028,8 @@ Status run_benchmarks(const std::vector<std::string>& modes,
 int main(int argc, char** argv) {
     google::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_logtostderr = true;
+    // Keep RESULT lines parseable when the documented runner merges stdout and stderr.
+    FLAGS_minloglevel = google::GLOG_ERROR;
     google::InitGoogleLogging(argv[0]);
 
     // Doris configuration defaults contain ${DORIS_HOME}; a standalone benchmark has no launcher
