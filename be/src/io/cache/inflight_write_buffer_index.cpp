@@ -20,8 +20,44 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "util/time.h"
 
 namespace doris::io {
+
+namespace {
+
+/// Acquire one index shard while recording both contention and critical-section duration.
+class TimedShardLock {
+public:
+    TimedShardLock(std::mutex& mutex, bvar::LatencyRecorder* wait_latency,
+                   bvar::LatencyRecorder* hold_latency)
+            : _lock(mutex, std::defer_lock),
+              _wait_latency(wait_latency),
+              _hold_latency(hold_latency) {
+        DORIS_CHECK(wait_latency != nullptr);
+        DORIS_CHECK(_hold_latency != nullptr);
+        const int64_t wait_start_us = MonotonicMicros();
+        _lock.lock();
+        _acquired_at_us = MonotonicMicros();
+        _wait_us = _acquired_at_us - wait_start_us;
+    }
+
+    ~TimedShardLock() {
+        const int64_t hold_us = MonotonicMicros() - _acquired_at_us;
+        _lock.unlock();
+        *_wait_latency << _wait_us;
+        *_hold_latency << hold_us;
+    }
+
+private:
+    std::unique_lock<std::mutex> _lock;
+    bvar::LatencyRecorder* _wait_latency;
+    bvar::LatencyRecorder* _hold_latency;
+    int64_t _acquired_at_us {0};
+    int64_t _wait_us {0};
+};
+
+} // namespace
 
 InflightWriteBufferIndex::InflightWriteBufferIndex(size_t shard_count, std::string metric_prefix) {
     DORIS_CHECK(shard_count > 0);
@@ -34,12 +70,6 @@ InflightWriteBufferIndex::InflightWriteBufferIndex(size_t shard_count, std::stri
     _size_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
             prefix, "inflight_write_buffer_index_size",
             [](void* index) { return static_cast<InflightWriteBufferIndex*>(index)->size(); },
-            this);
-    _memory_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "inflight_write_buffer_index_memory_bytes",
-            [](void* index) {
-                return static_cast<InflightWriteBufferIndex*>(index)->memory_usage();
-            },
             this);
     _lookup_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "inflight_write_buffer_index_lookup_total");
@@ -61,6 +91,10 @@ InflightWriteBufferIndex::InflightWriteBufferIndex(size_t shard_count, std::stri
             prefix, "inflight_write_buffer_index_stale_epoch_replace_total");
     _rollback_on_backpressure_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "inflight_write_buffer_index_rollback_on_backpressure_total");
+    _lock_wait_latency_metric = std::make_shared<bvar::LatencyRecorder>(
+            prefix, "inflight_write_buffer_index_lock_wait_latency_us");
+    _lock_hold_latency_metric = std::make_shared<bvar::LatencyRecorder>(
+            prefix, "inflight_write_buffer_index_lock_hold_latency_us");
 }
 
 std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_absent(
@@ -71,7 +105,8 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_ab
     auto& shard = *_shards[_shard_index(key)];
     bool inserted = false;
     {
-        std::lock_guard lock(shard.mutex);
+        TimedShardLock lock(shard.mutex, _lock_wait_latency_metric.get(),
+                            _lock_hold_latency_metric.get());
         auto iterator = shard.entries.find(key);
         if (iterator == shard.entries.end()) {
             shard.entries.emplace(key, std::move(entry));
@@ -99,7 +134,8 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::lookup(
     Key key {.cache_hash = cache_hash, .block_offset = block_offset};
     auto& shard = *_shards[_shard_index(key)];
     {
-        std::lock_guard lock(shard.mutex);
+        TimedShardLock lock(shard.mutex, _lock_wait_latency_metric.get(),
+                            _lock_hold_latency_metric.get());
         auto iterator = shard.entries.find(key);
         if (iterator == shard.entries.end()) {
             *_miss_metric << 1;
@@ -142,7 +178,8 @@ bool InflightWriteBufferIndex::remove_if(
     auto& shard = *_shards[_shard_index(key)];
     bool removed = false;
     {
-        std::lock_guard lock(shard.mutex);
+        TimedShardLock lock(shard.mutex, _lock_wait_latency_metric.get(),
+                            _lock_hold_latency_metric.get());
         auto iterator = shard.entries.find(key);
         if (iterator != shard.entries.end() && iterator->second == expected) {
             shard.entries.erase(iterator);
@@ -157,27 +194,6 @@ bool InflightWriteBufferIndex::remove_if(
     }
     *_remove_failed_metric << 1;
     return false;
-}
-
-void InflightWriteBufferIndex::for_each_entry(
-        const std::function<void(const InflightWriteBufferEntry&)>& visitor) const {
-    std::vector<std::shared_ptr<InflightWriteBufferEntry>> entries;
-    entries.reserve(size());
-    for (const auto& shard : _shards) {
-        std::lock_guard lock(shard->mutex);
-        for (const auto& [_, entry] : shard->entries) {
-            entries.emplace_back(entry);
-        }
-    }
-    for (const auto& entry : entries) {
-        visitor(*entry);
-    }
-}
-
-size_t InflightWriteBufferIndex::memory_usage() const {
-    constexpr size_t entry_overhead = sizeof(Key) + sizeof(InflightWriteBufferEntry) +
-                                      sizeof(std::shared_ptr<InflightWriteBufferEntry>) + 32;
-    return size() * entry_overhead;
 }
 
 } // namespace doris::io

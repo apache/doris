@@ -94,21 +94,6 @@ struct AsyncCacheWriteServiceOptions {
     int64_t watchdog_drop_secs {120};
 };
 
-/// Snapshot of service counters used by tests and cache-stat reporting.
-struct AsyncCacheWriteServiceStats {
-    size_t pending_count {0};
-    uint64_t submitted {0};
-    uint64_t rejected {0};
-    uint64_t buffer_alloc_fail {0};
-    uint64_t skip_downloaded {0};
-    uint64_t skip_downloading {0};
-    uint64_t skip_partial_overlap {0};
-    uint64_t drop_stale_epoch {0};
-    uint64_t skip_deleting {0};
-    uint64_t append_fail {0};
-    uint64_t watchdog_timeout {0};
-};
-
 /// Owns the bounded async-write queue and workers for one BlockFileCache (one cache disk).
 ///
 /// The referenced cache must outlive this service. Shutdown stops new producers, waits registered
@@ -161,11 +146,19 @@ public:
     /// Stop submissions, drain all accepted tasks, and join worker loops. Idempotent.
     void shutdown();
 
-    /// Return a point-in-time counter snapshot.
-    AsyncCacheWriteServiceStats stats() const;
-
     /// Return accepted tasks that have not yet completed finalization.
     size_t pending_count() const { return _pending_count.load(std::memory_order_relaxed); }
+
+    /// Return accepted tasks still waiting in the MPMC queue, excluding active workers.
+    size_t queued_count() const { return _queued_count.load(std::memory_order_relaxed); }
+
+    /// Return tasks currently owned by workers, including watchdog and write processing.
+    size_t active_task_count() const { return _active_task_count.load(std::memory_order_relaxed); }
+
+    /// Return worker loops that are currently alive.
+    size_t running_worker_count() const {
+        return _running_worker_count.load(std::memory_order_relaxed);
+    }
 
     /// Return bytes currently held by tracked task buffers.
     int64_t buffer_memory_bytes() const { return _mem_tracker->consumption(); }
@@ -187,6 +180,12 @@ private:
     atomic_shared_ptr<const AsyncCacheWriteServiceOptions> _options;
     moodycamel::ConcurrentQueue<AsyncCacheWriteTask> _queue;
     std::atomic<size_t> _pending_count {0};
+    std::atomic<size_t> _queued_count {0};
+    std::atomic<size_t> _active_task_count {0};
+    std::atomic<size_t> _running_worker_count {0};
+    std::atomic<size_t> _active_get_or_set_count {0};
+    std::atomic<size_t> _active_append_count {0};
+    std::atomic<size_t> _active_finalize_count {0};
     std::condition_variable _cv;
     std::mutex _cv_mutex;
     std::atomic<bool> _accepting {true};
@@ -204,18 +203,41 @@ private:
     std::vector<bool> _worker_scheduled;
 
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _queued_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_task_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _running_worker_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _configured_worker_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _max_pending_tasks_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_get_or_set_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_append_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_finalize_count_metric;
     std::shared_ptr<bvar::PassiveStatus<int64_t>> _buffer_memory_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _submitted_bytes_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _finished_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _rejected_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _reject_not_running_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _reject_backpressure_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _reject_enqueue_failure_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _buffer_alloc_fail_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _submit_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _buffer_alloc_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _queue_wait_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _worker_task_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _append_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _finalize_latency_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _skip_downloaded_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _skip_downloading_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _skip_partial_overlap_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _drop_stale_epoch_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _skip_deleting_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _append_fail_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _watchdog_timeout_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _finalize_fail_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _persisted_blocks_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _persisted_bytes_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _watchdog_warn_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _watchdog_drop_metric;
 };
 
 } // namespace doris::io

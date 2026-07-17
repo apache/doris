@@ -385,6 +385,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_cache_lock_wait_time_us");
     _get_or_set_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_get_or_set_latency_us");
+    _probe_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
+                                                                "file_cache_probe_latency_us");
     _storage_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_storage_sync_remove_latency_us");
     _storage_retry_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
@@ -850,7 +852,8 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
     DORIS_CHECK(_max_file_block_size > 0);
     const size_t end = offset + size;
     DORIS_CHECK(end > offset);
-    std::lock_guard cache_lock(_mutex);
+    const int64_t probe_start_us = MonotonicMicros();
+    SCOPED_CACHE_LOCK(_mutex, this);
 
     auto file_iterator = _files.find(hash);
     if (file_iterator == _files.end() && !_async_open_done) {
@@ -891,6 +894,7 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
         result.emplace_back(std::move(file_block));
         block_offset += block_size;
     }
+    *_probe_latency_us << (MonotonicMicros() - probe_start_us);
     return FileBlocksProbeResult(std::move(result));
 }
 
@@ -899,7 +903,7 @@ void BlockFileCache::touch_probe_block_if_cached(const FileBlockSPtr& block,
     DORIS_CHECK(block != nullptr);
     FileBlockSPtr async_touch;
     {
-        std::lock_guard cache_lock(_mutex);
+        SCOPED_CACHE_LOCK(_mutex, this);
         auto file_iterator = _files.find(block->get_hash_value());
         if (file_iterator == _files.end()) {
             return;
@@ -933,7 +937,7 @@ void BlockFileCache::touch_probe_block_if_cached(const FileBlockSPtr& block,
 
 bool BlockFileCache::is_block_deleting(const FileBlockSPtr& block) const {
     DORIS_CHECK(block != nullptr);
-    std::lock_guard cache_lock(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     auto file_iterator = _files.find(block->get_hash_value());
     if (file_iterator == _files.end()) {
         return true;
@@ -1151,7 +1155,7 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     int64_t duration = 0;
     {
         ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
-        std::lock_guard cache_lock(_mutex);
+        SCOPED_CACHE_LOCK(_mutex, this);
         ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
         stats->lock_wait_timer += sw.elapsed_time();
         SCOPED_RAW_TIMER(&duration);
