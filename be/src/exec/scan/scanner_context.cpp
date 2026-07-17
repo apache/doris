@@ -451,11 +451,20 @@ void ScannerContext::update_peak_running_scanner(int num) {
 
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
-    int32_t margin = _max_scan_concurrency - _num_scheduled_scanners;
+    // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
+    int32_t margin_1 = _min_scan_concurrency -
+                       (cast_set<int32_t>(_tasks_queue.size()) + _num_scheduled_scanners);
 
-    if (margin <= 0) {
+    // margin_2 is used to ensure the scan scheduler could have at least _min_scan_concurrency_of_scan_scheduler scan tasks.
+    int32_t margin_2 =
+            _min_scan_concurrency_of_scan_scheduler -
+            (_scanner_scheduler->get_active_threads() + _scanner_scheduler->get_queue_size());
+
+    if (margin_1 <= 0 && margin_2 <= 0) {
         return 0;
     }
+
+    int32_t margin = std::max(margin_1, margin_2);
 
     if (low_memory_mode()) {
         // In low memory mode, we will limit the number of running scanners to `low_memory_mode_scanners()`.
@@ -463,9 +472,12 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
         margin = std::min(low_memory_mode_scanners() - _num_scheduled_scanners, margin);
     }
 
-    VLOG_DEBUG << fmt::format("[{}|{}] schedule scan task, margin: {} = {} - {}",
-                              print_id(_query_id), ctx_id, margin, _max_scan_concurrency,
-                              _num_scheduled_scanners);
+    VLOG_DEBUG << fmt::format(
+            "[{}|{}] schedule scan task, margin_1: {} = {} - ({} + {}), margin_2: {} = {} - "
+            "({} + {}), margin: {}",
+            print_id(_query_id), ctx_id, margin_1, _min_scan_concurrency, _tasks_queue.size(),
+            _num_scheduled_scanners, margin_2, _min_scan_concurrency_of_scan_scheduler,
+            _scanner_scheduler->get_active_threads(), _scanner_scheduler->get_queue_size(), margin);
 
     return margin;
 }
@@ -514,8 +526,8 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
 
     while (margin-- > 0) {
         std::shared_ptr<ScanTask> task_to_run;
-        const auto current_concurrency =
-                cast_set<int32_t>(_num_scheduled_scanners + tasks_to_submit.size());
+        const int32_t current_concurrency = cast_set<int32_t>(
+                _tasks_queue.size() + _num_scheduled_scanners + tasks_to_submit.size());
         VLOG_DEBUG << fmt::format("{} currenct concurrency: {} = {} + {} + {}", ctx_id,
                                   current_concurrency, _tasks_queue.size(), _num_scheduled_scanners,
                                   tasks_to_submit.size());
