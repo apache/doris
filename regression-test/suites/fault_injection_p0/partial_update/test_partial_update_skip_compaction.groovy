@@ -52,6 +52,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
     Assert.assertNotNull("SHOW PARTITIONS must return PartitionId", partitionIdText)
     Assert.assertTrue("PartitionId must be numeric", partitionIdText ==~ /[0-9]+/)
     def partitionId = Long.parseLong(partitionIdText)
+    def publishToken = "test_partial_update_skip_compaction"
     def tabletBackend;
     for (def be : beNodes) {
         if (be.BackendId == tabletBackendId) {
@@ -97,10 +98,12 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
     def enable_publish_spin_wait = {
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait",
+                    [token: "${publishToken}"])
         } else {
             DebugPoint.enableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
-                    "EnginePublishVersionTask::execute.enable_spin_wait", [partition_id: "${partitionId}"])
+                    "EnginePublishVersionTask::execute.enable_spin_wait",
+                    [partition_id: "${partitionId}", token: "${publishToken}"])
         }
     }
 
@@ -113,12 +116,13 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         }
     }
 
-    def enable_block_in_publish = {
+    def enable_block_in_publish = { passToken ->
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block",
+                    [pass_token: "${passToken}"])
         } else {
             DebugPoint.enableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
-                    "EnginePublishVersionTask::execute.block")
+                    "EnginePublishVersionTask::execute.block", [pass_token: "${passToken}"])
         }
     }
 
@@ -137,7 +141,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
         // block the partial update in publish phase
         enable_publish_spin_wait()
-        enable_block_in_publish()
+        enable_block_in_publish("blocked")
         def t1 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "sync;"
@@ -176,9 +180,10 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         })
 
         // let the partial update load publish
-        disable_block_in_publish()
+        enable_block_in_publish(publishToken)
         t1.join()
         disable_publish_spin_wait()
+        disable_block_in_publish()
 
         Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
             {
