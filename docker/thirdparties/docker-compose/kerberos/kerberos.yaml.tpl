@@ -26,11 +26,6 @@ x-kerberos-service: &kerberos-service
   network_mode: "host"
   mem_limit: 1536m
   stop_grace_period: 30s
-  healthcheck:
-    test: ["CMD", "/opt/doris/health.sh"]
-    interval: 5s
-    timeout: 15s
-    retries: 120
 
 services:
   hive-krb1:

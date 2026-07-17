@@ -78,12 +78,18 @@ create_keytab() {
     kadmin.local -r "${REALM}" -q "ktadd -k ${keytab} ${principal}"
 }
 
+report_stage() {
+    echo "DORIS_KERBEROS_STAGE=$1"
+}
+
+report_stage "prepare-data"
 mkdir -p /data/hdfs/data /data/hdfs/name /data/kdc /data/keytabs /data/metastore /keytabs
 rm -rf /tmp/hadoop-server-conf
 cp -R "${HADOOP_CONF_DIR}" /tmp/hadoop-server-conf
 sed -i "s#hdfs://${HOST}:${FS_PORT}#hdfs://127.0.0.1:${FS_PORT}#" \
     /tmp/hadoop-server-conf/core-site.xml
 
+report_stage "initialize-kdc"
 kdb5_util create -s -r "${REALM}" -P doris-kerberos-test
 create_keytab "${HDFS_PRINCIPAL}" /data/keytabs/hdfs.keytab
 create_keytab "${HTTP_PRINCIPAL}" /data/keytabs/spnego.keytab
@@ -92,17 +98,22 @@ create_keytab "${HIVE_CLIENT_PRINCIPAL}" "/keytabs/${HIVE_CLIENT_KEYTAB}"
 create_keytab "${PRESTO_CLIENT_PRINCIPAL}" "/keytabs/${PRESTO_CLIENT_KEYTAB}"
 chmod 644 /keytabs/*.keytab
 
+report_stage "start-kdc"
 start_service krb5kdc -n -r "${REALM}"
 wait_for_port 127.0.0.1 "${KDC_PORT}" "Kerberos KDC"
 
+report_stage "start-namenode"
 export HDFS_NAMENODE_OPTS="-Xms128m -Xmx256m"
 export HDFS_DATANODE_OPTS="-Xms96m -Xmx192m"
 hdfs namenode -format -force -nonInteractive
 start_service hdfs namenode
 wait_for_port "${HOST}" "${FS_PORT}" "HDFS NameNode"
+
+report_stage "start-datanode"
 start_service env HADOOP_CONF_DIR=/tmp/hadoop-server-conf hdfs datanode
 wait_for_port "${HOST}" "${DFS_DN_PORT}" "HDFS DataNode"
 
+report_stage "wait-for-datanode-registration"
 export KRB5CCNAME=FILE:/tmp/hdfs-admin.ccache
 kinit -kt /data/keytabs/hdfs.keytab "${HDFS_PRINCIPAL}"
 for _ in {1..120}; do
@@ -116,11 +127,13 @@ hdfs dfsadmin -Dfs.defaultFS="hdfs://127.0.0.1:${FS_PORT}" -report \
     | grep -q '^Live datanodes (1):'
 kdestroy
 
+report_stage "initialize-hive-metastore"
 schematool -dbType derby -initSchema
 start_service hive --service metastore -p "${HMS_PORT}"
 wait_for_port "${HOST}" "${HMS_PORT}" "Hive Metastore"
 
 touch /tmp/SUCCESS
 echo "Minimal Kerberos HDFS and Hive Metastore environment is ready"
+echo "DORIS_KERBEROS_READY"
 
 wait -n "${SERVICE_PIDS[@]}"

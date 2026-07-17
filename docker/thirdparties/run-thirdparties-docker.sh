@@ -1472,9 +1472,69 @@ start_lakesoul() {
     fi
 }
 
+dump_kerberos_container_state() {
+    local container="$1"
+
+    echo "===== ${container} state =====" >&2
+    sudo docker inspect --format \
+        'status={{.State.Status}} running={{.State.Running}} exitCode={{.State.ExitCode}} oomKilled={{.State.OOMKilled}} error={{.State.Error}}' \
+        "${container}" >&2 || true
+    echo "===== ${container} logs (tail -200) =====" >&2
+    sudo docker logs --tail 200 "${container}" >&2 || true
+}
+
+wait_for_kerberos_ready() {
+    local container="$1"
+
+    echo "Waiting for ${container} readiness event"
+    if ! timeout --signal=TERM --kill-after=5s 20m bash -c '
+        log_dir=$(mktemp -d)
+        mkfifo "${log_dir}/container.log"
+        sudo docker logs --follow "$1" >"${log_dir}/container.log" 2>&1 &
+        log_pid=$!
+        cleanup() {
+            kill "${log_pid}" 2>/dev/null || true
+            wait "${log_pid}" 2>/dev/null || true
+            rm -rf "${log_dir}"
+        }
+        trap cleanup EXIT
+        while IFS= read -r line; do
+            if [[ "${line}" == "DORIS_KERBEROS_READY" ]]; then
+                echo "${line}"
+                exit 0
+            fi
+        done <"${log_dir}/container.log"
+        exit 1
+    ' _ "${container}"; then
+        echo "ERROR: timed out or container exited before ${container} became ready" >&2
+        dump_kerberos_container_state "${container}"
+        return 1
+    fi
+}
+
+validate_kerberos_container() {
+    local container="$1"
+
+    echo "Running one-shot readiness validation for ${container}"
+    if ! sudo docker exec "${container}" /opt/doris/health.sh; then
+        echo "ERROR: one-shot readiness validation failed for ${container}" >&2
+        dump_kerberos_container_state "${container}"
+        return 1
+    fi
+}
+
 start_kerberos() {
     echo "RUN_KERBEROS"
     local KERBEROS_DIR="${ROOT}/docker-compose/kerberos"
+    local -a containers=(
+        "doris-${CONTAINER_UID}-kerberos1"
+        "doris-${CONTAINER_UID}-kerberos2"
+    )
+    local -a readiness_pids=()
+    local readiness_status=0
+    local container
+    local pid
+
     export CONTAINER_UID=${CONTAINER_UID}
     envsubst <"${KERBEROS_DIR}/kerberos.yaml.tpl" >"${KERBEROS_DIR}/kerberos.yaml"
     mkdir -p "${KERBEROS_DIR}/conf/kerberos1" "${KERBEROS_DIR}/conf/kerberos2" \
@@ -1501,7 +1561,22 @@ start_kerberos() {
         rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.keytab
         rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.jks
         rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.conf
-        compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" up --build --remove-orphans --wait -d
+        compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" up --build --remove-orphans -d
+        for container in "${containers[@]}"; do
+            wait_for_kerberos_ready "${container}" &
+            readiness_pids+=("$!")
+        done
+        for pid in "${readiness_pids[@]}"; do
+            if ! wait "${pid}"; then
+                readiness_status=1
+            fi
+        done
+        if [[ "${readiness_status}" -ne 0 ]]; then
+            return 1
+        fi
+        for container in "${containers[@]}"; do
+            validate_kerberos_container "${container}"
+        done
         sudo ln -sfn "${KERBEROS_DIR}/two-kerberos-hives" /keytabs
         sudo cp "${KERBEROS_DIR}/common/conf/doris-krb5.conf" /keytabs/krb5.conf
         sudo cp "${KERBEROS_DIR}/common/conf/doris-krb5.conf" /etc/krb5.conf
