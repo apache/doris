@@ -23,9 +23,11 @@ import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -43,6 +45,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExternalDatabaseTest extends TestWithFeService {
@@ -272,6 +280,12 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testColdTableNameEventsFenceInFlightLoads() throws Exception {
+        assertColdTableNameEventFencesInFlightLoad(true);
+        assertColdTableNameEventFencesInFlightLoad(false);
+    }
+
+    @Test
     public void testSystemDatabasesUseBuiltInTableNames() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase infoSchemaDb = new InspectableDatabase(
@@ -452,6 +466,87 @@ public class ExternalDatabaseTest extends TestWithFeService {
         }
     }
 
+    private void assertColdTableNameEventFencesInFlightLoad(boolean createEvent) throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService eventExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            AtomicInteger loadCount = new AtomicInteger();
+            CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 250L, "db_ci", "db_ci");
+            db.setInitializedForTest(true);
+            TestExternalTable eventTable = new TestExternalTable(251L, "Foo", "Foo", catalog, db);
+            if (!createEvent) {
+                db.registerTable(eventTable);
+            }
+
+            NameCacheValue staleSnapshot = createEvent ? namesSnapshot("Bar") : namesSnapshot("Foo");
+            NameCacheValue currentSnapshot = createEvent
+                    ? namesSnapshot("Bar", "Foo") : NameCacheValue.empty();
+            MetaCacheEntry<String, NameCacheValue> namesEntry = new MetaCacheEntry<>(
+                    "table_names_event_test",
+                    ignored -> {
+                        if (loadCount.incrementAndGet() == 1) {
+                            loaderStarted.countDown();
+                            awaitLatch(releaseLoader);
+                            return staleSnapshot;
+                        }
+                        return currentSnapshot;
+                    },
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1L),
+                    refreshExecutor,
+                    false,
+                    MetaCacheEntry.singleKeyStripeCount());
+            setTableNamesEntryForTest(db, namesEntry);
+
+            Future<Set<String>> staleLoad = queryExecutor.submit(db::getTableNamesWithLock);
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            Future<?> event = eventExecutor.submit(() -> {
+                if (createEvent) {
+                    db.registerTable(eventTable);
+                } else {
+                    db.unregisterTable("foo");
+                }
+            });
+
+            // Incremental events must not wait for the slow names loader and must not materialize a cold snapshot.
+            event.get(3L, TimeUnit.SECONDS);
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertEquals(createEvent ? "Foo" : null,
+                    db.getCachedTableNameByIdForTest(eventTable.getId()));
+            releaseLoader.countDown();
+
+            Assertions.assertEquals(new HashSet<>(staleSnapshot.localNames()), staleLoad.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertEquals(new HashSet<>(currentSnapshot.localNames()), db.getTableNamesWithLock());
+            Assertions.assertEquals(2, loadCount.get());
+        } finally {
+            releaseLoader.countDown();
+            eventExecutor.shutdownNow();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    private static NameCacheValue namesSnapshot(String... names) {
+        List<Pair<String, String>> pairs = Lists.newArrayList();
+        for (String name : names) {
+            pairs.add(Pair.of(name, name));
+        }
+        return NameCacheValue.of(pairs);
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
     private MetaCacheEntry<String, TestExternalTable> extractTablesEntry(InspectableDatabase db) throws Exception {
         Field tablesField = ExternalDatabase.class.getDeclaredField("tables");
         tablesField.setAccessible(true);
@@ -463,6 +558,13 @@ public class ExternalDatabaseTest extends TestWithFeService {
         Field idMapField = ExternalDatabase.class.getDeclaredField("tableIdToName");
         idMapField.setAccessible(true);
         return (Map<Long, String>) idMapField.get(db);
+    }
+
+    private void setTableNamesEntryForTest(InspectableDatabase db,
+            MetaCacheEntry<String, NameCacheValue> namesEntry) throws Exception {
+        Field namesField = ExternalDatabase.class.getDeclaredField("tableNames");
+        namesField.setAccessible(true);
+        namesField.set(db, namesEntry);
     }
 
     public static class DatabaseCatalogProvider implements TestExternalCatalog.TestCatalogProvider {

@@ -754,6 +754,44 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testNullPreservingComputeFencesInFlightManualMissLoad() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        int current = loadCounter.incrementAndGet();
+                        if (current == 1) {
+                            loaderStarted.countDown();
+                            awaitLatch(releaseLoader);
+                        }
+                        return current;
+                    },
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            Future<Integer> staleLoad = queryExecutor.submit(() -> entry.get("k"));
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            Assert.assertNull(entry.compute("k", (key, value) -> value));
+            Assert.assertNull(entry.getIfPresent("k"));
+            releaseLoader.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), staleLoad.get(3L, TimeUnit.SECONDS));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
+        } finally {
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testPutPublishesBeforeConcurrentMissCanLoad() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExecutorService queryExecutor = Executors.newFixedThreadPool(2);
