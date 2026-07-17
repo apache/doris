@@ -20,11 +20,17 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -47,6 +53,11 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExternalCatalogTest extends TestWithFeService {
@@ -546,6 +557,58 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testColdDatabaseNameEventsFenceInFlightLoads() throws Exception {
+        assertColdDatabaseNameEventFencesInFlightLoad(true);
+        assertColdDatabaseNameEventFencesInFlightLoad(false);
+    }
+
+    @Test
+    public void testIgnoredExternalTableDropCleansColdModeTwoEventState() throws Exception {
+        assertIgnoredExternalTableDropCleansColdEventState(
+                new EventHmsCatalog(2200L, "event_hms_mode_two", 2, false), "Foo", "foo", "Foo");
+    }
+
+    @Test
+    public void testIgnoredExternalTableDropCleansColdMappedEventState() throws Exception {
+        assertIgnoredExternalTableDropCleansColdEventState(
+                new EventHmsCatalog(2201L, "event_hms_mapped", 0, true),
+                "remote_table", "remote_table", "local_remote_table");
+    }
+
+    private void assertIgnoredExternalTableDropCleansColdEventState(EventHmsCatalog catalog,
+            String remoteTableName, String dropTableName, String localTableName) throws Exception {
+        EventHmsDatabase db = new EventHmsDatabase(catalog, 220L, "db_ci", "db_ci");
+        catalog.setDatabase(db);
+        catalog.setInitializedForTest(true);
+        db.setInitializedForTest(true);
+
+        @SuppressWarnings("unchecked")
+        Map<String, CatalogIf> nameToCatalog = Deencapsulation.getField(mgr, "nameToCatalog");
+        nameToCatalog.put(catalog.getName(), catalog);
+        mgr.getIdToCatalog().put(catalog.getId(), catalog);
+        try {
+            mgr.registerExternalTableFromEvent("db_ci", remoteTableName, catalog.getName(), 1L, true);
+            long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), localTableName);
+
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertNull(db.getCachedTableForTest(localTableName));
+            Assertions.assertEquals(localTableName, db.getCachedTableNameByIdForTest(tableId));
+
+            // The remote table has already disappeared when DROP_TABLE is delivered. The ignored event path must
+            // still resolve the canonical local key without a load-through lookup and remove the cold ID mapping.
+            mgr.unregisterExternalTable("db_ci", dropTableName, catalog.getName(), true);
+
+            Assertions.assertEquals(0, db.getTableLookupCount());
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertNull(db.getCachedTableForTest(localTableName));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(tableId));
+        } finally {
+            nameToCatalog.remove(catalog.getName());
+            mgr.getIdToCatalog().remove(catalog.getId());
+        }
+    }
+
+    @Test
     public void testIncrementalTableRegisterKeepsEntriesColdAndUpdatesIdMap() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
@@ -850,6 +913,88 @@ public class ExternalCatalogTest extends TestWithFeService {
         }
     }
 
+    private void assertColdDatabaseNameEventFencesInFlightLoad(boolean createEvent) throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService eventExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            AtomicInteger loadCount = new AtomicInteger();
+            IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+            catalog.setInitializedForTest(true);
+            TestExternalDatabase eventDb = new TestExternalDatabase(
+                    catalog, 120L, createEvent ? "db_create" : "db_drop", createEvent ? "db_create" : "db_drop");
+            if (!createEvent) {
+                catalog.simulateIncrementalRegisterDatabase(eventDb);
+            }
+
+            NameCacheValue staleSnapshot = createEvent
+                    ? namesSnapshot("db_base") : namesSnapshot("db_drop");
+            NameCacheValue currentSnapshot = createEvent
+                    ? namesSnapshot("db_base", "db_create") : NameCacheValue.empty();
+            MetaCacheEntry<String, NameCacheValue> namesEntry = new MetaCacheEntry<>(
+                    "database_names_event_test",
+                    ignored -> {
+                        if (loadCount.incrementAndGet() == 1) {
+                            loaderStarted.countDown();
+                            awaitLatch(releaseLoader);
+                            return staleSnapshot;
+                        }
+                        return currentSnapshot;
+                    },
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1L),
+                    refreshExecutor,
+                    false,
+                    MetaCacheEntry.singleKeyStripeCount());
+            catalog.setDatabaseNamesEntryForTest(namesEntry);
+
+            Future<List<String>> staleLoad = queryExecutor.submit(catalog::getDbNames);
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            Future<?> event = eventExecutor.submit(() -> {
+                if (createEvent) {
+                    catalog.simulateIncrementalRegisterDatabase(eventDb);
+                } else {
+                    catalog.unregisterDatabase(eventDb.getFullName());
+                }
+            });
+
+            // Incremental events must not wait for the slow names loader and must not materialize a cold snapshot.
+            event.get(3L, TimeUnit.SECONDS);
+            Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+            Assertions.assertEquals(createEvent ? eventDb.getFullName() : null,
+                    catalog.getCachedDatabaseNameByIdForTest(eventDb.getId()));
+            releaseLoader.countDown();
+
+            Assertions.assertEquals(staleSnapshot.localNames(), staleLoad.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+            Assertions.assertEquals(currentSnapshot.localNames(), catalog.getDbNames());
+            Assertions.assertEquals(2, loadCount.get());
+        } finally {
+            releaseLoader.countDown();
+            eventExecutor.shutdownNow();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    private static NameCacheValue namesSnapshot(String... names) {
+        List<Pair<String, String>> pairs = Lists.newArrayList();
+        for (String name : names) {
+            pairs.add(Pair.of(name, name));
+        }
+        return NameCacheValue.of(pairs);
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
         public static final Map<String, Map<String, List<Column>>> MOCKED_META;
 
@@ -911,6 +1056,10 @@ public class ExternalCatalogTest extends TestWithFeService {
             dbIdToName.put(dbId, localDbName);
         }
 
+        void setDatabaseNamesEntryForTest(MetaCacheEntry<String, NameCacheValue> namesEntry) {
+            databaseNames = namesEntry;
+        }
+
         NameCacheValue getCachedDatabaseNamesForTest() {
             return databaseNames == null ? null : databaseNames.getIfPresent("");
         }
@@ -945,6 +1094,65 @@ public class ExternalCatalogTest extends TestWithFeService {
     private static class IncrementalUpdateDatabase extends TestExternalDatabase {
         IncrementalUpdateDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
             super(extCatalog, id, name, remoteName);
+        }
+    }
+
+    private static class EventHmsCatalog extends HMSExternalCatalog {
+        private EventHmsDatabase database;
+        private final boolean mapTableNames;
+
+        EventHmsCatalog(long id, String name, int lowerCaseTableNames, boolean mapTableNames) {
+            super(id, name, null, buildEventCatalogProps(lowerCaseTableNames), "");
+            this.mapTableNames = mapTableNames;
+        }
+
+        void setDatabase(EventHmsDatabase database) {
+            this.database = database;
+        }
+
+        @Override
+        public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+            return database != null && database.getFullName().equalsIgnoreCase(dbName) ? database : null;
+        }
+
+        @Override
+        public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
+            return mapTableNames ? "local_" + remoteTableName : remoteTableName;
+        }
+
+        private static Map<String, String> buildEventCatalogProps(int lowerCaseTableNames) {
+            Map<String, String> props = Maps.newHashMap();
+            props.put("type", "hms");
+            props.put("hive.metastore.uris", "thrift://localhost:9083");
+            props.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, String.valueOf(lowerCaseTableNames));
+            return props;
+        }
+    }
+
+    private static class EventHmsDatabase extends HMSExternalDatabase {
+        private final AtomicInteger tableLookupCount = new AtomicInteger();
+
+        EventHmsDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
+            super(extCatalog, id, name, remoteName);
+        }
+
+        @Override
+        public HMSExternalTable getTableNullable(String tableName) {
+            tableLookupCount.incrementAndGet();
+            return null;
+        }
+
+        @Override
+        public boolean registerTable(TableIf tableIf) {
+            makeSureInitialized();
+            HMSExternalTable table = (HMSExternalTable) tableIf;
+            updateTableCache(table, table.getRemoteName(), table.getName(), false);
+            setLastUpdateTime(System.currentTimeMillis());
+            return true;
+        }
+
+        int getTableLookupCount() {
+            return tableLookupCount.get();
         }
     }
 

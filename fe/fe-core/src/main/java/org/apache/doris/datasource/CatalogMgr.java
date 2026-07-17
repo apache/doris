@@ -693,17 +693,23 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            if (!ignoreIfExists) {
+        String tableNameToInvalidate;
+        if (ignoreIfExists) {
+            tableNameToInvalidate = db.canonicalLocalTableNameFromRemote(tableName);
+        } else {
+            TableIf table = db.getTableNullable(tableName);
+            if (table == null) {
                 throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
             }
-            return;
+            tableNameToInvalidate = table.getName();
         }
 
+        // All current production callers with ignoreIfExists=true are HMS event paths. Skip load-through table
+        // existence validation so local names/object/ID/engine cache cleanup still runs after the table has already
+        // disappeared remotely. Resolve the event's remote name to the same canonical local key used by CREATE_TABLE.
         db.writeLock();
         try {
-            db.unregisterTable(table.getName());
+            db.unregisterTable(tableNameToInvalidate);
         } finally {
             db.writeUnlock();
         }

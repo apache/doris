@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.hms;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.hive.event.AddPartitionEvent;
 import org.apache.doris.datasource.hive.event.AlterDatabaseEvent;
 import org.apache.doris.datasource.hive.event.AlterPartitionEvent;
@@ -102,6 +103,13 @@ public class MetastoreEventFactoryTest {
 
     private static String randomPartition() {
         return "partition_" + random.nextInt(1000);
+    }
+
+    @Test
+    public void testDropTableEventNormalizesTableName() {
+        DropTableEvent event = new DropTableEvent(1L, testCtl, "db", "MixedCaseTable");
+        String tableName = Deencapsulation.getField(event, "tableName");
+        Assertions.assertEquals("mixedcasetable", tableName);
     }
 
     private static List<String> randomPartitions() {

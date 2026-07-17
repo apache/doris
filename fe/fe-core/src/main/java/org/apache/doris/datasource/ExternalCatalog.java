@@ -1406,9 +1406,9 @@ public abstract class ExternalCatalog
         if (forceUpdateCacheState) {
             databaseNames.compute("", (ignored, current) ->
                     (current == null ? NameCacheValue.empty() : current).withName(remoteDbName, localDbName));
-        } else if (databaseNames.getIfPresent("") != null) {
-            // The outer hot-entry check only skips a pointless compute on cold state. current may still
-            // become null here if another thread invalidates the names entry between getIfPresent and compute.
+        } else {
+            // Keep a cold names entry cold, but still advance its generation so an in-flight pre-event load cannot
+            // publish a stale snapshot after this incremental update.
             databaseNames.compute("", (ignored, current) ->
                     current == null ? null : current.withName(remoteDbName, localDbName));
         }
@@ -1419,8 +1419,8 @@ public abstract class ExternalCatalog
     }
 
     protected void invalidateDatabaseCache(String localDbName) {
-        if (databaseNames != null && databaseNames.getIfPresent("") != null) {
-            // Drop events only clean up state that is already visible locally, without materializing a new snapshot.
+        if (databaseNames != null) {
+            // Keep a cold names entry cold, but fence any in-flight pre-drop load from publishing stale state.
             databaseNames.compute("", (ignored, current) ->
                     current == null ? null : current.withoutLocalName(localDbName));
         }
