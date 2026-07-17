@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.thrift.DescriptorsConstants;
 import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TDataAccessPath;
@@ -88,6 +89,7 @@ public final class DescriptorToThriftConverter {
     public static TColumnAccessPath toThrift(ColumnAccessPath accessPath) {
         TColumnAccessPath result = new TColumnAccessPath(
                 accessPath.getType() == ColumnAccessPathType.DATA ? TAccessPathType.DATA : TAccessPathType.META);
+        result.setVersion(DescriptorsConstants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
         if (accessPath.getType() == ColumnAccessPathType.DATA) {
             result.setDataAccessPath(new TDataAccessPath(accessPath.getPath()));
         } else {
