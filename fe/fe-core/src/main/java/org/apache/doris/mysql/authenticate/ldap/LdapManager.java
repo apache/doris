@@ -125,8 +125,7 @@ public class LdapManager {
     //not allow to login in case when empty password is specified but such mode is disabled by configuration
     public boolean checkLoginWithEmptyPasswordForLdapIsAllowed(String fullName, String passwd) {
         if (Strings.isNullOrEmpty(passwd) && !LdapConfig.ldap_allow_empty_pass) {
-            LOG.info("User:{} login rejected: empty LDAP password is prohibited (ldap_allow_empty_pass=false)",
-                    fullName);
+            LOG.info("User: [" + fullName + "] login rejected: empty LDAP password is prohibited");
             return false;
         } else {
             return true;

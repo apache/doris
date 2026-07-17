@@ -48,7 +48,6 @@ public class LdapManagerTest {
     public void setUp() {
         Config.authentication_type = "ldap";
         LdapConfig.ldap_default_roles = new String[0];
-        LdapConfig.ldap_allow_empty_pass = true;
     }
 
     @After
@@ -116,29 +115,105 @@ public class LdapManagerTest {
     }
 
     @Test
-    public void testUserLoginWithEmptyLDAPPasswordDefault() {
+    public void testCheckUserEmptyPasswdAllowed() throws Exception {
+        //test checks existing default flow end to end - what user with empty ldap password can login
         LdapManager ldapManager = new LdapManager();
-        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", null));
-        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", ""));
-        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", "password"));
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, ""));
+        LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
+        Assert.assertNotNull(ldapUserInfo);
+        Assert.assertTrue(ldapUserInfo.isSetPasswd());
+        Assert.assertEquals("", ldapUserInfo.getPasswd());
     }
 
     @Test
-    public void testUserLoginWithEmptyLDAPPasswordEnabled() {
+    public void testCheckUserEmptyPasswdAllowedMocked() throws Exception {
+        //tests checks existing default flow method by method - what user with empty ldap password can login
+        //by default new method checkLoginWithEmptyPasswordForLdapIsAllowed() allows login with empty ldap password
+        //and next method in login sequence - getUserInfo() is called after it
         LdapManager ldapManager = new LdapManager();
-        LdapConfig.ldap_allow_empty_pass = true;
-        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", null));
-        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", ""));
-        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", "password"));
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+
+        LdapManager spyManager = Mockito.spy(ldapManager);
+        Assert.assertTrue(spyManager.checkUserPasswd(USER1, ""));
+        Mockito.verify(spyManager, Mockito.times(1)).checkLoginWithEmptyPasswordForLdapIsAllowed(USER1, "");
+        Mockito.verify(spyManager, Mockito.times(1)).getUserInfo(USER1);
     }
 
     @Test
-    public void testUserLoginWithEmptyLDAPPasswordDisabled() {
-        LdapManager ldapManager = new LdapManager();
+    public void testCheckUserEmptyPasswdDisabled() throws Exception {
+        //test checks change for the login flow what login with empty ldap password can be prohibited
+        //if corresponding property is set to false - login with empty password is not allowed
+        //if password is not empty - user can login as usual
         LdapConfig.ldap_allow_empty_pass = false;
-        Assert.assertFalse(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", null));
-        Assert.assertFalse(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", ""));
-        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", "password"));
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, ""));
+
+        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
+        LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
+        Assert.assertNotNull(ldapUserInfo);
+        Assert.assertTrue(ldapUserInfo.isSetPasswd());
+        Assert.assertEquals("123", ldapUserInfo.getPasswd());
+    }
+
+    @Test
+    public void testCheckUserEmptyPasswdDisabledMockedDenied() throws Exception {
+        //test checks that with new property ldap_allow_empty_pass = false - login with empty pass is not possible
+        //the method checkLoginWithEmptyPasswordForLdapIsAllowed() is invoked to perform this check
+        //but next one getUserInfo() is not invoked, because login process is aborted
+        LdapConfig.ldap_allow_empty_pass = false;
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+
+        LdapManager spyManager = Mockito.spy(ldapManager);
+        Assert.assertFalse(spyManager.checkUserPasswd(USER1, ""));
+        Mockito.verify(spyManager, Mockito.times(1)).checkLoginWithEmptyPasswordForLdapIsAllowed(USER1, "");
+        Mockito.verify(spyManager, Mockito.times(0)).getUserInfo(USER1);
+    }
+
+    @Test
+    public void testCheckUserEmptyPasswdDisabledMockedAllowed() throws Exception {
+        //test checks that with new property ldap_allow_empty_pass = false - login with normal pass is working
+        //the method checkLoginWithEmptyPasswordForLdapIsAllowed() is invoked to perform this check
+        //and because LDAP password is not empty - next one getUserInfo() is invoked
+        LdapConfig.ldap_allow_empty_pass = false;
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+
+        LdapManager spyManager = Mockito.spy(ldapManager);
+        Assert.assertTrue(spyManager.checkUserPasswd(USER1, "123"));
+        Mockito.verify(spyManager, Mockito.times(1)).checkLoginWithEmptyPasswordForLdapIsAllowed(USER1, "123");
+        Mockito.verify(spyManager, Mockito.times(1)).getUserInfo(USER1);
+    }
+
+    @Test
+    public void testCheckUserNullPasswd() throws Exception {
+        //test check existing feature that user with null ldap password can't login in any case
+        //because this is first check in checkUserPasswd() method
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, null));
+    }
+
+    @Test
+    public void testCheckUserNullPasswdMocked() throws Exception {
+        //tests checks existing flow for null ldap password method by method - what such user can't login
+        //new method checkLoginWithEmptyPasswordForLdapIsAllowed() is not invoked in such flow
+        //because this is first check in checkUserPasswd() method before any other methods
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+
+        LdapManager spyManager = Mockito.spy(ldapManager);
+        Assert.assertFalse(spyManager.checkUserPasswd(USER1, null));
+        Mockito.verify(spyManager, Mockito.times(0)).checkLoginWithEmptyPasswordForLdapIsAllowed(USER1, "");
     }
 
     @Test
