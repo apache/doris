@@ -279,12 +279,6 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         // The history-partition scan now reads the base table directly; scan range version
         // is the partition visible version (the legacy stream-tso override was removed).
-        Map<Long, Long> actualOffset = scanNode.getStreamUpdate().getNext();
-        Assertions.assertNotNull(actualOffset);
-        for (Long pid : expectedPartitionIds) {
-            Assertions.assertEquals(stream.getStreamUpdate(pid).second, actualOffset.get(pid));
-        }
-
         Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
 
         List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);

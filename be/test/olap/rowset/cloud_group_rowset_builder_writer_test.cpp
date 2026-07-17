@@ -151,7 +151,7 @@ void add_initial_rowset(const CloudTabletSPtr& tablet, int64_t version) {
     rs_meta->set_tablet_schema(tablet->tablet_schema());
     RowsetSharedPtr rowset;
     ASSERT_TRUE(RowsetFactory::create_rowset(tablet->tablet_schema(), "", rs_meta, &rowset).ok());
-    std::unique_lock<std::shared_mutex> meta_lock(tablet->get_header_lock());
+    std::unique_lock<BthreadSharedMutex> meta_lock(tablet->get_header_lock());
     tablet->add_rowsets({rowset}, false, meta_lock);
     tablet->set_cumulative_layer_point(version + 1);
 }
@@ -295,8 +295,8 @@ protected:
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
-        std::shared_ptr<std::vector<int64_t>> lsn_ids;
-        RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, &lsn_ids));
+        auto lsn_ids = std::make_shared<std::vector<int64_t>>();
+        RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
         cfg.insert_seg_lsn(0, lsn_ids);
 
         auto row_binlog_writer_res =

@@ -119,7 +119,7 @@ suite("test_cloud_row_binlog_publish_conflict", "nonConcurrent") {
                    __BEFORE__v2__
             FROM binlog("table" = "test_mow_publish_conflict_with_binlog")
             WHERE k1 IN (1, 2, 3)
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         sql "SET skip_delete_bitmap = true"
@@ -134,7 +134,7 @@ suite("test_cloud_row_binlog_publish_conflict", "nonConcurrent") {
                    __BEFORE__v2__
             FROM binlog("table" = "test_mow_publish_conflict_with_binlog")
             WHERE k1 IN (1, 2, 3)
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // Reset session variable before testing upsert path.
@@ -182,7 +182,7 @@ suite("test_cloud_row_binlog_publish_conflict", "nonConcurrent") {
                    __BEFORE__v2__
             FROM binlog("table" = "test_mow_publish_conflict_with_binlog")
             WHERE k1 IN (2, 3)
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         sql "SET skip_delete_bitmap = true"
@@ -197,7 +197,7 @@ suite("test_cloud_row_binlog_publish_conflict", "nonConcurrent") {
                    __BEFORE__v2__
             FROM binlog("table" = "test_mow_publish_conflict_with_binlog")
             WHERE k1 IN (2, 3)
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
     } finally {
         sql "SET skip_delete_bitmap = false"
