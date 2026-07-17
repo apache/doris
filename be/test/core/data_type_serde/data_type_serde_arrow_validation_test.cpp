@@ -22,6 +22,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -40,6 +42,7 @@
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
+#include "core/data_type_serde/data_type_varbinary_serde.h"
 
 namespace doris {
 namespace {
@@ -71,6 +74,21 @@ void expect_invalid_arrow(Func&& func, std::string_view message) {
 
 std::shared_ptr<arrow::Buffer> wrap_offsets(const std::vector<int32_t>& offsets) {
     return arrow::Buffer::Wrap(offsets);
+}
+
+std::shared_ptr<arrow::Buffer> wrap_large_offsets(const std::vector<int64_t>& offsets) {
+    return arrow::Buffer::Wrap(offsets);
+}
+
+auto make_array_column() {
+    return ColumnArray::create(
+            ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+            ColumnOffset64::create());
+}
+
+DataTypeArraySerDe make_string_array_serde() {
+    return DataTypeArraySerDe(std::make_shared<DataTypeNullableSerDe>(
+            std::make_shared<DataTypeStringSerDe>(TYPE_STRING)));
 }
 
 struct StringArrayHolder {
@@ -247,6 +265,130 @@ TEST(DataTypeSerDeArrowValidationTest, RejectsListOffsetsBeyondValuesLength) {
                                                                cctz::utc_time_zone()));
             },
             "list offsets beyond values length should be rejected");
+}
+
+TEST(DataTypeSerDeArrowValidationTest, RejectsMalformedLargeListOffsets) {
+    ScopedArrowInputValidation validation(true);
+    StringArrayHolder values({0, 1}, "a");
+    DataTypeArraySerDe serde = make_string_array_serde();
+
+    const auto expect_invalid_offsets = [&](const std::vector<int64_t>& offsets,
+                                            std::string_view message) {
+        auto array = std::make_shared<arrow::LargeListArray>(
+                arrow::large_list(arrow::utf8()), 1, wrap_large_offsets(offsets), values.array);
+        auto column = make_array_column();
+        expect_invalid_arrow(
+                [&] {
+                    static_cast<void>(serde.read_column_from_arrow(*column, array.get(), 0, 1,
+                                                                   cctz::utc_time_zone()));
+                },
+                message);
+    };
+
+    expect_invalid_offsets({0}, "short LargeList offsets buffer should be rejected");
+    expect_invalid_offsets({0, -1}, "negative LargeList offsets should be rejected");
+    expect_invalid_offsets({1, 0}, "non-monotonic LargeList offsets should be rejected");
+    expect_invalid_offsets({0, 2}, "LargeList offsets beyond values length should be rejected");
+}
+
+TEST(DataTypeSerDeArrowValidationTest, ReadsLargeListWithUnalignedOffsets) {
+    ScopedArrowInputValidation validation(true);
+
+    std::vector<uint8_t> storage(2 * sizeof(int64_t) + alignof(int64_t));
+    auto* offsets_data = storage.data();
+    while (reinterpret_cast<uintptr_t>(offsets_data) % alignof(int64_t) == 0) {
+        ++offsets_data;
+    }
+    const int64_t offsets[] = {0, 1};
+    memcpy(offsets_data, offsets, sizeof(offsets));
+
+    StringArrayHolder values({0, 1}, "a");
+    auto array = std::make_shared<arrow::LargeListArray>(
+            arrow::large_list(arrow::utf8()), 1, arrow::Buffer::Wrap(offsets_data, sizeof(offsets)),
+            values.array);
+    auto column = make_array_column();
+    DataTypeArraySerDe serde = make_string_array_serde();
+
+    ASSERT_TRUE(
+            serde.read_column_from_arrow(*column, array.get(), 0, 1, cctz::utc_time_zone()).ok());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(column->get_offsets()[0], 1);
+}
+
+TEST(DataTypeSerDeArrowValidationTest, RejectsFixedSizeListOffsetOverflow) {
+    ScopedArrowInputValidation validation(true);
+
+    auto values = std::make_shared<arrow::Int32Array>(0, std::shared_ptr<arrow::Buffer>());
+    constexpr int64_t list_size = std::numeric_limits<int32_t>::max();
+    const int64_t overflowing_index = std::numeric_limits<int64_t>::max() / list_size + 1;
+    auto array = std::make_shared<arrow::FixedSizeListArray>(
+            arrow::fixed_size_list(arrow::int32(), list_size), overflowing_index, values);
+    auto column = make_array_column();
+    DataTypeArraySerDe serde = make_string_array_serde();
+
+    expect_invalid_arrow(
+            [&] {
+                static_cast<void>(serde.read_column_from_arrow(*column, array.get(),
+                                                               overflowing_index, overflowing_index,
+                                                               cctz::utc_time_zone()));
+            },
+            "FixedSizeList offset multiplication overflow should be rejected");
+}
+
+TEST(DataTypeSerDeArrowValidationTest, RejectsVarbinaryValueRangeBeyondBuffer) {
+    ScopedArrowInputValidation validation(true);
+
+    std::vector<int32_t> offsets = {0, 8};
+    const std::string values = "a";
+    auto array = std::make_shared<arrow::BinaryArray>(
+            1, wrap_offsets(offsets), arrow::Buffer::Wrap(values.data(), values.size()));
+    auto column = ColumnVarbinary::create();
+    DataTypeVarbinarySerDe serde;
+
+    expect_invalid_arrow(
+            [&] {
+                static_cast<void>(serde.read_column_from_arrow(*column, array.get(), 0, 1,
+                                                               cctz::utc_time_zone()));
+            },
+            "VARBINARY value range beyond data buffer should be rejected");
+}
+
+TEST(DataTypeSerDeArrowValidationTest, ReadsEmptyVarbinaryWithoutValuesBuffer) {
+    ScopedArrowInputValidation validation(true);
+
+    std::vector<int32_t> offsets = {0, 0};
+    auto array = std::make_shared<arrow::BinaryArray>(1, wrap_offsets(offsets),
+                                                      std::shared_ptr<arrow::Buffer>());
+    auto column = ColumnVarbinary::create();
+    DataTypeVarbinarySerDe serde;
+
+    ASSERT_TRUE(
+            serde.read_column_from_arrow(*column, array.get(), 0, 1, cctz::utc_time_zone()).ok());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_TRUE(column->get_data_at(0).empty());
+}
+
+TEST(DataTypeSerDeArrowValidationTest, ReadsLargeVarbinaryWithUnalignedOffsets) {
+    ScopedArrowInputValidation validation(true);
+
+    std::vector<uint8_t> storage(2 * sizeof(int64_t) + alignof(int64_t));
+    auto* offsets_data = storage.data();
+    while (reinterpret_cast<uintptr_t>(offsets_data) % alignof(int64_t) == 0) {
+        ++offsets_data;
+    }
+    const int64_t offsets[] = {0, 1};
+    memcpy(offsets_data, offsets, sizeof(offsets));
+    const std::string values = "a";
+    auto array = std::make_shared<arrow::LargeBinaryArray>(
+            1, arrow::Buffer::Wrap(offsets_data, sizeof(offsets)),
+            arrow::Buffer::Wrap(values.data(), values.size()));
+    auto column = ColumnVarbinary::create();
+    DataTypeVarbinarySerDe serde;
+
+    ASSERT_TRUE(
+            serde.read_column_from_arrow(*column, array.get(), 0, 1, cctz::utc_time_zone()).ok());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(column->get_data_at(0).to_string(), values);
 }
 
 TEST(DataTypeSerDeArrowValidationTest, RejectsMapOffsetsBeyondKeysLength) {

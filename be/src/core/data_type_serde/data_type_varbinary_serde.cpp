@@ -17,8 +17,6 @@
 
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
-#include <cstring>
-
 #include "core/column/column_varbinary.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/arrow_validation.h"
@@ -192,6 +190,37 @@ Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
                                                       int64_t start, int64_t end,
                                                       const cctz::time_zone& ctz) const {
     auto& varbinary_column = assert_cast<ColumnVarbinary&>(column);
+    const auto read_binary = [&](const auto* concrete_array, const auto& read_offset) -> Status {
+        const auto& buffer = concrete_array->value_data();
+        const size_t buffer_size = buffer ? static_cast<size_t>(buffer->size()) : 0;
+        for (int64_t offset_i = start; offset_i < end; ++offset_i) {
+            if (concrete_array->IsNull(offset_i)) {
+                varbinary_column.insert_default();
+                continue;
+            }
+
+            const int64_t start_offset = read_offset(offset_i);
+            const int64_t end_offset = read_offset(offset_i + 1);
+            const int64_t length =
+                    config::enable_arrow_input_validation
+                            ? check_arrow_value_offsets(*concrete_array, start_offset, end_offset,
+                                                        buffer_size)
+                            : end_offset - start_offset;
+            // Arrow may omit an empty values buffer. Do not form a pointer from it for an empty
+            // value, but require a buffer before reading any non-empty value.
+            if (length == 0) {
+                varbinary_column.insert_data("", 0);
+            } else if (!buffer) {
+                return Status::InvalidArgument("Arrow {} values buffer is missing",
+                                               concrete_array->type()->name());
+            } else {
+                varbinary_column.insert_data(
+                        reinterpret_cast<const char*>(buffer->data() + start_offset), length);
+            }
+        }
+        return Status::OK();
+    };
+
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = assert_cast<const arrow::BinaryArray*>(arrow_array);
@@ -199,23 +228,16 @@ Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
             check_arrow_array_range(*concrete_array, start, end);
             check_arrow_binary_offsets_buffer(*concrete_array);
         }
-        const auto& buffer = concrete_array->value_data();
-        const uint8_t* offsets_data = concrete_array->value_offsets()->data();
-        constexpr size_t offset_size = sizeof(int32_t);
-
-        for (int64_t offset_i = start; offset_i < end; ++offset_i) {
-            if (concrete_array->IsNull(offset_i)) {
-                varbinary_column.insert_default();
-                continue;
-            }
-            int32_t start_offset = 0;
-            int32_t end_offset = 0;
-            memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
-            memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
-            const auto length = end_offset - start_offset;
-            varbinary_column.insert_data(
-                    reinterpret_cast<const char*>(buffer->data() + start_offset), length);
+        const auto& offsets = concrete_array->value_offsets();
+        if (!offsets) {
+            return Status::InvalidArgument("Arrow {} offsets buffer is missing",
+                                           concrete_array->type()->name());
         }
+        const auto* offsets_data = offsets->data();
+        return read_binary(concrete_array, [offsets_data](int64_t index) {
+            return static_cast<int64_t>(
+                    unaligned_load<int32_t>(offsets_data + index * sizeof(int32_t)));
+        });
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
         const auto* concrete_array = assert_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         if (config::enable_arrow_input_validation) {
@@ -239,17 +261,15 @@ Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,
             check_arrow_array_range(*concrete_array, start, end);
             check_arrow_binary_offsets_buffer(*concrete_array);
         }
-        const auto& buffer = concrete_array->value_data();
-        for (int64_t offset_i = start; offset_i < end; ++offset_i) {
-            if (concrete_array->IsNull(offset_i)) {
-                varbinary_column.insert_default();
-                continue;
-            }
-            const auto value_offset = concrete_array->value_offset(offset_i);
-            const auto value_length = concrete_array->value_length(offset_i);
-            varbinary_column.insert_data(
-                    reinterpret_cast<const char*>(buffer->data() + value_offset), value_length);
+        const auto& offsets = concrete_array->value_offsets();
+        if (!offsets) {
+            return Status::InvalidArgument("Arrow {} offsets buffer is missing",
+                                           concrete_array->type()->name());
         }
+        const auto* offsets_data = offsets->data();
+        return read_binary(concrete_array, [offsets_data](int64_t index) {
+            return unaligned_load<int64_t>(offsets_data + index * sizeof(int64_t));
+        });
     } else {
         return Status::InvalidArgument("Unsupported Arrow type for VARBINARY column: {}",
                                        arrow_array->type()->name());
