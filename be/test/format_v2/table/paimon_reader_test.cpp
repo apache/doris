@@ -465,20 +465,24 @@ TEST(PaimonReaderTest, DecodeDeletionVectorBufferUsesSharedFormatHelper) {
     // Scenario: format_v2 TableReader reads a raw Paimon BitmapDeletionVector range and delegates
     // the binary parsing to the same helper used by the format reader path.
     const auto buffer = build_paimon_deletion_vector_buffer({0, 3, 5});
-    DeleteRows delete_rows;
+    DeletionVector deletion_vector;
 
-    ASSERT_TRUE(
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
-    EXPECT_EQ(delete_rows, DeleteRows({0, 3, 5}));
+    ASSERT_TRUE(decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector)
+                        .ok());
+    EXPECT_EQ(deletion_vector.cardinality(), 3);
+    EXPECT_TRUE(deletion_vector.contains(uint64_t {0}));
+    EXPECT_TRUE(deletion_vector.contains(uint64_t {3}));
+    EXPECT_TRUE(deletion_vector.contains(uint64_t {5}));
 }
 
 TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsShortBuffer) {
     // Scenario: a truncated Paimon DV must fail before reading the magic or roaring payload.
     const std::vector<char> buffer = {'\0', '\0', '\0', '\4'};
-    DeleteRows delete_rows;
+    DeletionVector deletion_vector;
 
     EXPECT_FALSE(
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector)
+                    .ok());
 }
 
 TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsLengthMismatch) {
@@ -486,20 +490,22 @@ TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsLengthMismatch) {
     // accepted as a valid bitmap.
     auto buffer = build_paimon_deletion_vector_buffer({1, 2});
     BigEndian::Store32(buffer.data(), static_cast<uint32_t>(buffer.size()));
-    DeleteRows delete_rows;
+    DeletionVector deletion_vector;
 
     EXPECT_FALSE(
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector)
+                    .ok());
 }
 
 TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsMagicMismatch) {
     // Scenario: format_v2 must reject non-Paimon payloads even when the range length is valid.
     auto buffer = build_paimon_deletion_vector_buffer({1, 2});
     buffer[4] = '\0';
-    DeleteRows delete_rows;
+    DeletionVector deletion_vector;
 
     EXPECT_FALSE(
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector)
+                    .ok());
 }
 
 TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsCorruptRoaringBitmap) {
@@ -508,10 +514,11 @@ TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsCorruptRoaringBitmap) {
     auto buffer = build_paimon_deletion_vector_buffer({1, 2});
     buffer.resize(8);
     BigEndian::Store32(buffer.data(), 4);
-    DeleteRows delete_rows;
+    DeletionVector deletion_vector;
 
     EXPECT_FALSE(
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector)
+                    .ok());
 }
 
 // Scenario: PaimonReader must clear the previous split schema id before reading a new split. A
@@ -540,6 +547,21 @@ TEST(PaimonReaderTest, ResetsSplitSchemaIdBeforePreparingNextSplit) {
     split_without_schema_id.current_range.__set_table_format_params(table_format_params);
     ASSERT_TRUE(reader.prepare_split(split_without_schema_id).ok());
     EXPECT_EQ(reader.TEST_mapping_mode(), TableColumnMappingMode::BY_NAME);
+}
+
+TEST(PaimonReaderTest, NativeDataFilesAreMarkedImmutableForPageCache) {
+    paimon::PaimonReader reader;
+
+    for (const auto format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        SplitReadOptions split_options;
+        split_options.current_split_format = format;
+        split_options.current_range.__set_path("paimon-data-file");
+        split_options.current_range.__set_table_format_params(
+                make_paimon_schema_table_format_desc(100));
+
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        EXPECT_TRUE(reader.TEST_current_data_file_is_immutable());
+    }
 }
 
 // Scenario: Paimon reader should parse its bitmap deletion vector and let TableReader apply the
@@ -628,6 +650,15 @@ TEST(PaimonHybridReaderTest, ConvertsNativeSplitFileFormat) {
             paimon::PaimonHybridReader::TEST_to_file_format(make_paimon_jni_range(), &file_format);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(std::string::npos, status.to_string().find("Unsupported native Paimon file format"));
+}
+
+TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
+    paimon::PaimonHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader.set_batch_size(321);
+    const auto child_batch_sizes = reader.TEST_child_batch_sizes();
+    EXPECT_EQ(child_batch_sizes.first, 321);
+    EXPECT_EQ(child_batch_sizes.second, 321);
 }
 
 TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {

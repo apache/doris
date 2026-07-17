@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Exprs_types.h>
 
+#include <algorithm>
 #include <utility>
 
 #include "common/status.h"
@@ -92,29 +93,52 @@ void EqualityDeletePredicate::close(VExprContext* context,
 
 Status EqualityDeletePredicate::execute(VExprContext* context, Block* block,
                                         int* result_column_id) const {
+    size_t rows = 0;
+    for (const auto& column : block->get_columns()) {
+        rows = std::max(rows, column->size());
+    }
+    // Lazy readers may leave an unread projected column at block position zero while predicate
+    // columns (or the all-missing-key row-count carrier) are populated later. Block::rows() only
+    // inspects the first column, so derive the explicit expression count from all materialized
+    // columns and let execute_column() enforce that every result has exactly this batch size.
+    ColumnPtr result_column;
+    RETURN_IF_ERROR(execute_column(context, block, nullptr, rows, result_column));
+    block->insert({std::move(result_column), std::make_shared<DataTypeBool>(), expr_name()});
+    *result_column_id = static_cast<int>(block->columns() - 1);
+    return Status::OK();
+}
+
+Status EqualityDeletePredicate::execute_column_impl(VExprContext* context, const Block* block,
+                                                    const Selector* selector, size_t count,
+                                                    ColumnPtr& result_column) const {
     if (_children.size() != _field_ids.size()) {
         return Status::InternalError(
                 "EqualityDeletePredicate should have {} child exprs, but got {}", _field_ids.size(),
                 _children.size());
     }
 
+    // This path is required when every equality key is a literal, notably when all key columns are
+    // absent from an older Iceberg data file and are represented by typed NULL literals. Preserve
+    // `count` so the constant result can be expanded to the caller's batch size when necessary.
     Block data_key_block;
     for (const auto& child : _children) {
-        Block eval_block = *block;
-        int slot = -1;
-        RETURN_IF_ERROR(child->execute(context, &eval_block, &slot));
-        const auto& key_column = eval_block.get_by_position(slot);
-        data_key_block.insert({key_column.column, key_column.type, key_column.name});
+        ColumnPtr key_column;
+        RETURN_IF_ERROR(child->execute_column(context, block, selector, count, key_column));
+        // Equality comparison operates on row-addressable columns. Materialize literal constants
+        // so nullable NULL keys and regular slot columns share the same compare_at contract.
+        data_key_block.insert({key_column->convert_to_full_column_if_const(),
+                               child->execute_type(block), child->expr_name()});
     }
+    result_column = _evaluate_key_block(data_key_block);
+    return Status::OK();
+}
 
+ColumnPtr EqualityDeletePredicate::_evaluate_key_block(const Block& data_key_block) const {
     const auto rows = data_key_block.rows();
     auto res_col = ColumnBool::create(rows, 0);
     if (_delete_hash_map.empty() || rows == 0) {
-        block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
-        *result_column_id = static_cast<int>(block->columns() - 1);
-        return Status::OK();
+        return res_col;
     }
-
     auto data_hashes = _build_hashes(data_key_block);
     auto& result_data = res_col->get_data();
     for (size_t row = 0; row < rows; ++row) {
@@ -126,10 +150,7 @@ Status EqualityDeletePredicate::execute(VExprContext* context, Block* block,
             }
         }
     }
-
-    block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
-    *result_column_id = static_cast<int>(block->columns() - 1);
-    return Status::OK();
+    return res_col;
 }
 
 std::vector<uint64_t> EqualityDeletePredicate::_build_hashes(const Block& block) {

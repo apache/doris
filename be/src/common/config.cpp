@@ -72,6 +72,9 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DEFINE_Bool(enable_arrow_input_validation, "true");
+
 DEFINE_Int32(cdc_client_port, "9096");
 
 DEFINE_String(cdc_client_java_opts, "");
@@ -1081,6 +1084,8 @@ DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
+DEFINE_Validator(orc_natural_read_size_mb,
+                 [](const int config) -> bool { return config > 0 && config <= 1024; });
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
@@ -1216,6 +1221,8 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_mBool(enable_file_cache_query_limit, "false");
+// Whether segment footer and segment metadata count toward file cache query limit.
+DEFINE_mBool(enable_file_cache_query_limit_segment_meta, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "88");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
@@ -1346,6 +1353,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
+
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DEFINE_Bool(enable_row_store_compact_jsonb, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "28800");
@@ -1528,6 +1539,9 @@ DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
 DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
 
 DEFINE_mInt64(s3_put_token_limit, "0");
+// Log active S3 rate limiter every N throttled/rejected requests, 0 means no log.
+DEFINE_mInt64(s3_rate_limiter_log_interval, "1000");
+DEFINE_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 

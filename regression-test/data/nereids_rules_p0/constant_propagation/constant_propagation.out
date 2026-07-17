@@ -17,7 +17,7 @@ PhysicalResultSink
 
 -- !project_1_shape --
 PhysicalResultSink
---PhysicalProject[40 AS `(d_int + 10) * 2`, d_int AS `a`, t1.d_int]
+--PhysicalProject[40 AS `(d_int + 10) * 2`, t1.d_int, t1.d_int AS `a`]
 ----filter((t1.d_int = 10))
 ------PhysicalOlapScan[t1]
 
@@ -54,7 +54,7 @@ PhysicalResultSink
 --PhysicalProject[t1.a, t1.b, t1.c]
 ----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(b as BIGINT) + cast(c as BIGINT)) asc null first)]
 ------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(b as BIGINT) + cast(c as BIGINT)) asc null first)]
---------PhysicalProject[(cast(c as BIGINT) + 2) AS `(cast(b as BIGINT) + cast(c as BIGINT))`, t1.a, t1.b, t1.c]
+--------PhysicalProject[(cast(t1.c as BIGINT) + 2) AS `(cast(b as BIGINT) + cast(c as BIGINT))`, t1.a, t1.b, t1.c]
 ----------filter((t1.a = 1) and (t1.b = 2))
 ------------PhysicalOlapScan[t1]
 
@@ -66,7 +66,7 @@ PhysicalResultSink
 --PhysicalProject[t1.a, t1.b, t1.c]
 ----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(a as BIGINT) + cast(b as BIGINT)) asc null first)]
 ------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(a as BIGINT) + cast(b as BIGINT)) asc null first)]
---------PhysicalProject[(cast(a as BIGINT) + 2) AS `(cast(a as BIGINT) + cast(b as BIGINT))`, t1.a, t1.b, t1.c]
+--------PhysicalProject[(cast(t1.a as BIGINT) + 2) AS `(cast(a as BIGINT) + cast(b as BIGINT))`, t1.a, t1.b, t1.c]
 ----------filter((t1.b = 2) and (t1.c = 3))
 ------------PhysicalOlapScan[t1]
 
@@ -89,7 +89,7 @@ PhysicalResultSink
 ------filter((t1.a = 1) and (t1.b = 1))
 --------PhysicalOlapScan[t1]
 ----PhysicalProject[t2.x, t2.y, t2.z]
-------filter(((cast(x as BIGINT) + cast(y as BIGINT)) = 1))
+------filter(((cast(t2.x as BIGINT) + cast(t2.y as BIGINT)) = 1))
 --------PhysicalOlapScan[t2]
 
 -- !join_1_result --
@@ -136,7 +136,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[t1.a, t2.x]
 ----NestedLoopJoin[LEFT_OUTER_JOIN](a = 10)
-------PhysicalProject[(a = 10) AS `(a = 10)`, t1.a]
+------PhysicalProject[(t1.a = 10) AS `(a = 10)`, t1.a]
 --------PhysicalOlapScan[t1]
 ------PhysicalProject[t2.x]
 --------filter((t2.x = 1))
@@ -150,9 +150,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[t1.a, t2.x]
 ----NestedLoopJoin[FULL_OUTER_JOIN](a = 10)(x = 1)
-------PhysicalProject[(a = 10) AS `(a = 10)`, t1.a]
+------PhysicalProject[(t1.a = 10) AS `(a = 10)`, t1.a]
 --------PhysicalOlapScan[t1]
-------PhysicalProject[(x = 1) AS `(x = 1)`, t2.x]
+------PhysicalProject[(t2.x = 1) AS `(x = 1)`, t2.x]
 --------PhysicalOlapScan[t2]
 
 -- !join_6_result --
@@ -177,7 +177,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[t1.a]
 ----NestedLoopJoin[LEFT_ANTI_JOIN](a = 10)
-------PhysicalProject[(a = 10) AS `(a = 10)`, t1.a]
+------PhysicalProject[(t1.a = 10) AS `(a = 10)`, t1.a]
 --------PhysicalOlapScan[t1]
 ------PhysicalProject[1 AS `1`]
 --------filter((t2.x = 1))
@@ -194,10 +194,10 @@ PhysicalResultSink
 --------filter((t1.a = 10))
 ----------PhysicalOlapScan[t1]
 ------PhysicalProject[t2.x]
---------filter(((cast(x as BIGINT) * 10) = 10))
+--------filter(((cast(t2.x as BIGINT) * 10) = 10))
 ----------PhysicalOlapScan[t2] apply RFs: RF0
 ----PhysicalProject[t3.a]
-------filter(((cast(a as BIGINT) * 10) = 10) and (t3.__DORIS_DELETE_SIGN__ = 0))
+------filter(((cast(t3.a as BIGINT) * 10) = 10) and (t3.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[t3]
 
 -- !join_9_result --
@@ -397,7 +397,7 @@ PhysicalResultSink
 ------filter((t1.a = 10))
 --------PhysicalOlapScan[t1]
 ----PhysicalProject[t2.x]
-------filter(((cast(x as BIGINT) * 10) = 10))
+------filter(((cast(t2.x as BIGINT) * 10) = 10))
 --------PhysicalOlapScan[t2]
 
 -- !subquery_7_result --
@@ -412,7 +412,7 @@ PhysicalResultSink
 ----------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 ------------filter(((cast(a as BIGINT) * 10) = 10))
 --------------PhysicalOlapScan[t1]
-----------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
+----------PhysicalProject[cast(t2.x as BIGINT) AS `k`, t2.y AS `b`]
 ------------filter((t2.x = 10))
 --------------PhysicalOlapScan[t2]
 --------PhysicalProject[t3.a]
@@ -430,7 +430,7 @@ PhysicalResultSink
 ------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 --------filter(((cast(a as BIGINT) * 10) = 10))
 ----------PhysicalOlapScan[t1]
-------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
+------PhysicalProject[cast(t2.x as BIGINT) AS `k`, t2.y AS `b`]
 --------filter((t2.x = 10))
 ----------PhysicalOlapScan[t2] apply RFs: RF0
 ----PhysicalProject[t3.a]
@@ -447,7 +447,7 @@ PhysicalResultSink
 ------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 --------filter(((cast(a as BIGINT) * 10) = 10))
 ----------PhysicalOlapScan[t1]
-------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
+------PhysicalProject[cast(t2.x as BIGINT) AS `k`, t2.y AS `b`]
 --------filter((t2.x = 10))
 ----------PhysicalOlapScan[t2] apply RFs: RF0
 ----PhysicalProject[t3.a]
@@ -510,7 +510,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[t1.a]
 ----NestedLoopJoin[LEFT_ANTI_JOIN](a = 10)
-------PhysicalProject[(a = 10) AS `(a = 10)`, t1.a]
+------PhysicalProject[(t1.a = 10) AS `(a = 10)`, t1.a]
 --------PhysicalOlapScan[t1]
 ------PhysicalProject[1 AS `1`]
 --------filter((t2.x = 1))
@@ -523,7 +523,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[t1.a]
 ----NestedLoopJoin[LEFT_ANTI_JOIN](a = 10)
-------PhysicalProject[(a = 10) AS `(a = 10)`, t1.a]
+------PhysicalProject[(t1.a = 10) AS `(a = 10)`, t1.a]
 --------PhysicalOlapScan[t1]
 ------PhysicalProject[1 AS `1`]
 --------filter((t2.x = 20))
@@ -587,8 +587,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[10 AS `a`, count(a)]
 ----filter((sum(b) > 10))
-------hashAgg[GLOBAL, groupByExpr=(t1.a), outputExpr=(count(10) AS `count(a)`, sum(b) AS `sum(b)`, t1.a)]
---------hashAgg[LOCAL, groupByExpr=(t1.a), outputExpr=(partial_count(10) AS `partial_count(10)`, partial_sum(b) AS `partial_sum(b)`, t1.a)]
+------hashAgg[GLOBAL, groupByExpr=(t1.a), outputExpr=(count(10) AS `count(a)`, sum(t1.b) AS `sum(b)`, t1.a)]
+--------hashAgg[LOCAL, groupByExpr=(t1.a), outputExpr=(partial_count(10) AS `partial_count(10)`, partial_sum(t1.b) AS `partial_sum(b)`, t1.a)]
 ----------PhysicalProject[t1.a, t1.b]
 ------------filter((t1.a = 10))
 --------------PhysicalOlapScan[t1]
@@ -636,10 +636,10 @@ PhysicalResultSink
 -- !union_4_shape --
 PhysicalResultSink
 --PhysicalUnion
-----PhysicalProject[-1 AS `k2`, 3 AS `k1`, c AS `k3`]
+----PhysicalProject[-1 AS `k2`, 3 AS `k1`, t1.c AS `k3`]
 ------filter((t1.a = 1) and (t1.b = 2) and (t1.c = 3))
 --------PhysicalOlapScan[t1]
-----PhysicalProject[-1 AS `k2`, 3 AS `k1`, z AS `k3`]
+----PhysicalProject[-1 AS `k2`, 3 AS `k1`, t2.z AS `k3`]
 ------filter((t2.x = 1) and (t2.y = 2) and (t2.z = 3))
 --------PhysicalOlapScan[t2]
 
@@ -666,10 +666,10 @@ PhysicalResultSink
 -- !union_6_shape --
 PhysicalResultSink
 --PhysicalUnion
-----PhysicalProject[(cast(a as BIGINT) + cast(b as BIGINT)) AS `k1`, (cast(a as BIGINT) - cast(b as BIGINT)) AS `k2`, c AS `k3`]
+----PhysicalProject[(cast(a as BIGINT) + cast(b as BIGINT)) AS `k1`, (cast(a as BIGINT) - cast(b as BIGINT)) AS `k2`, t1.c AS `k3`]
 ------filter(((cast(a as BIGINT) + cast(b as BIGINT)) = 3) and ((cast(a as BIGINT) - cast(b as BIGINT)) = -1) and (t1.c = 3))
 --------PhysicalOlapScan[t1]
-----PhysicalProject[(cast(x as BIGINT) + cast(y as BIGINT)) AS `k1`, (cast(x as BIGINT) - cast(y as BIGINT)) AS `k2`, z AS `k3`]
+----PhysicalProject[(cast(x as BIGINT) + cast(y as BIGINT)) AS `k1`, (cast(x as BIGINT) - cast(y as BIGINT)) AS `k2`, t2.z AS `k3`]
 ------filter(((cast(x as BIGINT) + cast(y as BIGINT)) = 3) and ((cast(x as BIGINT) - cast(y as BIGINT)) = -1) and (t2.z = 3))
 --------PhysicalOlapScan[t2]
 
@@ -697,7 +697,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalUnion
-------PhysicalProject[a AS `a`]
+------PhysicalProject[t1.a AS `a`]
 --------filter((t1.a = 10))
 ----------PhysicalOlapScan[t1]
 
@@ -707,7 +707,7 @@ PhysicalResultSink
 -- !union_10_shape --
 PhysicalResultSink
 --PhysicalUnion
-----PhysicalProject[a AS `a`]
+----PhysicalProject[t1.a AS `a`]
 ------filter((t1.a = 10))
 --------PhysicalOlapScan[t1]
 
@@ -740,7 +740,7 @@ PhysicalResultSink
 -- !union_13_shape --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalProject[a AS `a`]
+----PhysicalProject[t1.a AS `a`]
 ------filter((t1.a = 1))
 --------PhysicalOlapScan[t1]
 
@@ -749,7 +749,7 @@ PhysicalResultSink
 
 -- !union_14_shape --
 PhysicalResultSink
---PhysicalProject[a AS `a`]
+--PhysicalProject[t1.a AS `a`]
 ----filter((t1.a = 1))
 ------PhysicalOlapScan[t1]
 
@@ -760,7 +760,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalUnion
-------PhysicalProject[a AS `a`]
+------PhysicalProject[t1.a AS `a`]
 --------filter((t1.a = 1))
 ----------PhysicalOlapScan[t1]
 
@@ -770,7 +770,7 @@ PhysicalResultSink
 -- !union_16_shape --
 PhysicalResultSink
 --PhysicalUnion
-----PhysicalProject[a AS `a`]
+----PhysicalProject[t1.a AS `a`]
 ------filter((t1.a = 1))
 --------PhysicalOlapScan[t1]
 
@@ -835,7 +835,7 @@ PhysicalResultSink
 
 -- !update_1_shape --
 PhysicalOlapTableSink
---PhysicalProject[0 AS `__DORIS_DELETE_SIGN__`, 0 AS `__DORIS_VERSION_COL__`, 11 AS `d`, a AS `a`, cast((cast(b as BIGINT) + 1) as INT) AS `b`, cast((cast(b as BIGINT) + 1) as SMALLINT) AS `c`]
+--PhysicalProject[0 AS `__DORIS_DELETE_SIGN__`, 0 AS `__DORIS_VERSION_COL__`, 11 AS `d`, cast((cast(b as BIGINT) + 1) as INT) AS `b`, cast((cast(b as BIGINT) + 1) as SMALLINT) AS `c`, t3.a AS `a`]
 ----filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 1))
 ------PhysicalOlapScan[t3]
 
@@ -846,7 +846,7 @@ PhysicalOlapTableSink
 
 -- !update_2_shape --
 PhysicalOlapTableSink
---PhysicalProject[0 AS `__DORIS_DELETE_SIGN__`, 0 AS `__DORIS_VERSION_COL__`, a AS `a`, a AS `b`, cast(a as BIGINT) AS `d`, cast(a as SMALLINT) AS `c`]
+--PhysicalProject[0 AS `__DORIS_DELETE_SIGN__`, 0 AS `__DORIS_VERSION_COL__`, cast(t3.a as BIGINT) AS `d`, cast(t3.a as SMALLINT) AS `c`, t3.a AS `a`, t3.a AS `b`]
 ----filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 1))
 ------PhysicalOlapScan[t3]
 
@@ -857,8 +857,8 @@ PhysicalOlapTableSink
 
 -- !no_replace_1_shape --
 PhysicalResultSink
---hashAgg[GLOBAL, groupByExpr=(), outputExpr=(count(*) AS `count(1)`)]
-----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_count(*) AS `partial_count(*)`)]
+--hashAgg[GLOBAL, groupByExpr=(), outputExpr=(count() AS `count(1)`)]
+----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_count() AS `partial_count(*)`)]
 ------PhysicalProject[1 AS `1`]
 --------filter((t1.d_string = '012345') and (t1.d_string MATCH_ANY '012345'))
 ----------PhysicalOlapScan[t1]

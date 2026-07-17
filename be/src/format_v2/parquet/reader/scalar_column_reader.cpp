@@ -183,6 +183,7 @@ Status ScalarColumnReader::skip_records(int64_t rows) {
         return Status::OK();
     }
     int64_t skipped_rows = 0;
+    SCOPED_TIMER(_profile.arrow_skip_records_time);
     try {
         _record_reader->Reset();
         while (skipped_rows < rows) {
@@ -264,6 +265,14 @@ Status ScalarColumnReader::select_with_dictionary_filter(const SelectionVector& 
     *used_filter = false;
     row_filter->clear();
     row_filter->reserve(selected_rows);
+    DORIS_CHECK(_record_reader != nullptr);
+    // A clean fallback is possible only before any range skip or read advances the record reader.
+    // Once dictionary selection starts, losing dictionary output is corruption rather than a
+    // reason to retry through the ordinary selected-read path with an already advanced stream.
+    if (!_record_reader->read_dictionary()) {
+        return Status::OK();
+    }
+    *used_filter = true;
 
     const auto ranges = selection_to_ranges(sel, selected_rows);
     int64_t cursor = 0;
@@ -305,8 +314,10 @@ Status ScalarColumnReader::read_range_with_dictionary_filter(
     DORIS_CHECK(used_filter != nullptr);
     DORIS_CHECK(_record_reader != nullptr);
     if (!_record_reader->read_dictionary()) {
-        *used_filter = false;
-        return Status::OK();
+        return Status::Corruption(
+                "Parquet dictionary reader became unavailable after selected reading started for "
+                "column {}",
+                _name);
     }
 
     ParquetLeafBatch leaf_batch;
@@ -364,10 +375,15 @@ Status ScalarColumnReader::append_dictionary_filtered_values(
             bool keep = false;
             if (!dict_array->IsNull(row)) {
                 const int64_t dictionary_index = dict_array->GetValueIndex(row);
-                if (dictionary_index >= 0 &&
-                    dictionary_index < static_cast<int64_t>(dictionary_filter.size())) {
-                    keep = dictionary_filter[static_cast<size_t>(dictionary_index)] != 0;
+                if (dictionary_index < 0 || dictionary_index >= dictionary->length() ||
+                    dictionary_index >= static_cast<int64_t>(dictionary_filter.size())) {
+                    return Status::Corruption(
+                            "Invalid parquet dictionary index {} for column {}: dictionary={}, "
+                            "filter={}",
+                            dictionary_index, _name, dictionary->length(),
+                            dictionary_filter.size());
                 }
+                keep = dictionary_filter[static_cast<size_t>(dictionary_index)] != 0;
                 if (keep) {
                     RETURN_IF_ERROR(append_arrow_binary_dictionary_value(
                             _name, *dictionary, dictionary_index, &selected_values));
@@ -449,7 +465,11 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     }
     DORIS_CHECK(_nested_batch != nullptr);
     ParquetNestedScalarValueCursor value_cursor(_nested_batch.get());
-    const int16_t materialized_slot_definition_level = _nested_batch->value_slot_definition_level;
+    // The levels-only loader intentionally does not populate value-slot metadata or payload
+    // buffers. Derive the logical slot threshold from the schema, exactly as load_nested_batch()
+    // does, so this consumer works for both loaded batch forms.
+    const int16_t materialized_slot_definition_level =
+            static_cast<int16_t>(_definition_level - (_type->is_nullable() ? 1 : 0));
     *values_read = 0;
     int64_t level_idx = nested_build_level_cursor();
     while (level_idx < _nested_batch->levels_written && *values_read < length_upper_bound) {
@@ -476,6 +496,36 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     return Status::OK();
 }
 
+Status ScalarColumnReader::consume_nested_column(int64_t length_upper_bound,
+                                                 int64_t* values_consumed) {
+    if (values_consumed == nullptr) {
+        return Status::InvalidArgument("Invalid parquet nested scalar consume result for column {}",
+                                       _name);
+    }
+    DORIS_CHECK(_nested_batch != nullptr);
+    // A levels-only batch intentionally has no value-slot metadata. Reconstruct the same logical
+    // slot threshold used by load_nested_batch(): a nullable leaf owns a slot at one definition
+    // level below a non-null value, while a required leaf owns a slot only at its full definition
+    // level. For example, an empty ARRAY<STRING> boundary must not be consumed as a STRING value.
+    const int16_t materialized_slot_definition_level =
+            static_cast<int16_t>(_definition_level - (_type->is_nullable() ? 1 : 0));
+    *values_consumed = 0;
+    int64_t level_idx = nested_build_level_cursor();
+    while (level_idx < _nested_batch->levels_written && *values_consumed < length_upper_bound) {
+        const int64_t current_level_idx = level_idx;
+        const int16_t def_level = _nested_batch->def_levels[current_level_idx];
+        const int16_t rep_level = _nested_batch->rep_levels[current_level_idx];
+        ++level_idx;
+        if (def_level < materialized_slot_definition_level || rep_level > _repetition_level) {
+            continue;
+        }
+        RETURN_IF_ERROR(validate_nested_value(current_level_idx, false));
+        ++*values_consumed;
+    }
+    set_nested_build_level_cursor(level_idx);
+    return Status::OK();
+}
+
 Status ScalarColumnReader::append_nested_value(int64_t level_idx, MutableColumnPtr& column) const {
     if (column.get() == nullptr) {
         return Status::InvalidArgument("Invalid parquet nested scalar append result for column {}",
@@ -494,6 +544,21 @@ Status ScalarColumnReader::append_nested_value(int64_t level_idx, MutableColumnP
                                   _name);
     }
     column->insert_default();
+    return Status::OK();
+}
+
+Status ScalarColumnReader::validate_nested_value(int64_t level_idx, bool require_non_null) const {
+    DORIS_CHECK(_nested_batch != nullptr);
+    DORIS_CHECK(level_idx >= 0);
+    DORIS_CHECK(level_idx < _nested_batch->levels_written);
+    const int16_t def_level = _nested_batch->def_levels[level_idx];
+    if (def_level == _definition_level) {
+        return Status::OK();
+    }
+    if (require_non_null || !_type->is_nullable()) {
+        return Status::Corruption("Parquet scalar column {} contains null for non-nullable field",
+                                  _name);
+    }
     return Status::OK();
 }
 

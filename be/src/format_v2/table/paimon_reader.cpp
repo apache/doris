@@ -38,7 +38,17 @@ Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
     if (paimon_params.__isset.schema_id) {
         _split_schema_id = paimon_params.schema_id;
     }
-    return format::TableReader::prepare_split(options);
+    RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
+    // Paimon commits data-file changes by adding and logically deleting files in snapshots.
+    // Compaction also writes replacement files and commits them in a new snapshot instead of
+    // modifying an existing Parquet/ORC file in place. Native Paimon data files are therefore
+    // safe to cache by path and size when the split does not provide mtime. Serialized JNI splits
+    // do not reach this reader.
+    mark_current_data_file_immutable();
+    return Status::OK();
 }
 
 format::TableColumnMappingMode PaimonReader::mapping_mode() const {
@@ -116,6 +126,16 @@ Status PaimonHybridReader::close() {
     return close_status;
 }
 
+void PaimonHybridReader::set_batch_size(size_t batch_size) {
+    format::TableReader::set_batch_size(batch_size);
+    if (_native_reader != nullptr) {
+        _native_reader->set_batch_size(_batch_size);
+    }
+    if (_jni_reader != nullptr) {
+        _jni_reader->set_batch_size(_batch_size);
+    }
+}
+
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);
@@ -144,7 +164,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
     DORIS_CHECK(reader != nullptr);
     VExprContextSPtrs conjuncts;
     RETURN_IF_ERROR(_clone_conjuncts(&conjuncts));
-    return reader->init({
+    RETURN_IF_ERROR(reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(conjuncts),
             .format = file_format,
@@ -154,7 +174,13 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .scanner_profile = _scanner_profile,
             .push_down_agg_type = _push_down_agg_type,
             .condition_cache_digest = _condition_cache_digest,
-    });
+    }));
+    // Zero means no adaptive prediction has been produced yet. Preserve the child's normal
+    // runtime default until FileScannerV2 supplies the first positive prediction.
+    if (_batch_size > 0) {
+        reader->set_batch_size(_batch_size);
+    }
+    return Status::OK();
 }
 
 Status PaimonHybridReader::_clone_conjuncts(VExprContextSPtrs* conjuncts) const {

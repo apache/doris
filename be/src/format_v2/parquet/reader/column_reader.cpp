@@ -606,14 +606,34 @@ Status ParquetColumnReader::build_nested_column(int64_t, MutableColumnPtr&, int6
                                 _name);
 }
 
-Status ParquetColumnReader::skip_nested_column(int64_t rows) {
-    auto scratch_column = _type->create_column();
-    int64_t values_read = 0;
-    RETURN_IF_ERROR(build_nested_column(rows, scratch_column, &values_read));
-    if (values_read != rows) {
-        return Status::Corruption("Failed to skip nested parquet column {}: skipped {} of {} rows",
-                                  _name, values_read, rows);
+Status ParquetColumnReader::consume_nested_column(int64_t, int64_t*) {
+    return Status::NotSupported("Parquet nested column consume is not supported for column {}",
+                                _name);
+}
+
+Status ParquetColumnReader::skip_nested_rows(int64_t rows) {
+    if (rows <= 0) {
+        return Status::OK();
     }
+
+    // A nested parent row may expand to many child values. Capping the number of parent rows per
+    // loaded batch bounds that amplification for large holes. The consume interface advances the
+    // loaded definition/repetition levels recursively without constructing a discarded Column.
+    constexpr int64_t MAX_NESTED_SKIP_BATCH_SIZE = 4096;
+    int64_t remaining_rows = rows;
+    while (remaining_rows > 0) {
+        const int64_t batch_rows = std::min(remaining_rows, MAX_NESTED_SKIP_BATCH_SIZE);
+        RETURN_IF_ERROR(load_nested_levels_batch(batch_rows));
+        int64_t rows_consumed = 0;
+        RETURN_IF_ERROR(consume_nested_column(batch_rows, &rows_consumed));
+        if (rows_consumed != batch_rows) {
+            return Status::Corruption(
+                    "Failed to skip nested parquet column {}: skipped {} of {} rows in batch",
+                    _name, rows_consumed, batch_rows);
+        }
+        remaining_rows -= batch_rows;
+    }
+    update_reader_skip_rows(rows);
     return Status::OK();
 }
 

@@ -60,6 +60,11 @@ public class IsNull extends Expression implements UnaryExpression, AlwaysNotNull
     }
 
     @Override
+    public String shapeInfo() {
+        return child().shapeInfo() + " IS NULL";
+    }
+
+    @Override
     public String toString() {
         return child().toString() + " IS NULL";
     }

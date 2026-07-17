@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
@@ -67,6 +68,19 @@ public:
     // sub profile name (for parquet/orc)
     static const std::string FileReadBytesProfile;
     static const std::string FileReadTimeProfile;
+
+#ifdef BE_TEST
+    void TEST_init_runtime_filter_partition_prune_ctxs(
+            const VExprContextSPtrs& conjuncts,
+            const std::unordered_map<SlotId, int>& partition_slot_index_map) {
+        _conjuncts = conjuncts;
+        _partition_slot_index_map = partition_slot_index_map;
+        _init_runtime_filter_partition_prune_ctxs();
+    }
+    const VExprContextSPtrs& TEST_runtime_filter_partition_prune_ctxs() const {
+        return _runtime_filter_partition_prune_ctxs;
+    }
+#endif
 
     FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
@@ -295,8 +309,7 @@ private:
     };
 
     Status _init_io_ctx() {
-        _io_ctx = std::make_shared<io::IOContext>();
-        _io_ctx->query_id = &_state->query_id();
+        _io_ctx = create_file_scan_io_context(_state);
         return Status::OK();
     };
 

@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
@@ -57,6 +58,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "runtime/descriptors.h"
+#include "storage/olap_common.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 namespace doris {
@@ -1130,7 +1132,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
 const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
                                                           FieldInfo& info) {
     const FieldType type = static_cast<FieldType>(*data++);
-    info.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
+    info.scalar_type_id = storage_field_type_to_primitive_type(type);
     const uint8_t* end = data;
     switch (type) {
 #define HANDLE_SIMPLE_SERDE(FT, SERDE)                               \

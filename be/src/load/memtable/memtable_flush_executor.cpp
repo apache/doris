@@ -29,7 +29,6 @@
 #include "common/metrics/metrics.h"
 #include "common/metrics/system_metrics.h"
 #include "common/signal_handler.h"
-#include "exec/sink/autoinc_buffer.h"
 #include "load/memtable/memtable.h"
 #include "runtime/thread_context.h"
 #include "storage/binlog.h"
@@ -187,30 +186,6 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
         auto binlog_segment_id = binlog_writer->allocate_segment_id();
         DCHECK_EQ(segment_id, binlog_segment_id);
         shared_memtable->segment_id = segment_id;
-
-        if (binlog_writer->context().write_binlog_opt().enable) {
-            if (_row_binlog_lsn_buffer == nullptr) {
-                std::unique_lock<std::mutex> lock(_mutex);
-                if (_row_binlog_lsn_buffer == nullptr) {
-                    if (_table_schema_param == nullptr) {
-                        return Status::InternalError<false>(
-                                "need binlog but table_schema_param is null");
-                    }
-                    _row_binlog_lsn_buffer =
-                            GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
-                                    _table_schema_param->db_id(), _table_schema_param->table_id(),
-                                    kBinlogLsnAutoIncId);
-                }
-            }
-            std::shared_ptr<std::vector<int64_t>> lsn;
-            RETURN_IF_ERROR(
-                    allocate_binlog_lsn(_row_binlog_lsn_buffer, mem_table->raw_rows(), &lsn));
-            DCHECK(lsn != nullptr && !lsn->empty());
-            const_cast<RowsetWriterContext&>(binlog_writer->context())
-                    .write_binlog_opt()
-                    .write_binlog_config()
-                    .insert_seg_lsn(shared_memtable->segment_id, lsn);
-        }
 
         tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(
                 shared_from_this(), shared_memtable, WriteRequestType::DATA, submit_task_time));
@@ -415,6 +390,16 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
             // }};
             std::shared_ptr<Block> flush_block;
             RETURN_IF_ERROR(_memtable2block(memtable, shared_memtable, flush_block));
+            if (flush_writer->context().write_binlog_opt().enable && flush_block->rows() > 0) {
+                const auto& memtable_lsns = memtable->row_binlog_lsns();
+                DCHECK_EQ(memtable_lsns.size(), flush_block->rows());
+                auto lsn_ids = std::make_shared<std::vector<int64_t>>(memtable_lsns.begin(),
+                                                                      memtable_lsns.end());
+                const_cast<RowsetWriterContext&>(flush_writer->context())
+                        .write_binlog_opt()
+                        .write_binlog_config()
+                        .insert_seg_lsn(segment_id, std::move(lsn_ids));
+            }
             RETURN_IF_ERROR(
                     flush_writer->flush_memtable(flush_block.get(), segment_id, &flush_size));
             memtable->set_flush_success();

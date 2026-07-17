@@ -33,6 +33,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
+#include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_env.h"
 #include "udf/python/python_server.h"
@@ -66,8 +67,9 @@ Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
 
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the specified range
-    RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
-                                           &batch, timezone_obj, row_num_start, row_num_end));
+    RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema,
+                                           ExecEnv::GetInstance()->arrow_memory_pool(), &batch,
+                                           timezone_obj, row_num_start, row_num_end));
     // Send the batch (already sliced in convert_to_arrow_batch)
     // Single place mode: no places column needed
     RETURN_IF_ERROR(client->accumulate(place_id, true, *batch, 0, batch->num_rows()));
@@ -111,8 +113,9 @@ Status AggregatePythonUDAFData::add_batch(AggregateDataPtr* places, size_t place
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the [start, end) range
     // This slice includes the places column automatically
-    RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
-                                           &batch, timezone_obj, start, end));
+    RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema,
+                                           ExecEnv::GetInstance()->arrow_memory_pool(), &batch,
+                                           timezone_obj, start, end));
     // Send entire batch (already contains places column) to Python
     // place_id=0 is ignored when is_single_place=false
     RETURN_IF_ERROR(client->accumulate(0, false, *batch, 0, slice_rows));

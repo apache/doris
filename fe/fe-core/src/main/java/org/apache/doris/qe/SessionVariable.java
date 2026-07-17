@@ -520,6 +520,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
 
+    public static final String FILE_CACHE_QUERY_LIMIT_BYTES =
+            "file_cache_query_limit_bytes";
+
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
@@ -1164,7 +1167,7 @@ public class SessionVariable implements Serializable, Writable {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
     public int maxFileScannersConcurrency = 16;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = {
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, fuzzy = true, description = {
             "开启后 FileScanNode 会在支持的查询场景使用 FileScannerV2，默认开启",
             "When enabled, FileScanNode uses FileScannerV2 for supported query scans. Enabled by default."})
     public boolean enableFileScannerV2 = true;
@@ -3074,9 +3077,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION = "enable_mc_limit_split_optimization";
     @VarAttrDef.VarAttr(
             name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            fuzzy = true,
             description = {"使能外表的 batch mode 功能", "Enable the batch mode function of the external table."},
             needForward = true)
-    public boolean enableExternalTableBatchMode = false;
+    public boolean enableExternalTableBatchMode = true;
 
     @VarAttrDef.VarAttr(
             name = ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION,
@@ -3200,6 +3204,14 @@ public class SessionVariable implements Serializable, Writable {
                 Config.file_cache_query_limit_max_percent));
         }
     }
+
+    @VarAttrDef.VarAttr(name = FILE_CACHE_QUERY_LIMIT_BYTES, needForward = true,
+            description = {"单个查询在每个 BE 上最多允许 read-through 写入 file cache 的远端 scan bytes。"
+                    + "< 0 表示关闭，= 0 表示查询开始即不写 file cache，> 0 表示达到阈值后不写 file cache。",
+                    "Maximum remote scan bytes allowed to write file cache per query on each BE. "
+                            + "< 0 disables it, = 0 disables file cache writes from query start, "
+                            + "> 0 disables file cache writes after the threshold is reached."})
+    public long fileCacheQueryLimitBytes = -1;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -3871,6 +3883,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
+        // Randomize the external file scanner engine (FileScannerV2 vs the legacy V1 path). Kept
+        // here rather than in setFuzzyForCatalog() so it also runs in the external regression
+        // pipeline, which enables fuzzy sessions with fuzzy_test_type=p1 (not "external").
+        this.enableFileScannerV2 = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -4042,6 +4058,13 @@ public class SessionVariable implements Serializable, Writable {
         // hive
         this.hiveTextCompression = Util.getRandomString(
                 "gzip", "defalte", "bzip2", "zstd", "lz4", "lzo", "snappy", "plain");
+
+        // batch mode
+        this.enableExternalTableBatchMode = random.nextBoolean();
+        if (this.enableExternalTableBatchMode) {
+            this.numPartitionsInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+            this.numFilesInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+        }
 
         // common
         this.enableCountPushDownForExternalTable = random.nextBoolean();
@@ -5864,7 +5887,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
 
         tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
-
+        tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
         return tResult;
     }
 

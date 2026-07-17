@@ -119,10 +119,6 @@ public:
 private:
     TQueryCacheParam _cache_param;
     std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
-    bool _has_data(RuntimeState* state) const {
-        auto& local_state = get_local_state(state);
-        return local_state._shared_state->data_queue.remaining_has_data();
-    }
     friend class CacheSourceLocalState;
 };
 
