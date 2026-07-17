@@ -326,8 +326,6 @@ public:
     MOCK_FUNCTION Status get_const_col(VExprContext* context,
                                        std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
 
-    void reset_constant_col();
-
     int fn_context_index() const { return _fn_context_index; }
 
     static VExprSPtr expr_without_cast(const VExprSPtr& expr) {

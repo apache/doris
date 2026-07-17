@@ -1357,7 +1357,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // The current time zone
     @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInExecution = true,
-            checker = "checkTimeZone")
+            checker = "checkTimeZone", setter = "setTimeZoneStandardized")
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VarAttrDef.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResultInExecution = true,
@@ -4293,8 +4293,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkTimeZone(String timeZone) throws DdlException {
-        TimeUtils.checkTimeZoneValidAndStandardize(timeZone);
-        ZoneId.of(timeZone, TimeUtils.timeZoneAliasMap);
+        ZoneId.of(TimeUtils.checkTimeZoneValidAndStandardize(timeZone), TimeUtils.timeZoneAliasMap);
+    }
+
+    public void setTimeZoneStandardized(String timeZone) throws DdlException {
+        this.timeZone = TimeUtils.checkTimeZoneValidAndStandardize(timeZone);
     }
 
     private static String standarlizeLcTimeNames(String value) {

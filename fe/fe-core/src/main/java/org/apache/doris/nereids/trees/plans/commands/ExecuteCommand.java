@@ -125,6 +125,7 @@ public class ExecuteCommand extends Command {
         }
         if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
             if (preparedStmtCtx.groupCommitPlanner.isPresent()) {
+                applySetVarHints(logicalPlan, statementContext);
                 OlapGroupCommitInsertExecutor.fastAnalyzeGroupCommit(ctx, prepareCommand);
             } else {
                 OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, prepareCommand);

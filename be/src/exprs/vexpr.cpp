@@ -836,13 +836,6 @@ Status VExpr::get_const_col(VExprContext* context,
     return Status::OK();
 }
 
-void VExpr::reset_constant_col() {
-    _constant_col.reset();
-    for (const auto& child : _children) {
-        child->reset_constant_col();
-    }
-}
-
 void VExpr::register_function_context(RuntimeState* state, VExprContext* context) {
     std::vector<DataTypePtr> arg_types;
     for (auto& i : _children) {

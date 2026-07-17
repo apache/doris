@@ -20,6 +20,7 @@
 #include <assert.h>
 #include <butil/macros.h>
 #include <butil/time.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
@@ -60,8 +61,6 @@ class PTabletKeyLookupRequest;
 class PTabletKeyLookupResponse;
 class RuntimeState;
 class TDescriptorTable;
-class TExpr;
-
 // For caching point lookup pre allocted blocks and exprs
 class Reusable {
 public:
@@ -100,18 +99,32 @@ public:
 
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
-    void update_runtime_state(const PTabletKeyLookupRequest& request);
+    Status refresh(const PTabletKeyLookupRequest& request);
+
+    std::unique_lock<std::mutex> acquire_execution_lock() {
+        return std::unique_lock(_execution_mutex);
+    }
+
+    std::unique_lock<std::mutex> try_acquire_execution_lock() {
+        return std::unique_lock(_execution_mutex, std::try_to_lock);
+    }
 
     // delete sign idx in block
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
 
 private:
+    void _update_runtime_state(const PTabletKeyLookupRequest& request);
+
+    Status _rebuild_output_exprs();
+
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
     DescriptorTbl* _desc_tbl = nullptr;
+    std::mutex _execution_mutex;
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<Block>> _block_pool;
+    std::vector<TExpr> _output_exprs;
     VExprContextSPtrs _output_exprs_ctxs;
     int64_t _create_timestamp = 0;
     DataTypeSerDeSPtrs _data_type_serdes;
@@ -343,6 +356,7 @@ private:
     BaseTabletSPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
+    std::unique_lock<std::mutex> _reusable_execution_lock;
     std::unique_ptr<Block> _result_block;
     Metrics _profile_metrics;
     bool _binary_row_format = false;

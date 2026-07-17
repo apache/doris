@@ -203,10 +203,15 @@ public class VariableMgrTest {
         Assert.assertEquals("America/Los_Angeles",
                 ZoneId.of(var.getTimeZone(), TimeUtils.timeZoneAliasMap).getId());
 
+        VariableMgr.setVar(var, new SetVar(SetType.SESSION, SessionVariable.TIME_ZONE,
+                new StringLiteral("+8:00")));
+        Assert.assertEquals("+08:00", var.getTimeZone());
+        Assert.assertEquals("+08:00", ZoneId.of(var.getTimeZone(), TimeUtils.timeZoneAliasMap).getId());
+
         DdlException exception = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
                 new SetVar(SetType.SESSION, SessionVariable.TIME_ZONE, new StringLiteral("invalid"))));
         Assert.assertTrue(exception.getMessage().contains("Unknown or incorrect time zone"));
-        Assert.assertEquals("PST", var.getTimeZone());
+        Assert.assertEquals("+08:00", var.getTimeZone());
     }
 
     @Test

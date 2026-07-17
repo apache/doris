@@ -133,7 +133,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
                       const PTabletKeyLookupRequest& request, size_t block_size) {
     _runtime_state = RuntimeState::create_unique();
     _runtime_state->set_query_options(query_options);
-    update_runtime_state(request);
+    _update_runtime_state(request);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     for (const auto* slot : tuple_desc()->slots()) {
@@ -152,11 +152,8 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         i->clear_names();
     }
 
-    RETURN_IF_ERROR(VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
-    RowDescriptor row_desc(tuple_desc());
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
-    RETURN_IF_ERROR(VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
+    _output_exprs = output_exprs;
+    RETURN_IF_ERROR(_rebuild_output_exprs());
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
@@ -217,16 +214,26 @@ void Reusable::return_block(std::unique_ptr<Block>& block) {
     }
 }
 
-void Reusable::update_runtime_state(const PTabletKeyLookupRequest& request) {
+void Reusable::_update_runtime_state(const PTabletKeyLookupRequest& request) {
     if (request.has_time_zone() && !request.time_zone().empty()) {
         _runtime_state->set_timezone(request.time_zone());
     }
     if (request.has_timestamp_ms()) {
         _runtime_state->set_query_time(request.timestamp_ms(), request.nano_seconds());
     }
-    for (const auto& output_expr : _output_exprs_ctxs) {
-        output_expr->root()->reset_constant_col();
-    }
+}
+
+Status Reusable::_rebuild_output_exprs() {
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_output_exprs, _output_exprs_ctxs));
+    RowDescriptor row_desc(tuple_desc());
+    RETURN_IF_ERROR(VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
+    return VExpr::open(_output_exprs_ctxs, _runtime_state.get());
+}
+
+Status Reusable::refresh(const PTabletKeyLookupRequest& request) {
+    _output_exprs_ctxs.clear();
+    _update_runtime_state(request);
+    return _rebuild_output_exprs();
 }
 
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
@@ -290,6 +297,9 @@ PointQueryExecutor::~PointQueryExecutor() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     _tablet.reset();
+    if (_reusable_execution_lock.owns_lock()) {
+        _reusable_execution_lock.unlock();
+    }
     _reusable.reset();
     _result_block.reset();
     _row_read_ctxs.clear();
@@ -321,7 +331,8 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
     if (cache_handle != nullptr) {
         _reusable = cache_handle;
-        _reusable->update_runtime_state(*request);
+        _reusable_execution_lock = _reusable->acquire_execution_lock();
+        RETURN_IF_ERROR(_reusable->refresh(*request));
         _profile_metrics.hit_lookup_cache = true;
     } else {
         // Lightweight request: FE may omit reusable query context and rely on uuid cache.
@@ -363,6 +374,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
                     &t_query_options));
         }
+        _reusable_execution_lock = reusable_ptr->acquire_execution_lock();
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
