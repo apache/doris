@@ -26,7 +26,7 @@ suite("test_async_file_cache_write", "docker") {
     options.beConfigs += [
         "enable_file_cache=true",
         "enable_async_file_cache_write=true",
-        "enable_inflight_write_buffer_index=true",
+        "enable_async_file_cache_write_inflight_write_buffer_index=true",
         "enable_read_cache_file_directly=false",
         "enable_cache_read_from_peer=false",
         "disable_storage_page_cache=true",
