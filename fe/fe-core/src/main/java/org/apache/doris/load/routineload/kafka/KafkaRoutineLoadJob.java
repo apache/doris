@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -62,7 +61,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
-import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -795,7 +793,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
-        Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
 
         writeLock();
@@ -814,37 +811,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // Kafka offset resolution may perform external I/O. Keep it outside DB/table metadata locks.
             PreparedKafkaProperties preparedDataSourceProperties =
                     prepareDataSourceProperties(dataSourceProperties, false);
-            if (!command.hasTargetTable()) {
-                unprotectApplyAlter(command, dataSourceProperties, preparedDataSourceProperties);
-                return;
-            }
-
-            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-            if (db == null) {
-                throw new DdlException("Database not found: " + dbId);
-            }
-            db.readLock();
-            try {
-                Table table = db.getTableNullable(command.getTargetTableId());
-                if (table == null) {
-                    throw new DdlException("Table not found: " + command.getTargetTableId());
-                }
-                if (!(table instanceof OlapTable)) {
-                    throw new DdlException("Routine load target table must be an OLAP table");
-                }
-                table.readLock();
-                try {
-                    TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(
-                            uniqueKeyUpdateMode, jobProperties);
-                    unprotectedValidateTargetTable(
-                            db, (OlapTable) table, jobProperties, effectiveUniqueKeyUpdateMode);
-                    unprotectApplyAlter(command, dataSourceProperties, preparedDataSourceProperties);
-                } finally {
-                    table.readUnlock();
-                }
-            } finally {
-                db.readUnlock();
-            }
+            unprotectApplyAlter(command, dataSourceProperties, preparedDataSourceProperties);
         } finally {
             writeUnlock();
         }
