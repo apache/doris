@@ -79,14 +79,14 @@ class AsyncCachedRemoteFileReaderTest : public BlockFileCacheTest {
 protected:
     void SetUp() override {
         _old_enable_async = config::enable_async_file_cache_write;
-        _old_enable_inflight = config::enable_inflight_write_buffer_index;
+        _old_enable_inflight = config::enable_async_file_cache_write_inflight_write_buffer_index;
         _old_enable_direct = config::enable_read_cache_file_directly;
         _old_enable_peer = config::enable_cache_read_from_peer;
         _old_block_size = config::file_cache_each_block_size;
         _old_wait_timeout_ms = config::block_cache_wait_timeout_ms;
 
         config::enable_async_file_cache_write = true;
-        config::enable_inflight_write_buffer_index = true;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = true;
         config::enable_read_cache_file_directly = false;
         config::enable_cache_read_from_peer = false;
         config::file_cache_each_block_size = 1_mb;
@@ -100,7 +100,7 @@ protected:
             fs::remove_all(_cache_path, error);
         }
         config::enable_async_file_cache_write = _old_enable_async;
-        config::enable_inflight_write_buffer_index = _old_enable_inflight;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = _old_enable_inflight;
         config::enable_read_cache_file_directly = _old_enable_direct;
         config::enable_cache_read_from_peer = _old_enable_peer;
         config::file_cache_each_block_size = _old_block_size;
@@ -636,16 +636,17 @@ TEST_F(BlockFileCacheTest,
 
 TEST_F(BlockFileCacheTest, async_write_reuses_inflight_buffer_then_reads_downloaded_block) {
     const bool old_enable_async = config::enable_async_file_cache_write;
-    const bool old_enable_inflight = config::enable_inflight_write_buffer_index;
+    const bool old_enable_inflight =
+            config::enable_async_file_cache_write_inflight_write_buffer_index;
     const bool old_enable_direct = config::enable_read_cache_file_directly;
     const bool old_enable_peer = config::enable_cache_read_from_peer;
     config::enable_async_file_cache_write = true;
-    config::enable_inflight_write_buffer_index = true;
+    config::enable_async_file_cache_write_inflight_write_buffer_index = true;
     config::enable_read_cache_file_directly = false;
     config::enable_cache_read_from_peer = false;
     Defer restore_config {[&]() {
         config::enable_async_file_cache_write = old_enable_async;
-        config::enable_inflight_write_buffer_index = old_enable_inflight;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = old_enable_inflight;
         config::enable_read_cache_file_directly = old_enable_direct;
         config::enable_cache_read_from_peer = old_enable_peer;
     }};
@@ -773,18 +774,19 @@ TEST_F(BlockFileCacheTest, async_write_reuses_inflight_buffer_then_reads_downloa
 
 TEST_F(BlockFileCacheTest, async_write_waits_for_downloading_block_outside_remote_span) {
     const bool old_enable_async = config::enable_async_file_cache_write;
-    const bool old_enable_inflight = config::enable_inflight_write_buffer_index;
+    const bool old_enable_inflight =
+            config::enable_async_file_cache_write_inflight_write_buffer_index;
     const bool old_enable_direct = config::enable_read_cache_file_directly;
     const bool old_enable_peer = config::enable_cache_read_from_peer;
     const int64_t old_block_size = config::file_cache_each_block_size;
     config::enable_async_file_cache_write = true;
-    config::enable_inflight_write_buffer_index = true;
+    config::enable_async_file_cache_write_inflight_write_buffer_index = true;
     config::enable_read_cache_file_directly = false;
     config::enable_cache_read_from_peer = false;
     config::file_cache_each_block_size = 1_mb;
     Defer restore_config {[&]() {
         config::enable_async_file_cache_write = old_enable_async;
-        config::enable_inflight_write_buffer_index = old_enable_inflight;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = old_enable_inflight;
         config::enable_read_cache_file_directly = old_enable_direct;
         config::enable_cache_read_from_peer = old_enable_peer;
         config::file_cache_each_block_size = old_block_size;
@@ -852,18 +854,19 @@ TEST_F(BlockFileCacheTest, async_write_waits_for_downloading_block_outside_remot
 
 TEST_F(BlockFileCacheTest, async_write_reads_only_middle_span_between_cached_sides) {
     const bool old_enable_async = config::enable_async_file_cache_write;
-    const bool old_enable_inflight = config::enable_inflight_write_buffer_index;
+    const bool old_enable_inflight =
+            config::enable_async_file_cache_write_inflight_write_buffer_index;
     const bool old_enable_direct = config::enable_read_cache_file_directly;
     const bool old_enable_peer = config::enable_cache_read_from_peer;
     const int64_t old_block_size = config::file_cache_each_block_size;
     config::enable_async_file_cache_write = true;
-    config::enable_inflight_write_buffer_index = true;
+    config::enable_async_file_cache_write_inflight_write_buffer_index = true;
     config::enable_read_cache_file_directly = false;
     config::enable_cache_read_from_peer = false;
     config::file_cache_each_block_size = 1_mb;
     Defer restore_config {[&]() {
         config::enable_async_file_cache_write = old_enable_async;
-        config::enable_inflight_write_buffer_index = old_enable_inflight;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = old_enable_inflight;
         config::enable_read_cache_file_directly = old_enable_direct;
         config::enable_cache_read_from_peer = old_enable_peer;
         config::file_cache_each_block_size = old_block_size;
@@ -937,18 +940,19 @@ TEST_F(BlockFileCacheTest, async_write_reads_only_middle_span_between_cached_sid
 
 TEST_F(BlockFileCacheTest, async_write_middle_hit_uses_one_remote_span_and_submits_only_misses) {
     const bool old_enable_async = config::enable_async_file_cache_write;
-    const bool old_enable_inflight = config::enable_inflight_write_buffer_index;
+    const bool old_enable_inflight =
+            config::enable_async_file_cache_write_inflight_write_buffer_index;
     const bool old_enable_direct = config::enable_read_cache_file_directly;
     const bool old_enable_peer = config::enable_cache_read_from_peer;
     const int64_t old_block_size = config::file_cache_each_block_size;
     config::enable_async_file_cache_write = true;
-    config::enable_inflight_write_buffer_index = true;
+    config::enable_async_file_cache_write_inflight_write_buffer_index = true;
     config::enable_read_cache_file_directly = false;
     config::enable_cache_read_from_peer = false;
     config::file_cache_each_block_size = 1_mb;
     Defer restore_config {[&]() {
         config::enable_async_file_cache_write = old_enable_async;
-        config::enable_inflight_write_buffer_index = old_enable_inflight;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = old_enable_inflight;
         config::enable_read_cache_file_directly = old_enable_direct;
         config::enable_cache_read_from_peer = old_enable_peer;
         config::file_cache_each_block_size = old_block_size;
@@ -1030,18 +1034,19 @@ TEST_F(BlockFileCacheTest, async_write_middle_hit_uses_one_remote_span_and_submi
 
 TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
     const bool old_enable_async = config::enable_async_file_cache_write;
-    const bool old_enable_inflight = config::enable_inflight_write_buffer_index;
+    const bool old_enable_inflight =
+            config::enable_async_file_cache_write_inflight_write_buffer_index;
     const bool old_enable_direct = config::enable_read_cache_file_directly;
     const bool old_enable_peer = config::enable_cache_read_from_peer;
     const int64_t old_block_size = config::file_cache_each_block_size;
     config::enable_async_file_cache_write = true;
-    config::enable_inflight_write_buffer_index = true;
+    config::enable_async_file_cache_write_inflight_write_buffer_index = true;
     config::enable_read_cache_file_directly = false;
     config::enable_cache_read_from_peer = false;
     config::file_cache_each_block_size = 1_mb;
     Defer restore_config {[&]() {
         config::enable_async_file_cache_write = old_enable_async;
-        config::enable_inflight_write_buffer_index = old_enable_inflight;
+        config::enable_async_file_cache_write_inflight_write_buffer_index = old_enable_inflight;
         config::enable_read_cache_file_directly = old_enable_direct;
         config::enable_cache_read_from_peer = old_enable_peer;
         config::file_cache_each_block_size = old_block_size;

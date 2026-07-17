@@ -549,7 +549,9 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     RETURN_IF_ERROR(_storage->init(this));
 
     _inflight_write_buffer_index = std::make_unique<InflightWriteBufferIndex>(
-            static_cast<size_t>(config::inflight_write_buffer_index_shard_count), _cache_base_path);
+            static_cast<size_t>(
+                    config::async_file_cache_write_inflight_write_buffer_index_shard_count),
+            _cache_base_path);
     // BlockFileCache is the configuration boundary for a newly created per-disk service. Pass a
     // value snapshot so AsyncCacheWriteService does not need to know where its settings came from.
     AsyncCacheWriteServiceOptions async_write_options {
