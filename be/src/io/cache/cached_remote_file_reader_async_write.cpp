@@ -34,6 +34,7 @@
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
+#include "util/defer_op.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -68,6 +69,10 @@ bvar::Adder<uint64_t> g_cached_remote_reader_middle_span_read_bytes(
         "cached_remote_file_reader_middle_span_read_bytes");
 bvar::Adder<uint64_t> g_cached_remote_reader_middle_span_miss_bytes(
         "cached_remote_file_reader_middle_span_miss_bytes");
+bvar::LatencyRecorder g_cached_remote_reader_async_read_plan_latency(
+        "cached_remote_file_reader_async_read_plan_latency_us");
+bvar::LatencyRecorder g_cached_remote_reader_async_write_submission_latency(
+        "cached_remote_file_reader_async_write_submission_latency_us");
 
 } // namespace
 
@@ -126,6 +131,10 @@ CacheWriteMode CachedRemoteFileReader::_resolve_cache_write_mode(const IOContext
 CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_plan(
         size_t remaining_offset, size_t remaining_size, uint64_t write_epoch,
         const IOContext* io_ctx, ReadStatistics& stats) {
+    const int64_t plan_start_us = MonotonicMicros();
+    Defer record_plan_latency {[&]() {
+        g_cached_remote_reader_async_read_plan_latency << (MonotonicMicros() - plan_start_us);
+    }};
     DORIS_CHECK(remaining_size > 0);
     const auto [align_left, align_size] = s_align_size(remaining_offset, remaining_size, size());
     const size_t cache_block_size = static_cast<size_t>(config::file_cache_each_block_size);
@@ -416,6 +425,11 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
                                                        const std::unique_ptr<char[]>& remote_buffer,
                                                        const IOContext* io_ctx,
                                                        ReadStatistics& stats) {
+    const int64_t submission_start_us = MonotonicMicros();
+    Defer record_submission_latency {[&]() {
+        g_cached_remote_reader_async_write_submission_latency
+                << (MonotonicMicros() - submission_start_us);
+    }};
     auto* service = _cache->async_write_service();
     auto* inflight_index = _cache->inflight_write_buffer_index();
     DORIS_CHECK(service != nullptr);

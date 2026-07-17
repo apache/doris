@@ -667,6 +667,7 @@ private:
 
     std::shared_ptr<bvar::LatencyRecorder> _cache_lock_wait_time_us;
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _probe_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_sync_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_retry_sync_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency_us;

@@ -40,6 +40,8 @@ TEST(InflightWriteBufferIndexTest, InsertLookupAndConditionalRemove) {
     InflightWriteBufferIndex index(8, "inflight_index_basic_test");
     const auto hash = BlockFileCache::hash("basic");
     auto entry = make_entry(7);
+    const int64_t lock_wait_count = index._lock_wait_latency_metric->count();
+    const int64_t lock_hold_count = index._lock_hold_latency_metric->count();
 
     EXPECT_EQ(index.insert_if_absent(hash, 0, entry), nullptr);
     EXPECT_EQ(index.size(), 1);
@@ -51,6 +53,8 @@ TEST(InflightWriteBufferIndexTest, InsertLookupAndConditionalRemove) {
     EXPECT_TRUE(index.remove_if(hash, 0, entry));
     EXPECT_EQ(index.size(), 0);
     EXPECT_EQ(index.lookup(hash, 0, 7), nullptr);
+    EXPECT_EQ(index._lock_wait_latency_metric->count() - lock_wait_count, 6);
+    EXPECT_EQ(index._lock_hold_latency_metric->count() - lock_hold_count, 6);
 }
 
 TEST(InflightWriteBufferIndexTest, LookupAllSupportsPartialHit) {

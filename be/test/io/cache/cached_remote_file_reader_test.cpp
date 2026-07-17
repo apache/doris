@@ -487,7 +487,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(stats.async_cache_write_submitted, 0);
     EXPECT_EQ(cache()->async_write_service()->pending_count(), 0);
     EXPECT_EQ(cache()->inflight_write_buffer_index()->size(), 0);
-    EXPECT_GE(cache()->async_write_service()->stats().buffer_alloc_fail, 1);
+    EXPECT_GE(cache()->async_write_service()->_buffer_alloc_fail_metric->get_value(), 1);
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest,

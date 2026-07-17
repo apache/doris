@@ -55,11 +55,15 @@ TEST_F(BlockFileCacheTest, ProbeMissDoesNotCreateCacheCell) {
         CacheContext context;
         context.stats = &stats;
         const size_t cache_size_before = cache._cur_cache_size;
+        const int64_t probe_latency_count = cache._probe_latency_us->count();
+        const int64_t cache_lock_wait_count = cache._cache_lock_wait_time_us->count();
 
         auto result = cache.probe(hash, 0, 4096, context);
         ASSERT_EQ(result.file_blocks.size(), 1);
         EXPECT_EQ(result.file_blocks[0], nullptr);
         EXPECT_EQ(cache._cur_cache_size, cache_size_before);
+        EXPECT_EQ(cache._probe_latency_us->count() - probe_latency_count, 1);
+        EXPECT_EQ(cache._cache_lock_wait_time_us->count() - cache_lock_wait_count, 1);
         std::lock_guard cache_lock(cache._mutex);
         EXPECT_EQ(cache._files.find(hash), cache._files.end());
     }

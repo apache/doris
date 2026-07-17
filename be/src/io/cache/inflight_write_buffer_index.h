@@ -89,14 +89,8 @@ public:
     bool remove_if(const UInt128Wrapper& cache_hash, size_t block_offset,
                    const std::shared_ptr<InflightWriteBufferEntry>& expected);
 
-    /// Visit a retained snapshot of entries without holding shard locks during callbacks.
-    void for_each_entry(const std::function<void(const InflightWriteBufferEntry&)>& visitor) const;
-
     /// Return the number of indexed block payloads.
     size_t size() const { return _size.load(std::memory_order_relaxed); }
-
-    /// Estimate index metadata usage; shared payload bytes are tracked by the write service.
-    size_t memory_usage() const;
 
     /// Record removal of an inserted entry because queue submission hit backpressure.
     void record_backpressure_rollback() { *_rollback_on_backpressure_metric << 1; }
@@ -128,7 +122,6 @@ private:
     std::atomic<size_t> _size {0};
 
     std::shared_ptr<bvar::PassiveStatus<size_t>> _size_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _memory_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _lookup_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _hit_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _miss_metric;
@@ -139,6 +132,8 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _stale_epoch_miss_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _stale_epoch_replace_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _rollback_on_backpressure_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _lock_wait_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _lock_hold_latency_metric;
 };
 
 } // namespace doris::io
