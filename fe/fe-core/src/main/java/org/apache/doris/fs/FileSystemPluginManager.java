@@ -37,6 +37,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -85,11 +86,13 @@ public class FileSystemPluginManager {
         ServiceLoader.load(FileSystemProvider.class)
                 .forEach(p -> {
                     try {
-                        // Snapshot self-reported metadata before publishing the provider
-                        // so one throwing implementation is rejected cleanly instead of
-                        // aborting startup or being active without an inventory row.
+                        // Snapshot all self-reported metadata (sensitive keys included)
+                        // before mutating any store, so one throwing implementation is
+                        // rejected cleanly instead of aborting startup or leaving an
+                        // inventory row for a provider that never became active.
+                        Set<String> sensitiveKeys = p.sensitivePropertyKeys();
                         PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
-                        DatasourcePrintableMap.registerSensitiveKeys(p.sensitivePropertyKeys());
+                        DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
                         providers.add(p);
                         LOG.info("Registered built-in filesystem provider: {}", p.name());
                     } catch (RuntimeException e) {
@@ -133,8 +136,20 @@ public class FileSystemPluginManager {
                 continue;
             }
             FileSystemProvider provider = handle.getFactory();
+            // Snapshot the self-reported sensitive keys before publishing anything:
+            // this is plugin code and may throw, and a provider must never be active
+            // without its inventory row (or vice versa).
+            Set<String> sensitiveKeys;
+            try {
+                sensitiveKeys = provider.sensitivePropertyKeys();
+            } catch (RuntimeException | LinkageError e) {
+                runtimeManager.discard(handle.getPluginName());
+                LOG.warn("Skip filesystem plugin '{}' from {}: sensitivePropertyKeys() failed",
+                        handle.getPluginName(), handle.getPluginDir(), e);
+                continue;
+            }
             providers.add(provider);
-            DatasourcePrintableMap.registerSensitiveKeys(provider.sensitivePropertyKeys());
+            DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
             PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
             LOG.info("Loaded filesystem plugin: name={}, pluginDir={}, jarCount={}",
                     handle.getPluginName(), handle.getPluginDir(),

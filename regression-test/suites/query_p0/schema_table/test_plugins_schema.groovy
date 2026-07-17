@@ -56,6 +56,15 @@ suite("test_plugins_schema", "p0") {
     String pwd = "C123_567p"
     try_sql("DROP USER IF EXISTS ${user}")
     sql "CREATE USER ${user} IDENTIFIED BY '${pwd}'"
+    // The JDBC URL carries a default database; without a grant on it the
+    // connection itself is refused before the query runs.
+    sql "GRANT SELECT_PRIV ON regression_test TO ${user}"
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        Assert.assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}"""
+    }
     try {
         connect(user, pwd, context.config.jdbcUrl) {
             def result = sql "SELECT * FROM information_schema.plugins"

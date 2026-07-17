@@ -280,7 +280,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         String pluginName;
         try {
             pluginName = factory.name();
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | LinkageError e) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,
@@ -298,10 +298,13 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     null);
         }
 
+        // LinkageError included: a factory jar with a broken classpath (or one
+        // compiled against a conflicting interface) must fail this plugin only,
+        // never escape per-plugin isolation.
         String description;
         try {
             description = factory.description();
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | LinkageError e) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,
@@ -332,10 +335,11 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
      * failing the load.
      */
     private String readImplementationVersion(Class<?> factoryClass, List<Path> candidateJars) {
+        String packagePath = packagePathOf(factoryClass);
         Path definingJar = jarOf(factoryClass);
         if (definingJar != null) {
             try (JarFile jarFile = new JarFile(definingJar.toFile())) {
-                return manifestImplementationVersion(jarFile);
+                return manifestImplementationVersion(jarFile, packagePath);
             } catch (IOException ignored) {
                 // Fall through to scanning the candidate jars.
             }
@@ -346,7 +350,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 if (jarFile.getEntry(classEntry) == null) {
                     continue;
                 }
-                return manifestImplementationVersion(jarFile);
+                return manifestImplementationVersion(jarFile, packagePath);
             } catch (IOException ignored) {
                 // Display-only metadata; fall through to the next candidate jar.
             }
@@ -354,10 +358,32 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         return null;
     }
 
-    private static String manifestImplementationVersion(JarFile jarFile) throws IOException {
+    private static String manifestImplementationVersion(JarFile jarFile, String packagePath)
+            throws IOException {
         Manifest manifest = jarFile.getManifest();
-        return manifest == null ? null
-                : manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+        if (manifest == null) {
+            return null;
+        }
+        // Per the jar spec a package section ("Name: com/acme/plugin/") overrides
+        // the main attributes for classes in that package, mirroring
+        // Package.getImplementationVersion().
+        if (packagePath != null) {
+            Attributes packageAttributes = manifest.getAttributes(packagePath);
+            if (packageAttributes != null) {
+                String version = packageAttributes.getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+                if (version != null) {
+                    return version;
+                }
+            }
+        }
+        return manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+    }
+
+    /** Manifest section name for the class's package ("com/acme/plugin/"), or null. */
+    private static String packagePathOf(Class<?> clazz) {
+        String className = clazz.getName();
+        int lastDot = className.lastIndexOf('.');
+        return lastDot < 0 ? null : className.substring(0, lastDot).replace('.', '/') + "/";
     }
 
     /** Jar file that defined the class per its protection domain, or null. */
