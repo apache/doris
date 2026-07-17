@@ -167,17 +167,18 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
-        int[] projections = requiredFileds.stream().mapToInt(
-                        field -> paimonSysTable.rowType().getFieldNames()
-                                .stream()
-                                .map(String::toLowerCase)
-                                .collect(Collectors.toList())
-                                .indexOf(field))
+        List<String> paimonFieldNames = paimonSysTable.rowType().getFieldNames();
+        int[] projections = requiredFileds.stream()
+                .mapToInt(field -> getFieldIndex(paimonFieldNames, field))
                 .toArray();
         List<Split> splits;
         try {
-            splits = hadoopAuthenticator.execute(
-                    () -> paimonSysTable.newReadBuilder().withProjection(projections).newScan().plan().splits());
+            splits = hadoopAuthenticator.execute(() -> {
+                if (hasInvalidProjection(projections)) {
+                    return paimonSysTable.newReadBuilder().newScan().plan().splits();
+                }
+                return paimonSysTable.newReadBuilder().withProjection(projections).newScan().plan().splits();
+            });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));
         }
@@ -189,6 +190,24 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         tMetaScanRange.setSerializedSplits(
                 splits.stream().map(PaimonUtil::encodeObjectToString).collect(Collectors.toList()));
         return tMetaScanRange;
+    }
+
+    private static boolean hasInvalidProjection(int[] projections) {
+        for (int projection : projections) {
+            if (projection < 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int getFieldIndex(List<String> fieldNames, String fieldName) {
+        for (int i = 0; i < fieldNames.size(); i++) {
+            if (fieldNames.get(i).equalsIgnoreCase(fieldName)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     @Override

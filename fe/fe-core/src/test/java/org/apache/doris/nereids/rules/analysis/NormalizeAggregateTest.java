@@ -23,9 +23,11 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -689,8 +692,83 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                 );
     }
 
+    @Test
+    public void testAggregateOrderByExpressionNeedPushDown() {
+        String windowSql = "select group_concat(k order by row_number() over(order by k)) as s "
+                + "from (select 1 as k union all select 2) t";
+        PlanChecker.from(connectContext)
+                .analyze(windowSql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertTrue(ExpressionUtils.containsTypes(
+                                                            project.getProjects(), WindowExpression.class));
+                                                    Assertions.assertFalse(containsExpressionInstance(
+                                                            project.getProjects(), OrderExpression.class));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
+                );
+
+        String subquerySql = "select group_concat(id order by (select 1)) from t1";
+        PlanChecker.from(connectContext)
+                .analyze(subquerySql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertFalse(containsExpressionInstance(
+                                                            project.getProjects(), OrderExpression.class));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testDistinctAggregateOrderByExpressionNeedPushDown() {
+        String sql = "select group_concat(distinct name order by id + no) from t1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertTrue(ExpressionUtils.containsTypes(
+                                                            project.getProjects(), Add.class));
+                                                    Assertions.assertFalse(containsExpressionInstance(
+                                                            project.getProjects(), OrderExpression.class));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
+                );
+    }
+
     private void checkExprsToSql(Collection<? extends Expression> expressions, String... exprsToSql) {
         Assertions.assertEquals(Arrays.asList(exprsToSql),
                 expressions.stream().map(Expression::toSql).collect(Collectors.toList()));
+    }
+
+    private boolean containsExpressionInstance(Collection<? extends Expression> expressions,
+            Class<? extends Expression> clazz) {
+        for (Expression expression : expressions) {
+            if (clazz.isInstance(expression)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

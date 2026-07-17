@@ -32,6 +32,7 @@
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_meta.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -42,6 +43,35 @@ class CloudMetaMgrTest : public testing::Test {
     void SetUp() override {}
     void TearDown() override {}
 };
+
+static AbortTxnRequest get_abort_txn_request(CloudMetaMgr* meta_mgr, const StreamLoadContext& ctx) {
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    bool called = false;
+    AbortTxnRequest captured_req;
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "CloudMetaMgr::abort_txn.before_rpc",
+            [&](auto&& args) {
+                auto* req = try_any_cast<AbortTxnRequest*>(args[0]);
+                captured_req.CopyFrom(*req);
+                called = true;
+                auto* ret = try_any_cast<std::pair<Status, bool>*>(args.back());
+                ret->first = Status::OK();
+                ret->second = true;
+            },
+            &guard);
+
+    Status status = meta_mgr->abort_txn(ctx);
+
+    EXPECT_TRUE(status.ok()) << "Status: " << status;
+    EXPECT_TRUE(called);
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+    return captured_req;
+}
 
 TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
     // clang-format off
@@ -168,6 +198,38 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
         EXPECT_GE(duration_cast<microseconds>(end - start).count(), sleep_us);
     }
     // clang-format on
+}
+
+TEST_F(CloudMetaMgrTest, abort_txn_prefers_txn_id_when_label_is_also_present) {
+    CloudMetaMgr meta_mgr;
+    StreamLoadContext ctx(nullptr);
+    ctx.db_id = 10001;
+    ctx.txn_id = 20002;
+    ctx.label = "same_label";
+    ctx.status = Status::InternalError<false>("load failed");
+
+    AbortTxnRequest captured_req = get_abort_txn_request(&meta_mgr, ctx);
+
+    EXPECT_TRUE(captured_req.has_txn_id());
+    EXPECT_EQ(captured_req.txn_id(), ctx.txn_id);
+    EXPECT_FALSE(captured_req.has_db_id());
+    EXPECT_FALSE(captured_req.has_label());
+}
+
+TEST_F(CloudMetaMgrTest, abort_txn_uses_label_when_txn_id_is_missing) {
+    CloudMetaMgr meta_mgr;
+    StreamLoadContext ctx(nullptr);
+    ctx.db_id = 10001;
+    ctx.label = "same_label";
+    ctx.status = Status::InternalError<false>("load failed");
+
+    AbortTxnRequest captured_req = get_abort_txn_request(&meta_mgr, ctx);
+
+    EXPECT_FALSE(captured_req.has_txn_id());
+    EXPECT_TRUE(captured_req.has_db_id());
+    EXPECT_EQ(captured_req.db_id(), ctx.db_id);
+    EXPECT_TRUE(captured_req.has_label());
+    EXPECT_EQ(captured_req.label(), ctx.label);
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {

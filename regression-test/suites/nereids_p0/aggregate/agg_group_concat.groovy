@@ -102,6 +102,21 @@ suite("agg_group_concat") {
     sql """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table group by kbint order by 1,2;"""
     sql """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table group by kbint order by 1,2;"""
 
+    order_qt_group_concat_order_by_window """
+        select group_concat(k order by row_number() over(order by k)) as s
+        from (select 1 as k union all select 2) t;
+    """
+
+    order_qt_group_concat_order_by_subquery """
+        select group_concat(kint order by (select 1), kint) as s
+        from agg_group_concat_table;
+    """
+
+    order_qt_group_concat_distinct_order_by_expr """
+        select group_concat(distinct kstr order by kint + kbint) as s
+        from agg_group_concat_table;
+    """
+
     sql "drop table if exists test_distinct_multi"
     sql """
     create table test_distinct_multi(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1'); 

@@ -71,6 +71,7 @@ import org.apache.doris.catalog.AnyElementType;
 import org.apache.doris.catalog.AnyStructType;
 import org.apache.doris.catalog.AnyType;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.AzureResource;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -362,6 +363,7 @@ public class GsonUtils {
             .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
             .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName())
             .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
+            .registerSubtype(AzureResource.class, AzureResource.class.getSimpleName())
             .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
             .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
             .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())

@@ -179,7 +179,11 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         continue;
                     }
                     if (arg.containsType(SubqueryExpr.class, WindowExpression.class, PreferPushDownProject.class)) {
-                        needPushDownSelfExprs.add(arg);
+                        if (arg instanceof OrderExpression) {
+                            needPushDownSelfExprs.add(arg.child(0));
+                        } else {
+                            needPushDownSelfExprs.add(arg);
+                        }
                     } else {
                         needPushDownInputs.add(arg);
                     }
@@ -192,8 +196,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         continue;
                     }
 
-                    Collection<? extends Expression> inputSlots
-                            = arg instanceof OrderExpression ? arg.getInputSlots() : ImmutableList.of(arg);
+                    Collection<? extends Expression> inputSlots = arg instanceof OrderExpression
+                            ? ImmutableList.of(((OrderExpression) arg).child()) : ImmutableList.of(arg);
                     for (Expression input : inputSlots) {
                         if (input instanceof SlotReference) {
                             needPushDownInputs.add(input);

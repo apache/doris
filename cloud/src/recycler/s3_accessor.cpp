@@ -235,10 +235,16 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
             }
         }
 
+        if (obj_info.has_cred_provider_type()) {
+            s3_conf.cred_provider_type = cred_provider_type_from_pb(obj_info.cred_provider_type());
+        }
+
         if (obj_info.has_role_arn() && !obj_info.role_arn().empty()) {
             s3_conf.role_arn = obj_info.role_arn();
             s3_conf.external_id = obj_info.external_id();
-            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
+            if (!obj_info.has_cred_provider_type()) {
+                s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
+            }
         }
     }
 

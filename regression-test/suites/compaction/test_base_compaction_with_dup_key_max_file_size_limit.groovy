@@ -87,22 +87,32 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
     def configList = parseJson(out.trim())
     assert configList instanceof List
 
-    // Capture the original cluster-wide disable_auto_compaction so it can be restored.
+    // Capture the original cluster-wide disable_auto_compaction and dup-key base-compaction
+    // file-size limit so they can be restored.
     boolean originalDisableAutoCompaction = false
+    String originalBaseCompactionDupKeyMaxFileSizeMbytes = "1024"
     for (Object ele in (List) configList) {
         assert ele instanceof List<String>
         if (((List<String>) ele)[0] == "disable_auto_compaction") {
             originalDisableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
         }
+        if (((List<String>) ele)[0] == "base_compaction_dup_key_max_file_size_mbytes") {
+            originalBaseCompactionDupKeyMaxFileSizeMbytes = ((List<String>) ele)[2]
+        }
     }
 
     try {
-        // This test deterministically builds a [0-3] (>1G) single base rowset via manual
-        // compactions, then expects a manual base compaction to be REJECTED with E-808
-        // (input rowset exceeds base_compaction_dup_key_max_file_size_mbytes). Background
-        // auto compaction would race those manual steps and reshape the rowsets, making the
-        // result flaky, so disable it cluster-wide for the duration of the test.
+        // This test deterministically builds a single base rowset via manual compactions, then
+        // expects a manual base compaction to be REJECTED with E-808 (first input rowset exceeds
+        // base_compaction_dup_key_max_file_size_mbytes). Background auto compaction would race
+        // those manual steps and reshape the rowsets, making the result flaky, so disable it
+        // cluster-wide for the duration of the test.
         set_be_param("disable_auto_compaction", "true")
+        // Each 15M-row tpch customer load produces only a ~760MB rowset, so the accumulated base
+        // rowset never reaches the default 1G limit and the size gate would never fire (the base
+        // compaction would succeed instead of returning E-808). Lower the limit to 100MB so the
+        // base rowset (hundreds of MB) deterministically exceeds it regardless of encoded size.
+        set_be_param("base_compaction_dup_key_max_file_size_mbytes", "100")
 
         def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
             // trigger compactions for all tablets in ${tableName}
@@ -193,11 +203,12 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         // cp: 5
         trigger_and_wait_compaction(tableName, "cumulative")
 
-        // Due to the limit of config::base_compaction_dup_key_max_file_size_mbytes(1G),
-        // can not do base compaction, return E-808
-        // rowsets:
-        //      [0-3] 2G nooverlapping
-        //      [4-4] 1G nooverlapping
+        // Due to the limit of config::base_compaction_dup_key_max_file_size_mbytes (100MB, set
+        // above), the first input (base) rowset exceeds it, so base compaction can not run and
+        // returns E-808.
+        // rowsets (each ~760MB per 15M-row customer load):
+        //      [0-3] nooverlapping   // first input rowset, exceeds the 100MB limit
+        //      [4-4] nooverlapping
         // cp: 5
         // WHAT: replace with plugin and handle fail?
         assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
@@ -206,7 +217,8 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         def rowCount = sql "select count(*) from ${tableName}"
         assertTrue(rowCount[0][0] != rows)
     } finally {
-        // Restore the original cluster-wide auto-compaction setting.
+        // Restore the original cluster-wide settings.
         set_be_param("disable_auto_compaction", originalDisableAutoCompaction.toString())
+        set_be_param("base_compaction_dup_key_max_file_size_mbytes", originalBaseCompactionDupKeyMaxFileSizeMbytes)
     }
 }

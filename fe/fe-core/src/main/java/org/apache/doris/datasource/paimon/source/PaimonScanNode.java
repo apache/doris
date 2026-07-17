@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -50,6 +51,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
@@ -65,6 +67,7 @@ import org.apache.paimon.table.source.TableScan;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -89,6 +92,17 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_START_TIMESTAMP = "startTimestamp";
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
+    private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
+    private static final String DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
+    private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+    private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "doris.jni_io_manager.impl_class";
+    private static final String JDBC_PREFIX = "jdbc.";
+    private static final String JDBC_DRIVER_URL = JDBC_PREFIX + JdbcResource.DRIVER_URL;
+    private static final String JDBC_DRIVER_CLASS = JDBC_PREFIX + JdbcResource.DRIVER_CLASS;
+    private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
+            DORIS_ENABLE_JNI_IO_MANAGER,
+            DORIS_JNI_IO_MANAGER_TMP_DIR,
+            DORIS_JNI_IO_MANAGER_IMPL_CLASS);
 
     private enum SplitReadType {
         JNI,
@@ -142,6 +156,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
+    private Map<String, String> backendPaimonOptions = Collections.emptyMap();
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -169,6 +184,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 source.getPaimonTable()
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
+        backendPaimonOptions = getBackendPaimonOptions();
     }
 
     @VisibleForTesting
@@ -211,6 +227,40 @@ public class PaimonScanNode extends FileQueryScanNode {
                     PaimonUtil.getSchemaInfo(tableSchema, source.getCatalog().getEnableMappingVarbinary(),
                             source.getCatalog().getEnableMappingTimestampTz()));
         }
+    }
+
+    private List<String> getOrderedPathPartitionKeys() {
+        if (source == null) {
+            return Collections.emptyList();
+        }
+        return source.getPaimonTable().partitionKeys();
+    }
+
+    @VisibleForTesting
+    void setPartitionValues(TFileRangeDesc rangeDesc, Map<String, String> partitionValues) {
+        rangeDesc.unsetColumnsFromPathKeys();
+        rangeDesc.unsetColumnsFromPath();
+        rangeDesc.unsetColumnsFromPathIsNull();
+
+        List<String> orderedPartitionKeys = getOrderedPathPartitionKeys();
+        if (orderedPartitionKeys.isEmpty()) {
+            return;
+        }
+        Preconditions.checkState(partitionValues != null,
+                "Missing partition values for Paimon partitioned table");
+
+        List<String> fromPathValues = new ArrayList<>(orderedPartitionKeys.size());
+        List<Boolean> fromPathIsNull = new ArrayList<>(orderedPartitionKeys.size());
+        for (String partitionKey : orderedPartitionKeys) {
+            Preconditions.checkState(partitionValues.containsKey(partitionKey),
+                    "Missing partition value for Paimon partition key: %s", partitionKey);
+            String partitionValue = partitionValues.get(partitionKey);
+            fromPathValues.add(partitionValue == null ? "" : partitionValue);
+            fromPathIsNull.add(partitionValue == null);
+        }
+        rangeDesc.setColumnsFromPathKeys(orderedPartitionKeys);
+        rangeDesc.setColumnsFromPath(fromPathValues);
+        rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
     }
 
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
@@ -259,21 +309,11 @@ public class PaimonScanNode extends FileQueryScanNode {
             // MUST explicitly set to -1, to be distinct from valid row count >= 0
             tableFormatFileDesc.setTableLevelRowCount(-1);
         }
-        tableFormatFileDesc.setPaimonParams(fileDesc);
-        Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
-        if (partitionValues != null) {
-            List<String> fromPathKeys = new ArrayList<>();
-            List<String> fromPathValues = new ArrayList<>();
-            List<Boolean> fromPathIsNull = new ArrayList<>();
-            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                fromPathKeys.add(entry.getKey());
-                fromPathValues.add(entry.getValue() != null ? entry.getValue() : "");
-                fromPathIsNull.add(entry.getValue() == null);
-            }
-            rangeDesc.setColumnsFromPathKeys(fromPathKeys);
-            rangeDesc.setColumnsFromPath(fromPathValues);
-            rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
+        if (!backendPaimonOptions.isEmpty()) {
+            fileDesc.setPaimonOptions(backendPaimonOptions);
         }
+        tableFormatFileDesc.setPaimonParams(fileDesc);
+        setPartitionValues(rangeDesc, paimonSplit.getPaimonPartitionValues());
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -322,6 +362,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         // partition data.
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
+        boolean needPartitionMetadata = !getOrderedPathPartitionKeys().isEmpty();
         // if applyCountPushdown is true, we can't split the DataSplit
         boolean hasDeterminedTargetFileSplitSize = false;
         long targetFileSplitSize = 0;
@@ -331,9 +372,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             BinaryRow partitionValue = dataSplit.partition();
             Map<String, String> partitionInfoMap = null;
-            if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // If the partition value is not in the map, we need to calculate the partition
-                // info map and store it in the map.
+            if (needPartitionMetadata) {
                 partitionInfoMap = partitionInfoMaps.computeIfAbsent(partitionValue, k -> {
                     return PaimonUtil.getPartitionInfoMap(
                             source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone());
@@ -428,6 +467,51 @@ public class PaimonScanNode extends FileQueryScanNode {
         return splits;
     }
 
+    @VisibleForTesting
+    Map<String, String> getBackendPaimonOptions() {
+        if (source == null) {
+            return Collections.emptyMap();
+        }
+        if (!(source.getCatalog() instanceof PaimonExternalCatalog)) {
+            return Collections.emptyMap();
+        }
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
+        Map<String, String> backendOptions = new HashMap<>();
+        Map<String, String> catalogProperties = catalog.getCatalogProperty().getProperties();
+        if (catalogProperties == null) {
+            catalogProperties = Collections.emptyMap();
+        }
+        for (String option : BACKEND_PAIMON_OPTIONS) {
+            String catalogProperty = PAIMON_PROPERTY_PREFIX + option;
+            if (catalogProperties.containsKey(catalogProperty)) {
+                backendOptions.put(option, catalogProperties.get(catalogProperty));
+            }
+        }
+        String driverUrl = getCatalogProperty(catalogProperties, JdbcResource.DRIVER_URL);
+        if (driverUrl == null) {
+            return backendOptions;
+        }
+        String driverClass = getCatalogProperty(catalogProperties, JdbcResource.DRIVER_CLASS);
+        if (driverClass == null) {
+            throw new IllegalArgumentException("jdbc.driver_class or paimon.jdbc.driver_class is required when "
+                    + "jdbc.driver_url or paimon.jdbc.driver_url is specified");
+        }
+        backendOptions.put(JDBC_DRIVER_URL, JdbcResource.getFullDriverUrl(driverUrl));
+        backendOptions.put(JDBC_DRIVER_CLASS, driverClass);
+        return backendOptions;
+    }
+
+    private String getCatalogProperty(Map<String, String> catalogProperties, String property) {
+        String value = catalogProperties.get(PAIMON_PROPERTY_PREFIX + JDBC_PREFIX + property);
+        if (value == null || value.trim().isEmpty()) {
+            value = catalogProperties.get(JDBC_PREFIX + property);
+        }
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value;
+    }
+
     private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
             boolean isBatchMode) {
         if (sessionVariable.getFileSplitSize() > 0) {
@@ -473,13 +557,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     @VisibleForTesting
     public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() throws UserException {
         Table paimonTable = getProcessedTable();
+        List<String> fieldNames = paimonTable.rowType().getFieldNames();
         int[] projected = desc.getSlots().stream().mapToInt(
-                slot -> paimonTable.rowType()
-                        .getFieldNames()
-                        .stream()
-                        .map(String::toLowerCase)
-                        .collect(Collectors.toList())
-                        .indexOf(slot.getColumn().getName()))
+                slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
                 .filter(i -> i >= 0)
                 .toArray();
         ReadBuilder readBuilder = paimonTable.newReadBuilder();
@@ -496,6 +576,16 @@ public class PaimonScanNode extends FileQueryScanNode {
             registry.clear();
         }
         return splits;
+    }
+
+    @VisibleForTesting
+    static int getFieldIndex(List<String> fieldNames, String columnName) {
+        for (int i = 0; i < fieldNames.size(); i++) {
+            if (fieldNames.get(i).equalsIgnoreCase(columnName)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private String getFileFormat(String path) {
@@ -524,10 +614,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        // return new ArrayList<>(source.getPaimonTable().partitionKeys());
-        // Paimon is not aware of partitions and bypasses some existing logic by
-        // returning an empty list
-        return new ArrayList<>();
+        return getOrderedPathPartitionKeys();
     }
 
     @Override

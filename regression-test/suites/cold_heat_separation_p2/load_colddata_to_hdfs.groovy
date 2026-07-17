@@ -19,7 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("load_colddata_to_hdfs") {
     if (!enableHdfs()) {
-      throw new RuntimeException("Hdfs is not enabled, if you want to skip this case, please mute it in regression-conf.groovy");
+        logger.info("Hdfs is not enabled, skip load_colddata_to_hdfs")
+        return
     }
 
     def fetchBeHttp = { check_func, meta_url ->

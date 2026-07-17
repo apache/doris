@@ -20,7 +20,8 @@ import java.time.LocalDate;
 
 suite("cold_heat_dynamic_partition_by_hdfs") {
     if (!enableHdfs()) {
-        throw new RuntimeException("Hdfs is not enabled, if you want to skip this case, please mute it in regression-conf.groovy");
+        logger.info("Hdfs is not enabled, skip cold_heat_dynamic_partition_by_hdfs")
+        return
     }
     def fetchBeHttp = { check_func, meta_url ->
         def i = meta_url.indexOf("/api")

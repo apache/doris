@@ -27,6 +27,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -58,6 +59,26 @@ class MergeTopNsTest implements MemoPatternMatchSupported {
                 .applyTopDown(new MergeTopNs())
                 .matches(
                         logicalTopN(logicalOlapScan()).when(topN -> topN.getLimit() == 10)
+                );
+    }
+
+    @Test
+    void testMergeChildMoreOrderKeys() {
+        LogicalPlan plan = new LogicalPlanBuilder(score)
+                .topN(20, 0, ImmutableList.of(0, 1))
+                .topN(10, 0, ImmutableList.of(0))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new MergeTopNs())
+                .matches(
+                        logicalTopN(logicalOlapScan()).when(topN -> {
+                            Assertions.assertEquals(10, topN.getLimit());
+                            Assertions.assertEquals(0, topN.getOffset());
+                            Assertions.assertEquals(2, topN.getOrderKeys().size());
+                            Assertions.assertEquals(score.getOutput().get(0), topN.getOrderKeys().get(0).getExpr());
+                            Assertions.assertEquals(score.getOutput().get(1), topN.getOrderKeys().get(1).getExpr());
+                            return true;
+                        })
                 );
     }
 
