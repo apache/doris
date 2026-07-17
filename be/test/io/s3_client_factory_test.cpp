@@ -234,6 +234,39 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfCredentialValidation) {
     }
 }
 
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressConf) {
+    S3URI s3_uri("s3://analytics--usw2-az1--x-s3/path/to/data.parquet");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    std::map<std::string, std::string> properties {
+            {"AWS_ENDPOINT", "https://s3.us-west-2.amazonaws.com"},
+            {"AWS_REGION", "us-west-2"},
+    };
+    S3Conf s3_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+
+    properties["AWS_ENDPOINT"] = "http://s3.us-west-2.amazonaws.com";
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+
+    properties["AWS_ENDPOINT"] = "https://s3express-control.us-west-2.amazonaws.com";
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+
+    properties["AWS_ENDPOINT"] =
+            "https://analytics--usw2-az1--x-s3.s3express-usw2-az1.us-west-2.amazonaws.com";
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+
+    properties["AWS_ENDPOINT"] = "https://s3.us-west-2.amazonaws.com";
+    properties["AWS_REGION"] = "us-east-1";
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+
+    properties["AWS_REGION"] = "us-west-2";
+    properties["use_path_style"] = "true";
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+
+    properties["AWS_ENDPOINT"] = "https://minio.example.com";
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+}
+
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) {
     S3ClientFactory& factory = S3ClientFactory::instance();
     config::aws_credentials_provider_version = "v2";

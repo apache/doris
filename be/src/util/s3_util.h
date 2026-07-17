@@ -64,7 +64,7 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 std::string hide_access_key(const std::string& ak);
-bool is_s3_express(std::string_view bucket, std::string_view endpoint);
+bool is_s3_express(std::string_view bucket, std::string_view endpoint, std::string_view region);
 int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit);
 // Rebuild the S3 GET/PUT rate limiters if the related configs have changed.
 // Safe to call periodically; it is a no-op when nothing changed.

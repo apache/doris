@@ -167,8 +167,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
                 if (sp instanceof ObjectStorageProperties
-                        && S3Util.isExactS3ExpressObject(
-                                path, ((ObjectStorageProperties) sp).getEndpoint())) {
+                        && isExactS3ExpressObject(path, (ObjectStorageProperties) sp)) {
                     Location location = Location.of(path);
                     entries = List.of(new FileEntry(
                             location, fs.newInputFile(location).length(), false, 0L, List.of()));
@@ -198,6 +197,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
             }
         }
+    }
+
+    private static boolean isExactS3ExpressObject(String path, ObjectStorageProperties properties)
+            throws UserException {
+        return S3Util.isExactS3ExpressObject(
+                path, properties.getEndpoint(), properties.getRegion(),
+                Boolean.parseBoolean(properties.getUsePathStyle()));
     }
 
 

@@ -45,7 +45,6 @@ public:
     ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
             const std::vector<ObjectCompleteMultiPart>& completed_parts) override;
-    ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions& opts) override;
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
                                      size_t offset, size_t bytes_read,

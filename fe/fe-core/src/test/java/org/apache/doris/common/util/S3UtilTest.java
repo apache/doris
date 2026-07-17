@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.UserException;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -30,12 +32,28 @@ public class S3UtilTest {
         String object = "s3://analytics--use1-az4--x-s3/data/file.parquet";
         String awsEndpoint = "https://s3.us-east-1.amazonaws.com";
 
-        Assert.assertTrue(S3Util.isExactS3ExpressObject(object, awsEndpoint));
+        Assert.assertTrue(S3Util.isExactS3ExpressObject(
+                object, awsEndpoint, "us-east-1", false));
         Assert.assertFalse(S3Util.isExactS3ExpressObject(
-                "s3://analytics--use1-az4--x-s3/data/*.parquet", awsEndpoint));
-        Assert.assertFalse(S3Util.isExactS3ExpressObject(object, "https://minio.example.com"));
+                object, "https://minio.example.com", "us-east-1", false));
         Assert.assertFalse(S3Util.isExactS3ExpressObject(
-                "s3://analytics/data/file.parquet", awsEndpoint));
+                "s3://analytics/data/file.parquet", awsEndpoint, "us-east-1", false));
+
+        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
+                "s3://analytics--use1-az4--x-s3/data/*.parquet",
+                awsEndpoint, "us-east-1", false));
+        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
+                "s3://analytics--use1-az4--x-s3/data/",
+                awsEndpoint, "us-east-1", false));
+        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
+                "s3://analytics--use1-az4--x-s3",
+                awsEndpoint, "us-east-1", false));
+        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
+                object, "https://s3express-control.us-east-1.amazonaws.com", "us-east-1", false));
+        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
+                object, awsEndpoint, "us-west-2", false));
+        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
+                object, awsEndpoint, "us-east-1", true));
     }
 
     @Test

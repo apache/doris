@@ -80,6 +80,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -90,6 +92,12 @@ import java.util.stream.Collectors;
 public class S3ObjStorage implements ObjStorage<S3Client> {
 
     private static final Logger LOG = LogManager.getLogger(S3ObjStorage.class);
+    private static final String DIRECTORY_BUCKET_SUFFIX = "--x-s3";
+    private static final Pattern DIRECTORY_BUCKET_PATTERN =
+            Pattern.compile("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--[a-z0-9-]+-az[0-9]+--x-s3$");
+    private static final Pattern AWS_S3_REGIONAL_ENDPOINT_PATTERN = Pattern.compile(
+            "^https://s3\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?(?::443)?/?$",
+            Pattern.CASE_INSENSITIVE);
 
     /** Validity period for pre-signed URLs and STS tokens (seconds). */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
@@ -158,7 +166,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 .httpClient(UrlConnectionHttpClient.builder()
                         .socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30))
-                        .build())
+                .build())
                 .credentialsProvider(clientCredentialsProvider)
                 .region(Region.of(region))
                 .disableS3ExpressSessionAuth(!express)
@@ -203,9 +211,29 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return credentialsProvider;
     }
 
-    private S3Client clientFor(String requestBucket) throws IOException {
-        if (!isS3Express(requestBucket, s3Properties.getEndpoint())) {
+    private S3Client clientForHead(String requestBucket) throws IOException {
+        if (!requestBucket.endsWith(DIRECTORY_BUCKET_SUFFIX)
+                || StringUtils.isBlank(s3Properties.getEndpoint())) {
             return getClient();
+        }
+        Matcher endpoint = AWS_S3_REGIONAL_ENDPOINT_PATTERN.matcher(s3Properties.getEndpoint());
+        if (!endpoint.matches()) {
+            if (isAwsEndpoint(s3Properties.getEndpoint())) {
+                throw new IOException("AWS Directory Bucket requires a standard HTTPS regional S3 "
+                        + "endpoint; do not use s3express-control or a zonal endpoint");
+            }
+            return getClient();
+        }
+        if (!isDirectoryBucketName(requestBucket)) {
+            throw new IOException("Invalid AWS Directory Bucket name " + requestBucket
+                    + "; expected <bucket-base-name>--<zone-id>--x-s3");
+        }
+        if (!endpoint.group(1).equalsIgnoreCase(s3Properties.getRegion())) {
+            throw new IOException("AWS Directory Bucket endpoint region " + endpoint.group(1)
+                    + " does not match configured region " + s3Properties.getRegion());
+        }
+        if (usePathStyle) {
+            throw new IOException("Path-style addressing is not supported for AWS Directory Bucket");
         }
         if (closed.get()) {
             throw new IOException("S3ObjStorage is already closed");
@@ -323,7 +351,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public org.apache.doris.filesystem.spi.RemoteObject headObject(String remotePath) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
-            HeadObjectResponse response = clientFor(uri.bucket()).headObject(
+            HeadObjectResponse response = clientForHead(uri.bucket()).headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return new org.apache.doris.filesystem.spi.RemoteObject(
                     uri.key(), uri.key(), response.eTag(), response.contentLength(),
@@ -345,7 +373,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try (InputStream content = requestBody.content()) {
-            clientFor(uri.bucket()).putObject(
+            getClient().putObject(
                     PutObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build(),
                     software.amazon.awssdk.core.sync.RequestBody.fromInputStream(
                             content, requestBody.contentLength()));
@@ -391,7 +419,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public String initiateMultipartUpload(String remotePath) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
-            CreateMultipartUploadResponse response = clientFor(uri.bucket()).createMultipartUpload(
+            CreateMultipartUploadResponse response = getClient().createMultipartUpload(
                     CreateMultipartUploadRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return response.uploadId();
         } catch (SdkException e) {
@@ -405,7 +433,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             org.apache.doris.filesystem.spi.RequestBody body) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try (InputStream content = body.content()) {
-            UploadPartResponse response = clientFor(uri.bucket()).uploadPart(
+            UploadPartResponse response = getClient().uploadPart(
                     UploadPartRequest.builder()
                             .bucket(uri.bucket()).key(uri.key())
                             .uploadId(uploadId).partNumber(partNum)
@@ -428,7 +456,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 .map(p -> CompletedPart.builder().partNumber(p.partNumber()).eTag(p.etag()).build())
                 .collect(Collectors.toList());
         try {
-            clientFor(uri.bucket()).completeMultipartUpload(CompleteMultipartUploadRequest.builder()
+            getClient().completeMultipartUpload(CompleteMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId)
                     .multipartUpload(CompletedMultipartUpload.builder().parts(completedParts).build())
                     .build());
@@ -442,7 +470,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
-            clientFor(uri.bucket()).abortMultipartUpload(AbortMultipartUploadRequest.builder()
+            getClient().abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId).build());
         } catch (S3Exception e) {
             // Re-throw so callers know the abort failed; orphaned parts may still exist
@@ -462,7 +490,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     InputStream openInputStream(String remotePath) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
-            return clientFor(uri.bucket()).getObject(
+            return getClient().getObject(
                     GetObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
@@ -483,7 +511,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             if (fromByte > 0) {
                 req.range("bytes=" + fromByte + "-");
             }
-            return clientFor(uri.bucket()).getObject(req.build());
+            return getClient().getObject(req.build());
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
         } catch (SdkException e) {
@@ -498,7 +526,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public long headObjectLastModified(String remotePath) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
-            HeadObjectResponse resp = clientFor(uri.bucket()).headObject(
+            HeadObjectResponse resp = getClient().headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return resp.lastModified() != null ? resp.lastModified().toEpochMilli() : 0L;
         } catch (NoSuchKeyException e) {
@@ -687,35 +715,21 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return key.substring(normalized.length());
     }
 
-    private static boolean isS3Express(String bucketName, String endpoint) {
-        if (!isDirectoryBucketName(bucketName) || StringUtils.isBlank(endpoint)) {
-            return false;
-        }
-        String endpointUri = endpoint.contains("://") ? endpoint : "https://" + endpoint;
-        String host = URI.create(endpointUri).getHost();
+    private static boolean isDirectoryBucketName(String bucketName) {
+        return bucketName != null && DIRECTORY_BUCKET_PATTERN.matcher(bucketName).matches();
+    }
+
+    private static boolean isAwsEndpoint(String endpoint) {
+        int schemeSeparator = endpoint.indexOf("://");
+        URI uri = URI.create(schemeSeparator > 0 ? endpoint : "https://" + endpoint);
+        String host = uri.getHost();
         if (host == null) {
             return false;
         }
         host = host.toLowerCase(Locale.ROOT);
-        boolean awsDns = host.endsWith(".amazonaws.com")
+        return host.endsWith(".amazonaws.com")
                 || host.endsWith(".amazonaws.com.cn")
                 || host.endsWith(".api.aws");
-        return awsDns && (host.startsWith("s3.")
-                || host.startsWith("s3-")
-                || host.startsWith("s3express-")
-                || host.contains(".s3.")
-                || host.contains(".s3-")
-                || host.contains(".s3express-"));
-    }
-
-    private static boolean isDirectoryBucketName(String bucketName) {
-        String suffix = "--x-s3";
-        if (bucketName == null || !bucketName.endsWith(suffix)) {
-            return false;
-        }
-        String prefix = bucketName.substring(0, bucketName.length() - suffix.length());
-        int zoneSeparator = prefix.lastIndexOf("--");
-        return zoneSeparator > 0 && prefix.substring(zoneSeparator + 2).contains("-az");
     }
 
     @Override

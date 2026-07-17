@@ -79,21 +79,33 @@ TEST_F(S3UTILTest, hide_access_key_typical_aws_key) {
 
 TEST_F(S3UTILTest, is_s3_express_context) {
     EXPECT_TRUE(is_s3_express("bucket--use1-az4--x-s3",
-                              "https://s3.us-east-1.amazonaws.com"));
-    EXPECT_TRUE(is_s3_express("bucket--use1-az4--x-s3",
-                              "bucket--use1-az4--x-s3.s3express-use1-az4.us-east-1."
-                              "amazonaws.com"));
+                              "https://s3.us-east-1.amazonaws.com", "us-east-1"));
     EXPECT_TRUE(is_s3_express("bucket--cnn1-az1--x-s3",
-                              "https://s3.cn-north-1.amazonaws.com.cn"));
+                              "https://s3.cn-north-1.amazonaws.com.cn", "cn-north-1"));
 
     // S3-compatible services must retain their existing endpoint and checksum behavior,
     // even if a bucket happens to use the Directory Bucket suffix.
-    EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3", "https://minio.example.com"));
+    EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3", "https://minio.example.com",
+                               "us-east-1"));
     EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3",
-                               "https://s3.us-east-1.amazonaws.com.example.com"));
-    EXPECT_FALSE(is_s3_express("bucket--x-s3", "https://s3.us-east-1.amazonaws.com"));
-    EXPECT_FALSE(is_s3_express("bucket--zone--x-s3", "https://s3.us-east-1.amazonaws.com"));
-    EXPECT_FALSE(is_s3_express("bucket", "https://example.com/s3express/path"));
+                               "https://s3.us-east-1.amazonaws.com.example.com", "us-east-1"));
+    EXPECT_FALSE(is_s3_express("bucket--x-s3", "https://s3.us-east-1.amazonaws.com",
+                               "us-east-1"));
+    EXPECT_FALSE(is_s3_express("bucket--zone--x-s3", "https://s3.us-east-1.amazonaws.com",
+                               "us-east-1"));
+    EXPECT_FALSE(is_s3_express("bucket", "https://example.com/s3express/path", "us-east-1"));
+
+    // Users configure the standard HTTPS regional endpoint. The SDK derives the zonal endpoint.
+    EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3",
+                               "http://s3.us-east-1.amazonaws.com", "us-east-1"));
+    EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3",
+                               "https://s3.us-east-1.amazonaws.com", "us-west-2"));
+    EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3",
+                               "https://s3express-control.us-east-1.amazonaws.com", "us-east-1"));
+    EXPECT_FALSE(is_s3_express("bucket--use1-az4--x-s3",
+                               "https://bucket--use1-az4--x-s3.s3express-use1-az4.us-east-1."
+                               "amazonaws.com",
+                               "us-east-1"));
 }
 
 // Verifies that check_s3_rate_limiter_config_changed() rebuilds the global GET rate

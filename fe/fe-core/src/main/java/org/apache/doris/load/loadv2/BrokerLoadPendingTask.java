@@ -111,8 +111,8 @@ public class BrokerLoadPendingTask extends LoadTask {
                             // prefix-siblings (e.g. "file.csv.bz2" when listing "file.csv").
                             List<FileEntry> entries;
                             if (storageProperties instanceof ObjectStorageProperties
-                                    && S3Util.isExactS3ExpressObject(path,
-                                            ((ObjectStorageProperties) storageProperties).getEndpoint())) {
+                                    && isExactS3ExpressObject(
+                                            path, (ObjectStorageProperties) storageProperties)) {
                                 Location location = Location.of(path);
                                 entries = List.of(new FileEntry(
                                         location, fs.newInputFile(location).length(), false, 0L, List.of()));
@@ -185,5 +185,12 @@ public class BrokerLoadPendingTask extends LoadTask {
         }
 
         ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);
+    }
+
+    private static boolean isExactS3ExpressObject(String path, ObjectStorageProperties properties)
+            throws UserException {
+        return S3Util.isExactS3ExpressObject(
+                path, properties.getEndpoint(), properties.getRegion(),
+                Boolean.parseBoolean(properties.getUsePathStyle()));
     }
 }

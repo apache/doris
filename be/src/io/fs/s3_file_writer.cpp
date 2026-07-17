@@ -85,8 +85,7 @@ S3FileWriter::~S3FileWriter() {
         _wait_until_finish(fmt::format("wait s3 file {} upload to be finished",
                                        _obj_storage_path_opts.path.native()));
     }
-    // Do not issue network requests from the destructor. Close failures abort an active
-    // multipart upload in _close_impl().
+    // We won't do S3 abort operation in BE, we let s3 service do it own.
     if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }
@@ -284,67 +283,40 @@ Status S3FileWriter::_submit_upload_buffer(const std::shared_ptr<FileBuffer>& bu
 Status S3FileWriter::_close_impl() {
     VLOG_DEBUG << "S3FileWriter::close, path: " << _obj_storage_path_opts.path.native();
 
-    auto close_status = [&]() -> Status {
-        DBUG_EXECUTE_IF("S3FileWriter._close_impl.inject_error", {
-            if (_obj_storage_path_opts.key.ends_with(".dat")) {
-                return Status::IOError("S3FileWriter._close_impl.inject_error");
-            }
-        });
-
-        if (_cur_part_num == 1 &&
-            _pending_buf) { // data size is less than config::s3_write_buffer_size
-            RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
+    DBUG_EXECUTE_IF("S3FileWriter._close_impl.inject_error", {
+        if (_obj_storage_path_opts.key.ends_with(".dat")) {
+            return Status::IOError("S3FileWriter._close_impl.inject_error");
         }
+    });
 
-        if (_bytes_appended == 0) {
-            DCHECK_EQ(_cur_part_num, 1);
-            // No data written, but need to create an empty file
-            RETURN_IF_ERROR(_build_upload_buffer());
-            if (!_used_by_s3_committer) {
-                auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
-                pending_buf->set_upload_to_remote(
-                        [this](UploadFileBuffer& buf) { _put_object(buf); });
-            } else {
-                RETURN_IF_ERROR(_create_multi_upload_request());
-            }
-        }
+    if (_cur_part_num == 1 && _pending_buf) { // data size is less than config::s3_write_buffer_size
+        RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
+    }
 
-        if (_pending_buf != nullptr) { // there is remaining data in buffer need to be uploaded
-            auto st = _submit_upload_buffer(_pending_buf);
-            _pending_buf = nullptr;
-            if (!st.ok()) {
-                _wait_until_finish("pending buffer submit failed");
-                return st;
-            }
-        }
-
-        RETURN_IF_ERROR(_complete());
-        SYNC_POINT_RETURN_WITH_VALUE("s3_file_writer::close", Status());
-        return Status::OK();
-    }();
-
-    if (!close_status.ok() && _obj_storage_path_opts.upload_id.has_value()) {
-        _wait_until_finish("abort after close failure");
-        auto abort_status = _abort();
-        if (!abort_status.ok()) {
-            close_status.append(fmt::format("; AbortMultipartUpload also failed: {}",
-                                            abort_status.to_string_no_stack()));
+    if (_bytes_appended == 0) {
+        DCHECK_EQ(_cur_part_num, 1);
+        // No data written, but need to create an empty file
+        RETURN_IF_ERROR(_build_upload_buffer());
+        if (!_used_by_s3_committer) {
+            auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+            pending_buf->set_upload_to_remote([this](UploadFileBuffer& buf) { _put_object(buf); });
+        } else {
+            RETURN_IF_ERROR(_create_multi_upload_request());
         }
     }
-    return close_status;
-}
 
-Status S3FileWriter::_abort() {
-    DCHECK(_obj_storage_path_opts.upload_id.has_value());
-    const auto& client = _obj_client->get();
-    if (client == nullptr) {
-        return Status::InternalError<false>("invalid obj storage client while aborting MPU");
+    if (_pending_buf != nullptr) { // there is remaining data in buffer need to be uploaded
+        auto st = _submit_upload_buffer(_pending_buf);
+        _pending_buf = nullptr;
+        if (!st.ok()) {
+            _wait_until_finish("pending buffer submit failed");
+            return st;
+        }
     }
-    auto resp = client->abort_multipart_upload(_obj_storage_path_opts);
-    if (resp.status.code != ErrorCode::OK) {
-        return {resp.status.code, std::move(resp.status.msg)};
-    }
-    _obj_storage_path_opts.upload_id.reset();
+
+    RETURN_IF_ERROR(_complete());
+    SYNC_POINT_RETURN_WITH_VALUE("s3_file_writer::close", Status());
+
     return Status::OK();
 }
 
