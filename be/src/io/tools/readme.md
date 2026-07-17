@@ -9,6 +9,8 @@ To compile the project, run the following command:
 ```
 
 This will generate the `file_cache_microbench` executable in the `apache_doris/output/be/lib` directory.
+It also generates `async_file_cache_write_microbench`, a standalone benchmark for the
+asynchronous file-cache write path.
 
 ## Usage
 
@@ -131,3 +133,33 @@ curl "http://localhost:{port}/MicrobenchService/get_help"
 ### Version Information:
 you can see it in get_help return msg
 
+## Asynchronous write benchmark
+
+`async_file_cache_write_microbench` uses a real filesystem-backed `BlockFileCache` but a
+deterministic in-memory remote reader. This keeps object-store latency out of the measurements while
+retaining the production inflight index, bounded MPMC queue, worker pool, `get_or_set`, `append`,
+and `finalize` implementation.
+
+The benchmark groups are:
+
+- `reader`: compares cold-miss foreground latency for forced synchronous and asynchronous cache
+  writes, then reports asynchronous drain time separately.
+- `service`: measures end-to-end persistence while scaling worker count, followed by a bounded
+  queue case that reports producer-side rejection and queue high-water marks.
+- `index`: separates representative sharded miss/hit lookup cost from worst-case hot-key hit
+  contention in `InflightWriteBufferIndex`.
+
+Run all groups with the default production-sized 1 MiB cache block:
+
+```bash
+./output/be/lib/async_file_cache_write_microbench \
+    --benchmark_mode=all \
+    --cache_path=./output/async_file_cache_write_microbench \
+    --producer_threads=16 \
+    --worker_counts=1,4,16
+```
+
+Every result is printed on one `RESULT` line. Reader and service results distinguish
+`foreground_seconds` from `drain_seconds`, include operation latency percentiles, accepted and
+rejected task counts, verified persisted tasks, and sampled peaks for pending, queued, and inflight
+work. Use `--help` to adjust operation counts, request/task sizes, queue limit, and worker counts.
