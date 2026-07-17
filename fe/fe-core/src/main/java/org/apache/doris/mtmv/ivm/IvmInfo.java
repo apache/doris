@@ -37,6 +37,9 @@ public class IvmInfo {
     @SerializedName("ps")
     private String planSignature;
 
+    @SerializedName("rv")
+    private long refreshVersion;
+
     public IvmInfo() {
     }
 
@@ -44,6 +47,7 @@ public class IvmInfo {
         this.enableIvm = other.enableIvm;
         this.binlogBroken = other.binlogBroken;
         this.planSignature = other.planSignature;
+        this.refreshVersion = other.refreshVersion;
     }
 
     public boolean isEnableIvm() {
@@ -68,6 +72,14 @@ public class IvmInfo {
 
     public void setPlanSignature(String planSignature) {
         this.planSignature = planSignature;
+    }
+
+    public long getRefreshVersion() {
+        return refreshVersion;
+    }
+
+    public void advanceRefreshVersion() {
+        refreshVersion++;
     }
 
     @Override

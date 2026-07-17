@@ -17,13 +17,16 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -36,6 +39,20 @@ import java.util.Collections;
 import java.util.List;
 
 class IvmUtilTest {
+
+    @Test
+    void testCommonHiddenSlots() {
+        Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.DELETE_SIGN));
+        Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.VERSION_COL));
+        Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.SEQUENCE_COL));
+        Assertions.assertFalse(IvmUtil.isCommonHiddenSlot("not_hidden"));
+        TinyIntLiteral deleteSign = (TinyIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.DELETE_SIGN);
+        BigIntLiteral version = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.VERSION_COL);
+        BigIntLiteral sequence = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.SEQUENCE_COL);
+        Assertions.assertEquals((byte) 0, deleteSign.getValue());
+        Assertions.assertEquals(0L, version.getValue());
+        Assertions.assertEquals(0L, sequence.getValue());
+    }
 
     private SlotReference intSlot(String name, boolean nullable) {
         return new SlotReference(name, IntegerType.INSTANCE, nullable);
