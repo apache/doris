@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -79,14 +80,18 @@ public class HyperGraph {
     }
 
     /**
-     * the project with alias and slot
+     * the project with alias and slot, without volatile or non-movable expressions.
+     * Projects containing volatile (e.g. uuid()) or non-movable (e.g. assert_true())
+     * expressions are treated as join-cluster boundaries (like aggregate nodes).
      */
     public static boolean isValidProject(Plan plan) {
         if (!(plan instanceof LogicalProject)) {
             return false;
         }
         return ((LogicalProject<? extends Plan>) plan).getProjects().stream()
-                .allMatch(e -> e instanceof Slot || e instanceof Alias);
+                .allMatch(e -> (e instanceof Slot || e instanceof Alias)
+                        && !e.containsVolatileExpression()
+                        && !e.containsType(NoneMovableFunction.class));
     }
 
     /**
@@ -160,6 +165,12 @@ public class HyperGraph {
      * Each inner list is one LogicalProject layer; layers are ordered bottom-up.
      * PlanReceiver emits each layer as a separate LogicalProject to preserve
      * materialization boundaries for volatile expressions.
+     * Uses isSubset(key, nodes) rather than exact match because DPHyp may
+     * build a superset of the key without ever building the key independently
+     * (e.g., {A,B} forms only as part of {A,B,C}). Without isSubset the layer
+     * would be lost entirely. The trade-off: a volatile alias may materialize
+     * above unrelated nodes inside the same nullable subtree — this is inherent
+     * to DPHyp reordering within inner-join clusters.
      */
     public List<List<NamedExpression>> getProjectedAliasLayers(long left, long right) {
         List<List<NamedExpression>> result = new ArrayList<>();
