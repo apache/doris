@@ -18,8 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.PluginDrivenSysExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;

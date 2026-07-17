@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
