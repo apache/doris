@@ -22,6 +22,7 @@
 
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
+#include <limits>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -135,20 +136,31 @@ int64_t decoded_timestamp_micros(const DecodedColumnView& view, int64_t value) {
     return value;
 }
 
-int64_t parquet_timestamp_micros(const ParquetDecodeContext& context, int64_t value) {
+Status parquet_timestamp_micros(const ParquetDecodeContext& context, int64_t value,
+                                int64_t* result) {
     if (context.time_unit == ParquetTimeUnit::MILLIS) {
-        return value * 1000;
+        if (value > std::numeric_limits<int64_t>::max() / 1000 ||
+            value < std::numeric_limits<int64_t>::min() / 1000) {
+            return Status::DataQualityError("Parquet timestamp overflows microseconds");
+        }
+        *result = value * 1000;
+        return Status::OK();
     }
     if (context.time_unit == ParquetTimeUnit::NANOS) {
-        return value / 1000;
+        *result = value / 1000;
+        return Status::OK();
     }
-    return value;
+    *result = value;
+    return Status::OK();
 }
 
 class DateTimeV2ParquetConsumer final : public ParquetFixedValueConsumer {
 public:
-    DateTimeV2ParquetConsumer(IColumn& column, const ParquetDecodeContext& context)
-            : _data(assert_cast<ColumnDateTimeV2&>(column).get_data()), _context(context) {}
+    DateTimeV2ParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
+                              ParquetMaterializationState* state = nullptr)
+            : _data(assert_cast<ColumnDateTimeV2&>(column).get_data()),
+              _context(context),
+              _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         const size_t old_size = _data.size();
@@ -166,14 +178,27 @@ public:
             }
             DORIS_CHECK(_context.physical_type == ParquetPhysicalType::INT64);
             DORIS_CHECK_EQ(value_width, sizeof(int64_t));
-            timestamp_micros = parquet_timestamp_micros(
-                    _context, unaligned_load<int64_t>(values + row * sizeof(int64_t)));
+            auto status = parquet_timestamp_micros(
+                    _context, unaligned_load<int64_t>(values + row * sizeof(int64_t)),
+                    &timestamp_micros);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
+                    _data.emplace_back();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
             if (_context.timestamp_is_adjusted_to_utc) {
                 append_datetimev2_from_utc_epoch_micros(_data, timestamp_micros, timezone);
                 continue;
             }
-            auto status = append_datetimev2_from_epoch_micros(_data, timestamp_micros);
+            status = append_datetimev2_from_epoch_micros(_data, timestamp_micros);
             if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
+                    _data.emplace_back();
+                    continue;
+                }
                 _data.resize(old_size);
                 return status;
             }
@@ -184,6 +209,7 @@ public:
 private:
     ColumnDateTimeV2::Container& _data;
     const ParquetDecodeContext& _context;
+    ParquetMaterializationState* _state;
 };
 
 class RejectDateTimeV2BinaryConsumer final : public ParquetBinaryValueConsumer {
@@ -684,20 +710,35 @@ Status DataTypeDateTimeV2SerDe::read_column_from_parquet(IColumn& column,
         context.physical_type != ParquetPhysicalType::INT96) {
         return Status::NotSupported("DATETIMEV2 expects Parquet INT64 or INT96");
     }
-    DateTimeV2ParquetConsumer consumer(column, context);
+    DateTimeV2ParquetConsumer consumer(column, context, &state);
     if (context.encoding != ParquetValueEncoding::DICTIONARY) {
         return source.decode_fixed_values(num_values, consumer);
     }
     if (state.dictionary_generation != source.dictionary_generation()) {
         state.typed_dictionary = column.clone_empty();
-        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        DateTimeV2ParquetConsumer dictionary_consumer(*state.typed_dictionary, context, &state);
+        RejectDateTimeV2BinaryConsumer binary_consumer;
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, binary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
         DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
         state.dictionary_generation = source.dictionary_generation();
     }
     RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
     DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    const size_t old_size = column.size();
     column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
                                state.dictionary_indices.data() + num_values);
+    if (state.can_insert_null_on_conversion_failure()) {
+        for (size_t row = 0; row < num_values; ++row) {
+            if (!state.dictionary_conversion_failures.empty() &&
+                state.dictionary_conversion_failures[state.dictionary_indices[row]] != 0) {
+                state.mark_conversion_failure(old_size + row);
+            }
+        }
+    }
     return Status::OK();
 }
 

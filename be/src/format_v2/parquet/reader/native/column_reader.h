@@ -206,7 +206,8 @@ public:
                          RuntimeState* state, bool in_collection = false,
                          const std::set<uint64_t>& column_ids = {},
                          const std::set<uint64_t>& filter_column_ids = {},
-                         const std::string& page_cache_file_key = {});
+                         const std::string& page_cache_file_key = {},
+                         const ParquetReaderCompat& compat = {}, bool enable_strict_mode = false);
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
     virtual ColumnStatistics column_statistics() = 0;
@@ -254,7 +255,8 @@ public:
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size,
-                RuntimeState* state, const std::string& page_cache_file_key);
+                RuntimeState* state, const std::string& page_cache_file_key,
+                const ParquetReaderCompat& compat, bool enable_strict_mode);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,

@@ -208,6 +208,15 @@ std::vector<uint8_t> encode_plain_byte_arrays(const std::vector<std::string>& va
     return encoded;
 }
 
+std::vector<uint8_t> serialize_page(tparquet::PageHeader header,
+                                    const std::vector<uint8_t>& payload) {
+    std::vector<uint8_t> bytes;
+    ThriftSerializer serializer(/*compact=*/true, 128);
+    DORIS_CHECK(serializer.serialize(&header, &bytes).ok());
+    bytes.insert(bytes.end(), payload.begin(), payload.end());
+    return bytes;
+}
+
 Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t>& payload,
                           tparquet::CompressionCodec::type codec) {
     std::vector<uint8_t> bytes;
@@ -1127,6 +1136,156 @@ TEST(ParquetV2NativeDecoderTest, EmptyOffsetIndexCannotSelectIndexedPageReader) 
     PageReader<false, true> page_reader(&reader, nullptr, 0, 1, 1, metadata, context, &empty_index);
     EXPECT_FALSE(page_reader.has_next_page());
     EXPECT_TRUE(page_reader.next_page().is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, ColumnChunkRangeRejectsSignedOverflowAndBoundsLegacyPadding) {
+    tparquet::ColumnMetaData metadata;
+    metadata.__set_data_page_offset(-1);
+    metadata.__set_total_compressed_size(10);
+    ColumnChunkRange range;
+    EXPECT_TRUE(
+            compute_column_chunk_range(metadata, 100, false, &range).is<ErrorCode::CORRUPTION>());
+
+    metadata.__set_data_page_offset(95);
+    EXPECT_TRUE(
+            compute_column_chunk_range(metadata, 100, false, &range).is<ErrorCode::CORRUPTION>());
+
+    metadata.__set_data_page_offset(10);
+    metadata.__set_total_compressed_size(std::numeric_limits<int64_t>::max());
+    EXPECT_TRUE(
+            compute_column_chunk_range(metadata, 100, false, &range).is<ErrorCode::CORRUPTION>());
+
+    metadata.__set_total_compressed_size(20);
+    ASSERT_TRUE(compute_column_chunk_range(metadata, 35, true, &range).ok());
+    EXPECT_EQ(range.offset, 10);
+    EXPECT_EQ(range.length, 25);
+}
+
+TEST(ParquetV2NativeDecoderTest, OffsetIndexValidationRejectsBackwardAndOverlappingLocations) {
+    ColumnChunkRange range {.offset = 100, .length = 100};
+    tparquet::OffsetIndex index;
+    tparquet::PageLocation first;
+    first.__set_offset(110);
+    first.__set_compressed_page_size(20);
+    first.__set_first_row_index(0);
+    tparquet::PageLocation second;
+    second.__set_offset(120);
+    second.__set_compressed_page_size(20);
+    second.__set_first_row_index(10);
+    index.page_locations = {first, second};
+    EXPECT_FALSE(validate_offset_index(index, range, 20));
+
+    second.__set_offset(140);
+    second.__set_first_row_index(0);
+    index.page_locations = {first, second};
+    EXPECT_FALSE(validate_offset_index(index, range, 20));
+
+    second.__set_first_row_index(10);
+    index.page_locations = {first, second};
+    EXPECT_TRUE(validate_offset_index(index, range, 20));
+
+    range = {.offset = std::numeric_limits<size_t>::max(), .length = 2};
+    EXPECT_FALSE(validate_offset_index(index, range, 20));
+}
+
+TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsIndexPageBeforeInitializingDataDecoder) {
+    tparquet::PageHeader index_header;
+    index_header.type = tparquet::PageType::INDEX_PAGE;
+    index_header.__set_compressed_page_size(3);
+    index_header.__set_uncompressed_page_size(3);
+    auto bytes = serialize_page(index_header, {1, 2, 3});
+
+    tparquet::PageHeader data_header;
+    data_header.type = tparquet::PageType::DATA_PAGE;
+    data_header.__set_compressed_page_size(sizeof(int32_t));
+    data_header.__set_uncompressed_page_size(sizeof(int32_t));
+    data_header.__isset.data_page_header = true;
+    data_header.data_page_header.__set_num_values(1);
+    data_header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    data_header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    data_header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    const int32_t value = 42;
+    auto data_bytes = serialize_page(
+            data_header,
+            std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(&value),
+                                 reinterpret_cast<const uint8_t*>(&value) + sizeof(value)));
+    bytes.insert(bytes.end(), data_bytes.begin(), data_bytes.end());
+
+    MemoryBufferedReader reader(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(1);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    FieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
+                                                 context);
+    ASSERT_TRUE(chunk_reader.init().ok());
+    EXPECT_EQ(chunk_reader.remaining_num_values(), 1);
+    ASSERT_TRUE(chunk_reader.load_page_data().ok());
+}
+
+TEST(ParquetV2NativeDecoderTest, LegacyDataPageV2OverridesFalseCompressedFlag) {
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE_V2;
+    header.__set_compressed_page_size(4);
+    header.__set_uncompressed_page_size(1024);
+    header.__isset.data_page_header_v2 = true;
+    header.data_page_header_v2.__set_is_compressed(false);
+    tparquet::ColumnMetaData metadata;
+    metadata.__set_codec(tparquet::CompressionCodec::SNAPPY);
+    EXPECT_TRUE(should_cache_decompressed(&header, metadata, false));
+    EXPECT_FALSE(should_cache_decompressed(&header, metadata, true));
+
+    EXPECT_TRUE(parquet_reader_compat("parquet-cpp version 1.5.0").data_page_v2_always_compressed);
+    EXPECT_FALSE(parquet_reader_compat("parquet-cpp version 2.0.0").data_page_v2_always_compressed);
+    EXPECT_TRUE(parquet_reader_compat("parquet-mr version 1.2.8").parquet_816_padding);
+    EXPECT_FALSE(parquet_reader_compat("parquet-mr version 1.2.9").parquet_816_padding);
+}
+
+TEST(ParquetV2NativeDecoderTest, NullableNumericOverflowIsNullOnlyOutsideStrictMode) {
+    const int32_t overflow = 1000;
+    auto decode = [&](bool strict, MutableColumnPtr* column, IColumn::Filter* null_map) {
+        std::unique_ptr<Decoder> decoder;
+        RETURN_IF_ERROR(
+                Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::PLAIN, decoder));
+        decoder->set_type_length(sizeof(overflow));
+        Slice slice(reinterpret_cast<const uint8_t*>(&overflow), sizeof(overflow));
+        RETURN_IF_ERROR(decoder->set_data(&slice));
+        ParquetDecodeContext context;
+        context.physical_type = ParquetPhysicalType::INT32;
+        ParquetMaterializationState state;
+        state.enable_strict_mode = strict;
+        state.conversion_failure_null_map = null_map;
+        DataTypeInt8 type;
+        *column = type.create_column();
+        return type.get_serde()->read_column_from_parquet(**column, *decoder, context, 1, state);
+    };
+
+    MutableColumnPtr column;
+    IColumn::Filter null_map;
+    null_map.resize_fill(1, 0);
+    ASSERT_TRUE(decode(false, &column, &null_map).ok());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(null_map[0], 1);
+
+    null_map.clear();
+    null_map.resize_fill(1, 0);
+    EXPECT_FALSE(decode(true, &column, &null_map).ok());
+    EXPECT_EQ(null_map[0], 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, FixedLengthStringsAppendAsOneContiguousSpan) {
+    ColumnString column;
+    const std::string values = "aaabbbccc";
+    column.insert_many_fixed_length_data(values.data(), 3, 3);
+    ASSERT_EQ(column.size(), 3);
+    EXPECT_EQ(column.get_data_at(0).to_string_view(), "aaa");
+    EXPECT_EQ(column.get_data_at(1).to_string_view(), "bbb");
+    EXPECT_EQ(column.get_data_at(2).to_string_view(), "ccc");
 }
 
 TEST(ParquetV2NativeDecoderTest, ComplexPageStatisticsPreservePerLeafCrossings) {

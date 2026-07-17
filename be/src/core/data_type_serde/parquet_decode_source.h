@@ -212,11 +212,44 @@ struct ParquetMaterializationState {
     std::vector<uint32_t> dictionary_indices;
     ParquetSelection selection;
     uint64_t dictionary_generation = std::numeric_limits<uint64_t>::max();
+    bool enable_strict_mode = false;
+    IColumn::Filter* conversion_failure_null_map = nullptr;
+    IColumn::Filter dictionary_conversion_failures;
 
     void reset_dictionary() {
         typed_dictionary.reset();
         dictionary_indices.clear();
+        dictionary_conversion_failures.clear();
         dictionary_generation = std::numeric_limits<uint64_t>::max();
+    }
+
+    bool can_insert_null_on_conversion_failure() const {
+        return !enable_strict_mode && conversion_failure_null_map != nullptr;
+    }
+
+    bool mark_conversion_failure(size_t output_row) {
+        if (!can_insert_null_on_conversion_failure()) {
+            return false;
+        }
+        DORIS_CHECK_LT(output_row, conversion_failure_null_map->size());
+        (*conversion_failure_null_map)[output_row] = 1;
+        return true;
+    }
+
+    IColumn::Filter* begin_dictionary_conversion(size_t dictionary_size) {
+        auto* output_null_map = conversion_failure_null_map;
+        dictionary_conversion_failures.clear();
+        if (can_insert_null_on_conversion_failure()) {
+            // Only nullable non-strict outputs may absorb a bad dictionary entry. Redirecting a
+            // non-nullable decode here would silently turn a required error into a default value.
+            dictionary_conversion_failures.resize_fill(dictionary_size, 0);
+            conversion_failure_null_map = &dictionary_conversion_failures;
+        }
+        return output_null_map;
+    }
+
+    void end_dictionary_conversion(IColumn::Filter* output_null_map) {
+        conversion_failure_null_map = output_null_map;
     }
 };
 

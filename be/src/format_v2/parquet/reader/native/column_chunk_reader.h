@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -50,6 +51,22 @@ struct IOContext;
 namespace doris::format::parquet::native {
 using ::doris::FieldSchema;
 using ::doris::ColumnString;
+
+struct ColumnChunkRange {
+    size_t offset = 0;
+    size_t length = 0;
+};
+
+struct ParquetReaderCompat {
+    bool parquet_816_padding = false;
+    bool data_page_v2_always_compressed = false;
+};
+
+ParquetReaderCompat parquet_reader_compat(const std::string& created_by);
+Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size_t file_size,
+                                  bool parquet_816_padding, ColumnChunkRange* range);
+bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunkRange& chunk_range,
+                           int64_t row_count);
 
 struct ColumnChunkReaderStatistics {
     int64_t decompress_time = 0;
@@ -102,7 +119,8 @@ public:
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
                       size_t total_row, io::IOContext* io_ctx,
-                      const ParquetPageReadContext& page_read_ctx);
+                      const ParquetPageReadContext& page_read_ctx,
+                      const ColumnChunkRange* chunk_range = nullptr);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
@@ -296,6 +314,8 @@ private:
     BlockCompressionCodec* _block_compress_codec = nullptr;
 
     ParquetPageReadContext _page_read_ctx;
+    ColumnChunkRange _chunk_range;
+    bool _has_validated_chunk_range = false;
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;

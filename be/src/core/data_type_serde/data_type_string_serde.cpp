@@ -68,18 +68,28 @@ public:
     explicit StringParquetConsumer(IColumn& column) : _column(assert_cast<ColumnType&>(column)) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
-        static constexpr size_t BATCH_SIZE = 256;
-        std::array<StringRef, BATCH_SIZE> refs;
-        size_t offset = 0;
-        while (offset < num_values) {
-            const size_t batch_size = std::min(BATCH_SIZE, num_values - offset);
-            for (size_t row = 0; row < batch_size; ++row) {
-                refs[row] = StringRef(
-                        reinterpret_cast<const char*>(values + (offset + row) * value_width),
-                        value_width);
+        if constexpr (requires(ColumnType& column) {
+                          column.insert_many_fixed_length_data(static_cast<const char*>(nullptr),
+                                                               size_t(), size_t());
+                      }) {
+            // FIXED_LEN_BYTE_ARRAY is already a dense byte span. Copy it once and synthesize
+            // offsets; StringRef batches add a second row loop and hundreds of tiny memcpy calls.
+            _column.insert_many_fixed_length_data(reinterpret_cast<const char*>(values),
+                                                  value_width, num_values);
+        } else {
+            static constexpr size_t BATCH_SIZE = 256;
+            std::array<StringRef, BATCH_SIZE> refs;
+            size_t offset = 0;
+            while (offset < num_values) {
+                const size_t batch_size = std::min(BATCH_SIZE, num_values - offset);
+                for (size_t row = 0; row < batch_size; ++row) {
+                    refs[row] = StringRef(
+                            reinterpret_cast<const char*>(values + (offset + row) * value_width),
+                            value_width);
+                }
+                _column.insert_many_strings(refs.data(), batch_size);
+                offset += batch_size;
             }
-            _column.insert_many_strings(refs.data(), batch_size);
-            offset += batch_size;
         }
         return Status::OK();
     }

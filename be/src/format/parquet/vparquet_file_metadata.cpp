@@ -32,13 +32,17 @@
 
 namespace doris {
 
-FileMetaData::FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size)
-        : _metadata(metadata), _mem_size(mem_size) {
-    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(mem_size);
+FileMetaData::FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size,
+                           std::vector<uint8_t> serialized_metadata)
+        : _metadata(metadata),
+          _mem_size(mem_size),
+          _serialized_metadata(std::move(serialized_metadata)) {
+    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(mem_size + _serialized_metadata.size());
 }
 
 FileMetaData::~FileMetaData() {
-    ExecEnv::GetInstance()->parquet_meta_tracker()->release(_mem_size + _arrow_metadata_mem_size);
+    ExecEnv::GetInstance()->parquet_meta_tracker()->release(
+            _mem_size + _serialized_metadata.size() + _arrow_metadata_mem_size);
 }
 
 Status FileMetaData::init_schema(const bool enable_mapping_varbinary,
@@ -63,16 +67,21 @@ Status FileMetaData::get_arrow_metadata(std::shared_ptr<::parquet::FileMetaData>
     std::lock_guard lock(_arrow_metadata_mutex);
     if (_arrow_metadata == nullptr) {
         try {
-            ThriftSerializer serializer(/*compact=*/true,
-                                        static_cast<int>(std::max<size_t>(_mem_size, 4096)));
-            std::vector<uint8_t> serialized_metadata;
-            RETURN_IF_ERROR(serializer.serialize(const_cast<tparquet::FileMetaData*>(&_metadata),
-                                                 &serialized_metadata));
-            uint32_t serialized_size = cast_set<uint32_t>(serialized_metadata.size());
+            std::vector<uint8_t> fallback_serialized_metadata;
+            const std::vector<uint8_t>* serialized_metadata = &_serialized_metadata;
+            if (serialized_metadata->empty()) {
+                ThriftSerializer serializer(/*compact=*/true,
+                                            static_cast<int>(std::max<size_t>(_mem_size, 4096)));
+                RETURN_IF_ERROR(
+                        serializer.serialize(const_cast<tparquet::FileMetaData*>(&_metadata),
+                                             &fallback_serialized_metadata));
+                serialized_metadata = &fallback_serialized_metadata;
+            }
+            uint32_t serialized_size = cast_set<uint32_t>(serialized_metadata->size());
             auto parsed =
-                    ::parquet::FileMetaData::Make(serialized_metadata.data(), &serialized_size,
+                    ::parquet::FileMetaData::Make(serialized_metadata->data(), &serialized_size,
                                                   ::parquet::default_reader_properties());
-            DORIS_CHECK(static_cast<size_t>(serialized_size) == serialized_metadata.size());
+            DORIS_CHECK(static_cast<size_t>(serialized_size) == serialized_metadata->size());
             // Native and Arrow planners describe the same immutable footer. Cache the adapter at
             // the footer-cache lifecycle so repeated v2 opens do not serialize and parse it again.
             _arrow_metadata_mem_size = parsed->size();

@@ -218,11 +218,13 @@ public:
     using NativeType = typename FieldType::NativeType;
 
     DecimalParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
-                           UInt32 target_precision, int32_t target_scale)
+                           UInt32 target_precision, int32_t target_scale,
+                           ParquetMaterializationState* state = nullptr)
             : _data(assert_cast<ColumnDecimal<T>&>(column).get_data()),
               _context(context),
               _target_precision(target_precision),
-              _target_scale(target_scale) {}
+              _target_scale(target_scale),
+              _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         if (_context.physical_type == ParquetPhysicalType::INT32) {
@@ -244,6 +246,10 @@ public:
             auto status =
                     append_binary_value(values + row * value_width, value_width, old_size + row);
             if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = FieldType();
+                    continue;
+                }
                 _data.resize(old_size);
                 return status;
             }
@@ -258,6 +264,10 @@ public:
             auto status = append_binary_value(reinterpret_cast<const uint8_t*>(values[row].data),
                                               values[row].size, old_size + row);
             if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = FieldType();
+                    continue;
+                }
                 _data.resize(old_size);
                 return status;
             }
@@ -274,6 +284,10 @@ private:
             const auto source_value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
             auto status = append_native_value(NativeType(source_value), old_size + row);
             if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = FieldType();
+                    continue;
+                }
                 _data.resize(old_size);
                 return status;
             }
@@ -305,6 +319,7 @@ private:
     const ParquetDecodeContext& _context;
     UInt32 _target_precision;
     int32_t _target_scale;
+    ParquetMaterializationState* _state;
 };
 
 } // namespace
@@ -677,7 +692,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_parquet(IColumn& column,
     if (context.logical_type != ParquetLogicalType::DECIMAL || context.decimal_scale < 0) {
         return Status::NotSupported("Decimal SerDe requires Parquet DECIMAL metadata");
     }
-    DecimalParquetConsumer<T> consumer(column, context, cast_set<UInt32>(precision), scale);
+    DecimalParquetConsumer<T> consumer(column, context, cast_set<UInt32>(precision), scale, &state);
     if (context.encoding != ParquetValueEncoding::DICTIONARY) {
         if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
             return source.decode_binary_values(num_values, consumer);
@@ -687,15 +702,29 @@ Status DataTypeDecimalSerDe<T>::read_column_from_parquet(IColumn& column,
 
     if (state.dictionary_generation != source.dictionary_generation()) {
         state.typed_dictionary = column.clone_empty();
-        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        DecimalParquetConsumer<T> dictionary_consumer(*state.typed_dictionary, context,
+                                                      cast_set<UInt32>(precision), scale, &state);
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, dictionary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
         DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
         state.dictionary_generation = source.dictionary_generation();
     }
     RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
     DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
-    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    const size_t old_size = column.size();
     column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
                                state.dictionary_indices.data() + num_values);
+    if (state.can_insert_null_on_conversion_failure()) {
+        for (size_t row = 0; row < num_values; ++row) {
+            if (!state.dictionary_conversion_failures.empty() &&
+                state.dictionary_conversion_failures[state.dictionary_indices[row]] != 0) {
+                state.mark_conversion_failure(old_size + row);
+            }
+        }
+    }
     return Status::OK();
 }
 

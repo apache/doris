@@ -177,6 +177,29 @@ format-specific checklist when reviewing Parquet or ORC.
   Arrow `ReadRecords`. Require profiles that distinguish page I/O, decompression, level decode,
   value decode, SerDe materialization, hybrid selection batches/ranges/NULL fallback,
   filtered-value skips, and page fragmentation.
+- Validate every signed Column Chunk offset/length before converting it to `size_t`. The dictionary
+  offset is usable only when it is non-negative and precedes the data offset; the complete range
+  must fit the file. Apply the PARQUET-816 tail padding only to affected parquet-mr versions, cap it
+  at 100 bytes, and keep it inside the file. Scalar and levels-only COUNT readers share this helper.
+- Treat OffsetIndex as one optional, all-or-nothing navigation structure. Require first row zero,
+  strictly increasing row ordinals and physical offsets, positive sizes, non-overlapping page
+  ranges, and containment in the owning Column Chunk. Discard a malformed index before selecting
+  the indexed reader.
+- Page iteration skips `INDEX_PAGE` and unknown auxiliary pages before initializing a data decoder.
+  Dictionary pages retain their special first-page handling; a later dictionary page is corrupt.
+- Derive writer workarounds once from `created_by` and pass them through scalar, nested, page-cache,
+  and COUNT paths. Pre-Arrow-3 parquet-cpp Data Page V2 payloads remain compressed despite the
+  historical `is_compressed=false` flag.
+- Preserve nullable conversion semantics in direct native materialization. Numeric, DATE,
+  DATETIME, TIME, and DECIMAL failures insert a default nested value and mark the corresponding NULL
+  only in non-strict mode; strict or non-nullable reads return the error. Dictionary failures follow
+  the selected dictionary IDs to output rows.
+- For cold small-file tests, separate footer I/O/Thrift parse from Arrow metadata adaptation. V2 may
+  retain the already-read serialized footer to avoid serializing the same Thrift object again; v1
+  opens must not retain those bytes by default.
+- Identical fixed-width POD values append with one bulk copy. FIXED_LEN_BYTE_ARRAY strings copy the
+  dense byte span once and synthesize offsets; validate this execution contract without flaky
+  wall-clock assertions.
 
 ## Parquet Multi-Level Filtering
 

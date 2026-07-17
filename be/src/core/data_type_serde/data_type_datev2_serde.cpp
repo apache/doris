@@ -45,8 +45,8 @@ namespace {
 
 class DateV2ParquetConsumer final : public ParquetFixedValueConsumer {
 public:
-    explicit DateV2ParquetConsumer(IColumn& column)
-            : _data(assert_cast<ColumnDateV2&>(column).get_data()) {}
+    explicit DateV2ParquetConsumer(IColumn& column, ParquetMaterializationState* state = nullptr)
+            : _data(assert_cast<ColumnDateV2&>(column).get_data()), _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         DORIS_CHECK_EQ(value_width, sizeof(int32_t));
@@ -54,8 +54,17 @@ public:
         _data.resize(old_size + num_values);
         for (size_t row = 0; row < num_values; ++row) {
             DateV2Value<DateV2ValueType> value;
-            value.get_date_from_daynr(unaligned_load<int32_t>(values + row * sizeof(int32_t)) +
-                                      date_threshold);
+            const int64_t day_number =
+                    static_cast<int64_t>(unaligned_load<int32_t>(values + row * sizeof(int32_t))) +
+                    date_threshold;
+            if (day_number < 0 || !value.get_date_from_daynr(static_cast<uint64_t>(day_number))) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = DateV2Value<DateV2ValueType>();
+                    continue;
+                }
+                _data.resize(old_size);
+                return Status::DataQualityError("Parquet DATE value is out of range");
+            }
             _data[old_size + row] = value;
         }
         return Status::OK();
@@ -63,6 +72,7 @@ public:
 
 private:
     ColumnDateV2::Container& _data;
+    ParquetMaterializationState* _state;
 };
 
 class RejectDateV2BinaryConsumer final : public ParquetBinaryValueConsumer {
@@ -202,20 +212,35 @@ Status DataTypeDateV2SerDe::read_column_from_parquet(IColumn& column, ParquetDec
         context.logical_type != ParquetLogicalType::DATE) {
         return Status::NotSupported("DATEV2 expects Parquet DATE stored as INT32");
     }
-    DateV2ParquetConsumer consumer(column);
+    DateV2ParquetConsumer consumer(column, &state);
     if (context.encoding != ParquetValueEncoding::DICTIONARY) {
         return source.decode_fixed_values(num_values, consumer);
     }
     if (state.dictionary_generation != source.dictionary_generation()) {
         state.typed_dictionary = column.clone_empty();
-        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        DateV2ParquetConsumer dictionary_consumer(*state.typed_dictionary, &state);
+        RejectDateV2BinaryConsumer binary_consumer;
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, binary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
         DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
         state.dictionary_generation = source.dictionary_generation();
     }
     RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
     DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    const size_t old_size = column.size();
     column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
                                state.dictionary_indices.data() + num_values);
+    if (state.can_insert_null_on_conversion_failure()) {
+        for (size_t row = 0; row < num_values; ++row) {
+            if (!state.dictionary_conversion_failures.empty() &&
+                state.dictionary_conversion_failures[state.dictionary_indices[row]] != 0) {
+                state.mark_conversion_failure(old_size + row);
+            }
+        }
+    }
     return Status::OK();
 }
 

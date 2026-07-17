@@ -134,10 +134,12 @@ Status CountColumnReader::create(io::FileReaderSPtr file, const FileMetaData* me
     const size_t max_group_buffer = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t max_column_buffer = config::parquet_column_max_buffer_mb << 20;
     std::unique_ptr<native::LevelReader> level_reader;
+    const auto compat = native::parquet_reader_compat(
+            thrift_metadata.__isset.created_by ? thrift_metadata.created_by : "");
     RETURN_IF_ERROR(native::LevelReader::create(
             std::move(file), row_group.columns[leaf_schema->leaf_column_id], leaf_field,
             row_group.num_rows, std::min(max_group_buffer, max_column_buffer), io_ctx,
-            enable_page_cache, page_cache_file_key, &level_reader));
+            enable_page_cache, page_cache_file_key, compat, &level_reader));
     reader->reset(new CountColumnReader(leaf_schema->name, std::move(level_reader), profile));
     return Status::OK();
 }

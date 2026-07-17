@@ -19,6 +19,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -316,6 +317,96 @@ TEST(DataTypeSerDeParquetTest, MaterializesFixedBinaryAsVarbinaryDirectly) {
     EXPECT_EQ(column->get_data_at(0).to_string(), std::string("\x00\x01\x02\x03\x04\x05\x06\x07"
                                                               "\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F",
                                                               16));
+}
+
+TEST(DataTypeSerDeParquetTest, NullableConversionFailuresBecomeNullOutsideStrictMode) {
+    auto expect_null = [](DataTypeSerDeSPtr serde, MutableColumnPtr column,
+                          TestParquetDecodeSource* source, const ParquetDecodeContext& context) {
+        IColumn::Filter null_map;
+        null_map.resize_fill(1, 0);
+        ParquetMaterializationState state;
+        state.conversion_failure_null_map = &null_map;
+        EXPECT_TRUE(serde->read_column_from_parquet(*column, *source, context, 1, state).ok());
+        EXPECT_EQ(column->size(), 1);
+        EXPECT_EQ(null_map[0], 1);
+    };
+
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int32_t>({std::numeric_limits<int32_t>::min()});
+        DataTypeDateV2 type;
+        expect_null(type.get_serde(), type.create_column(), &source,
+                    {.physical_type = ParquetPhysicalType::INT32,
+                     .logical_type = ParquetLogicalType::DATE});
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int64_t>({std::numeric_limits<int64_t>::max()});
+        DataTypeTimeV2 type(6);
+        expect_null(type.get_serde(), type.create_column(), &source,
+                    {.physical_type = ParquetPhysicalType::INT64,
+                     .logical_type = ParquetLogicalType::TIME,
+                     .time_unit = ParquetTimeUnit::MILLIS});
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int64_t>({std::numeric_limits<int64_t>::max()});
+        DataTypeDateTimeV2 type(6);
+        expect_null(type.get_serde(), type.create_column(), &source,
+                    {.physical_type = ParquetPhysicalType::INT64,
+                     .logical_type = ParquetLogicalType::TIMESTAMP,
+                     .time_unit = ParquetTimeUnit::MILLIS});
+    }
+    {
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int32_t>({10});
+        DataTypeDecimal32 type(1, 0);
+        expect_null(type.get_serde(), type.create_column(), &source,
+                    {.physical_type = ParquetPhysicalType::INT32,
+                     .logical_type = ParquetLogicalType::DECIMAL,
+                     .decimal_precision = 2,
+                     .decimal_scale = 0});
+    }
+}
+
+TEST(DataTypeSerDeParquetTest, DictionaryConversionFailuresFollowDecodedIds) {
+    const int32_t overflow = 1000;
+    std::vector<uint8_t> dictionary(sizeof(overflow));
+    memcpy(dictionary.data(), &overflow, sizeof(overflow));
+    TestParquetDecodeSource source;
+    source.set_dictionary(std::move(dictionary), sizeof(overflow), {0, 0});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .encoding = ParquetValueEncoding::DICTIONARY};
+    IColumn::Filter null_map;
+    null_map.resize_fill(2, 0);
+    ParquetMaterializationState state;
+    state.conversion_failure_null_map = &null_map;
+    DataTypeInt8 type;
+    auto column = type.create_column();
+
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 2, state).ok());
+    EXPECT_EQ(column->size(), 2);
+    EXPECT_EQ(null_map[0], 1);
+    EXPECT_EQ(null_map[1], 1);
+    EXPECT_EQ(source.dictionary_decode_calls(), 1);
+}
+
+TEST(DataTypeSerDeParquetTest, NonNullableDictionaryConversionFailureRemainsAnError) {
+    const int32_t overflow = 1000;
+    std::vector<uint8_t> dictionary(sizeof(overflow));
+    memcpy(dictionary.data(), &overflow, sizeof(overflow));
+    TestParquetDecodeSource source;
+    source.set_dictionary(std::move(dictionary), sizeof(overflow), {0});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .encoding = ParquetValueEncoding::DICTIONARY};
+    ParquetMaterializationState state;
+    DataTypeInt8 type;
+    auto column = type.create_column();
+
+    EXPECT_FALSE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 1, state).ok());
+    EXPECT_EQ(column->size(), 0);
 }
 
 } // namespace

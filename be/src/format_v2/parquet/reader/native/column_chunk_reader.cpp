@@ -19,9 +19,12 @@
 
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
+#include <parquet/metadata.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -50,6 +53,77 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::format::parquet::native {
+
+ParquetReaderCompat parquet_reader_compat(const std::string& created_by) {
+    if (created_by.empty()) {
+        return {};
+    }
+    const ::parquet::ApplicationVersion version(created_by);
+    return {.parquet_816_padding =
+                    version.VersionLt(::parquet::ApplicationVersion::PARQUET_816_FIXED_VERSION()),
+            .data_page_v2_always_compressed = version.VersionLt(
+                    ::parquet::ApplicationVersion::PARQUET_CPP_10353_FIXED_VERSION())};
+}
+
+Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size_t file_size,
+                                  bool parquet_816_padding, ColumnChunkRange* range) {
+    DORIS_CHECK(range != nullptr);
+    int64_t start = metadata.data_page_offset;
+    if (metadata.__isset.dictionary_page_offset && metadata.dictionary_page_offset >= 0 &&
+        metadata.dictionary_page_offset < start) {
+        start = metadata.dictionary_page_offset;
+    }
+    const int64_t length = metadata.total_compressed_size;
+    if (UNLIKELY(start < 0 || length < 0)) {
+        return Status::Corruption("Parquet column chunk has a negative offset or length");
+    }
+    const uint64_t unsigned_start = static_cast<uint64_t>(start);
+    const uint64_t unsigned_length = static_cast<uint64_t>(length);
+    if (UNLIKELY(unsigned_start > file_size || unsigned_length > file_size - unsigned_start)) {
+        // Thrift range fields are signed and untrusted; validate before converting them to the
+        // unsigned stream-reader coordinates so overflow cannot wrap back into the file.
+        return Status::Corruption("Parquet column chunk [{}, {}) exceeds file size {}", start,
+                                  unsigned_start + unsigned_length, file_size);
+    }
+    size_t bounded_length = static_cast<size_t>(unsigned_length);
+    if (parquet_816_padding) {
+        // parquet-mr before PARQUET-816 under-reported the chunk by up to 100 bytes. Padding stays
+        // file-bounded and is only enabled for the affected writer versions.
+        bounded_length += std::min<size_t>(100, file_size - unsigned_start - unsigned_length);
+    }
+    range->offset = static_cast<size_t>(unsigned_start);
+    range->length = bounded_length;
+    return Status::OK();
+}
+
+bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunkRange& chunk_range,
+                           int64_t row_count) {
+    if (index.page_locations.empty() || row_count < 0 ||
+        index.page_locations.front().first_row_index != 0 ||
+        chunk_range.length > std::numeric_limits<size_t>::max() - chunk_range.offset) {
+        return false;
+    }
+    const uint64_t chunk_begin = chunk_range.offset;
+    const uint64_t chunk_end = chunk_begin + chunk_range.length;
+    uint64_t previous_end = chunk_begin;
+    int64_t previous_row = -1;
+    for (const auto& location : index.page_locations) {
+        if (location.first_row_index <= previous_row || location.first_row_index >= row_count ||
+            location.offset < 0 || location.compressed_page_size <= 0) {
+            return false;
+        }
+        const uint64_t begin = static_cast<uint64_t>(location.offset);
+        const uint64_t size = static_cast<uint64_t>(location.compressed_page_size);
+        if (begin < chunk_begin || begin < previous_end || begin > chunk_end ||
+            size > chunk_end - begin) {
+            return false;
+        }
+        previous_row = location.first_row_index;
+        previous_end = begin + size;
+    }
+    return true;
+}
+
 namespace {
 
 Status translate_value_encoding(tparquet::Encoding::type encoding,
@@ -193,7 +267,8 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
         io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
         FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index, size_t total_rows,
-        io::IOContext* io_ctx, const ParquetPageReadContext& page_read_ctx)
+        io::IOContext* io_ctx, const ParquetPageReadContext& page_read_ctx,
+        const ColumnChunkRange* chunk_range)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
@@ -202,13 +277,21 @@ ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
           _offset_index(offset_index),
           _total_rows(total_rows),
           _io_ctx(io_ctx),
-          _page_read_ctx(page_read_ctx) {}
+          _page_read_ctx(page_read_ctx) {
+    if (chunk_range != nullptr) {
+        _chunk_range = *chunk_range;
+        _has_validated_chunk_range = true;
+    }
+}
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
-    size_t start_offset = has_dict_page(_metadata) ? _metadata.dictionary_page_offset
-                                                   : _metadata.data_page_offset;
-    size_t chunk_size = _metadata.total_compressed_size;
+    size_t start_offset = _has_validated_chunk_range
+                                  ? _chunk_range.offset
+                                  : (has_dict_page(_metadata) ? _metadata.dictionary_page_offset
+                                                              : _metadata.data_page_offset);
+    size_t chunk_size =
+            _has_validated_chunk_range ? _chunk_range.length : _metadata.total_compressed_size;
     // create page reader
     _page_reader = create_page_reader<IN_COLLECTION, OFFSET_INDEX>(
             _stream_reader, _io_ctx, start_offset, chunk_size, _total_rows, _metadata,
@@ -281,20 +364,29 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::read_levels(
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header() {
-    RETURN_IF_ERROR(parse_page_header());
-
-    const tparquet::PageHeader* header = nullptr;
-    RETURN_IF_ERROR(_page_reader->get_page_header(&header));
-    if (header->type == tparquet::PageType::DICTIONARY_PAGE) {
+    while (true) {
+        RETURN_IF_ERROR(_page_reader->parse_page_header());
+        const tparquet::PageHeader* header = nullptr;
+        RETURN_IF_ERROR(_page_reader->get_page_header(&header));
+        if (header->type == tparquet::PageType::DATA_PAGE ||
+            header->type == tparquet::PageType::DATA_PAGE_V2) {
+            _state = INITIALIZED;
+            return parse_page_header();
+        }
+        if (header->type != tparquet::PageType::DICTIONARY_PAGE) {
+            RETURN_IF_ERROR(_page_reader->skip_auxiliary_page());
+            _state = INITIALIZED;
+            continue;
+        }
         // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
         // so we should parse the directory page in next_page()
         RETURN_IF_ERROR(_decode_dict_page());
         // parse the real first data page
         RETURN_IF_ERROR(_page_reader->dict_next_page());
         _state = INITIALIZED;
+        // A dictionary is the only non-data page with decoder state. Any following index or
+        // extension pages are skipped by the same pre-data loop.
     }
-
-    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -302,10 +394,19 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (_state == HEADER_PARSED || _state == DATA_LOADED) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_page_reader->parse_page_header());
-
     const tparquet::PageHeader* header = nullptr;
-    RETURN_IF_ERROR(_page_reader->get_page_header(&header));
+    while (true) {
+        RETURN_IF_ERROR(_page_reader->parse_page_header());
+        RETURN_IF_ERROR(_page_reader->get_page_header(&header));
+        if (header->type == tparquet::PageType::DATA_PAGE ||
+            header->type == tparquet::PageType::DATA_PAGE_V2) {
+            break;
+        }
+        if (header->type == tparquet::PageType::DICTIONARY_PAGE) {
+            return Status::Corruption("Parquet dictionary page appears after data pages");
+        }
+        RETURN_IF_ERROR(_page_reader->skip_auxiliary_page());
+    }
     int32_t page_num_values = _page_reader->is_header_v2() ? header->data_page_header_v2.num_values
                                                            : header->data_page_header.num_values;
     _remaining_rep_nums = page_num_values;
@@ -446,7 +547,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 RETURN_IF_ERROR(_get_uncompressed_levels(header_v2, compressed_data));
             }
             bool is_v2_compressed = header->__isset.data_page_header_v2 &&
-                                    header->data_page_header_v2.is_compressed;
+                                    (header->data_page_header_v2.is_compressed ||
+                                     _page_read_ctx.data_page_v2_always_compressed);
             bool page_has_compression = header->__isset.data_page_header || is_v2_compressed;
 
             if (page_has_compression) {
@@ -462,7 +564,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 }
 
                 // Decide whether to cache decompressed payload or compressed payload based on threshold
-                bool cache_payload_decompressed = should_cache_decompressed(header, _metadata);
+                bool cache_payload_decompressed = should_cache_decompressed(
+                        header, _metadata, _page_read_ctx.data_page_v2_always_compressed);
 
                 if (_page_read_ctx.enable_parquet_file_page_cache &&
                     !config::disable_storage_page_cache &&
@@ -662,7 +765,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
 
             // Decide whether to cache decompressed or compressed dictionary based on threshold
             // If uncompressed_page_size == 0, should_cache_decompressed will return true
-            bool cache_payload_decompressed = should_cache_decompressed(header, _metadata);
+            bool cache_payload_decompressed = should_cache_decompressed(
+                    header, _metadata, _page_read_ctx.data_page_v2_always_compressed);
 
             if (_page_read_ctx.enable_parquet_file_page_cache &&
                 !config::disable_storage_page_cache && StoragePageCache::instance() != nullptr &&

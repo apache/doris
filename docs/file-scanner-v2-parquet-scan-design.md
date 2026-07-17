@@ -400,7 +400,7 @@ that parsing step both feed the same level and value-decoder contracts.
 
 | Encoding family | Native responsibility |
 | --- | --- |
-| PLAIN | Fixed-width little-endian primitives, BOOLEAN bit packing, BYTE_ARRAY lengths, and FIXED_LEN_BYTE_ARRAY widths; sparse fixed-width ranges use bulk gather and sparse strings scan lengths once |
+| PLAIN | Fixed-width little-endian primitives, BOOLEAN bit packing, BYTE_ARRAY lengths, and FIXED_LEN_BYTE_ARRAY widths; identical POD types append by bulk copy, dense fixed-length strings use one byte-span copy plus offset synthesis, sparse fixed-width ranges consume contiguous spans directly, and sparse variable strings scan lengths once |
 | RLE_DICTIONARY / PLAIN_DICTIONARY | Persist dictionary values for the Column Chunk, decode and validate the complete ID batch, then gather selected IDs |
 | RLE / BIT_PACKED levels | Decode definition/repetition levels and preserve runs across page and batch boundaries |
 | DELTA_BINARY_PACKED | Preserve block/mini-block state, decode one page-fragment batch, and compact selected values in-place |
@@ -426,6 +426,14 @@ destination capacity before decompression; Page V1, Page V2, and dictionary deco
 exactly the size declared in the page header. For the UNCOMPRESSED codec, dictionary compressed and
 uncompressed sizes must be equal. These rules turn malformed size metadata into corruption instead
 of a buffer overrun, silent truncation, or plausible shifted values.
+
+Before a stream is created, scalar and levels-only readers call one signed, file-bounded Column
+Chunk range validator. Writer compatibility derived from `created_by` may add at most 100 bytes of
+file-bounded PARQUET-816 padding, or override the pre-Arrow-3 Data Page V2 compressed flag. Page
+iteration ignores auxiliary `INDEX_PAGE`/unknown pages without consuming a logical data-page
+ordinal. OffsetIndex is published only when its rows and non-overlapping physical page ranges are
+strictly increasing and remain inside that validated Column Chunk; otherwise sequential traversal
+preserves correctness.
 
 ### 7.3 Direct Materialization and Scratch Reuse
 
@@ -456,6 +464,12 @@ the same semantic checks as the general conversion path. A fast path is enabled 
 checks prove the result is equivalent. In particular, legacy converted `TIMESTAMP_MILLIS` and
 `TIMESTAMP_MICROS` are UTC-adjusted, while an unannotated INT64 timestamp has distinct
 local/unspecified semantics; data decode and statistics pruning share this interpretation.
+
+Direct conversion also preserves load-mode error semantics. A nullable target in non-strict mode
+stores the nested default and marks the exact output row NULL for numeric, date/time, timestamp, and
+decimal conversion failures. Strict mode and non-nullable targets return the error. Typed
+dictionary materialization records failing dictionary entries once and propagates those failures
+through decoded dictionary IDs, so dictionary and plain pages have identical behavior.
 
 The typed dictionary is materialized through the logical SerDe once per decoder dictionary
 generation. Dictionary-entry predicate evaluation, dictionary-ID row filtering, and surviving
@@ -625,7 +639,7 @@ flowchart TB
 
 | Mechanism | Cached or optimized object | Lifecycle and key | Problem addressed |
 | --- | --- | --- | --- |
-| Footer metadata cache | Serialized footer bytes and immutable parsed native metadata | Stable file identity matching v1: path plus size and trustworthy modification/version information, with schema-affecting options in the parsed-object key | Avoid repeated footer I/O, Thrift parsing, and schema construction across scans |
+| Footer metadata cache | Immutable parsed native metadata and, for a v2 cold miss, the serialized footer bytes already fetched from storage | Stable file identity matching v1: path plus size and trustworthy modification/version information, with schema-affecting options in the parsed-object key | Avoid repeated footer I/O, Thrift parsing, schema construction, and v2's former Thrift re-serialization before Arrow metadata adaptation |
 | FileCache | Remote file blocks | Related to filesystem/path and file version; may hit locally or through a peer | Avoid repeated object-storage access and support background prefetch |
 | Parquet Page Cache | Serialized bytes within registered Column Chunk ranges | Stable file key depends on path, mtime/version, and file size; disabled when mtime is unreliable | Reduce repeated page reads and support exact/subrange coverage |
 | Condition Cache | Condition-surviving granule bitmap | Managed by condition and file-range context | Reuse filtering results before reading columns |
@@ -641,10 +655,11 @@ reusable entry. Parse failures, short files, encrypted/unsupported metadata, and
 option changes cannot populate or reuse a successful entry.
 
 V2 calls the same footer parser/cache and key builder as v1. On either a cache hit or miss, the
-immutable native Thrift metadata is the owner. While Arrow planning remains, V2 serializes that
-already cached Thrift object into Arrow's metadata parser, so opening the planner performs no second
-footer read. The Arrow object is never the cache value and its lifetime does not enter the native
-decoder.
+immutable native Thrift metadata is the owner. On a v2 cold miss, the parser also retains the exact
+serialized footer bytes already in memory, and the lazy Arrow planner adapter parses those bytes
+directly instead of serializing the new Thrift object again. V1 keeps retention disabled by default.
+The Arrow adapter is cached at the footer-object lifecycle; it is never the cache value and its
+lifetime does not enter the native decoder.
 
 ### Page Cache Parity with V1
 

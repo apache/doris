@@ -158,8 +158,8 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
             // Increment page cache counters for a true cache hit on header+payload
             _page_statistics.page_cache_hit_counter += 1;
             // Detect whether the cached payload is compressed or decompressed and record
-            bool is_cache_payload_decompressed =
-                    should_cache_decompressed(&_cur_page_header, _metadata);
+            bool is_cache_payload_decompressed = should_cache_decompressed(
+                    &_cur_page_header, _metadata, _page_read_ctx.data_page_v2_always_compressed);
 
             if (is_cache_payload_decompressed) {
                 _page_statistics.page_cache_decompressed_hit_counter += 1;

@@ -57,18 +57,23 @@ struct ParquetPageReadContext {
     // A default-constructed context has no stable file identity, so cache lookup must stay off.
     bool enable_parquet_file_page_cache = false;
     std::string page_cache_file_key;
+    bool data_page_v2_always_compressed = false;
     ParquetPageReadContext() = default;
-    ParquetPageReadContext(bool enable_parquet_file_page_cache, std::string page_cache_file_key)
+    ParquetPageReadContext(bool enable_parquet_file_page_cache, std::string page_cache_file_key,
+                           bool data_page_v2_always_compressed = false)
             : enable_parquet_file_page_cache(enable_parquet_file_page_cache &&
                                              !page_cache_file_key.empty()),
-              page_cache_file_key(std::move(page_cache_file_key)) {}
+              page_cache_file_key(std::move(page_cache_file_key)),
+              data_page_v2_always_compressed(data_page_v2_always_compressed) {}
 };
 
 inline bool should_cache_decompressed(const tparquet::PageHeader* header,
-                                      const tparquet::ColumnMetaData& metadata) {
+                                      const tparquet::ColumnMetaData& metadata,
+                                      bool data_page_v2_always_compressed = false) {
     // Data Page V2 declares its payload representation independently of the column codec. A warm
     // hit must never send an explicitly uncompressed cached payload through the codec again.
-    if (header->__isset.data_page_header_v2 && !header->data_page_header_v2.is_compressed) {
+    if (header->__isset.data_page_header_v2 && !header->data_page_header_v2.is_compressed &&
+        !data_page_v2_always_compressed) {
         return true;
     }
     if (header->compressed_page_size <= 0) return true;
@@ -170,6 +175,18 @@ public:
         return Status::OK();
     }
 
+    Status skip_auxiliary_page() {
+        if constexpr (OFFSET_INDEX) {
+            // OffsetIndex enumerates data pages only, so an auxiliary physical page must not
+            // consume a logical page-location entry while advancing to its payload end.
+            skip_page_data();
+            _state = INITIALIZED;
+            return Status::OK();
+        } else {
+            return next_page();
+        }
+    }
+
     Status dict_next_page() {
         if constexpr (OFFSET_INDEX) {
             _state = INITIALIZED;
@@ -205,7 +222,8 @@ public:
     }
     uint64_t file_end_offset() const { return _end_offset; }
     bool cached_decompressed() const {
-        return should_cache_decompressed(&_cur_page_header, _metadata);
+        return should_cache_decompressed(&_cur_page_header, _metadata,
+                                         _page_read_ctx.data_page_v2_always_compressed);
     }
 
     PageStatistics& page_statistics() { return _page_statistics; }

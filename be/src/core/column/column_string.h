@@ -26,6 +26,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <typeinfo>
 #include <vector>
 
@@ -318,6 +319,35 @@ public:
                 offset += len;
             }
             offsets.push_back(offset);
+        }
+        sanity_check_simple();
+    }
+
+    void insert_many_fixed_length_data(const char* data, size_t value_length, size_t num) {
+        if (num == 0) {
+            return;
+        }
+        if (value_length > std::numeric_limits<size_t>::max() / num) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnString fixed-length append size overflow");
+        }
+        const size_t old_chars_size = chars.size();
+        const size_t old_offsets_size = offsets.size();
+        const size_t bytes = value_length * num;
+        if (bytes > std::numeric_limits<size_t>::max() - old_chars_size ||
+            num > std::numeric_limits<size_t>::max() - old_offsets_size) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnString fixed-length append size overflow");
+        }
+        check_chars_length(old_chars_size + bytes, old_offsets_size + num);
+        chars.resize(old_chars_size + bytes);
+        if (bytes != 0) {
+            memcpy(chars.data() + old_chars_size, data, bytes);
+        }
+        offsets.resize(old_offsets_size + num);
+        for (size_t row = 0; row < num; ++row) {
+            offsets[old_offsets_size + row] =
+                    static_cast<T>(old_chars_size + (row + 1) * value_length);
         }
         sanity_check_simple();
     }

@@ -247,10 +247,14 @@ Status NativeColumnReader::init(
         _page_cache_runtime_state = RuntimeState::create_unique(query_options, TQueryGlobals());
         native_runtime_state = _page_cache_runtime_state.get();
     }
+    const auto& thrift_metadata = metadata->to_thrift();
+    const auto compat = native::parquet_reader_compat(
+            thrift_metadata.__isset.created_by ? thrift_metadata.created_by : "");
     RETURN_IF_ERROR(native::ColumnReader::create(
             std::move(file), field, row_group, _row_ranges, timezone, io_ctx, _native_reader,
             max_buffer_size, *_offset_indexes, native_runtime_state, false, _projected_column_ids,
-            _filter_column_ids, page_cache_file_key));
+            _filter_column_ids, page_cache_file_key, compat,
+            runtime_state != nullptr && runtime_state->enable_strict_mode()));
     DORIS_CHECK(_native_reader != nullptr);
     _skip_column = _type->create_column();
     return Status::OK();

@@ -34,6 +34,7 @@
 #include "common/check.h"
 #include "common/config.h"
 #include "format/parquet/parquet_thrift_util.h"
+#include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
@@ -595,7 +596,8 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     } else {
         RETURN_IF_ERROR(parse_thrift_footer(
                 native_file, &native_metadata_owner, &native_footer_size, io_ctx,
-                /*enable_mapping_varbinary=*/true, enable_mapping_timestamp_tz));
+                /*enable_mapping_varbinary=*/true, enable_mapping_timestamp_tz,
+                /*retain_serialized_metadata=*/true));
         ++native_footer_read_calls;
         if (meta_cache != nullptr && meta_cache->enabled()) {
             meta_cache->insert(meta_cache_key, native_metadata_owner.release(),
@@ -648,6 +650,13 @@ Status ParquetFileContext::load_native_offset_indexes(
     if (leaf_column_ids.empty() || file_reader == nullptr) {
         return Status::OK();
     }
+    const auto& thrift_metadata = native_metadata->to_thrift();
+    if (row_group_id < 0 || row_group_id >= static_cast<int>(thrift_metadata.row_groups.size())) {
+        return Status::Corruption("Invalid Parquet row group {} for OffsetIndex", row_group_id);
+    }
+    const auto& native_row_group = thrift_metadata.row_groups[row_group_id];
+    const auto compat = native::parquet_reader_compat(
+            thrift_metadata.__isset.created_by ? thrift_metadata.created_by : "");
     try {
         auto page_index_reader = file_reader->GetPageIndexReader();
         if (page_index_reader == nullptr) {
@@ -658,6 +667,11 @@ Status ParquetFileContext::load_native_offset_indexes(
             return Status::OK();
         }
         for (const int leaf_column_id : leaf_column_ids) {
+            if (leaf_column_id < 0 ||
+                leaf_column_id >= static_cast<int>(native_row_group.columns.size())) {
+                return Status::Corruption("Invalid Parquet leaf {} for OffsetIndex",
+                                          leaf_column_id);
+            }
             auto arrow_index = row_group_reader->GetOffsetIndex(leaf_column_id);
             if (arrow_index == nullptr || arrow_index->page_locations().empty()) {
                 // An empty optional index is equivalent to no index. Publishing it would select
@@ -672,6 +686,16 @@ Status ParquetFileContext::load_native_offset_indexes(
                 native_location.__set_compressed_page_size(arrow_location.compressed_page_size);
                 native_location.__set_first_row_index(arrow_location.first_row_index);
                 native_index.page_locations.push_back(std::move(native_location));
+            }
+            native::ColumnChunkRange chunk_range;
+            RETURN_IF_ERROR(native::compute_column_chunk_range(
+                    native_row_group.columns[leaf_column_id].meta_data, native_file->size(),
+                    compat.parquet_816_padding, &chunk_range));
+            if (!native::validate_offset_index(native_index, chunk_range,
+                                               native_row_group.num_rows)) {
+                // OffsetIndex is optional. Reject the complete index instead of letting one bad
+                // location redirect an indexed reader outside its owning column chunk.
+                continue;
             }
             offset_indexes->emplace(leaf_column_id, std::move(native_index));
         }

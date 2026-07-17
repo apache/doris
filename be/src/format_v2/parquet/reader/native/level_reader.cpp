@@ -42,7 +42,8 @@ class LevelReaderImpl final : public LevelReader::Impl {
 public:
     LevelReaderImpl(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk, FieldSchema* field,
                     size_t total_rows, size_t max_buffer_size, io::IOContext* io_ctx,
-                    bool enable_page_cache, std::string page_cache_file_key)
+                    bool enable_page_cache, std::string page_cache_file_key,
+                    ParquetReaderCompat compat)
             : _file(std::move(file)),
               _column_chunk(std::move(column_chunk)),
               _field(field),
@@ -50,15 +51,18 @@ public:
               _max_buffer_size(max_buffer_size),
               _io_ctx(io_ctx),
               _enable_page_cache(enable_page_cache),
-              _page_cache_file_key(std::move(page_cache_file_key)) {}
+              _page_cache_file_key(std::move(page_cache_file_key)),
+              _compat(compat) {}
 
     Status init() override {
         DORIS_CHECK(_file != nullptr);
         DORIS_CHECK(_field != nullptr);
         const auto& metadata = _column_chunk.meta_data;
-        const int64_t chunk_start = has_dict_page(metadata) ? metadata.dictionary_page_offset
-                                                            : metadata.data_page_offset;
-        const size_t chunk_size = metadata.total_compressed_size;
+        ColumnChunkRange chunk_range;
+        RETURN_IF_ERROR(compute_column_chunk_range(metadata, _file->size(),
+                                                   _compat.parquet_816_padding, &chunk_range));
+        const size_t chunk_start = chunk_range.offset;
+        const size_t chunk_size = chunk_range.length;
         size_t prefetch_buffer_size = std::min(chunk_size, _max_buffer_size);
         auto* tracing_reader = typeid_cast<io::TracingFileReader*>(_file.get());
         if ((tracing_reader != nullptr &&
@@ -71,7 +75,9 @@ public:
                                                                  prefetch_buffer_size);
         _chunk_reader = std::make_unique<ColumnChunkReader<IN_COLLECTION, false>>(
                 _stream.get(), &_column_chunk, _field, nullptr, _total_rows, _io_ctx,
-                ParquetPageReadContext(_enable_page_cache, _page_cache_file_key));
+                ParquetPageReadContext(_enable_page_cache, _page_cache_file_key,
+                                       _compat.data_page_v2_always_compressed),
+                &chunk_range);
         return _chunk_reader->init();
     }
 
@@ -155,6 +161,7 @@ private:
     io::IOContext* _io_ctx = nullptr;
     bool _enable_page_cache = false;
     std::string _page_cache_file_key;
+    ParquetReaderCompat _compat;
     size_t _current_row = 0;
     std::unique_ptr<io::BufferedFileStreamReader> _stream;
     std::unique_ptr<ColumnChunkReader<IN_COLLECTION, false>> _chunk_reader;
@@ -164,18 +171,19 @@ Status LevelReader::create(io::FileReaderSPtr file, tparquet::ColumnChunk column
                            FieldSchema* field, size_t total_rows, size_t max_buffer_size,
                            io::IOContext* io_ctx, bool enable_page_cache,
                            const std::string& page_cache_file_key,
+                           const ParquetReaderCompat& compat,
                            std::unique_ptr<LevelReader>* reader) {
     DORIS_CHECK(reader != nullptr);
     DORIS_CHECK(field != nullptr);
     std::unique_ptr<Impl> impl;
     if (field->repetition_level > 0) {
-        impl = std::make_unique<LevelReaderImpl<true>>(std::move(file), std::move(column_chunk),
-                                                       field, total_rows, max_buffer_size, io_ctx,
-                                                       enable_page_cache, page_cache_file_key);
+        impl = std::make_unique<LevelReaderImpl<true>>(
+                std::move(file), std::move(column_chunk), field, total_rows, max_buffer_size,
+                io_ctx, enable_page_cache, page_cache_file_key, compat);
     } else {
-        impl = std::make_unique<LevelReaderImpl<false>>(std::move(file), std::move(column_chunk),
-                                                        field, total_rows, max_buffer_size, io_ctx,
-                                                        enable_page_cache, page_cache_file_key);
+        impl = std::make_unique<LevelReaderImpl<false>>(
+                std::move(file), std::move(column_chunk), field, total_rows, max_buffer_size,
+                io_ctx, enable_page_cache, page_cache_file_key, compat);
     }
     RETURN_IF_ERROR(impl->init());
     reader->reset(new LevelReader(std::move(impl)));

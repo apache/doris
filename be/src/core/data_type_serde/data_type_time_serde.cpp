@@ -17,6 +17,8 @@
 
 #include "core/data_type_serde/data_type_time_serde.h"
 
+#include <limits>
+
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
@@ -55,8 +57,11 @@ TimeValue::TimeType read_time_decoded_value(const DecodedColumnView& view, int64
 
 class TimeV2ParquetConsumer final : public ParquetFixedValueConsumer {
 public:
-    TimeV2ParquetConsumer(IColumn& column, const ParquetDecodeContext& context)
-            : _data(assert_cast<ColumnTimeV2&>(column).get_data()), _context(context) {}
+    TimeV2ParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
+                          ParquetMaterializationState* state = nullptr)
+            : _data(assert_cast<ColumnTimeV2&>(column).get_data()),
+              _context(context),
+              _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         const size_t old_size = _data.size();
@@ -73,6 +78,16 @@ public:
                 DORIS_CHECK_EQ(value_width, sizeof(int64_t));
                 micros = unaligned_load<int64_t>(values + row * sizeof(int64_t));
                 if (_context.time_unit == ParquetTimeUnit::MILLIS) {
+                    if (micros > std::numeric_limits<int64_t>::max() / 1000 ||
+                        micros < std::numeric_limits<int64_t>::min() / 1000) {
+                        if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                            _data[old_size + row] = TimeValue::TimeType();
+                            continue;
+                        }
+                        _data.resize(old_size);
+                        return Status::DataQualityError(
+                                "Parquet TIME value overflows microseconds");
+                    }
                     micros *= 1000;
                 } else if (_context.time_unit == ParquetTimeUnit::NANOS) {
                     micros /= 1000;
@@ -94,6 +109,7 @@ public:
 private:
     ColumnTimeV2::Container& _data;
     const ParquetDecodeContext& _context;
+    ParquetMaterializationState* _state;
 };
 
 class RejectTimeV2BinaryConsumer final : public ParquetBinaryValueConsumer {
@@ -261,20 +277,35 @@ Status DataTypeTimeV2SerDe::read_column_from_parquet(IColumn& column, ParquetDec
         context.logical_type != ParquetLogicalType::TIME) {
         return Status::NotSupported("TIMEV2 expects Parquet TIME stored as INT32 or INT64");
     }
-    TimeV2ParquetConsumer consumer(column, context);
+    TimeV2ParquetConsumer consumer(column, context, &state);
     if (context.encoding != ParquetValueEncoding::DICTIONARY) {
         return source.decode_fixed_values(num_values, consumer);
     }
     if (state.dictionary_generation != source.dictionary_generation()) {
         state.typed_dictionary = column.clone_empty();
-        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        TimeV2ParquetConsumer dictionary_consumer(*state.typed_dictionary, context, &state);
+        RejectTimeV2BinaryConsumer binary_consumer;
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, binary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
         DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
         state.dictionary_generation = source.dictionary_generation();
     }
     RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
     DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    const size_t old_size = column.size();
     column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
                                state.dictionary_indices.data() + num_values);
+    if (state.can_insert_null_on_conversion_failure()) {
+        for (size_t row = 0; row < num_values; ++row) {
+            if (!state.dictionary_conversion_failures.empty() &&
+                state.dictionary_conversion_failures[state.dictionary_indices[row]] != 0) {
+                state.mark_conversion_failure(old_size + row);
+            }
+        }
+    }
     return Status::OK();
 }
 
