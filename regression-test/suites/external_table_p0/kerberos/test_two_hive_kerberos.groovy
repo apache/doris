@@ -42,6 +42,9 @@ suite("test_two_hive_kerberos", "p0,external") {
                 "type" = "hms",
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.kerberos.min.seconds.before.relogin" = "5",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
@@ -61,6 +64,9 @@ suite("test_two_hive_kerberos", "p0,external") {
                 "type" = "hms",
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9683",
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8620",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master-2@OTHERREALM.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.kerberos.min.seconds.before.relogin" = "5",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
@@ -84,6 +90,7 @@ suite("test_two_hive_kerberos", "p0,external") {
                     rate_val DOUBLE,
                     comment STRING
                 ) ENGINE = hive
+                PROPERTIES ("file_format" = "parquet")
             """
             sql """
                 INSERT INTO test_krb_hive_tbl VALUES
