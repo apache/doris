@@ -145,7 +145,8 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
     }
     DORIS_CHECK(!plan.blocks.empty());
 
-    const bool inflight_index_enabled = config::enable_inflight_write_buffer_index;
+    const bool inflight_index_enabled =
+            config::enable_async_file_cache_write_inflight_write_buffer_index;
     bool all_blocks_inflight = inflight_index_enabled;
     if (inflight_index_enabled) {
         auto* inflight_index = _cache->inflight_write_buffer_index();
@@ -464,7 +465,7 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
                 .on_finalized = nullptr,
         };
         std::shared_ptr<InflightWriteBufferEntry> entry;
-        if (config::enable_inflight_write_buffer_index) {
+        if (config::enable_async_file_cache_write_inflight_write_buffer_index) {
             entry = std::make_shared<InflightWriteBufferEntry>(
                     tracked_buffer, read_block.range.left, read_block.range.size(),
                     task.submit_ts_us, plan.write_epoch);
