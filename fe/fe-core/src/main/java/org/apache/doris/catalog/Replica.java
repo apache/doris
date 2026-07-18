@@ -91,7 +91,6 @@ public abstract class Replica {
     // the version could be queried
     @SerializedName(value = "v", alternate = {"version"})
     protected volatile long version;
-    private int schemaHash = -1;
     @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
     @SerializedName(value = "bs", alternate = {"binlogSize"})
@@ -138,7 +137,6 @@ public abstract class Replica {
                        long lastSuccessVersion) {
         this.id = replicaId;
         this.version = version;
-        this.schemaHash = schemaHash;
 
         this.dataSize = dataSize;
         this.rowCount = rowCount;
@@ -153,12 +151,12 @@ public abstract class Replica {
     }
 
     public int getSchemaHash() {
-        return schemaHash;
+        return -1;
     }
 
     // for compatibility
     public void setSchemaHash(int schemaHash) {
-        this.schemaHash = schemaHash;
+        // no-op in base class; overridden in LocalReplica
     }
 
     public long getId() {
@@ -471,7 +469,7 @@ public abstract class Replica {
         strBuffer.append(", lastFailedTimestamp=");
         strBuffer.append(getLastFailedTimestamp());
         strBuffer.append(", schemaHash=");
-        strBuffer.append(schemaHash);
+        strBuffer.append(getSchemaHash());
         strBuffer.append(", state=");
         strBuffer.append(state.name());
         strBuffer.append(", isBad=");
