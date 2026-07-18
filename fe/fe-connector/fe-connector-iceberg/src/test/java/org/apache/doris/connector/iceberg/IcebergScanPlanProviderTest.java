@@ -83,6 +83,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 
 /**
  * Tests for {@link IcebergScanPlanProvider}. T01 pinned the capability constants + that {@code planScan}
@@ -1559,7 +1560,7 @@ public class IcebergScanPlanProviderTest {
         // POSITION_DELETES (non-PUFFIN) -> content 1, parquet/orc format, [lower,upper] bounds decoded from the
         // delete file's DELETE_FILE_POS bounds. MUTATION: wrong content id / dropped bounds / wrong format -> red.
         DeleteFile delete = positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, 3L, 17L);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
 
         Assertions.assertEquals(1, d.getContent());
         Assertions.assertEquals("s3://b/db/t1/pos.parquet", d.getPath());
@@ -1575,7 +1576,7 @@ public class IcebergScanPlanProviderTest {
         // No DELETE_FILE_POS bounds present -> position_lower/upper_bound stay unset (legacy emits them only
         // when present; it stores a -1 sentinel and skips emission). MUTATION: emitting 0/-1 -> red.
         DeleteFile delete = positionDeleteFile("s3://b/db/t1/pos.orc", FileFormat.ORC, null, null);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
 
         Assertions.assertEquals(TFileFormatType.FORMAT_ORC, d.getFileFormat());
         Assertions.assertFalse(d.isSetPositionLowerBound());
@@ -1588,7 +1589,7 @@ public class IcebergScanPlanProviderTest {
         // (legacy setDeleteFileFormat skips PUFFIN). MUTATION: classifying it as content 1 / emitting a format
         // for the puffin blob -> red (BE would mis-read the DV blob).
         DeleteFile delete = deletionVectorFile("s3://b/db/t1/dv.puffin", 16L, 64L);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
 
         Assertions.assertEquals(3, d.getContent());
         Assertions.assertFalse(d.isSetFileFormat());
@@ -1663,7 +1664,7 @@ public class IcebergScanPlanProviderTest {
         // the T06 data-schema dictionary). MUTATION: wrong content id / dropped field-ids -> red (BE projects
         // the wrong columns for the equality match).
         DeleteFile delete = equalityDeleteFile("s3://b/db/t1/eq.parquet", FileFormat.PARQUET, 1, 2);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
 
         Assertions.assertEquals(2, d.getContent());
         Assertions.assertEquals(Arrays.asList(1, 2), d.getFieldIds());
@@ -1683,7 +1684,8 @@ public class IcebergScanPlanProviderTest {
                 new IcebergScanPlanProvider(Collections.emptyMap(), new RecordingIcebergCatalogOps(), context);
         DeleteFile delete = positionDeleteFile("oss://bucket/db/t1/pos.parquet", FileFormat.PARQUET, null, null);
 
-        TIcebergDeleteFileDesc d = provider.convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d =
+                provider.convertDelete(delete, provider.newUriNormalizer(Collections.emptyMap())).toThrift();
 
         Assertions.assertEquals("s3://bucket/db/t1/pos.parquet", d.getPath());
         Assertions.assertTrue(context.normalizedUris.contains("oss://bucket/db/t1/pos.parquet"));
@@ -2411,6 +2413,32 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planScanDerivesUriNormalizerOncePerScanNotPerFile() {
+        // C3 PERF GUARD: the vended token is scan-invariant, so the expensive token->storage-config
+        // derivation must be built ONCE per scan and reused for every file path — not rebuilt per data file.
+        // Drive a scan over three data files and assert the connector entered newStorageUriNormalizer exactly
+        // once while still normalizing all three paths. MUTATION: reverting to a per-file
+        // context.normalizeStorageUri (re-deriving the config per file) leaves newNormalizerCount == 0 (the
+        // once-per-scan seam is never used) -> red; dropping a path's normalize -> normalizeCount != 3 -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f2.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f3.parquet", 1024, null, null))
+                .commit();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals(3, ranges.size());
+        Assertions.assertEquals(1, context.newNormalizerCount);
+        Assertions.assertEquals(3, context.normalizeCount);
+    }
+
+    @Test
     public void convertDeleteNormalizesDeletePathViaVendedToken() {
         RecordingConnectorContext context = new RecordingConnectorContext();
         IcebergScanPlanProvider provider =
@@ -2418,10 +2446,10 @@ public class IcebergScanPlanProviderTest {
         DeleteFile delete = positionDeleteFile("oss://bucket/db/t1/pos.parquet", FileFormat.PARQUET, null, null);
         Map<String, String> token = Collections.singletonMap("s3.access-key-id", "ak");
 
-        TIcebergDeleteFileDesc d = provider.convertDelete(delete, token).toThrift();
+        TIcebergDeleteFileDesc d = provider.convertDelete(delete, provider.newUriNormalizer(token)).toThrift();
 
-        // WHY: convertDelete must thread the vended token into the 2-arg normalize (T09). MUTATION: passing no
-        // token / the 1-arg normalize -> lastVendedToken != token -> red.
+        // WHY: the scan-scoped normalizer must bake in the vended token so the delete path normalizes via the
+        // 2-arg seam (T09). MUTATION: dropping the token / the 1-arg normalize -> lastVendedToken != token -> red.
         Assertions.assertEquals("s3://bucket/db/t1/pos.parquet", d.getPath());
         Assertions.assertEquals(token, context.lastVendedToken);
     }
@@ -2509,14 +2537,14 @@ public class IcebergScanPlanProviderTest {
         // sentinel. The existing no-bounds test passes a null map (early return), never reaching the value==-1L
         // arm. MUTATION: dropping the `|| value == -1L` arm (emitting -1 as a real bound) -> red.
         DeleteFile bothMinusOne = positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, -1L, -1L);
-        TIcebergDeleteFileDesc d = provider().convertDelete(bothMinusOne, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(bothMinusOne, UnaryOperator.identity()).toThrift();
         Assertions.assertEquals(1, d.getContent());
         Assertions.assertFalse(d.isSetPositionLowerBound());
         Assertions.assertFalse(d.isSetPositionUpperBound());
 
         // Mixed: only the -1L bound is dropped; a real lower bound still emits.
         DeleteFile mixed = positionDeleteFile("s3://b/db/t1/pos2.parquet", FileFormat.PARQUET, 3L, -1L);
-        TIcebergDeleteFileDesc m = provider().convertDelete(mixed, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc m = provider().convertDelete(mixed, UnaryOperator.identity()).toThrift();
         Assertions.assertEquals(3L, m.getPositionLowerBound());
         Assertions.assertFalse(m.isSetPositionUpperBound());
     }

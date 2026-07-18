@@ -106,6 +106,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
@@ -495,12 +496,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean partitioned = table.spec().isPartitioned();
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
+        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         long sliceSize = fileSplitSize > 0 ? fileSplitSize
                 : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
         CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(scan, session, table, filter, sliceSize);
         return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
-                orderedPartitionKeys, zone, vendedToken, sliceSize, iceHandle.getRewriteFileScope());
+                orderedPartitionKeys, zone, uriNormalizer, sliceSize, iceHandle.getRewriteFileScope());
     }
 
     /**
@@ -540,7 +542,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final boolean partitioned;
         private final List<String> orderedPartitionKeys;
         private final ZoneId zone;
-        private final Map<String, String> vendedToken;
+        private final UnaryOperator<String> uriNormalizer;
         private final long sliceSize;
         private final Set<String> rewriteScope;
         // Lazily opened on first hasNext() so the ctor never throws — iceberg's ParallelIterable submits
@@ -554,14 +556,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
         IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, int formatVersion,
                 boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-                Map<String, String> vendedToken, long sliceSize, Set<String> rewriteScope) {
+                UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope) {
             this.tasks = tasks;
             this.table = table;
             this.formatVersion = formatVersion;
             this.partitioned = partitioned;
             this.orderedPartitionKeys = orderedPartitionKeys;
             this.zone = zone;
-            this.vendedToken = vendedToken;
+            this.uriNormalizer = uriNormalizer;
             this.sliceSize = sliceSize;
             this.rewriteScope = rewriteScope;
         }
@@ -576,7 +578,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             while (iterator.hasNext()) {
                 IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, vendedToken, sliceSize, rewriteScope, false, null);
+                        orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, false, null);
                 if (range != null) {
                     buffered = range;
                     return true;
@@ -646,6 +648,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // BE-credential overlay is emitted separately by getScanNodeProperties.
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
+        // Derive the vended storage config ONCE per scan (the token is scan-invariant) and reuse it for every
+        // per-file path normalization below, instead of rebuilding it per data/delete file (C3).
+        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
 
         // COUNT(*) pushdown (T05): when the count is servable from the snapshot summary, collapse the scan to
         // a single whole-file range carrying the full count (mirrors paimon's collapse + legacy's <=10000
@@ -656,7 +661,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             long realCount = getCountFromSnapshot(scan, session);
             if (realCount >= 0) {
                 return planCountPushdown(table, scan, realCount, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, vendedToken, session, filter);
+                        orderedPartitionKeys, zone, uriNormalizer, session, filter);
             }
         }
 
@@ -690,7 +695,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // Shared per-task mapping (rewrite-scope skip + M-2 weight denominator + v3 stash side-effect),
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
                 IcebergScanRange range = buildRangeForTask(task, table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, vendedToken, plan.targetSplitSize, rewriteScope,
+                        orderedPartitionKeys, zone, uriNormalizer, plan.targetSplitSize, rewriteScope,
                         stashRewritableDeletes, stashQueryId);
                 if (range != null) {
                     ranges.add(range);
@@ -749,7 +754,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, int formatVersion,
             boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            Map<String, String> vendedToken, long targetSplitSize, Set<String> rewriteScope,
+            UnaryOperator<String> uriNormalizer, long targetSplitSize, Set<String> rewriteScope,
             boolean stashRewritableDeletes, String stashQueryId) {
         DataFile dataFile = task.file();
         if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
@@ -758,7 +763,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // targetSplitSize is the scan-level weight denominator (M-2): each data-file range carries a
         // size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
         IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
-                orderedPartitionKeys, zone, vendedToken, -1, targetSplitSize);
+                orderedPartitionKeys, zone, uriNormalizer, -1, targetSplitSize);
         if (stashRewritableDeletes) {
             rewritableDeleteStash.accumulate(stashQueryId, range.getOriginalPath(),
                     range.rewritableDeleteDescs());
@@ -934,12 +939,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         ZoneId zone = resolveSessionZone(session);
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(metadataTable, restVendedCredentialsEnabled()) : Collections.emptyMap();
+        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PositionDeletesScanTask task : tasks) {
             for (PositionDeletesScanTask splitTask : splitPositionDeleteScanTask(task, targetSplitSize)) {
                 ranges.add(buildPositionDeleteRange(splitTask, metadataTable, outputPartitionFields,
-                        enableMappingVarbinary, zone, vendedToken));
+                        enableMappingVarbinary, zone, uriNormalizer));
             }
         }
         LOG.debug("Iceberg planScan produced {} position_deletes splits for {}.{}", ranges.size(),
@@ -959,11 +965,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildPositionDeleteRange(PositionDeletesScanTask task, Table metadataTable,
             List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone,
-            Map<String, String> vendedToken) {
+            UnaryOperator<String> uriNormalizer) {
         DeleteFile deleteFile = task.file();
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
-                .path(normalizeUri(originalPath, vendedToken))
+                .path(uriNormalizer.apply(originalPath))
                 .start(task.start())
                 .length(task.length())
                 .fileSize(deleteFile.fileSizeInBytes())
@@ -1151,13 +1157,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private List<ConnectorScanRange> planCountPushdown(Table table, TableScan scan, long realCount,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            Map<String, String> vendedToken, ConnectorSession session, Optional<ConnectorExpression> filter) {
+            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
         try (CloseableIterable<FileScanTask> tasks = countPushdownFileScanTasks(scan, session, table, filter)) {
             for (FileScanTask task : tasks) {
                 // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling
                 // weight is irrelevant → PluginDrivenSplit keeps SplitWeight.standard().
                 return Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
-                        partitioned, orderedPartitionKeys, zone, vendedToken, realCount, -1));
+                        partitioned, orderedPartitionKeys, zone, uriNormalizer, realCount, -1));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
@@ -1200,7 +1206,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
             boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            Map<String, String> vendedToken, long pushDownRowCount, long targetSplitSize) {
+            UnaryOperator<String> uriNormalizer, long pushDownRowCount, long targetSplitSize) {
         Integer partitionSpecId = null;
         String partitionDataJson = null;
         Map<String, String> partitionValues = Collections.emptyMap();
@@ -1258,7 +1264,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // position-delete entries against the raw iceberg path (legacy setOriginalFilePath:304).
         String rawDataPath = dataFile.path().toString();
         return new IcebergScanRange.Builder()
-                .path(normalizeUri(rawDataPath, vendedToken))
+                .path(uriNormalizer.apply(rawDataPath))
                 .originalPath(rawDataPath)
                 .start(task.start())
                 .length(task.length())
@@ -1270,7 +1276,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .firstRowId(firstRowId)
                 .lastUpdatedSequenceNumber(lastUpdatedSequenceNumber)
                 .partitionValues(partitionValues)
-                .deleteFiles(buildDeleteFiles(task, vendedToken))
+                .deleteFiles(buildDeleteFiles(task, uriNormalizer))
                 .pushDownRowCount(pushDownRowCount)
                 .selfSplitWeight(selfSplitWeight)
                 .targetSplitSize(targetSplitSize)
@@ -1282,14 +1288,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * mirroring legacy {@code IcebergScanNode.getDeleteFileFilters} + {@code IcebergDeleteFileFilter}. Empty
      * for v1 / no-delete files (v1 has no delete files, so {@code task.deletes()} is always empty there).
      */
-    private List<IcebergScanRange.DeleteFile> buildDeleteFiles(FileScanTask task, Map<String, String> vendedToken) {
+    private List<IcebergScanRange.DeleteFile> buildDeleteFiles(FileScanTask task,
+            UnaryOperator<String> uriNormalizer) {
         List<DeleteFile> deletes = task.deletes();
         if (deletes == null || deletes.isEmpty()) {
             return Collections.emptyList();
         }
         List<IcebergScanRange.DeleteFile> result = new ArrayList<>(deletes.size());
         for (DeleteFile delete : deletes) {
-            result.add(convertDelete(delete, vendedToken));
+            result.add(convertDelete(delete, uriNormalizer));
         }
         return result;
     }
@@ -1304,13 +1311,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      *   <li>{@code EQUALITY_DELETES} → an equality delete (content 2) with the delete-file's equality
      *       field-ids (read straight from delete metadata — correct independent of the T06 data dictionary).</li>
      * </ul>
-     * The delete path is normalized through the engine seam (legacy
-     * {@code LocationPath.of(path,config).toStorageLocation()}), threading the per-table vended token (empty
-     * for non-REST) so a REST object-store deletion path normalizes via the vended map (T09). Package-private
-     * for direct unit testing.
+     * The delete path is normalized through the scan-scoped {@code uriNormalizer} (legacy
+     * {@code LocationPath.of(path,config).toStorageLocation()}), which bakes in the per-table vended token
+     * (empty for non-REST) so a REST object-store deletion path normalizes via the vended map (T09).
+     * Package-private for direct unit testing.
      */
-    IcebergScanRange.DeleteFile convertDelete(DeleteFile delete, Map<String, String> vendedToken) {
-        String path = normalizeUri(delete.path().toString(), vendedToken);
+    IcebergScanRange.DeleteFile convertDelete(DeleteFile delete, UnaryOperator<String> uriNormalizer) {
+        String path = uriNormalizer.apply(delete.path().toString());
         FileContent content = delete.content();
         if (content == FileContent.POSITION_DELETES) {
             Long lowerBound = readPositionBound(delete.lowerBounds());
@@ -1367,20 +1374,22 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Normalize a raw iceberg storage path (the data file BE opens, or a delete file) to BE's canonical
-     * scheme via the engine seam (legacy goes through {@code LocationPath.of(path, storagePropertiesMap)
-     * .toStorageLocation()}; the connector cannot import fe-core's {@code LocationPath}). BE's
-     * scheme-dispatched S3 factory only opens {@code s3://}, so an un-normalized {@code oss://}/{@code cos://}
-     * /{@code obs://}/{@code s3a://} path fails the native read (data file) or silently drops the deletes
+     * Build the scan-scoped URI normalizer once (where the per-table vended token is extracted) and thread it
+     * through the per-file range builders, instead of re-deriving the vended storage config per data/delete
+     * file. Each application normalizes a raw iceberg storage path (the data file BE opens, or a delete file)
+     * to BE's canonical scheme via the engine seam (legacy goes through {@code LocationPath.of(path,
+     * storagePropertiesMap).toStorageLocation()}; the connector cannot import fe-core's {@code LocationPath}).
+     * BE's scheme-dispatched S3 factory only opens {@code s3://}, so an un-normalized {@code oss://}/{@code
+     * cos://}/{@code obs://}/{@code s3a://} path fails the native read (data file) or silently drops the deletes
      * (merge-on-read wrong rows). Mirrors paimon's {@code normalizeUri} (FIX-URI-NORMALIZE), which normalizes
      * both the data-file and deletion-vector paths. The {@code vendedToken} (empty for non-REST / no context)
-     * is the per-table vended credential map, routed into normalization so a REST object-store path normalizes
-     * via the vended map (T09); when empty the 2-arg seam folds to the catalog's static storage map, byte-
-     * equivalent to legacy for non-vended catalogs. A {@code null} context (offline unit tests) preserves the
-     * raw path (paimon parity).
+     * is the per-table vended credential map, baked into the normalizer so a REST object-store path normalizes
+     * via the vended map (T09); when empty the seam folds to the catalog's static storage map, byte-equivalent
+     * to legacy for non-vended catalogs. A {@code null} context (offline unit tests) yields an identity
+     * normalizer that preserves the raw path (paimon parity).
      */
-    private String normalizeUri(String rawPath, Map<String, String> vendedToken) {
-        return context != null ? context.normalizeStorageUri(rawPath, vendedToken) : rawPath;
+    UnaryOperator<String> newUriNormalizer(Map<String, String> vendedToken) {
+        return context != null ? context.newStorageUriNormalizer(vendedToken) : UnaryOperator.identity();
     }
 
     /**
