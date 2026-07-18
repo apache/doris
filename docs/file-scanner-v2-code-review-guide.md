@@ -120,9 +120,10 @@ format-specific checklist when reviewing Parquet or ORC.
 
 - V2 must instantiate only readers and decoders under `be/src/format_v2/parquet/`; calls into the
   v1 `ParquetColumnReader` or edits under `be/src/format/parquet/` are review blockers.
-- Footer parsing, schema-ID assignment, retained serialized bytes, and the cached metadata payload
-  must also be v2-owned. Reusing a stable base file identity is allowed, but require a v2 cache type
-  discriminator so v1/v2 metadata objects can never be cross-cast.
+- Footer parsing, schema-ID assignment, and the cached native metadata tree must also be v2-owned.
+  Reusing a stable base file identity is allowed, but require a v2 cache type discriminator so
+  v1/v2 metadata objects can never be cross-cast. Production planning must not retain or rebuild an
+  Arrow `FileMetaData` tree from the serialized footer.
 - Trace the hot path as `ColumnReader -> Decoder span/cursor API -> DataTypeSerDe -> Doris Column`.
   Decoder must not accept a Doris column or target type, and the path must not create Arrow arrays,
   builders, `DecodedColumnView`, or another decoded leaf batch.
@@ -208,9 +209,9 @@ format-specific checklist when reviewing Parquet or ORC.
 - Keep Parquet decimals in a source-width or wider intermediate until exact scaling, target
   precision, and overflow checks succeed. Scale-down with a non-zero remainder is a conversion
   failure; plain and dictionary integer/binary paths must narrow only afterward.
-- For cold small-file tests, separate footer I/O/Thrift parse from Arrow metadata adaptation. V2 may
-  retain the already-read serialized footer to avoid serializing the same Thrift object again; v1
-  opens must not retain those bytes by default.
+- For cold small-file tests, separate footer I/O/Thrift parse from native schema and index planning.
+  V2 must not retain serialized footer bytes after the native metadata tree is initialized; v1 opens
+  remain independent.
 - For HTTP Parquet objects at or below `in_memory_file_size`, v2 stages the complete object from
   byte zero before native page access. Verify both cold and footer-cache-hit scans: some Range
   servers accept the capability probe but return HTTP 200 for a near-EOF overlong range, so warm
@@ -257,8 +258,8 @@ format-specific checklist when reviewing Parquet or ORC.
   the legacy consumer fallback for non-string logical types.
 - Production PageIndex planning must consume native Compact Thrift ColumnIndex/OffsetIndex objects.
   Coalesce adjacent serialized index ranges and transfer validated OffsetIndexes into execution so
-  the Row Group does not read them twice. Arrow PageIndexReader is a test oracle; any remaining
-  Arrow metadata adapter must expose its time and retained bytes until it is removed.
+  the Row Group does not read them twice. Arrow PageIndexReader is a test oracle; a production Arrow
+  metadata adapter or rebuilt `FileMetaData` tree is a review blocker.
 - Fixed-width conversion fast paths may remove row branches only when the source domain provably
   fits the target domain. Narrowing, timestamp, decimal scaling, strict rollback, and non-strict
   NULL marking must retain corrupt-value tests.

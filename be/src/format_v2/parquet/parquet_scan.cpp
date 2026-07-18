@@ -106,26 +106,27 @@ int64_t column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadat
                    : cast_set<int64_t>(column_metadata.data_page_offset());
 }
 
-bool is_dictionary_data_encoding(::parquet::Encoding::type encoding) {
-    return encoding == ::parquet::Encoding::PLAIN_DICTIONARY ||
-           encoding == ::parquet::Encoding::RLE_DICTIONARY;
+bool is_dictionary_data_encoding(tparquet::Encoding::type encoding) {
+    return encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
+           encoding == tparquet::Encoding::RLE_DICTIONARY;
 }
 
-bool is_level_encoding(::parquet::Encoding::type encoding) {
-    return encoding == ::parquet::Encoding::RLE || encoding == ::parquet::Encoding::BIT_PACKED;
+bool is_level_encoding(tparquet::Encoding::type encoding) {
+    return encoding == tparquet::Encoding::RLE || encoding == tparquet::Encoding::BIT_PACKED;
 }
 
-bool is_data_page_type(::parquet::PageType::type page_type) {
-    return page_type == ::parquet::PageType::DATA_PAGE ||
-           page_type == ::parquet::PageType::DATA_PAGE_V2;
+bool is_data_page_type(tparquet::PageType::type page_type) {
+    return page_type == tparquet::PageType::DATA_PAGE ||
+           page_type == tparquet::PageType::DATA_PAGE_V2;
 }
 
-bool is_fully_dictionary_encoded_chunk(const ::parquet::ColumnChunkMetaData& column_metadata) {
-    if (!column_metadata.has_dictionary_page()) {
+bool is_fully_dictionary_encoded_chunk(const tparquet::ColumnMetaData& column_metadata) {
+    if (!column_metadata.__isset.dictionary_page_offset ||
+        column_metadata.dictionary_page_offset < 0) {
         return false;
     }
 
-    const auto& encoding_stats = column_metadata.encoding_stats();
+    const auto& encoding_stats = column_metadata.encoding_stats;
     if (!encoding_stats.empty()) {
         bool has_dictionary_data_page = false;
         for (const auto& encoding_stat : encoding_stats) {
@@ -141,7 +142,7 @@ bool is_fully_dictionary_encoded_chunk(const ::parquet::ColumnChunkMetaData& col
     }
 
     bool has_dictionary_encoding = false;
-    for (const auto encoding : column_metadata.encodings()) {
+    for (const auto encoding : column_metadata.encodings) {
         if (is_dictionary_data_encoding(encoding)) {
             has_dictionary_encoding = true;
             continue;
@@ -154,14 +155,13 @@ bool is_fully_dictionary_encoded_chunk(const ::parquet::ColumnChunkMetaData& col
 }
 
 bool supports_row_level_dictionary_filter(const ParquetColumnSchema& column_schema,
-                                          const ::parquet::ColumnChunkMetaData& column_metadata) {
-    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
-        column_schema.descriptor == nullptr || column_schema.type == nullptr ||
+                                          const tparquet::ColumnMetaData& column_metadata) {
+    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE || column_schema.type == nullptr ||
         column_schema.max_repetition_level > 0) {
         return false;
     }
     if (!column_schema.type_descriptor.is_string_like ||
-        column_metadata.type() != ::parquet::Type::BYTE_ARRAY) {
+        column_metadata.type != tparquet::Type::BYTE_ARRAY) {
         return false;
     }
     // Row-level dictionary filtering consumes dictionary ids from DATA_PAGE payloads. It is exact
@@ -273,7 +273,7 @@ void materialize_count_star_placeholders(const format::FileScanRequest& request,
 }
 
 std::vector<ParquetPageCacheRange> build_row_group_prefetch_ranges(
-        const ::parquet::FileMetaData& metadata,
+        const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const std::vector<format::LocalColumnIndex>& scan_columns, int row_group_idx) {
     std::unordered_set<int> leaf_column_ids;
@@ -291,19 +291,25 @@ std::vector<ParquetPageCacheRange> build_row_group_prefetch_ranges(
         collect_projected_leaf_column_ids(*file_schema[local_id], projection, &leaf_column_ids);
     }
 
-    auto row_group_metadata = metadata.RowGroup(row_group_idx);
-    DORIS_CHECK(row_group_metadata != nullptr);
+    DORIS_CHECK(row_group_idx >= 0 && row_group_idx < static_cast<int>(metadata.row_groups.size()));
+    const auto& row_group_metadata = metadata.row_groups[row_group_idx];
     std::vector<int> ordered_leaf_column_ids(leaf_column_ids.begin(), leaf_column_ids.end());
     std::ranges::sort(ordered_leaf_column_ids);
 
     std::vector<ParquetPageCacheRange> ranges;
     ranges.reserve(ordered_leaf_column_ids.size());
     for (const auto leaf_column_id : ordered_leaf_column_ids) {
-        DORIS_CHECK(leaf_column_id >= 0 && leaf_column_id < row_group_metadata->num_columns());
-        auto column_metadata = row_group_metadata->ColumnChunk(leaf_column_id);
-        DORIS_CHECK(column_metadata != nullptr);
-        const int64_t offset = column_start_offset(*column_metadata);
-        const int64_t size = column_metadata->total_compressed_size();
+        DORIS_CHECK(leaf_column_id >= 0 &&
+                    leaf_column_id < static_cast<int>(row_group_metadata.columns.size()));
+        const auto& chunk = row_group_metadata.columns[leaf_column_id];
+        if (!chunk.__isset.meta_data) {
+            continue;
+        }
+        const auto& column_metadata = chunk.meta_data;
+        const int64_t offset = column_metadata.__isset.dictionary_page_offset
+                                       ? column_metadata.dictionary_page_offset
+                                       : column_metadata.data_page_offset;
+        const int64_t size = column_metadata.total_compressed_size;
         DORIS_CHECK(offset >= 0);
         if (size > 0) {
             ranges.push_back(ParquetPageCacheRange {.offset = offset, .size = size});
@@ -453,6 +459,136 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
     RETURN_IF_ERROR(build_row_group_read_plans(metadata, file_reader, file_schema, request,
                                                metadata_selected_row_groups, row_group_first_rows,
                                                plan, timezone, runtime_state, file_context));
+    plan->pruning_stats.selected_row_groups = plan->row_groups.size();
+    return Status::OK();
+}
+
+namespace {
+
+int64_t native_column_start_offset(const tparquet::ColumnMetaData& column_metadata) {
+    return column_metadata.__isset.dictionary_page_offset ? column_metadata.dictionary_page_offset
+                                                          : column_metadata.data_page_offset;
+}
+
+bool is_native_row_group_outside_range(const tparquet::RowGroup& row_group,
+                                       const ParquetScanRange& scan_range) {
+    if (scan_range.size < 0) {
+        return false;
+    }
+    const int64_t range_start = scan_range.start_offset;
+    const int64_t range_end = range_start + scan_range.size;
+    DORIS_CHECK(range_start >= 0 && range_end >= range_start);
+    if (range_start == 0 && (scan_range.file_size < 0 || range_end >= scan_range.file_size)) {
+        return false;
+    }
+    if (row_group.columns.empty() || !row_group.columns.front().__isset.meta_data ||
+        !row_group.columns.back().__isset.meta_data) {
+        return false;
+    }
+    const auto& first = row_group.columns.front().meta_data;
+    const auto& last = row_group.columns.back().meta_data;
+    const int64_t group_start = native_column_start_offset(first);
+    const int64_t group_end = native_column_start_offset(last) + last.total_compressed_size;
+    const int64_t group_mid = group_start + (group_end - group_start) / 2;
+    return group_mid < range_start || group_mid >= range_end;
+}
+
+Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
+                                              const ParquetScanRange& scan_range,
+                                              std::vector<int64_t>* row_group_first_rows,
+                                              std::vector<int>* selected_row_groups) {
+    DORIS_CHECK(row_group_first_rows != nullptr && selected_row_groups != nullptr);
+    row_group_first_rows->assign(metadata.row_groups.size(), 0);
+    selected_row_groups->clear();
+    int64_t next_first_row = 0;
+    for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
+        (*row_group_first_rows)[row_group_idx] = next_first_row;
+        const auto& row_group = metadata.row_groups[row_group_idx];
+        if (row_group.num_rows < 0) {
+            return Status::Corruption("Invalid negative row count in parquet row group {}",
+                                      row_group_idx);
+        }
+        next_first_row += row_group.num_rows;
+        if (!is_native_row_group_outside_range(row_group, scan_range)) {
+            selected_row_groups->push_back(cast_set<int>(row_group_idx));
+        }
+    }
+    return Status::OK();
+}
+
+Status build_native_row_group_read_plans(
+        const NativeParquetMetadata& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const std::vector<int>& selected_row_groups,
+        const std::vector<int64_t>& row_group_first_rows, RowGroupScanPlan* plan,
+        const cctz::time_zone* timezone, const RuntimeState* runtime_state,
+        ParquetFileContext* file_context) {
+    DORIS_CHECK(plan != nullptr && file_context != nullptr);
+    const auto& thrift = metadata.to_thrift();
+    std::unordered_set<int> requested_leaf_ids;
+    for (const auto& projection : request_scan_columns(request)) {
+        const auto local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
+            continue;
+        }
+        collect_projected_leaf_column_ids(*file_schema[local_id], projection, &requested_leaf_ids);
+    }
+    plan->row_groups.reserve(selected_row_groups.size());
+    for (const int row_group_idx : selected_row_groups) {
+        const auto& row_group = thrift.row_groups[row_group_idx];
+        if (row_group.num_rows == 0) {
+            continue;
+        }
+        RowGroupReadPlan row_group_plan;
+        row_group_plan.row_group_id = row_group_idx;
+        row_group_plan.first_file_row = row_group_first_rows[row_group_idx];
+        row_group_plan.row_group_rows = row_group.num_rows;
+        std::unordered_map<int, NativeParquetPageIndex> page_indexes;
+        if (can_use_parquet_page_index(request, runtime_state)) {
+            RETURN_IF_ERROR(file_context->load_native_page_indexes(
+                    row_group_idx, requested_leaf_ids, &page_indexes,
+                    &plan->pruning_stats.read_page_index_time,
+                    &plan->pruning_stats.parse_page_index_time));
+        }
+        RETURN_IF_ERROR(select_row_group_ranges_by_native_page_index(
+                page_indexes, file_schema, request, row_group.num_rows,
+                &row_group_plan.selected_ranges, &row_group_plan.page_skip_plans,
+                &plan->pruning_stats, timezone, runtime_state));
+        for (auto& [leaf_column_id, indexes] : page_indexes) {
+            row_group_plan.offset_indexes.emplace(leaf_column_id, std::move(indexes.offset_index));
+        }
+        if (row_group_plan.selected_ranges.empty()) {
+            continue;
+        }
+        plan->pruning_stats.selected_row_ranges += row_group_plan.selected_ranges.size();
+        plan->row_groups.push_back(std::move(row_group_plan));
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
+                               const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+                               const format::FileScanRequest& request,
+                               const ParquetScanRange& scan_range, bool enable_bloom_filter,
+                               RowGroupScanPlan* plan, const cctz::time_zone* timezone,
+                               const RuntimeState* runtime_state,
+                               ParquetFileContext* file_context) {
+    DORIS_CHECK(plan != nullptr && file_context != nullptr);
+    plan->row_groups.clear();
+    plan->pruning_stats = {};
+    std::vector<int64_t> row_group_first_rows;
+    std::vector<int> scan_range_selected;
+    RETURN_IF_ERROR(select_native_row_groups_by_scan_range(
+            metadata.to_thrift(), scan_range, &row_group_first_rows, &scan_range_selected));
+    std::vector<int> metadata_selected;
+    RETURN_IF_ERROR(select_row_groups_by_metadata(
+            metadata.to_thrift(), file_schema, request, &scan_range_selected, &metadata_selected,
+            enable_bloom_filter, &plan->pruning_stats, timezone, runtime_state, file_context));
+    RETURN_IF_ERROR(build_native_row_group_read_plans(metadata, file_schema, request,
+                                                      metadata_selected, row_group_first_rows, plan,
+                                                      timezone, runtime_state, file_context));
     plan->pruning_stats.selected_row_groups = plan->row_groups.size();
     return Status::OK();
 }
@@ -871,14 +1007,14 @@ Status ParquetScanScheduler::open_next_row_group(
     }
     RowGroupReadPlan& row_group_plan = _row_group_plans[_next_row_group_plan_idx++];
     const int row_group_idx = row_group_plan.row_group_id;
-    // Row-level dictionary filters still use the migration metadata/page probe. Native data-page
-    // readers below do not construct an Arrow RowGroupReader or RecordReader.
+    // Dictionary probes and data-page readers share the native metadata tree. Reset the previous
+    // row-group merge reader before probing because dictionary-page offsets are not scan ordered.
     file_context.reset_random_access_ranges();
     _current_merge_range_active = false;
 
-    auto row_group_metadata = file_context.metadata->RowGroup(row_group_idx);
-    DORIS_CHECK(row_group_metadata != nullptr);
-    _current_row_group_rows = row_group_metadata->num_rows();
+    const auto& row_group_metadata =
+            file_context.native_metadata->to_thrift().row_groups[row_group_idx];
+    _current_row_group_rows = row_group_metadata.num_rows;
     DORIS_CHECK(_current_row_group_rows == row_group_plan.row_group_rows);
     DORIS_CHECK(_current_row_group_rows > 0);
     _current_row_group_id = row_group_idx;
@@ -914,13 +1050,14 @@ Status ParquetScanScheduler::open_next_row_group(
     _current_non_predicate_columns.clear();
     _current_dictionary_filters.clear();
     RETURN_IF_ERROR(prepare_current_dictionary_filters(file_context, file_schema, request,
-                                                       row_group_idx, *row_group_metadata));
+                                                       row_group_idx, row_group_metadata));
     // Dictionary probing is complete, so the native data-page readers can now share the same
     // row-group-scoped MergeRangeFileReader policy as v1. Sharing one wrapper is important: a
     // separate merge reader per leaf would duplicate its 128MB scratch capacity and defeat lazy
     // materialization for wide schemas.
-    const auto native_ranges = build_row_group_prefetch_ranges(
-            *file_context.metadata, file_schema, request_scan_columns(request), row_group_idx);
+    const auto native_ranges =
+            build_row_group_prefetch_ranges(file_context.native_metadata->to_thrift(), file_schema,
+                                            request_scan_columns(request), row_group_idx);
     _current_merge_range_active = file_context.set_native_random_access_ranges(
             native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
             _merge_read_slice_size);
@@ -1179,7 +1316,7 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         ParquetFileContext& file_context,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int row_group_idx,
-        const ::parquet::RowGroupMetaData& row_group_metadata) {
+        const tparquet::RowGroup& row_group_metadata) {
     _current_dictionary_filters.clear();
     _current_dictionary_residual_conjuncts.clear();
     if (request.conjuncts.empty()) {
@@ -1216,13 +1353,13 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         const auto& column_schema = file_schema[local_id];
         DORIS_CHECK(column_schema != nullptr);
         if (column_schema->leaf_column_id < 0 ||
-            column_schema->leaf_column_id >= row_group_metadata.num_columns()) {
+            column_schema->leaf_column_id >= static_cast<int>(row_group_metadata.columns.size())) {
             update_counter_if_not_null(_scan_profile.dict_filter_unsupported_columns, 1);
             continue;
         }
-        auto column_chunk = row_group_metadata.ColumnChunk(column_schema->leaf_column_id);
-        if (column_chunk == nullptr ||
-            !supports_row_level_dictionary_filter(*column_schema, *column_chunk)) {
+        const auto& column_chunk = row_group_metadata.columns[column_schema->leaf_column_id];
+        if (!column_chunk.__isset.meta_data ||
+            !supports_row_level_dictionary_filter(*column_schema, column_chunk.meta_data)) {
             update_counter_if_not_null(_scan_profile.dict_filter_unsupported_columns, 1);
             continue;
         }
@@ -1640,7 +1777,7 @@ void ParquetScanScheduler::prefetch_current_row_group_columns(
         const std::vector<format::LocalColumnIndex>& scan_columns, bool* prefetched) {
     DORIS_CHECK(prefetched != nullptr);
     if (_current_merge_range_active || *prefetched || scan_columns.empty() ||
-        _current_row_group_id < 0 || file_context.metadata == nullptr) {
+        _current_row_group_id < 0 || file_context.native_metadata == nullptr) {
         return;
     }
     *prefetched = true;
@@ -1649,8 +1786,8 @@ void ParquetScanScheduler::prefetch_current_row_group_columns(
     // prefetch: callers decide which side to warm, and this helper only translates that selected
     // projection into physical column-chunk byte ranges for the current row group.
     file_context.prefetch_ranges(
-            build_row_group_prefetch_ranges(*file_context.metadata, file_schema, scan_columns,
-                                            _current_row_group_id),
+            build_row_group_prefetch_ranges(file_context.native_metadata->to_thrift(), file_schema,
+                                            scan_columns, _current_row_group_id),
             nullptr);
 }
 

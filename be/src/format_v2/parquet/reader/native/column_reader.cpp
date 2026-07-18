@@ -37,7 +37,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
-#include "format/parquet/schema_desc.h"
+#include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "io/fs/tracing_file_reader.h"
@@ -103,6 +103,53 @@ bool is_direct_binary_type(PrimitiveType type) {
     return is_string_type(type) || type == TYPE_VARBINARY;
 }
 
+IColumn::Filter* conversion_failure_map(const NativeFieldSchema& field,
+                                        const DataTypePtr& target_type, bool strict_mode,
+                                        IColumn::Filter* output_null_map,
+                                        IColumn::Filter* compatibility_scratch) {
+    const auto& schema = field.parquet_schema;
+    const bool is_utc_timestamp =
+            field.physical_type == tparquet::Type::INT96 ||
+            (field.physical_type == tparquet::Type::INT64 &&
+             ((schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP &&
+               schema.logicalType.TIMESTAMP.isAdjustedToUTC) ||
+              (schema.__isset.converted_type &&
+               (schema.converted_type == tparquet::ConvertedType::TIMESTAMP_MILLIS ||
+                schema.converted_type == tparquet::ConvertedType::TIMESTAMP_MICROS))));
+    if (!strict_mode && output_null_map != nullptr && is_utc_timestamp &&
+        remove_nullable(target_type)->get_primitive_type() == TYPE_DATETIMEV2) {
+        // Legacy UTC timestamp conversion kept out-of-range values as DATETIME defaults. Local
+        // timestamps intentionally keep non-strict NULL-on-overflow behavior because timezone
+        // conversion is not part of their representation.
+        compatibility_scratch->resize_fill(output_null_map->size(), 0);
+        return compatibility_scratch;
+    }
+    return output_null_map;
+}
+
+void mark_local_timestamp_defaults(const NativeFieldSchema& field, const DataTypePtr& target_type,
+                                   bool strict_mode, IColumn& data_column,
+                                   IColumn::Filter* output_null_map, size_t start_row) {
+    const auto& schema = field.parquet_schema;
+    const bool is_local_timestamp =
+            field.physical_type == tparquet::Type::INT64 && schema.__isset.logicalType &&
+            schema.logicalType.__isset.TIMESTAMP && !schema.logicalType.TIMESTAMP.isAdjustedToUTC;
+    if (strict_mode || output_null_map == nullptr || !is_local_timestamp ||
+        remove_nullable(target_type)->get_primitive_type() != TYPE_DATETIMEV2) {
+        return;
+    }
+    auto& values = assert_cast<ColumnDateTimeV2&>(data_column).get_data();
+    DORIS_CHECK_EQ(values.size(), output_null_map->size());
+    for (size_t row = start_row; row < values.size(); ++row) {
+        if ((*output_null_map)[row] == 0 && !values[row].is_valid_date()) {
+            // Local timestamps before Doris' representable calendar can materialize as a zero
+            // date without a SerDe error. Preserve non-strict scan semantics by nulling only that
+            // sentinel; physical NULLs and valid local timestamps keep their original map bits.
+            (*output_null_map)[row] = 1;
+        }
+    }
+}
+
 // The target SerDe can fuse physical decode with these logical type changes. Less common schema
 // changes retain the generic file-format converter as a compatibility path: the decoder still
 // exposes raw spans, but the source SerDe first materializes a reusable source column before the
@@ -115,12 +162,12 @@ bool serde_can_materialize_directly(const DataTypePtr& source_type,
            (source == TYPE_FLOAT && target == TYPE_DOUBLE) ||
            (is_direct_decimal_type(source) && is_direct_decimal_type(target)) ||
            // Parquet STRING and VARBINARY share BYTE_ARRAY bytes. Materializing through the target
-           // SerDe preserves those bytes and avoids a converter whose scratch column uses the v1
+           // SerDe preserves those bytes and avoids a converter whose scratch column uses the
            // String representation instead of the native ColumnVarbinary representation.
            (is_direct_binary_type(source) && is_direct_binary_type(target));
 }
 
-Status init_decode_context(const FieldSchema& field, const cctz::time_zone* ctz,
+Status init_decode_context(const NativeFieldSchema& field, const cctz::time_zone* ctz,
                            ParquetDecodeContext* context) {
     DORIS_CHECK(context != nullptr);
     switch (field.physical_type) {
@@ -269,13 +316,31 @@ Status init_decode_context(const FieldSchema& field, const cctz::time_zone* ctz,
 } // namespace
 
 #ifdef BE_TEST
-Status init_decode_context_for_test(const FieldSchema& field, const cctz::time_zone* ctz,
+Status init_decode_context_for_test(const NativeFieldSchema& field, const cctz::time_zone* ctz,
                                     ParquetDecodeContext* context) {
     return init_decode_context(field, ctz, context);
 }
+
+bool preserves_timestamp_conversion_default_for_test(const NativeFieldSchema& field,
+                                                     const DataTypePtr& target_type,
+                                                     bool strict_mode) {
+    IColumn::Filter output_null_map;
+    output_null_map.resize_fill(1, 0);
+    IColumn::Filter compatibility_scratch;
+    return conversion_failure_map(field, target_type, strict_mode, &output_null_map,
+                                  &compatibility_scratch) == &compatibility_scratch;
+}
+
+void mark_local_timestamp_defaults_for_test(const NativeFieldSchema& field,
+                                            const DataTypePtr& target_type, bool strict_mode,
+                                            IColumn& data_column, IColumn::Filter* output_null_map,
+                                            size_t start_row) {
+    mark_local_timestamp_defaults(field, target_type, strict_mode, data_column, output_null_map,
+                                  start_row);
+}
 #endif
 
-static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
+static void fill_struct_null_map(NativeFieldSchema* field, NullMap& null_map,
                                  const std::vector<level_t>& rep_levels,
                                  const std::vector<level_t>& def_levels) {
     size_t num_levels = def_levels.size();
@@ -298,7 +363,7 @@ static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
     null_map.resize(pos);
 }
 
-static Status fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offsets_data,
+static Status fill_array_offset(NativeFieldSchema* field, ColumnArray::Offsets64& offsets_data,
                                 NullMap* null_map_ptr, const std::vector<level_t>& rep_levels,
                                 const std::vector<level_t>& def_levels) {
     size_t num_levels = rep_levels.size();
@@ -348,7 +413,7 @@ static Status fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offs
     return Status::OK();
 }
 
-Status ColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
+Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                             const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
                             const cctz::time_zone* ctz, io::IOContext* io_ctx,
                             std::unique_ptr<ColumnReader>& reader, size_t max_buf_size,
@@ -503,7 +568,7 @@ void ColumnReader::_generate_read_ranges(RowRange page_row_range, RowRanges* res
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(
-        io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size, RuntimeState* state,
+        io::FileReaderSPtr file, NativeFieldSchema* field, size_t max_buf_size, RuntimeState* state,
         const std::string& page_cache_file_key, const ParquetReaderCompat& compat,
         bool enable_strict_mode) {
     _field_schema = field;
@@ -732,9 +797,20 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
     DORIS_CHECK(_serde != nullptr);
     // Keep selected-row cardinality stable: non-strict conversion failures append a nested
     // default and mark this matching nullable output row instead of shortening the column.
-    _materialization_state.conversion_failure_null_map = map_data_column;
-    return _chunk_reader->materialize_values(data_column, *_serde, _decode_context,
-                                             _materialization_state, _select_vector);
+    IColumn::Filter compatibility_scratch;
+    _materialization_state.conversion_failure_null_map =
+            conversion_failure_map(*_field_schema, type, _materialization_state.enable_strict_mode,
+                                   map_data_column, &compatibility_scratch);
+    const size_t materialization_start_row = data_column->size();
+    const auto status = _chunk_reader->materialize_values(data_column, *_serde, _decode_context,
+                                                          _materialization_state, _select_vector);
+    _materialization_state.conversion_failure_null_map = nullptr;
+    if (status.ok()) {
+        mark_local_timestamp_defaults(*_field_schema, type,
+                                      _materialization_state.enable_strict_mode, *data_column,
+                                      map_data_column, materialization_start_row);
+    }
+    return status;
 }
 
 /**
@@ -796,9 +872,20 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
 
         DORIS_CHECK(_serde != nullptr);
         // Nested materialization must preserve the same value/null-map row alignment invariant.
-        _materialization_state.conversion_failure_null_map = map_data_column;
-        RETURN_IF_ERROR(_chunk_reader->materialize_values(data_column, *_serde, _decode_context,
-                                                          _materialization_state, _select_vector));
+        IColumn::Filter compatibility_scratch;
+        _materialization_state.conversion_failure_null_map = conversion_failure_map(
+                *_field_schema, type, _materialization_state.enable_strict_mode, map_data_column,
+                &compatibility_scratch);
+        const size_t materialization_start_row = data_column->size();
+        const auto status = _chunk_reader->materialize_values(
+                data_column, *_serde, _decode_context, _materialization_state, _select_vector);
+        _materialization_state.conversion_failure_null_map = nullptr;
+        if (status.ok()) {
+            mark_local_timestamp_defaults(*_field_schema, type,
+                                          _materialization_state.enable_strict_mode, *data_column,
+                                          map_data_column, materialization_start_row);
+        }
+        RETURN_IF_ERROR(status);
         if (!_ancestor_null_indices.empty()) {
             RETURN_IF_ERROR(_chunk_reader->skip_values(_ancestor_null_indices.size(), false));
         }
@@ -1000,7 +1087,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_try_load_dict_page(bool
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         ColumnPtr& doris_column, const DataTypePtr& type,
-        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        const std::shared_ptr<NativeSchemaNode>& root_node, FilterMap& filter_map,
         size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
         int64_t real_column_size) {
     const DataTypePtr target_type = remove_nullable(type);
@@ -1148,17 +1235,18 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     return finish_logical_conversion();
 }
 
-Status ArrayColumnReader::init(std::unique_ptr<ColumnReader> element_reader, FieldSchema* field) {
+Status ArrayColumnReader::init(std::unique_ptr<ColumnReader> element_reader,
+                               NativeFieldSchema* field) {
     _field_schema = field;
     _element_reader = std::move(element_reader);
     return Status::OK();
 }
 
-Status ArrayColumnReader::read_column_data(
-        ColumnPtr& doris_column, const DataTypePtr& type,
-        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
-        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
-        int64_t real_column_size) {
+Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
+                                           const std::shared_ptr<NativeSchemaNode>& root_node,
+                                           FilterMap& filter_map, size_t batch_size,
+                                           size_t* read_rows, bool* eof, bool is_dict_filter,
+                                           int64_t real_column_size) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
@@ -1184,8 +1272,8 @@ Status ArrayColumnReader::read_column_data(
             (assert_cast<const DataTypeArray*>(remove_nullable(type).get()))->get_nested_type();
     // read nested column
     RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type,
-                                                      root_node->get_element_node(), filter_map,
-                                                      batch_size, read_rows, eof, is_dict_filter));
+                                                      root_node->element(), filter_map, batch_size,
+                                                      read_rows, eof, is_dict_filter));
     if (*read_rows == 0) {
         return Status::OK();
     }
@@ -1205,18 +1293,18 @@ Status ArrayColumnReader::read_column_data(
 }
 
 Status MapColumnReader::init(std::unique_ptr<ColumnReader> key_reader,
-                             std::unique_ptr<ColumnReader> value_reader, FieldSchema* field) {
+                             std::unique_ptr<ColumnReader> value_reader, NativeFieldSchema* field) {
     _field_schema = field;
     _key_reader = std::move(key_reader);
     _value_reader = std::move(value_reader);
     return Status::OK();
 }
 
-Status MapColumnReader::read_column_data(
-        ColumnPtr& doris_column, const DataTypePtr& type,
-        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
-        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
-        int64_t real_column_size) {
+Status MapColumnReader::read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
+                                         const std::shared_ptr<NativeSchemaNode>& root_node,
+                                         FilterMap& filter_map, size_t batch_size,
+                                         size_t* read_rows, bool* eof, bool is_dict_filter,
+                                         int64_t real_column_size) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
@@ -1251,16 +1339,15 @@ Status MapColumnReader::read_column_data(
     bool value_eof = false;
     int64_t orig_col_column_size = key_column->size();
 
-    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, root_node->get_key_node(),
+    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, root_node->key(),
                                                   filter_map, batch_size, &key_rows, &key_eof,
                                                   is_dict_filter));
 
     while (value_rows < key_rows && !value_eof) {
         size_t loop_rows = 0;
         RETURN_IF_ERROR(_value_reader->read_column_data(
-                value_column, value_type, root_node->get_value_node(), filter_map,
-                key_rows - value_rows, &loop_rows, &value_eof, is_dict_filter,
-                key_column->size() - orig_col_column_size));
+                value_column, value_type, root_node->value(), filter_map, key_rows - value_rows,
+                &loop_rows, &value_eof, is_dict_filter, key_column->size() - orig_col_column_size));
         value_rows += loop_rows;
     }
     if (UNLIKELY(key_rows != value_rows)) {
@@ -1275,17 +1362,12 @@ Status MapColumnReader::read_column_data(
         return Status::OK();
     }
 
-    const size_t key_values = key_column->size() - orig_col_column_size;
     if (UNLIKELY(key_column->size() != value_column->size())) {
         return Status::Corruption("Parquet map key/value entry counts differ: {} vs {}",
                                   key_column->size(), value_column->size());
     }
-    if (const auto* nullable_keys = typeid_cast<const ColumnNullable*>(key_column.get()); UNLIKELY(
-                nullable_keys != nullptr &&
-                nullable_keys->has_null(orig_col_column_size, orig_col_column_size + key_values))) {
-        // Doris MAP keys are non-null even if a malformed/evolved file exposes a nullable child.
-        return Status::Corruption("Parquet map contains a null key");
-    }
+    // Non-strict conversion can persist nullable Doris MAP keys, so the native reader must
+    // preserve writer output instead of reclassifying an otherwise valid file as corrupt.
     const auto& key_rep_levels = _key_reader->get_rep_level();
     // fill offset and null map
     // The key leaf is the canonical outer MAP shape. A nested value has additional repetition
@@ -1309,7 +1391,7 @@ Status MapColumnReader::read_column_levels(FilterMap& filter_map, size_t batch_s
 
 Status StructColumnReader::init(
         std::unordered_map<std::string, std::unique_ptr<ColumnReader>>&& child_readers,
-        FieldSchema* field) {
+        NativeFieldSchema* field) {
     _field_schema = field;
     _child_readers = std::move(child_readers);
     return Status::OK();
@@ -1330,11 +1412,11 @@ Status StructColumnReader::read_column_levels(FilterMap& filter_map, size_t batc
     return Status::InternalError("Struct {} has no physical reader for levels",
                                  _field_schema->name);
 }
-Status StructColumnReader::read_column_data(
-        ColumnPtr& doris_column, const DataTypePtr& type,
-        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
-        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
-        int64_t real_column_size) {
+Status StructColumnReader::read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
+                                            const std::shared_ptr<NativeSchemaNode>& root_node,
+                                            FilterMap& filter_map, size_t batch_size,
+                                            size_t* read_rows, bool* eof, bool is_dict_filter,
+                                            int64_t real_column_size) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
@@ -1384,13 +1466,13 @@ Status StructColumnReader::read_column_data(
         ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
         auto& doris_type = doris_struct_type->get_element(i);
         auto& doris_name = doris_struct_type->get_element_name(i);
-        if (!root_node->children_column_exists(doris_name)) {
+        if (!root_node->has_child(doris_name)) {
             missing_column_idxs.push_back(i);
             VLOG_DEBUG << "[ParquetReader] Missing column in schema: column_idx[" << i
                        << "], doris_name: " << doris_name << " (column not exists in root node)";
             continue;
         }
-        auto file_name = root_node->children_file_column_name(doris_name);
+        auto file_name = root_node->file_child_name(doris_name);
 
         // Check if this is a SkipReadingReader - we should skip it when choosing reference column
         // because SkipReadingReader doesn't know the actual data size in nested context
@@ -1413,8 +1495,8 @@ Status StructColumnReader::read_column_data(
             not_missing_column_id = i;
             not_missing_orig_column_size = doris_field->size();
             RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
-                    doris_field, doris_type, root_node->get_children_node(doris_name), filter_map,
-                    batch_size, &field_rows, &field_eof, is_dict_filter));
+                    doris_field, doris_type, root_node->child(doris_name), filter_map, batch_size,
+                    &field_rows, &field_eof, is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
             reference_parent_shape = parent_shape(*_child_readers[file_name]);
@@ -1431,9 +1513,8 @@ Status StructColumnReader::read_column_data(
             while (field_rows < *read_rows && !field_eof) {
                 size_t loop_rows = 0;
                 RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
-                        doris_field, doris_type, root_node->get_children_node(doris_name),
-                        filter_map, *read_rows - field_rows, &loop_rows, &field_eof,
-                        is_dict_filter));
+                        doris_field, doris_type, root_node->child(doris_name), filter_map,
+                        *read_rows - field_rows, &loop_rows, &field_eof, is_dict_filter));
                 field_rows += loop_rows;
             }
             if (UNLIKELY(*read_rows != field_rows)) {
@@ -1518,12 +1599,12 @@ Status StructColumnReader::read_column_data(
         auto& doris_field = doris_struct.get_column_ptr(idx);
         auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(idx));
         auto& doris_name = const_cast<String&>(doris_struct_type->get_element_name(idx));
-        auto file_name = root_node->children_file_column_name(doris_name);
+        auto file_name = root_node->file_child_name(doris_name);
 
         size_t field_rows = 0;
         bool field_eof = false;
         RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
-                doris_field, doris_type, root_node->get_children_node(doris_name), filter_map,
+                doris_field, doris_type, root_node->child(doris_name), filter_map,
                 missing_column_sz, &field_rows, &field_eof, is_dict_filter, missing_column_sz));
     }
 

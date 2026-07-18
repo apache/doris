@@ -32,7 +32,7 @@
 #include "format/column_type_convert.h"
 #include "format/generic_reader.h"
 #include "format/parquet/parquet_common.h"
-#include "format/table/table_schema_change_helper.h"
+#include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -46,12 +46,18 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris::format::parquet::native {
-using ::doris::FieldSchema;
 using ::doris::ColumnString;
 
 #ifdef BE_TEST
-Status init_decode_context_for_test(const FieldSchema& field, const cctz::time_zone* ctz,
+Status init_decode_context_for_test(const NativeFieldSchema& field, const cctz::time_zone* ctz,
                                     ParquetDecodeContext* context);
+bool preserves_timestamp_conversion_default_for_test(const NativeFieldSchema& field,
+                                                     const DataTypePtr& target_type,
+                                                     bool strict_mode);
+void mark_local_timestamp_defaults_for_test(const NativeFieldSchema& field,
+                                            const DataTypePtr& target_type, bool strict_mode,
+                                            IColumn& data_column, IColumn::Filter* output_null_map,
+                                            size_t start_row);
 #endif
 
 class ColumnReader {
@@ -178,7 +184,7 @@ public:
             : _row_ranges(row_ranges), _total_rows(total_rows), _ctz(ctz), _io_ctx(io_ctx) {}
     virtual ~ColumnReader() = default;
     virtual Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
-                                    const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                                    const std::shared_ptr<NativeSchemaNode>& root_node,
                                     FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                     bool* eof, bool is_dict_filter,
                                     int64_t real_column_size = -1) = 0;
@@ -198,7 +204,7 @@ public:
         return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
     }
 
-    static Status create(io::FileReaderSPtr file, FieldSchema* field,
+    static Status create(io::FileReaderSPtr file, NativeFieldSchema* field,
                          const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
                          const cctz::time_zone* ctz, io::IOContext* io_ctx,
                          std::unique_ptr<ColumnReader>& reader, size_t max_buf_size,
@@ -220,13 +226,13 @@ public:
 
     virtual void reset_filter_map_index() = 0;
 
-    FieldSchema* get_field_schema() const { return _field_schema; }
+    NativeFieldSchema* get_field_schema() const { return _field_schema; }
     void set_column_in_nested() { _in_nested = true; }
 
 protected:
     void _generate_read_ranges(RowRange page_row_range, RowRanges* result_ranges) const;
 
-    FieldSchema* _field_schema = nullptr;
+    NativeFieldSchema* _field_schema = nullptr;
     const RowRanges& _row_ranges;
     size_t _total_rows = 0;
     const cctz::time_zone* _ctz = nullptr;
@@ -254,11 +260,11 @@ public:
               _chunk_meta(chunk_meta),
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
-    Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size,
+    Status init(io::FileReaderSPtr file, NativeFieldSchema* field, size_t max_buf_size,
                 RuntimeState* state, const std::string& page_cache_file_key,
                 const ParquetReaderCompat& compat, bool enable_strict_mode);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
-                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
@@ -394,9 +400,9 @@ public:
                       io::IOContext* io_ctx)
             : ColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
-    Status init(std::unique_ptr<ColumnReader> element_reader, FieldSchema* field);
+    Status init(std::unique_ptr<ColumnReader> element_reader, NativeFieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
-                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
@@ -431,9 +437,9 @@ public:
     ~MapColumnReader() override { close(); }
 
     Status init(std::unique_ptr<ColumnReader> key_reader,
-                std::unique_ptr<ColumnReader> value_reader, FieldSchema* field);
+                std::unique_ptr<ColumnReader> value_reader, NativeFieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
-                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
@@ -479,9 +485,9 @@ public:
     ~StructColumnReader() override { close(); }
 
     Status init(std::unordered_map<std::string, std::unique_ptr<ColumnReader>>&& child_readers,
-                FieldSchema* field);
+                NativeFieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
-                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
@@ -546,7 +552,7 @@ private:
 class SkipReadingReader : public ColumnReader {
 public:
     SkipReadingReader(const RowRanges& row_ranges, size_t total_rows, const cctz::time_zone* ctz,
-                      io::IOContext* io_ctx, FieldSchema* field_schema)
+                      io::IOContext* io_ctx, NativeFieldSchema* field_schema)
             : ColumnReader(row_ranges, total_rows, ctz, io_ctx) {
         _field_schema = field_schema; // Use inherited member from base class
         VLOG_DEBUG << "[ParquetReader] Created SkipReadingReader for field: "
@@ -554,7 +560,7 @@ public:
     }
 
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
-                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override {
         VLOG_DEBUG << "[ParquetReader] SkipReadingReader::read_column_data for field: "
@@ -595,7 +601,7 @@ public:
     static std::unique_ptr<SkipReadingReader> create_unique(const RowRanges& row_ranges,
                                                             size_t total_rows, cctz::time_zone* ctz,
                                                             io::IOContext* io_ctx,
-                                                            FieldSchema* field_schema) {
+                                                            NativeFieldSchema* field_schema) {
         return std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz, io_ctx,
                                                    field_schema);
     }

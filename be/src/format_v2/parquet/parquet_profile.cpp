@@ -60,8 +60,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                                TUnit::BYTES, parquet_profile, 1);
     selected_rows =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SelectedRows", TUnit::UNIT, parquet_profile, 1);
-    rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "RowsFilteredByConjunct", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+    // Keep every Parquet scan metric below the format node: profile consumers extract that
+    // subtree and otherwise silently lose this counter even though filtering happened.
+    rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowsFilteredByConjunct",
+                                                             TUnit::UNIT, parquet_profile, 1);
     total_batches =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "TotalBatches", TUnit::UNIT, parquet_profile, 1);
     dense_batches =
@@ -106,10 +108,6 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RawRowsRead", TUnit::UNIT, parquet_profile, 1);
     column_read_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ColumnReadTime", parquet_profile, 1);
     parse_meta_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ParseMetaTime", parquet_profile, 1);
-    arrow_metadata_adapter_time =
-            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowMetadataAdapterTime", parquet_profile, 1);
-    arrow_metadata_adapter_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "ArrowMetadataAdapterBytes", TUnit::BYTES, parquet_profile, 1);
     parse_footer_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ParseFooterTime", parquet_profile, 1);
     file_reader_create_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileReaderCreateTime", parquet_profile, 1);

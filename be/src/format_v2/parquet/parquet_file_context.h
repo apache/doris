@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/parquet/schema_desc.h"
+#include "format_v2/parquet/native_schema_desc.h"
 #include "io/fs/file_reader.h"
 #include "util/obj_lru_cache.h"
 
@@ -47,29 +47,22 @@ namespace doris::format::parquet {
 
 struct NativeParquetPageIndex;
 
-// V2-owned footer/schema object. Keeping this adapter here prevents native scanning requirements
-// from changing the established v1 FileMetaData cache value or parser behavior.
+// V2-owned footer/schema tree. Production planning and decoding consume this object directly;
+// Arrow metadata is intentionally not materialized from the serialized footer.
 class NativeParquetMetadata {
 public:
-    NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size,
-                          std::vector<uint8_t> serialized_metadata);
+    NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size);
     ~NativeParquetMetadata();
 
     Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz);
     const tparquet::FileMetaData& to_thrift() const { return _metadata; }
-    const FieldDescriptor& schema() const { return _schema; }
-    Status get_arrow_metadata(std::shared_ptr<::parquet::FileMetaData>* metadata) const;
-    size_t arrow_metadata_mem_size() const;
-    size_t get_mem_size() const { return _parsed_size + _serialized_metadata.size(); }
+    const NativeFieldDescriptor& schema() const { return _schema; }
+    size_t get_mem_size() const { return _parsed_size; }
 
 private:
     tparquet::FileMetaData _metadata;
-    FieldDescriptor _schema;
+    NativeFieldDescriptor _schema;
     size_t _parsed_size = 0;
-    std::vector<uint8_t> _serialized_metadata;
-    mutable std::mutex _arrow_metadata_mutex;
-    mutable std::shared_ptr<::parquet::FileMetaData> _arrow_metadata;
-    mutable size_t _arrow_metadata_mem_size = 0;
 };
 
 struct ParquetPageCacheRange {
@@ -134,6 +127,12 @@ private:
     std::unordered_map<std::string, std::shared_ptr<ParquetPageCacheRangeIndex>> _indexes;
 };
 
+inline constexpr int64_t MAX_SERIALIZED_PARQUET_INDEX_BYTES = 64LL << 20;
+
+bool is_serialized_index_range_safe(size_t file_size, int64_t offset, int64_t length);
+
+bool is_serialized_index_span_safe(int64_t span_offset, int64_t span_end);
+
 // Build the copy plan for a ReadAt(position, nbytes) request from the range metadata of
 // previously cached entries.
 // StoragePageCache cannot do range lookup by itself; it can only lookup an exact key. The
@@ -179,9 +178,8 @@ bool should_stage_small_http_file(std::string_view path, size_t file_size,
 } // namespace detail
 
 struct ParquetFileContext {
-    // The native data-page path reads from Doris' FileReader directly. Keep this handle separate
-    // from the Arrow RandomAccessFile used by the metadata/index migration path so opening Arrow
-    // metadata never transfers ownership away from the native reader.
+    // Native metadata, index, and data-page paths share Doris' FileReader without transferring
+    // ownership to an external metadata tree.
     io::FileReaderSPtr native_file;
     // Row-group-scoped view of native_file. Small projected chunks use the same
     // MergeRangeFileReader policy as v1; large chunks and in-memory files keep native_file.
@@ -194,15 +192,8 @@ struct ParquetFileContext {
     ObjLRUCache::CacheHandle native_meta_cache_handle;
     int64_t native_footer_read_calls = 0;
     int64_t native_footer_cache_hits = 0;
-    int64_t arrow_metadata_adapter_time = 0;
-    int64_t arrow_metadata_adapter_bytes = 0;
     bool native_page_cache_enabled = false;
     std::string native_page_cache_file_key;
-
-    std::shared_ptr<arrow::io::RandomAccessFile> arrow_file;   // Arrow wrapper for Doris FileReader
-    std::unique_ptr<::parquet::ParquetFileReader> file_reader; // Arrow Parquet file parser
-    std::shared_ptr<::parquet::FileMetaData> metadata;   // footer metadata (RowGroup information)
-    const ::parquet::SchemaDescriptor* schema = nullptr; // physical leaf column schema
 
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
                 const io::FileDescription& file_description,
@@ -215,16 +206,14 @@ struct ParquetFileContext {
                                     std::unordered_map<int, NativeParquetPageIndex>* page_indexes,
                                     int64_t* read_time = nullptr,
                                     int64_t* parse_time = nullptr) const;
-    // Register ranges for the remaining Arrow metadata/index adapter. Native data pages use the
-    // v1-compatible page cache owned by BufferedFileStreamReader instead.
+    // Retained as a compatibility hook for callers; native readers admit exact page payloads.
     void register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges);
     // Best-effort asynchronous warm-up for Parquet column chunks. This only has an effect when
     // the underlying Doris file reader is a CachedRemoteFileReader; other readers keep the same
     // random-access behavior and simply skip prefetch.
     void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                          const io::IOContext* io_ctx);
-    // Switch the active reader used by Arrow metadata/index ReadAt() to MergeRangeFileReader when
-    // projected chunks are small random IOs. Native page decoding is intentionally independent.
+    // Deprecated adapter hook. Native readers use set_native_random_access_ranges().
     bool set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                                   size_t avg_io_size, RuntimeProfile* profile,
                                   int64_t merge_read_slice_size);
@@ -237,8 +226,7 @@ struct ParquetFileContext {
     const io::FileReaderSPtr& native_data_file() const {
         return native_row_group_file != nullptr ? native_row_group_file : native_file;
     }
-    // Restore both Arrow and native ReadAt() to the base Doris file reader and flush active
-    // merge-reader counters. Row-group setup uses this before dictionary-page probes.
+    // Restore native ReadAt() to the base Doris file reader and flush merge-reader counters.
     void reset_random_access_ranges();
     ParquetPageCacheStats page_cache_stats() const;
     Status close();

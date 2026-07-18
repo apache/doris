@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/parquet_type.h"
 
 namespace doris::format::parquet {
@@ -470,6 +471,207 @@ Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
     return build_node_schema_with_mode(schema, node, context, result, SchemaBuildMode::NORMAL);
 }
 
+ParquetTimeUnit native_time_unit(const tparquet::TimeUnit& unit) {
+    if (unit.__isset.MILLIS) {
+        return ParquetTimeUnit::MILLIS;
+    }
+    if (unit.__isset.MICROS) {
+        return ParquetTimeUnit::MICROS;
+    }
+    if (unit.__isset.NANOS) {
+        return ParquetTimeUnit::NANOS;
+    }
+    return ParquetTimeUnit::UNKNOWN;
+}
+
+ParquetExtraTypeInfo native_time_extra(ParquetTimeUnit unit) {
+    switch (unit) {
+    case ParquetTimeUnit::MILLIS:
+        return ParquetExtraTypeInfo::UNIT_MS;
+    case ParquetTimeUnit::MICROS:
+        return ParquetExtraTypeInfo::UNIT_MICROS;
+    case ParquetTimeUnit::NANOS:
+        return ParquetExtraTypeInfo::UNIT_NS;
+    case ParquetTimeUnit::UNKNOWN:
+    default:
+        return ParquetExtraTypeInfo::NONE;
+    }
+}
+
+void fill_native_type_descriptor(const NativeFieldSchema& field, ParquetTypeDescriptor* result) {
+    DORIS_CHECK(result != nullptr);
+    const auto& schema = field.parquet_schema;
+    result->doris_type = field.data_type;
+    result->physical_type = static_cast<::parquet::Type::type>(field.physical_type);
+    result->fixed_length = schema.__isset.type_length ? schema.type_length : -1;
+    if (schema.__isset.converted_type) {
+        result->converted_type = static_cast<::parquet::ConvertedType::type>(schema.converted_type);
+    }
+
+    if (schema.__isset.logicalType) {
+        const auto& logical = schema.logicalType;
+        if (logical.__isset.DECIMAL) {
+            result->is_decimal = true;
+            result->decimal_precision = logical.DECIMAL.precision;
+            result->decimal_scale = logical.DECIMAL.scale;
+        } else if (logical.__isset.INTEGER) {
+            result->integer_bit_width = logical.INTEGER.bitWidth;
+            result->is_unsigned_integer = !logical.INTEGER.isSigned;
+        } else if (logical.__isset.TIME) {
+            result->time_unit = native_time_unit(logical.TIME.unit);
+            result->extra_type_info = native_time_extra(result->time_unit);
+            if (logical.TIME.isAdjustedToUTC) {
+                result->unsupported_reason =
+                        "Parquet TIME with isAdjustedToUTC=true is not supported";
+            }
+        } else if (logical.__isset.TIMESTAMP) {
+            result->is_timestamp = true;
+            result->timestamp_is_adjusted_to_utc = logical.TIMESTAMP.isAdjustedToUTC;
+            result->time_unit = native_time_unit(logical.TIMESTAMP.unit);
+            result->extra_type_info = native_time_extra(result->time_unit);
+        } else if (logical.__isset.FLOAT16) {
+            result->extra_type_info = ParquetExtraTypeInfo::FLOAT16;
+        }
+    } else if (schema.__isset.converted_type) {
+        switch (schema.converted_type) {
+        case tparquet::ConvertedType::DECIMAL:
+            result->is_decimal = true;
+            result->decimal_precision = schema.__isset.precision ? schema.precision : -1;
+            result->decimal_scale = schema.__isset.scale ? schema.scale : -1;
+            break;
+        case tparquet::ConvertedType::INT_8:
+        case tparquet::ConvertedType::UINT_8:
+            result->integer_bit_width = 8;
+            result->is_unsigned_integer = schema.converted_type == tparquet::ConvertedType::UINT_8;
+            break;
+        case tparquet::ConvertedType::INT_16:
+        case tparquet::ConvertedType::UINT_16:
+            result->integer_bit_width = 16;
+            result->is_unsigned_integer = schema.converted_type == tparquet::ConvertedType::UINT_16;
+            break;
+        case tparquet::ConvertedType::INT_32:
+        case tparquet::ConvertedType::UINT_32:
+            result->integer_bit_width = 32;
+            result->is_unsigned_integer = schema.converted_type == tparquet::ConvertedType::UINT_32;
+            break;
+        case tparquet::ConvertedType::INT_64:
+        case tparquet::ConvertedType::UINT_64:
+            result->integer_bit_width = 64;
+            result->is_unsigned_integer = schema.converted_type == tparquet::ConvertedType::UINT_64;
+            break;
+        case tparquet::ConvertedType::TIMESTAMP_MILLIS:
+        case tparquet::ConvertedType::TIMESTAMP_MICROS:
+            result->is_timestamp = true;
+            result->timestamp_is_adjusted_to_utc = true;
+            result->time_unit = schema.converted_type == tparquet::ConvertedType::TIMESTAMP_MILLIS
+                                        ? ParquetTimeUnit::MILLIS
+                                        : ParquetTimeUnit::MICROS;
+            result->extra_type_info = native_time_extra(result->time_unit);
+            break;
+        case tparquet::ConvertedType::TIME_MILLIS:
+        case tparquet::ConvertedType::TIME_MICROS:
+            result->unsupported_reason = "Parquet TIME with isAdjustedToUTC=true is not supported";
+            break;
+        default:
+            break;
+        }
+    }
+
+    if (result->is_decimal) {
+        switch (result->physical_type) {
+        case ::parquet::Type::INT32:
+            result->extra_type_info = ParquetExtraTypeInfo::DECIMAL_INT32;
+            break;
+        case ::parquet::Type::INT64:
+            result->extra_type_info = ParquetExtraTypeInfo::DECIMAL_INT64;
+            break;
+        case ::parquet::Type::BYTE_ARRAY:
+        case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
+            result->extra_type_info = ParquetExtraTypeInfo::DECIMAL_BYTE_ARRAY;
+            break;
+        default:
+            break;
+        }
+    } else if (result->physical_type == ::parquet::Type::INT96) {
+        result->is_timestamp = true;
+        result->extra_type_info = ParquetExtraTypeInfo::IMPALA_TIMESTAMP;
+    }
+    result->is_string_like = !result->is_decimal &&
+                             result->extra_type_info != ParquetExtraTypeInfo::FLOAT16 &&
+                             (result->physical_type == ::parquet::Type::BYTE_ARRAY ||
+                              result->physical_type == ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
+}
+
+void propagate_native_max_levels(ParquetColumnSchema* schema) {
+    DORIS_CHECK(schema != nullptr);
+    for (const auto& child : schema->children) {
+        DORIS_CHECK(child != nullptr);
+        propagate_native_max_levels(child.get());
+        schema->max_definition_level =
+                std::max(schema->max_definition_level, child->max_definition_level);
+        schema->max_repetition_level =
+                std::max(schema->max_repetition_level, child->max_repetition_level);
+    }
+}
+
+std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldSchema& field,
+                                                              int32_t local_id) {
+    auto result = std::make_unique<ParquetColumnSchema>();
+    result->local_id = local_id;
+    result->parquet_field_id = field.field_id;
+    result->name = field.name;
+    result->type = field.data_type;
+    result->definition_level = field.definition_level;
+    result->repetition_level = field.repetition_level;
+    result->max_definition_level = field.definition_level;
+    result->max_repetition_level = field.repetition_level;
+    result->nullable_definition_level = field.data_type != nullptr && field.data_type->is_nullable()
+                                                ? field.definition_level - field.repetition_level
+                                                : 0;
+    result->repeated_ancestor_definition_level = field.repeated_parent_def_level;
+    result->repeated_repetition_level = field.repetition_level;
+
+    const auto primitive_type = remove_nullable(field.data_type)->get_primitive_type();
+    if (field.children.empty()) {
+        result->kind = ParquetColumnSchemaKind::PRIMITIVE;
+        result->leaf_column_id = field.physical_column_index;
+        fill_native_type_descriptor(field, &result->type_descriptor);
+        return result;
+    }
+    if (primitive_type == TYPE_ARRAY) {
+        result->kind = ParquetColumnSchemaKind::LIST;
+    } else if (primitive_type == TYPE_MAP) {
+        result->kind = ParquetColumnSchemaKind::MAP;
+    } else {
+        result->kind = ParquetColumnSchemaKind::STRUCT;
+    }
+    result->children.reserve(field.children.size());
+    for (size_t child_idx = 0; child_idx < field.children.size(); ++child_idx) {
+        result->children.push_back(
+                build_native_node_schema(field.children[child_idx], cast_set<int32_t>(child_idx)));
+    }
+    propagate_native_max_levels(result.get());
+    return result;
+}
+
+Status validate_native_node_schema(const NativeFieldSchema& field) {
+    if (field.children.empty()) {
+        ParquetTypeDescriptor descriptor;
+        fill_native_type_descriptor(field, &descriptor);
+        if (!descriptor.unsupported_reason.empty()) {
+            // Native metadata must enforce the same logical-type contract used by scan planning;
+            // otherwise unsupported files reach the decoder only after their schema is accepted.
+            return Status::NotSupported("Unsupported parquet column '{}': {}", field.name,
+                                        descriptor.unsupported_reason);
+        }
+        return Status::OK();
+    }
+    for (const auto& child : field.children) {
+        RETURN_IF_ERROR(validate_native_node_schema(child));
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
@@ -490,6 +692,24 @@ Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
                 schema, *root->field(field_idx),
                 child_context(context, *root->field(field_idx), field_idx), &field));
         fields->push_back(std::move(field));
+    }
+    return Status::OK();
+}
+
+Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
+                                   std::vector<std::unique_ptr<ParquetColumnSchema>>* fields) {
+    if (fields == nullptr) {
+        return Status::InvalidArgument("fields is null");
+    }
+    fields->clear();
+    const auto& native_fields = schema.get_fields_schema();
+    fields->reserve(native_fields.size());
+    for (size_t field_idx = 0; field_idx < native_fields.size(); ++field_idx) {
+        RETURN_IF_ERROR(validate_native_node_schema(native_fields[field_idx]));
+        // The scan projection and native readers must share one tree; rebuilding wrappers through
+        // Arrow changes legacy LIST/STRUCT boundaries and makes valid nested values look absent.
+        fields->push_back(
+                build_native_node_schema(native_fields[field_idx], cast_set<int32_t>(field_idx)));
     }
     return Status::OK();
 }

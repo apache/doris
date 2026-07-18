@@ -52,17 +52,13 @@
 
 namespace doris::format::parquet {
 
-NativeParquetMetadata::NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size,
-                                             std::vector<uint8_t> serialized_metadata)
-        : _metadata(std::move(metadata)),
-          _parsed_size(parsed_size),
-          _serialized_metadata(std::move(serialized_metadata)) {
+NativeParquetMetadata::NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size)
+        : _metadata(std::move(metadata)), _parsed_size(parsed_size) {
     ExecEnv::GetInstance()->parquet_meta_tracker()->consume(get_mem_size());
 }
 
 NativeParquetMetadata::~NativeParquetMetadata() {
-    ExecEnv::GetInstance()->parquet_meta_tracker()->release(get_mem_size() +
-                                                            _arrow_metadata_mem_size);
+    ExecEnv::GetInstance()->parquet_meta_tracker()->release(get_mem_size());
 }
 
 Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
@@ -74,38 +70,6 @@ Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
     // v2 schema object so v1's cached schema lifecycle and numbering remain untouched.
     _schema.assign_ids();
     return Status::OK();
-}
-
-Status NativeParquetMetadata::get_arrow_metadata(
-        std::shared_ptr<::parquet::FileMetaData>* metadata) const {
-    DORIS_CHECK(metadata != nullptr);
-    std::lock_guard lock(_arrow_metadata_mutex);
-    if (_arrow_metadata == nullptr) {
-        try {
-            uint32_t serialized_size = cast_set<uint32_t>(_serialized_metadata.size());
-            auto parsed =
-                    ::parquet::FileMetaData::Make(_serialized_metadata.data(), &serialized_size,
-                                                  ::parquet::default_reader_properties());
-            if (static_cast<size_t>(serialized_size) != _serialized_metadata.size()) {
-                return Status::Corruption("Arrow consumed {} of {} Parquet footer bytes",
-                                          serialized_size, _serialized_metadata.size());
-            }
-            _arrow_metadata_mem_size = parsed->size();
-            ExecEnv::GetInstance()->parquet_meta_tracker()->consume(_arrow_metadata_mem_size);
-            _arrow_metadata = std::move(parsed);
-        } catch (const ::parquet::ParquetException& e) {
-            return Status::Corruption("Failed to adapt v2 Parquet metadata: {}", e.what());
-        } catch (const std::exception& e) {
-            return Status::InternalError("Failed to adapt v2 Parquet metadata: {}", e.what());
-        }
-    }
-    *metadata = _arrow_metadata;
-    return Status::OK();
-}
-
-size_t NativeParquetMetadata::arrow_metadata_mem_size() const {
-    std::lock_guard lock(_arrow_metadata_mutex);
-    return _arrow_metadata_mem_size;
 }
 
 namespace detail {
@@ -177,6 +141,19 @@ std::shared_ptr<ParquetPageCacheRangeIndex> ParquetPageCacheRangeDirectory::get_
 size_t ParquetPageCacheRangeDirectory::size() const {
     std::lock_guard lock(_mutex);
     return _indexes.size();
+}
+
+bool is_serialized_index_range_safe(size_t file_size, int64_t offset, int64_t length) {
+    if (offset < 0 || length <= 0 || length > MAX_SERIALIZED_PARQUET_INDEX_BYTES ||
+        static_cast<uint64_t>(offset) > file_size) {
+        return false;
+    }
+    return static_cast<uint64_t>(length) <= file_size - static_cast<uint64_t>(offset);
+}
+
+bool is_serialized_index_span_safe(int64_t span_offset, int64_t span_end) {
+    return span_offset >= 0 && span_end >= span_offset &&
+           span_end - span_offset <= MAX_SERIALIZED_PARQUET_INDEX_BYTES;
 }
 
 std::vector<ParquetPageCacheReadPlanEntry> plan_page_cache_range_read(
@@ -342,8 +319,8 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
     tparquet::FileMetaData thrift_metadata;
     RETURN_IF_ERROR(deserialize_thrift_msg(serialized_metadata.data(), &thrift_size, true,
                                            &thrift_metadata));
-    auto parsed = std::make_unique<NativeParquetMetadata>(
-            std::move(thrift_metadata), serialized_size, std::move(serialized_metadata));
+    auto parsed =
+            std::make_unique<NativeParquetMetadata>(std::move(thrift_metadata), serialized_size);
     RETURN_IF_ERROR(parsed->init_schema(enable_mapping_varbinary, enable_mapping_timestamp_tz));
     *footer_size = V2_PARQUET_FOOTER_SIZE + serialized_size;
     *metadata = std::move(parsed);
@@ -371,8 +348,8 @@ std::string build_page_cache_file_key(const io::FileReader& file_reader,
 
 class DorisRandomAccessFile final : public arrow::io::RandomAccessFile {
 public:
-    DorisRandomAccessFile(io::FileReaderSPtr file_reader, io::IOContext* io_ctx,
-                          bool enable_page_cache, std::string page_cache_file_key)
+    [[maybe_unused]] DorisRandomAccessFile(io::FileReaderSPtr file_reader, io::IOContext* io_ctx,
+                                           bool enable_page_cache, std::string page_cache_file_key)
             : _file_reader(std::move(file_reader)),
               _base_file_reader(_file_reader),
               _io_ctx(io_ctx),
@@ -473,13 +450,13 @@ public:
         return buffer;
     }
 
-    void register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges) {
+    [[maybe_unused]] void register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges) {
         std::lock_guard lock(_page_cache_mutex);
         _page_cache_ranges = std::move(ranges);
     }
 
-    void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
-                         const io::IOContext* io_ctx) {
+    [[maybe_unused]] void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                                          const io::IOContext* io_ctx) {
         auto cached_reader = cached_remote_file_reader();
         if (cached_reader == nullptr) {
             return;
@@ -494,9 +471,9 @@ public:
         }
     }
 
-    bool set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
-                                  size_t avg_io_size, RuntimeProfile* profile,
-                                  int64_t merge_read_slice_size) {
+    [[maybe_unused]] bool set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                                                   size_t avg_io_size, RuntimeProfile* profile,
+                                                   int64_t merge_read_slice_size) {
         reset_active_file_reader();
         const auto valid_ranges = detail::valid_prefetch_ranges(ranges);
         if (!detail::should_use_merge_range_reader(
@@ -525,9 +502,9 @@ public:
         return true;
     }
 
-    void reset_random_access_ranges() { reset_active_file_reader(); }
+    [[maybe_unused]] void reset_random_access_ranges() { reset_active_file_reader(); }
 
-    ParquetPageCacheStats page_cache_stats() const {
+    [[maybe_unused]] ParquetPageCacheStats page_cache_stats() const {
         std::lock_guard lock(_page_cache_mutex);
         return _page_cache_stats;
     }
@@ -752,38 +729,8 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
 
     auto page_cache_file_key = build_page_cache_file_key(*native_file, file_description);
     native_page_cache_enabled = enable_page_cache && !page_cache_file_key.empty();
-    // Native and Arrow readers must use the same FileDescription-derived immutable identity.
+    // Native page readers use the FileDescription-derived immutable identity directly.
     native_page_cache_file_key = page_cache_file_key;
-    arrow_file = std::make_shared<DorisRandomAccessFile>(native_file, io_ctx, enable_page_cache,
-                                                         std::move(page_cache_file_key));
-    try {
-        const int64_t adapter_start_ns = MonotonicNanos();
-        std::shared_ptr<::parquet::FileMetaData> arrow_metadata;
-        RETURN_IF_ERROR(native_metadata->get_arrow_metadata(&arrow_metadata));
-        this->file_reader = ::parquet::ParquetFileReader::Open(
-                arrow_file, ::parquet::default_reader_properties(), std::move(arrow_metadata));
-        metadata = this->file_reader->metadata();
-        schema = metadata != nullptr ? metadata->schema() : nullptr;
-        arrow_metadata_adapter_time += MonotonicNanos() - adapter_start_ns;
-        arrow_metadata_adapter_bytes =
-                static_cast<int64_t>(native_metadata->arrow_metadata_mem_size());
-    } catch (const ::parquet::ParquetException& e) {
-        if (io_ctx != nullptr && io_ctx->should_stop &&
-            std::string_view(e.what()).find("stop") != std::string_view::npos) {
-            return Status::EndOfFile("stop");
-        }
-        return Status::Corruption("Failed to open parquet file: {}", e.what());
-    } catch (const std::exception& e) {
-        if (io_ctx != nullptr && io_ctx->should_stop &&
-            std::string_view(e.what()).find("stop") != std::string_view::npos) {
-            return Status::EndOfFile("stop");
-        }
-        return Status::InternalError("Failed to open parquet file: {}", e.what());
-    }
-
-    if (metadata == nullptr || schema == nullptr) {
-        return Status::Corruption("Failed to read parquet metadata");
-    }
     return Status::OK();
 }
 
@@ -817,9 +764,8 @@ Status ParquetFileContext::load_native_offset_indexes(
             }
             const int64_t index_offset = column_chunk.offset_index_offset;
             const int64_t index_length = column_chunk.offset_index_length;
-            if (index_offset < 0 || index_length <= 0 || index_offset > native_file->size() ||
-                index_length > native_file->size() - index_offset ||
-                index_length > std::numeric_limits<uint32_t>::max()) {
+            if (!detail::is_serialized_index_range_safe(native_file->size(), index_offset,
+                                                        index_length)) {
                 // OffsetIndex is optional. A malformed range must not allocate from untrusted
                 // footer values or redirect the native reader outside the file.
                 continue;
@@ -893,12 +839,7 @@ Status ParquetFileContext::load_native_page_indexes(
     std::unordered_map<int, PendingPageIndex> pending_indexes;
 
     auto valid_index_range = [&](int64_t offset, int64_t length) {
-        if (offset < 0 || length <= 0 || offset > native_file->size() ||
-            length > native_file->size() - offset ||
-            length > std::numeric_limits<uint32_t>::max()) {
-            return false;
-        }
-        return true;
+        return detail::is_serialized_index_range_safe(native_file->size(), offset, length);
     };
 
     for (const int leaf_column_id : leaf_column_ids) {
@@ -936,6 +877,12 @@ Status ParquetFileContext::load_native_page_indexes(
             }
 
             const int64_t span_offset = (*ranges)[range_begin].offset;
+            if (!detail::is_serialized_index_span_safe(span_offset, span_end)) {
+                // Optional indexes share one allocation per contiguous footer block. Skipping the
+                // whole block prevents many individually small ranges from bypassing the budget.
+                range_begin = range_end;
+                continue;
+            }
             const int64_t span_length = span_end - span_offset;
             std::vector<uint8_t> serialized(static_cast<size_t>(span_length));
             Slice slice(serialized.data(), serialized.size());
@@ -1001,23 +948,36 @@ Status ParquetFileContext::load_native_page_indexes(
 }
 
 void ParquetFileContext::register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges) {
-    DORIS_CHECK(arrow_file != nullptr);
-    static_cast<DorisRandomAccessFile*>(arrow_file.get())
-            ->register_page_cache_ranges(std::move(ranges));
+    // Native column readers register exact page payloads themselves; retaining a second range map
+    // would recreate the removed Arrow metadata adapter's cache path.
+    (void)ranges;
 }
 
 void ParquetFileContext::prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                                          const io::IOContext* io_ctx) {
-    DORIS_CHECK(arrow_file != nullptr);
-    static_cast<DorisRandomAccessFile*>(arrow_file.get())->prefetch_ranges(ranges, io_ctx);
+    io::FileReaderSPtr reader = native_file;
+    if (auto tracing_reader = std::dynamic_pointer_cast<io::TracingFileReader>(reader)) {
+        reader = tracing_reader->inner_reader();
+    }
+    auto cached_reader = std::dynamic_pointer_cast<io::CachedRemoteFileReader>(reader);
+    if (cached_reader == nullptr) {
+        return;
+    }
+    const auto* prefetch_io_ctx = io_ctx != nullptr ? io_ctx : native_io_ctx;
+    for (const auto& range : detail::valid_prefetch_ranges(ranges)) {
+        cached_reader->prefetch_range(cast_set<size_t>(range.offset), cast_set<size_t>(range.size),
+                                      prefetch_io_ctx);
+    }
 }
 
 bool ParquetFileContext::set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                                                   size_t avg_io_size, RuntimeProfile* profile,
                                                   int64_t merge_read_slice_size) {
-    DORIS_CHECK(arrow_file != nullptr);
-    return static_cast<DorisRandomAccessFile*>(arrow_file.get())
-            ->set_random_access_ranges(ranges, avg_io_size, profile, merge_read_slice_size);
+    (void)ranges;
+    (void)avg_io_size;
+    (void)profile;
+    (void)merge_read_slice_size;
+    return false;
 }
 
 bool ParquetFileContext::set_native_random_access_ranges(
@@ -1045,8 +1005,6 @@ bool ParquetFileContext::set_native_random_access_ranges(
 }
 
 void ParquetFileContext::reset_random_access_ranges() {
-    DORIS_CHECK(arrow_file != nullptr);
-    static_cast<DorisRandomAccessFile*>(arrow_file.get())->reset_random_access_ranges();
     if (native_row_group_file != nullptr && native_row_group_file != native_file) {
         native_row_group_file->collect_profile_before_close();
     }
@@ -1054,10 +1012,7 @@ void ParquetFileContext::reset_random_access_ranges() {
 }
 
 ParquetPageCacheStats ParquetFileContext::page_cache_stats() const {
-    if (arrow_file == nullptr) {
-        return {};
-    }
-    return static_cast<const DorisRandomAccessFile*>(arrow_file.get())->page_cache_stats();
+    return {};
 }
 
 Status ParquetFileContext::close() {
@@ -1065,17 +1020,6 @@ Status ParquetFileContext::close() {
         native_row_group_file->collect_profile_before_close();
     }
     native_row_group_file.reset();
-    if (file_reader != nullptr) {
-        try {
-            file_reader->Close();
-        } catch (const std::exception&) {
-        }
-    }
-    if (arrow_file != nullptr) {
-        static_cast<void>(arrow_status_to_doris_status(arrow_file->Close()));
-    }
-    file_reader.reset();
-    arrow_file.reset();
     native_metadata = nullptr;
     native_metadata_owner.reset();
     native_meta_cache_handle = {};

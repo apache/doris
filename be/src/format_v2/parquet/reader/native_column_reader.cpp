@@ -93,15 +93,16 @@ DataTypePtr projected_type(const ParquetColumnSchema& schema,
     return nullptr;
 }
 
-const FieldSchema* find_child_field(const FieldSchema& parent, const ParquetColumnSchema& child) {
-    auto field_it = std::ranges::find_if(parent.children, [&](const FieldSchema& field) {
+const NativeFieldSchema* find_child_field(const NativeFieldSchema& parent,
+                                          const ParquetColumnSchema& child) {
+    auto field_it = std::ranges::find_if(parent.children, [&](const NativeFieldSchema& field) {
         return (child.parquet_field_id >= 0 && field.field_id == child.parquet_field_id) ||
                field.name == child.name;
     });
     return field_it == parent.children.end() ? nullptr : &*field_it;
 }
 
-void collect_physical_subtree_ids(const FieldSchema& field, std::set<uint64_t>* ids) {
+void collect_physical_subtree_ids(const NativeFieldSchema& field, std::set<uint64_t>* ids) {
     DORIS_CHECK(ids != nullptr);
     ids->insert(field.get_column_id());
     for (const auto& child : field.children) {
@@ -111,7 +112,7 @@ void collect_physical_subtree_ids(const FieldSchema& field, std::set<uint64_t>* 
 
 void collect_projected_ids(const ParquetColumnSchema& schema,
                            const format::LocalColumnIndex* projection,
-                           const FieldSchema& native_field, std::set<uint64_t>* ids) {
+                           const NativeFieldSchema& native_field, std::set<uint64_t>* ids) {
     DORIS_CHECK(ids != nullptr);
     if (!format::is_partial_projection(projection)) {
         return;
@@ -121,7 +122,7 @@ void collect_projected_ids(const ParquetColumnSchema& schema,
             return child->local_id == child_projection.local_id();
         });
         DORIS_CHECK(schema_it != schema.children.end());
-        const FieldSchema* child_field = find_child_field(native_field, **schema_it);
+        const NativeFieldSchema* child_field = find_child_field(native_field, **schema_it);
         DORIS_CHECK(child_field != nullptr);
         if (format::is_full_projection(&child_projection)) {
             // A full child path is a request for its complete physical subtree. Keeping only the
@@ -192,7 +193,7 @@ Status NativeColumnReader::create(
         return Status::InvalidArgument("Invalid native parquet top-level column id {} for {}",
                                        column_schema.local_id, column_schema.name);
     }
-    auto* field = const_cast<FieldSchema*>(native_schema.get_column(column_schema.local_id));
+    auto* field = const_cast<NativeFieldSchema*>(native_schema.get_column(column_schema.local_id));
     DORIS_CHECK(field != nullptr);
     if (field->name != column_schema.name &&
         !(field->field_id >= 0 && field->field_id == column_schema.parquet_field_id)) {
@@ -202,9 +203,8 @@ Status NativeColumnReader::create(
     }
 
     auto type = projected_type(column_schema, projection);
-    std::shared_ptr<TableSchemaChangeHelper::Node> schema_node;
-    RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(type, *field,
-                                                                                 schema_node));
+    std::shared_ptr<NativeSchemaNode> schema_node;
+    RETURN_IF_ERROR(build_native_schema_node(type, column_schema, &schema_node));
     std::set<uint64_t> projected_ids;
     collect_projected_ids(column_schema, projection, *field, &projected_ids);
 
@@ -220,7 +220,7 @@ Status NativeColumnReader::create(
 
 Status NativeColumnReader::init(
         io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
-        FieldSchema* field, std::shared_ptr<TableSchemaChangeHelper::Node> schema_node,
+        NativeFieldSchema* field, std::shared_ptr<NativeSchemaNode> schema_node,
         std::set<uint64_t> projected_column_ids, const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
         const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,

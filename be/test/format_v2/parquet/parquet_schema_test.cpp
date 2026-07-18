@@ -27,6 +27,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
+#include "format_v2/parquet/native_schema_desc.h"
+#include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 
 namespace doris::format::parquet {
@@ -76,6 +78,49 @@ TEST(ParquetSchemaTest, PrimitiveStateAndFieldIdArePreserved) {
     EXPECT_EQ(fields[1]->leaf_column_id, 1);
     EXPECT_EQ(fields[1]->nullable_definition_level, 1);
     EXPECT_TRUE(fields[1]->type->is_nullable());
+}
+
+TEST(ParquetSchemaTest, NativeMetadataTreePreservesNestedFieldNamesAndIds) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement protocol;
+    protocol.__set_name("protocol");
+    protocol.__set_num_children(2);
+    protocol.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    protocol.__set_field_id(10);
+
+    tparquet::SchemaElement min_reader;
+    min_reader.__set_name("minReaderVersion");
+    min_reader.__set_type(tparquet::Type::INT32);
+    min_reader.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    min_reader.__set_field_id(11);
+
+    tparquet::SchemaElement min_writer = min_reader;
+    min_writer.__set_name("minWriterVersion");
+    min_writer.__set_field_id(12);
+
+    NativeFieldDescriptor native_schema;
+    ASSERT_TRUE(native_schema.parse_from_thrift({root, protocol, min_reader, min_writer}).ok());
+    native_schema.assign_ids();
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(native_schema, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    EXPECT_EQ(fields[0]->name, "protocol");
+    EXPECT_EQ(fields[0]->parquet_field_id, 10);
+    ASSERT_EQ(fields[0]->children.size(), 2);
+    EXPECT_EQ(fields[0]->children[0]->name, "minReaderVersion");
+    EXPECT_EQ(fields[0]->children[0]->leaf_column_id, 0);
+    EXPECT_EQ(fields[0]->children[1]->name, "minWriterVersion");
+    EXPECT_EQ(fields[0]->children[1]->leaf_column_id, 1);
+
+    std::shared_ptr<NativeSchemaNode> mapping;
+    ASSERT_TRUE(build_native_schema_node(fields[0]->type, *fields[0], &mapping).ok());
+    EXPECT_TRUE(mapping->has_child("minReaderVersion"));
+    EXPECT_EQ(mapping->file_child_name("minReaderVersion"), "minReaderVersion");
+    ASSERT_NE(mapping->child("minReaderVersion"), nullptr);
 }
 
 TEST(ParquetSchemaTest, PrimitiveTypeDescriptorCoversLogicalConvertedAndPhysicalFallback) {
@@ -530,6 +575,55 @@ TEST(ParquetSchemaTest, LogicalUtcTimeIsPreservedForProjection) {
     EXPECT_EQ(remove_nullable(fields[0]->children[0]->type)->get_primitive_type(), TYPE_INT);
     EXPECT_FALSE(fields[0]->children[0]->type_descriptor.unsupported_reason.empty());
     EXPECT_EQ(remove_nullable(fields[0]->children[1]->type)->get_primitive_type(), TYPE_BIGINT);
+}
+
+TEST(ParquetSchemaTest, NativeLogicalUtcTimeIsRejected) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement adjusted_time;
+    adjusted_time.__set_name("time_ms");
+    adjusted_time.__set_type(tparquet::Type::INT32);
+    adjusted_time.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    adjusted_time.__set_logicalType(tparquet::LogicalType());
+    adjusted_time.logicalType.__set_TIME(tparquet::TimeType());
+    adjusted_time.logicalType.TIME.__set_isAdjustedToUTC(true);
+    adjusted_time.logicalType.TIME.__set_unit(tparquet::TimeUnit());
+    adjusted_time.logicalType.TIME.unit.__set_MILLIS(tparquet::MilliSeconds());
+
+    NativeFieldDescriptor native_schema;
+    ASSERT_TRUE(native_schema.parse_from_thrift({root, adjusted_time}).ok());
+    native_schema.assign_ids();
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    const auto status = build_parquet_column_schema(native_schema, &fields);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported"),
+              std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeGroupEnumLogicalTypeIsRejected) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement enum_group;
+    enum_group.__set_name("bad_enum_group");
+    enum_group.__set_num_children(1);
+    enum_group.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    enum_group.__set_logicalType(tparquet::LogicalType());
+    enum_group.logicalType.__set_ENUM(tparquet::EnumType());
+
+    tparquet::SchemaElement child;
+    child.__set_name("value");
+    child.__set_type(tparquet::Type::BYTE_ARRAY);
+    child.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    NativeFieldDescriptor native_schema;
+    const auto status = native_schema.parse_from_thrift({root, enum_group, child});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Logical type Enum cannot be applied to group node"),
+              std::string::npos);
 }
 
 } // namespace doris::format::parquet

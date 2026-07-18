@@ -162,8 +162,6 @@ struct ParquetProfile {
     RuntimeProfile::Counter* column_read_time = nullptr;
 
     RuntimeProfile::Counter* parse_meta_time = nullptr;
-    RuntimeProfile::Counter* arrow_metadata_adapter_time = nullptr;
-    RuntimeProfile::Counter* arrow_metadata_adapter_bytes = nullptr;
     RuntimeProfile::Counter* parse_footer_time = nullptr;
     RuntimeProfile::Counter* file_reader_create_time = nullptr;
     RuntimeProfile::Counter* open_file_num = nullptr;

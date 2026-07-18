@@ -79,14 +79,12 @@ the production v2 path never instantiates the v1 `ParquetColumnReader`:
 | Native column reader | `NativeColumnReader` is persistent for one top-level column and Row Group. It owns selection/filter/dictionary scratch and drives the native decoder directly into the final Doris column. |
 | Complex reconstruction | Choose a Dremel shape-owning leaf per requested parent-row range; derive parent offsets/nulls once from it and keep sibling leaf streams aligned to the same parent rows. |
 | Metadata and planning | Replace Arrow footer/schema/Row Group metadata dependencies with native Thrift-derived objects while preserving the existing planner, index, cache, and split contracts. |
-| Compatibility removal | Remove Arrow data-read adapters after type/encoding/page/writer compatibility and performance gates pass. Production v2 never falls back from a selected native reader to Arrow; an unsupported combination returns an explicit error. |
+| Compatibility removal | Production v2 has no Arrow data-read or metadata adapter and never falls back to the v1 reader; unsupported combinations return explicit errors. Arrow remains only in test oracles and fixture writers. |
 
 Data-page value scans and levels-only aggregate scans no longer use Arrow `RecordReader`, arrays, or
-builders. V2 parses and owns the Thrift footer and physical schema; a lazy Arrow metadata adapter
-remains only for planner consumers that have not yet migrated. It is not a runtime fallback: after
-a column selects the native reader, decode errors are returned directly. The production target
-eventually removes that remaining planner adapter; tests may also use Arrow as a fixture writer or
-oracle.
+builders. V2 parses and owns the Thrift footer, schema parser, field-ID assignment, physical schema,
+statistics, dictionary metadata, bloom filters, and page indexes. Production planning never builds
+an Arrow metadata tree; Arrow is limited to fixture writers and differential test oracles.
 
 All new integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the correctness
 and performance control. Compatibility is demonstrated through differential tests and the explicit
@@ -156,14 +154,12 @@ sequenceDiagram
   delete conjuncts, and local column-position mappings.
 - **RowGroupReadPlan:** Records the Row Group, its file-global starting row, `selected_ranges`
   produced by page-index pruning, and the `page_skip_plan` for each leaf column.
-- **ParquetFileContext:** Adapts Doris FileReader to the active metadata/data stream interface and
-  owns Page Cache, FileCache prefetch, and MergeRange routing. During migration this may still
-  expose an Arrow adapter for metadata consumers, but native page decoding reads the same stable
-  Doris byte ranges without producing Arrow arrays. The immutable native footer owns one
-  thread-safe, lazily constructed Arrow metadata adapter at the footer-cache lifecycle, so repeated
-  v2 opens neither re-read the footer nor serialize and parse the same metadata again.
+- **ParquetFileContext:** Adapts Doris FileReader to the native metadata/data stream interface and
+  owns Page Cache, FileCache prefetch, and MergeRange routing. Its immutable footer cache entry owns
+  the V2 `NativeFieldDescriptor` tree directly; repeated V2 opens neither re-read the footer nor
+  serialize and parse another metadata representation.
 
-For every selected Row Group, dictionary/index probes finish on the metadata adapter first. The
+For every selected Row Group, native dictionary/index probes finish on the cached metadata tree first. The
 scheduler then computes projected physical Column Chunk ranges and installs one shared native
 `MergeRangeFileReader` when their average size is below v1's small-I/O threshold. All predicate and
 lazy output readers share that wrapper; their internal `BufferedFileStreamReader` prefetch is
@@ -657,7 +653,7 @@ flowchart TB
 
 | Mechanism | Cached or optimized object | Lifecycle and key | Problem addressed |
 | --- | --- | --- | --- |
-| Footer metadata cache | V2-owned immutable Thrift metadata, v2 physical schema, and the serialized footer bytes already fetched from storage | Stable base file identity plus a v2 type discriminator and schema-affecting mapping options | Avoid repeated footer I/O, Thrift parsing, schema construction, unsafe cross-version cache casts, and Thrift re-serialization before Arrow metadata adaptation |
+| Footer metadata cache | V2-owned immutable Thrift metadata and native physical schema tree | Stable base file identity plus a v2 type discriminator and schema-affecting mapping options | Avoid repeated footer I/O, Thrift parsing, schema construction, and unsafe cross-version cache casts |
 | Small HTTP object staging | Complete object bytes for files at or below `in_memory_file_size` | Per-reader v2 wrapper; loaded once from byte zero and released with the file context | Collapse cold small-file requests and keep footer-cache-hit scans independent of server-specific near-EOF Range behavior |
 | FileCache | Remote file blocks | Related to filesystem/path and file version; may hit locally or through a peer | Avoid repeated object-storage access and support background prefetch |
 | Parquet Page Cache | Serialized bytes within registered Column Chunk ranges | Stable file key depends on path, mtime/version, and file size; disabled when mtime is unreliable | Reduce repeated page reads and support exact/subrange coverage |
@@ -673,15 +669,13 @@ decoder, and scratch state remains per reader. Path-only keys are insufficient. 
 short files, unsupported metadata, and schema-affecting option changes cannot populate or reuse a
 successful entry. No change to the v1 parser or metadata cache behavior is required.
 
-On a v2 cold miss, the parser retains the exact serialized footer bytes already in memory, and the
-lazy Arrow planner adapter parses those bytes directly instead of serializing the Thrift object
-again. The adapter is cached inside the v2 footer-object lifecycle; it is never the cache payload
-type and its lifetime does not enter the native decoder. Production ColumnIndex/OffsetIndex planning reads and
-parses Compact Thrift indexes natively; adjacent per-leaf serialized ranges are coalesced, and the
-validated OffsetIndex objects are transferred into Row Group execution instead of being fetched a
-second time. The Arrow PageIndexReader path remains only as a test oracle. Until the remaining
-row-group metadata planner adapter is removed, its construction cost and retained tree size are
-visible as `ArrowMetadataAdapterTime/Bytes`.
+On a v2 cold miss, the parser deserializes the footer once into the V2-owned Thrift object and builds
+the native schema tree directly from `SchemaElement` into V2's `NativeFieldDescriptor`. Row-group statistics,
+dictionary and Bloom metadata planning consume the same native tree; no Arrow `FileMetaData` tree
+or serialized-footer copy is retained. Production ColumnIndex/OffsetIndex planning reads and parses
+Compact Thrift indexes natively; adjacent per-leaf serialized ranges are coalesced, and validated
+OffsetIndex objects are transferred into Row Group execution instead of being fetched a second
+time. Arrow metadata and PageIndexReader paths remain only as test oracles.
 
 Before the footer lookup, v2 wraps bounded HTTP Parquet objects in an in-memory reader. The wrapper
 loads from byte zero on its first physical access, whether that access is a cold footer read or a
@@ -711,8 +705,8 @@ Chunks from surviving Row Groups are registered, limiting pollution and key coun
   may be prefetched into FileCache.
 - After dictionary probing, small projected chunks share one Row-Group-scoped
   MergeRangeFileReader on the native data-page path. Large chunks and in-memory files keep the base
-  reader. The remaining Arrow metadata/index adapter has an independent wrapper and never owns the
-  native decoder's stream cursor.
+  reader. Native metadata/index reads use explicit immutable ranges and never own a decoder stream
+  cursor.
 - With row-level filters, prefetch predicate columns first. Prefetch non-predicate columns only after
   at least one row survives, avoiding unnecessary bandwidth.
 
@@ -863,7 +857,7 @@ flowchart TD
 | Predicate / raw rows | How many rows were read and rejected, and was lazy materialization worthwhile? |
 | Predicate compaction | Did selection-first evaluation avoid repeated movement? Inspect `PredicateCompactionTime/Bytes/Count`; single-column rounds retain row mappings and compact at multi-column/delete/output boundaries. |
 | Avoided projected I/O | How many compressed bytes from projected physical chunks were avoided? `FilteredBytes` deliberately excludes unprojected nested children. |
-| Metadata lifecycle | How much time was spent reading the footer, adapting remaining Arrow planner metadata (`ArrowMetadataAdapterTime/Bytes`), natively reading/parsing page indexes, and evaluating page-index predicates? |
+| Metadata lifecycle | How much time was spent reading/parsing the native footer and schema tree, natively reading/parsing page indexes, and evaluating row-group/page-index predicates? |
 | Parquet Page Cache | What were hit/miss/write counts and compressed/decompressed hit shapes? |
 | FileCache Profile | How many local/peer/remote bytes, waits, downloads, and hits occurred? |
 | Merge / request I/O | Were small reads merged, and were request count and read amplification reasonable? |

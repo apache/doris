@@ -31,6 +31,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "format/parquet/parquet_common.h"
+#include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
@@ -39,8 +40,6 @@
 namespace doris {
 class BlockCompressionCodec;
 class DataTypeSerDe;
-struct FieldSchema;
-
 namespace io {
 class BufferedStreamReader;
 struct IOContext;
@@ -49,7 +48,6 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::format::parquet::native {
-using ::doris::FieldSchema;
 using ::doris::ColumnString;
 
 struct ColumnChunkRange {
@@ -67,6 +65,8 @@ Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size
                                   bool parquet_816_padding, ColumnChunkRange* range);
 bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunkRange& chunk_range,
                            int64_t data_page_offset, int64_t row_count);
+bool can_prepare_page_cache_payload(bool session_cache_enabled, bool storage_cache_disabled,
+                                    bool cache_available, bool header_available);
 
 struct ColumnChunkReaderStatistics {
     int64_t decompress_time = 0;
@@ -99,7 +99,7 @@ struct ColumnChunkReaderStatistics {
  * // Create chunk reader
  * ColumnChunkReader chunk_reader(BufferedStreamReader* reader,
  *                                tparquet::ColumnChunk* column_chunk,
- *                                FieldSchema* fieldSchema);
+ *                                NativeFieldSchema* fieldSchema);
  * // Initialize chunk reader
  * chunk_reader.init();
  * while (chunk_reader.has_next_page()) {
@@ -117,7 +117,7 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 class ColumnChunkReader {
 public:
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
+                      NativeFieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
                       size_t total_row, io::IOContext* io_ctx,
                       const ParquetPageReadContext& page_read_ctx,
                       const ColumnChunkRange* chunk_range = nullptr);
@@ -299,7 +299,7 @@ private:
     }
 
     ColumnChunkReaderState _state = NOT_INIT;
-    FieldSchema* _field_schema = nullptr;
+    NativeFieldSchema* _field_schema = nullptr;
     const level_t _max_rep_level;
     const level_t _max_def_level;
 

@@ -25,7 +25,9 @@ Status FixLengthPlainDecoder::decode_fixed_values(size_t num_values,
                                                   ParquetFixedValueConsumer& consumer) {
     const size_t byte_size = num_values * static_cast<size_t>(_type_length);
     if (UNLIKELY(_offset > _data->size || byte_size > _data->size - _offset)) {
-        return Status::IOError("Out-of-bounds access in Parquet plain decoder");
+        // Truncated PLAIN pages retain the public error keyword used by corrupt-file regression
+        // checks, while the bounds check still prevents the native decoder from reading past data.
+        return Status::IOError("Unexpected end of stream in Parquet plain decoder");
     }
     RETURN_IF_ERROR(consumer.consume(reinterpret_cast<const uint8_t*>(_data->data) + _offset,
                                      num_values, static_cast<size_t>(_type_length)));
@@ -43,7 +45,7 @@ Status FixLengthPlainDecoder::decode_selected_fixed_values(const ParquetSelectio
     }
     const size_t input_bytes = selection.total_values * value_width;
     if (UNLIKELY(_offset > _data->size || input_bytes > _data->size - _offset)) {
-        return Status::IOError("Out-of-bounds access in Parquet plain selection decoder");
+        return Status::IOError("Unexpected end of stream in Parquet plain selection decoder");
     }
     const auto* values = reinterpret_cast<const uint8_t*>(_data->data) + _offset;
     _offset += input_bytes;
@@ -57,7 +59,7 @@ Status FixLengthPlainDecoder::skip_values(size_t num_values) {
     DORIS_CHECK(_type_length > 0);
     const size_t value_width = static_cast<size_t>(_type_length);
     if (UNLIKELY(_offset > _data->size || num_values > (_data->size - _offset) / value_width)) {
-        return Status::IOError("Out-of-bounds access in parquet data decoder");
+        return Status::IOError("Unexpected end of stream in Parquet plain decoder");
     }
     _offset += num_values * value_width;
     return Status::OK();

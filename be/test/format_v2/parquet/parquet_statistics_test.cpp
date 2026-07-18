@@ -832,6 +832,40 @@ TEST(ParquetStatisticsPruningTest, DictionaryPruningHandlesExcludeIncludeAndUnsu
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 0);
 }
 
+TEST(ParquetStatisticsPruningTest, NativeContradictoryNullMetadataFallsBackForNullPredicates) {
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("i", arrow::int32(), true)}),
+                                    {int32_array({1})});
+    auto reader = make_reader(table, 1, false, true);
+    auto schema = build_file_schema(*reader);
+
+    auto make_indexes = [](int64_t null_count) {
+        format::parquet::NativeParquetPageIndex indexes;
+        indexes.column_index.__set_null_pages({true});
+        indexes.column_index.__set_null_counts({null_count});
+        tparquet::PageLocation location;
+        location.__set_offset(0);
+        location.__set_compressed_page_size(1);
+        location.__set_first_row_index(0);
+        indexes.offset_index.__set_page_locations({location});
+        return std::unordered_map<int, format::parquet::NativeParquetPageIndex> {
+                {0, std::move(indexes)}};
+    };
+
+    for (const auto op : {Int32ZoneMapExpr::Op::IS_NULL, Int32ZoneMapExpr::Op::IS_NOT_NULL}) {
+        std::vector<format::parquet::RowRange> selected;
+        const int64_t null_count = op == Int32ZoneMapExpr::Op::IS_NULL ? 0 : -1;
+        ASSERT_TRUE(
+                format::parquet::select_row_group_ranges_by_native_page_index(
+                        make_indexes(null_count), schema,
+                        request_with_zonemap_conjunct(std::make_shared<Int32ZoneMapExpr>(0, op)), 1,
+                        &selected, nullptr, nullptr)
+                        .ok());
+        ASSERT_EQ(selected.size(), 1);
+        EXPECT_EQ(selected[0].start, 0);
+        EXPECT_EQ(selected[0].length, 1);
+    }
+}
+
 TEST(ParquetStatisticsPruningTest, VExprUsesDictionaryAndMissingBloomKeepsRows) {
     auto table = arrow::Table::Make(arrow::schema({arrow::field("s", arrow::utf8(), false)}),
                                     {string_array({"alpha", "beta", "gamma", "omega"})});

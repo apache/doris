@@ -60,6 +60,7 @@ namespace doris::format::parquet {
 
 struct ParquetFileContext;
 struct ParquetColumnSchema;
+class NativeParquetMetadata;
 
 namespace detail {
 struct PredicateConjunctSchedule {
@@ -114,6 +115,14 @@ struct RowGroupScanPlan {
 
 Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                ::parquet::ParquetFileReader* file_reader,
+                               const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+                               const format::FileScanRequest& request,
+                               const ParquetScanRange& scan_range, bool enable_bloom_filter,
+                               RowGroupScanPlan* plan, const cctz::time_zone* timezone = nullptr,
+                               const RuntimeState* runtime_state = nullptr,
+                               ParquetFileContext* file_context = nullptr);
+
+Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                                const format::FileScanRequest& request,
                                const ParquetScanRange& scan_range, bool enable_bloom_filter,
@@ -203,7 +212,7 @@ private:
             ParquetFileContext& file_context,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
             const format::FileScanRequest& request, int row_group_idx,
-            const ::parquet::RowGroupMetaData& row_group_metadata);
+            const tparquet::RowGroup& row_group_metadata);
 
     void prefetch_current_row_group_columns(
             ParquetFileContext& file_context,

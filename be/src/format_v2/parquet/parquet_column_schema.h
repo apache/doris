@@ -30,6 +30,8 @@ class SchemaDescriptor;
 
 namespace doris::format::parquet {
 
+class NativeFieldDescriptor;
+
 enum class ParquetColumnSchemaKind {
     PRIMITIVE, // physical primitive leaf
     STRUCT,    // Parquet group with STRUCT semantics
@@ -75,6 +77,9 @@ struct ParquetColumnSchema {
 };
 
 Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
+                                   std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
+
+Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
                                    std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
 
 } // namespace doris::format::parquet

@@ -54,6 +54,7 @@ struct ZoneMap;
 namespace doris::format::parquet {
 
 struct ParquetColumnSchema;
+struct ParquetFileContext;
 
 // ============================================================================
 // ============================================================================
@@ -145,6 +146,10 @@ struct ParquetStatisticsUtils {
             const std::shared_ptr<::parquet::Statistics>& statistics,
             const cctz::time_zone* timezone = nullptr);
 
+    static ParquetColumnStatistics TransformColumnStatistics(
+            const ParquetColumnSchema& column_schema, const tparquet::Statistics* statistics,
+            int64_t column_value_count, const cctz::time_zone* timezone = nullptr);
+
     static bool TransformColumnIndexStatistics(
             const std::shared_ptr<::parquet::ColumnIndex>& column_index,
             const ParquetColumnSchema& column_schema, size_t page_idx,
@@ -162,6 +167,14 @@ Status select_row_groups_by_metadata(
         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
         const RuntimeState* runtime_state = nullptr);
+
+Status select_row_groups_by_metadata(
+        const tparquet::FileMetaData& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const std::vector<int>* candidate_row_groups,
+        std::vector<int>* selected_row_groups, bool enable_bloom_filter,
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
+        const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr);
 
 Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,

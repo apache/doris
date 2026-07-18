@@ -28,12 +28,9 @@
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 
-namespace doris {
-struct FieldSchema;
-namespace io {
+namespace doris::io {
 struct IOContext;
-}
-} // namespace doris
+} // namespace doris::io
 
 namespace doris::format::parquet::native {
 
@@ -50,7 +47,7 @@ public:
     class Impl;
 
     static Status create(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk,
-                         FieldSchema* field, size_t total_rows, size_t max_buffer_size,
+                         NativeFieldSchema* field, size_t total_rows, size_t max_buffer_size,
                          io::IOContext* io_ctx, bool enable_page_cache,
                          const std::string& page_cache_file_key, const ParquetReaderCompat& compat,
                          std::unique_ptr<LevelReader>* reader);

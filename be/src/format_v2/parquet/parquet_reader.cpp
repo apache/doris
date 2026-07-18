@@ -177,7 +177,7 @@ Status validate_requested_columns_supported(
 }
 
 std::vector<ParquetPageCacheRange> build_page_cache_ranges(
-        const ::parquet::FileMetaData& metadata,
+        const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, const RowGroupScanPlan& row_group_plan) {
     std::unordered_set<int> leaf_column_ids;
@@ -185,14 +185,15 @@ std::vector<ParquetPageCacheRange> build_page_cache_ranges(
     std::vector<ParquetPageCacheRange> ranges;
     ranges.reserve(row_group_plan.row_groups.size() * leaf_column_ids.size());
     for (const auto& row_group_plan_item : row_group_plan.row_groups) {
-        auto row_group_metadata = metadata.RowGroup(row_group_plan_item.row_group_id);
-        DORIS_CHECK(row_group_metadata != nullptr);
+        const auto& row_group_metadata = metadata.row_groups[row_group_plan_item.row_group_id];
         for (const auto leaf_column_id : leaf_column_ids) {
-            DORIS_CHECK(leaf_column_id >= 0 && leaf_column_id < row_group_metadata->num_columns());
-            auto column_metadata = row_group_metadata->ColumnChunk(leaf_column_id);
-            DORIS_CHECK(column_metadata != nullptr);
-            const int64_t offset = column_chunk_start_offset(*column_metadata);
-            const int64_t size = column_metadata->total_compressed_size();
+            DORIS_CHECK(leaf_column_id >= 0 &&
+                        leaf_column_id < static_cast<int>(row_group_metadata.columns.size()));
+            const auto& column_metadata = row_group_metadata.columns[leaf_column_id].meta_data;
+            const int64_t offset = column_metadata.__isset.dictionary_page_offset
+                                           ? column_metadata.dictionary_page_offset
+                                           : column_metadata.data_page_offset;
+            const int64_t size = column_metadata.total_compressed_size;
             DORIS_CHECK(offset >= 0);
             DORIS_CHECK(size >= 0);
             if (size > 0) {
@@ -345,8 +346,7 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
 }
 
 static Status validate_minmax_aggregate_statistics(const ParquetColumnSchema& column_schema) {
-    DORIS_CHECK(column_schema.descriptor != nullptr);
-    switch (column_schema.descriptor->physical_type()) {
+    switch (column_schema.type_descriptor.physical_type) {
     case ::parquet::Type::BYTE_ARRAY:
     case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
         // Arrow 17 does not expose Parquet's min/max exactness flags. Binary statistics may be
@@ -436,17 +436,13 @@ Status ParquetReader::init(RuntimeState* state) {
                        _state->file_context.native_footer_read_calls);
         COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
                        _state->file_context.native_footer_cache_hits);
-        COUNTER_UPDATE(_parquet_profile.arrow_metadata_adapter_time,
-                       _state->file_context.arrow_metadata_adapter_time);
-        COUNTER_UPDATE(_parquet_profile.arrow_metadata_adapter_bytes,
-                       _state->file_context.arrow_metadata_adapter_bytes);
     }
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
     {
         SCOPED_TIMER(_parquet_profile.parse_meta_time);
-        RETURN_IF_ERROR(
-                build_parquet_column_schema(*_state->file_context.schema, &_state->file_schema));
+        RETURN_IF_ERROR(build_parquet_column_schema(_state->file_context.native_metadata->schema(),
+                                                    &_state->file_schema));
         if (_enable_mapping_timestamp_tz) {
             for (auto& column_schema : _state->file_schema) {
                 apply_timestamp_tz_mapping(column_schema.get());
@@ -469,7 +465,7 @@ Status ParquetReader::get_schema(std::vector<format::ColumnDefinition>* file_sch
         return Status::InvalidArgument("file_schema is null");
     }
     file_schema->clear();
-    if (_state == nullptr || _state->file_context.schema == nullptr) {
+    if (_state == nullptr || _state->file_context.native_metadata == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
 
@@ -493,8 +489,7 @@ std::unique_ptr<format::TableColumnMapper> ParquetReader::create_column_mapper(
 
 Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     SCOPED_TIMER(_parquet_profile.total_time);
-    if (_state == nullptr || _state->file_context.metadata == nullptr ||
-        _state->file_context.schema == nullptr) {
+    if (_state == nullptr || _state->file_context.native_metadata == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     auto request_snapshot = request;
@@ -547,16 +542,16 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     scan_range.file_size = _file_description->file_size;
     // Get selected ranges in row groups according to metadata (Row-Group level index and Page Index including Zonemap, Dictionary, Bloom Filter).
     RETURN_IF_ERROR(plan_parquet_row_groups(
-            *_state->file_context.metadata, _state->file_context.file_reader.get(),
-            _state->file_schema, *request_snapshot, scan_range, _state->enable_bloom_filter,
-            &row_group_plan, _state->timezone, _state->runtime_state, &_state->file_context));
+            *_state->file_context.native_metadata, _state->file_schema, *request_snapshot,
+            scan_range, _state->enable_bloom_filter, &row_group_plan, _state->timezone,
+            _state->runtime_state, &_state->file_context));
     if (_profile != nullptr) {
         _parquet_profile.update_pruning_stats(row_group_plan.pruning_stats);
     }
     if (_state->enable_page_cache) {
         _state->file_context.register_page_cache_ranges(
-                build_page_cache_ranges(*_state->file_context.metadata, _state->file_schema,
-                                        *request_snapshot, row_group_plan));
+                build_page_cache_ranges(_state->file_context.native_metadata->to_thrift(),
+                                        _state->file_schema, *request_snapshot, row_group_plan));
     }
     _state->scan_plan = row_group_plan;
     _state->scheduler.set_page_skip_profile(_parquet_profile.page_skip_profile());
@@ -569,8 +564,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
 
 Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     SCOPED_TIMER(_parquet_profile.total_time);
-    if (_state == nullptr || _state->file_context.file_reader == nullptr ||
-        _state->file_context.schema == nullptr) {
+    if (_state == nullptr || _state->file_context.native_metadata == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     *rows = 0;
@@ -671,8 +665,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                                            format::FileAggregateResult* result) {
     SCOPED_TIMER(_parquet_profile.total_time);
     DORIS_CHECK(result != nullptr);
-    if (_state == nullptr || _state->file_context.metadata == nullptr ||
-        _state->file_context.schema == nullptr) {
+    if (_state == nullptr || _state->file_context.native_metadata == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     if (_should_stop()) {
@@ -701,10 +694,9 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
 
     // Aggregate row count in all selected row groups. For MIN/MAX aggregate, this is used to determine whether there is no row group selected.
     for (const auto& row_group_plan : _state->scan_plan.row_groups) {
-        auto row_group_metadata =
-                _state->file_context.metadata->RowGroup(row_group_plan.row_group_id);
-        DORIS_CHECK(row_group_metadata != nullptr);
-        result->count += row_group_metadata->num_rows();
+        const auto& row_group_metadata = _state->file_context.native_metadata->to_thrift()
+                                                 .row_groups[row_group_plan.row_group_id];
+        result->count += row_group_metadata.num_rows;
     }
     if (request.agg_type == TPushAggOp::type::COUNT) {
         if (request.columns.empty()) {
@@ -787,13 +779,18 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         auto& aggregate_column = result->columns[request_column_idx];
         aggregate_column.projection = request.columns[request_column_idx].projection;
         for (const auto& row_group_plan : _state->scan_plan.row_groups) {
-            auto row_group_metadata =
-                    _state->file_context.metadata->RowGroup(row_group_plan.row_group_id);
-            DORIS_CHECK(row_group_metadata != nullptr);
-            auto column_chunk = row_group_metadata->ColumnChunk(leaf_schema->leaf_column_id);
-            DORIS_CHECK(column_chunk != nullptr);
+            const auto& row_group_metadata = _state->file_context.native_metadata->to_thrift()
+                                                     .row_groups[row_group_plan.row_group_id];
+            DORIS_CHECK(leaf_schema->leaf_column_id >= 0 &&
+                        leaf_schema->leaf_column_id <
+                                static_cast<int>(row_group_metadata.columns.size()));
+            const auto& column_chunk = row_group_metadata.columns[leaf_schema->leaf_column_id];
+            DORIS_CHECK(column_chunk.__isset.meta_data);
+            const auto& column_metadata = column_chunk.meta_data;
             const auto statistics = ParquetStatisticsUtils::TransformColumnStatistics(
-                    *leaf_schema, column_chunk->statistics(), _state->timezone);
+                    *leaf_schema,
+                    column_metadata.__isset.statistics ? &column_metadata.statistics : nullptr,
+                    column_metadata.num_values, _state->timezone);
             if (!statistics.has_min_max) {
                 return Status::NotSupported("Missing parquet min/max statistics for column {}",
                                             leaf_schema->name);

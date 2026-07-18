@@ -173,6 +173,19 @@ TEST(ParquetPageCacheRangeTest, ValidPrefetchRangesSkipInvalidAndOverflowRanges)
     EXPECT_EQ(valid_ranges[1].size, 60);
 }
 
+TEST(ParquetPageCacheRangeTest, SerializedIndexesAreBoundedIndividuallyAndWhenCoalesced) {
+    constexpr size_t file_size = 1ULL << 30;
+    const auto budget = detail::MAX_SERIALIZED_PARQUET_INDEX_BYTES;
+
+    EXPECT_TRUE(detail::is_serialized_index_range_safe(file_size, 0, budget));
+    EXPECT_FALSE(detail::is_serialized_index_range_safe(file_size, 0, budget + 1));
+    EXPECT_FALSE(detail::is_serialized_index_range_safe(file_size, -1, 1));
+
+    EXPECT_TRUE(detail::is_serialized_index_span_safe(100, 100 + budget));
+    // Individually small adjacent indexes must not combine into one unbounded allocation.
+    EXPECT_FALSE(detail::is_serialized_index_span_safe(100, 101 + budget));
+}
+
 TEST(ParquetPageCacheRangeTest, AveragePrefetchRangeSizeUsesOnlyValidRanges) {
     const std::vector<ParquetPageCacheRange> ranges = {
             {0, 512},

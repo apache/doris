@@ -22,7 +22,7 @@
 #include <utility>
 
 #include "common/config.h"
-#include "format/parquet/schema_desc.h"
+#include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/reader/native/level_reader.h"
@@ -73,7 +73,7 @@ Status find_count_leaf(const ParquetColumnSchema& schema,
     return Status::InternalError("Unknown Parquet schema kind for column {}", schema.name);
 }
 
-FieldSchema* find_physical_leaf(FieldSchema* field, int physical_column_index) {
+NativeFieldSchema* find_physical_leaf(NativeFieldSchema* field, int physical_column_index) {
     DORIS_CHECK(field != nullptr);
     if (field->children.empty()) {
         return field->physical_column_index == physical_column_index ? field : nullptr;
@@ -123,7 +123,7 @@ Status CountColumnReader::create(io::FileReaderSPtr file, const NativeParquetMet
 
     DORIS_CHECK(root_schema.local_id >= 0);
     auto* root_field =
-            const_cast<FieldSchema*>(metadata->schema().get_column(root_schema.local_id));
+            const_cast<NativeFieldSchema*>(metadata->schema().get_column(root_schema.local_id));
     DORIS_CHECK(root_field != nullptr);
     auto* leaf_field = find_physical_leaf(root_field, leaf_schema->leaf_column_id);
     if (leaf_field == nullptr) {

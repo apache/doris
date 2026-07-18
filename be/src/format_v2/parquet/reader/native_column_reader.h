@@ -29,8 +29,8 @@
 #include <vector>
 
 #include "format/parquet/parquet_common.h"
-#include "format/table/table_schema_change_helper.h"
 #include "format_v2/column_data.h"
+#include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/reader/native/column_reader.h"
 
@@ -97,7 +97,7 @@ private:
                        ParquetColumnReaderProfile profile);
 
     Status init(io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
-                FieldSchema* field, std::shared_ptr<TableSchemaChangeHelper::Node> schema_node,
+                NativeFieldSchema* field, std::shared_ptr<NativeSchemaNode> schema_node,
                 std::set<uint64_t> projected_column_ids,
                 const std::vector<RowRange>& selected_ranges,
                 const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
@@ -118,7 +118,7 @@ private:
     std::set<uint64_t> _projected_column_ids;
     std::set<uint64_t> _filter_column_ids;
     const std::unordered_map<int, tparquet::OffsetIndex>* _offset_indexes = nullptr;
-    std::shared_ptr<TableSchemaChangeHelper::Node> _schema_node;
+    std::shared_ptr<NativeSchemaNode> _schema_node;
     std::unique_ptr<native::ColumnReader> _native_reader;
     std::unique_ptr<RuntimeState> _page_cache_runtime_state;
     std::vector<RowRange> _selected_ranges;

@@ -20,7 +20,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "format/parquet/schema_desc.h"
+#include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/tracing_file_reader.h"
@@ -40,9 +40,9 @@ public:
 template <bool IN_COLLECTION>
 class LevelReaderImpl final : public LevelReader::Impl {
 public:
-    LevelReaderImpl(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk, FieldSchema* field,
-                    size_t total_rows, size_t max_buffer_size, io::IOContext* io_ctx,
-                    bool enable_page_cache, std::string page_cache_file_key,
+    LevelReaderImpl(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk,
+                    NativeFieldSchema* field, size_t total_rows, size_t max_buffer_size,
+                    io::IOContext* io_ctx, bool enable_page_cache, std::string page_cache_file_key,
                     ParquetReaderCompat compat)
             : _file(std::move(file)),
               _column_chunk(std::move(column_chunk)),
@@ -155,7 +155,7 @@ private:
 
     io::FileReaderSPtr _file;
     tparquet::ColumnChunk _column_chunk;
-    FieldSchema* _field = nullptr;
+    NativeFieldSchema* _field = nullptr;
     size_t _total_rows = 0;
     size_t _max_buffer_size = 0;
     io::IOContext* _io_ctx = nullptr;
@@ -168,7 +168,7 @@ private:
 };
 
 Status LevelReader::create(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk,
-                           FieldSchema* field, size_t total_rows, size_t max_buffer_size,
+                           NativeFieldSchema* field, size_t total_rows, size_t max_buffer_size,
                            io::IOContext* io_ctx, bool enable_page_cache,
                            const std::string& page_cache_file_key,
                            const ParquetReaderCompat& compat,

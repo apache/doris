@@ -130,8 +130,8 @@ public:
               _def_levels(std::move(def_levels)) {}
 
     Status read_column_data(ColumnPtr& column, const DataTypePtr&,
-                            const std::shared_ptr<TableSchemaChangeHelper::Node>&, FilterMap&,
-                            size_t, size_t* read_rows, bool* eof, bool, int64_t = -1) override {
+                            const std::shared_ptr<NativeSchemaNode>&, FilterMap&, size_t,
+                            size_t* read_rows, bool* eof, bool, int64_t = -1) override {
         if (_used) {
             *read_rows = 0;
             *eof = true;
@@ -262,7 +262,7 @@ Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t
     } else {
         chunk.meta_data.__set_data_page_offset(0);
     }
-    FieldSchema field;
+    NativeFieldSchema field;
     field.physical_type = tparquet::Type::INT32;
     field.repetition_level = 0;
     field.definition_level = 0;
@@ -284,7 +284,7 @@ Status load_malformed_nested_page(tparquet::PageHeader header, const std::vector
     chunk.meta_data.__set_num_values(metadata_values);
     chunk.meta_data.__set_total_compressed_size(bytes.size());
     chunk.meta_data.__set_data_page_offset(0);
-    FieldSchema field;
+    NativeFieldSchema field;
     field.physical_type = tparquet::Type::INT32;
     field.repetition_level = max_repetition_level;
     field.definition_level = 0;
@@ -362,7 +362,7 @@ TEST(ParquetV2NativeDecoderTest, LegacyConvertedTimestampsRemainUtcAdjusted) {
     TimezoneUtils::load_timezones_to_cache();
     for (const auto converted_type :
          {tparquet::ConvertedType::TIMESTAMP_MILLIS, tparquet::ConvertedType::TIMESTAMP_MICROS}) {
-        FieldSchema field;
+        NativeFieldSchema field;
         field.physical_type = tparquet::Type::INT64;
         field.parquet_schema.__set_converted_type(converted_type);
         ParquetDecodeContext context;
@@ -388,6 +388,63 @@ TEST(ParquetV2NativeDecoderTest, LegacyConvertedTimestampsRemainUtcAdjusted) {
                             .ok());
         EXPECT_EQ(type.to_string(*column, 0), "1970-01-01 08:00:00");
     }
+}
+
+TEST(ParquetV2NativeDecoderTest, NonStrictLegacyTimestampsKeepDefaultOnOverflow) {
+    DataTypePtr datetime_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    NativeFieldSchema int96_field;
+    int96_field.physical_type = tparquet::Type::INT96;
+    EXPECT_TRUE(preserves_timestamp_conversion_default_for_test(int96_field, datetime_type, false));
+    EXPECT_FALSE(preserves_timestamp_conversion_default_for_test(int96_field, datetime_type, true));
+
+    NativeFieldSchema utc_field;
+    utc_field.physical_type = tparquet::Type::INT64;
+    utc_field.parquet_schema.__set_logicalType(tparquet::LogicalType());
+    utc_field.parquet_schema.logicalType.__set_TIMESTAMP(tparquet::TimestampType());
+    utc_field.parquet_schema.logicalType.TIMESTAMP.__set_isAdjustedToUTC(true);
+    EXPECT_TRUE(preserves_timestamp_conversion_default_for_test(utc_field, datetime_type, false));
+
+    NativeFieldSchema converted_utc_field;
+    converted_utc_field.physical_type = tparquet::Type::INT64;
+    converted_utc_field.parquet_schema.__set_converted_type(
+            tparquet::ConvertedType::TIMESTAMP_MICROS);
+    EXPECT_TRUE(preserves_timestamp_conversion_default_for_test(converted_utc_field, datetime_type,
+                                                                false));
+
+    NativeFieldSchema local_field = utc_field;
+    local_field.parquet_schema.logicalType.TIMESTAMP.__set_isAdjustedToUTC(false);
+    EXPECT_FALSE(
+            preserves_timestamp_conversion_default_for_test(local_field, datetime_type, false));
+
+    NativeFieldSchema integer_field;
+    integer_field.physical_type = tparquet::Type::INT64;
+    EXPECT_FALSE(preserves_timestamp_conversion_default_for_test(
+            integer_field, make_nullable(std::make_shared<DataTypeInt64>()), false));
+}
+
+TEST(ParquetV2NativeDecoderTest, NonStrictLocalTimestampDefaultsBecomeNull) {
+    DataTypePtr datetime_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    NativeFieldSchema local_field;
+    local_field.physical_type = tparquet::Type::INT64;
+    local_field.parquet_schema.__set_logicalType(tparquet::LogicalType());
+    local_field.parquet_schema.logicalType.__set_TIMESTAMP(tparquet::TimestampType());
+    local_field.parquet_schema.logicalType.TIMESTAMP.__set_isAdjustedToUTC(false);
+
+    DataTypeDateTimeV2 type(6);
+    auto column = type.create_column();
+    const uint64_t invalid_datetime = 0;
+    column->insert_data(reinterpret_cast<const char*>(&invalid_datetime), sizeof(invalid_datetime));
+    IColumn::Filter null_map;
+    null_map.resize_fill(1, 0);
+    mark_local_timestamp_defaults_for_test(local_field, datetime_type, false, *column, &null_map,
+                                           0);
+    EXPECT_EQ(null_map[0], 1);
+
+    null_map[0] = 0;
+    local_field.parquet_schema.logicalType.TIMESTAMP.__set_isAdjustedToUTC(true);
+    mark_local_timestamp_defaults_for_test(local_field, datetime_type, false, *column, &null_map,
+                                           0);
+    EXPECT_EQ(null_map[0], 0);
 }
 
 TEST(ParquetV2NativeDecoderTest, SparsePlainAndBooleanDecodeOnceAndPreserveCursor) {
@@ -948,6 +1005,21 @@ TEST(ParquetV2NativeDecoderTest, DeltaFixedWidthValidatesFilteredAndSkippedValue
     EXPECT_TRUE(decoder->skip_values(2).is<ErrorCode::CORRUPTION>());
 }
 
+TEST(ParquetV2NativeDecoderTest, TruncatedFixedWidthPlainKeepsPublicErrorKeyword) {
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::FIXED_LEN_BYTE_ARRAY,
+                                     tparquet::Encoding::PLAIN, decoder)
+                        .ok());
+    decoder->set_type_length(4);
+    char truncated[] = {'a', 'b', 'c'};
+    Slice slice(truncated, sizeof(truncated));
+    ASSERT_TRUE(decoder->set_data(&slice).ok());
+    CaptureFixedConsumer consumer;
+    const auto status = decoder->decode_fixed_values(1, consumer);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Unexpected end of stream"), std::string::npos);
+}
+
 TEST(ParquetV2NativeDecoderTest, DeltaSkipRequiresTheRequestedValueCount) {
     const std::vector<int32_t> integers {7};
     auto int_descriptor = descriptor(::parquet::Type::INT32);
@@ -1066,7 +1138,7 @@ Status read_scripted_map(const DataTypePtr& key_type, size_t key_rows, size_t va
     auto value_type = make_nullable(std::make_shared<DataTypeInt32>());
     auto map_type = std::make_shared<DataTypeMap>(key_type, value_type);
     ColumnPtr column = map_type->create_column();
-    FieldSchema field;
+    NativeFieldSchema field;
     field.name = "m";
     field.data_type = map_type;
     field.definition_level = 1;
@@ -1082,9 +1154,8 @@ Status read_scripted_map(const DataTypePtr& key_type, size_t key_rows, size_t va
     MapColumnReader reader(scripted_row_ranges(), key_rows, nullptr, nullptr);
     RETURN_IF_ERROR(reader.init(std::move(key_reader), std::move(value_reader), &field));
 
-    auto root = std::make_shared<TableSchemaChangeHelper::MapNode>(
-            TableSchemaChangeHelper::ConstNode::get_instance(),
-            TableSchemaChangeHelper::ConstNode::get_instance());
+    auto root = std::make_shared<NativeMapSchemaNode>(std::make_shared<NativeScalarSchemaNode>(),
+                                                      std::make_shared<NativeScalarSchemaNode>());
     FilterMap filter;
     size_t read_rows = 0;
     bool eof = false;
@@ -1103,10 +1174,9 @@ TEST(ParquetV2NativeDecoderTest, ComplexReadersRejectMalformedSiblingCounts) {
             read_scripted_map(int_type, 2, 1, 2, 1, {0, 0}, {0}, true).is<ErrorCode::CORRUPTION>());
 }
 
-TEST(ParquetV2NativeDecoderTest, MapReaderRejectsNullKeys) {
+TEST(ParquetV2NativeDecoderTest, MapReaderPreservesNullableKeysWrittenByDoris) {
     auto nullable_key = make_nullable(std::make_shared<DataTypeInt32>());
-    EXPECT_TRUE(read_scripted_map(nullable_key, 1, 1, 1, 1, {0}, {0}, true)
-                        .is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(read_scripted_map(nullable_key, 1, 1, 1, 1, {0}, {0}, true).ok());
 }
 
 TEST(ParquetV2NativeDecoderTest, StructReaderRejectsShortSibling) {
@@ -1114,7 +1184,7 @@ TEST(ParquetV2NativeDecoderTest, StructReaderRejectsShortSibling) {
     auto struct_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
     ColumnPtr column = struct_type->create_column();
-    FieldSchema field;
+    NativeFieldSchema field;
     field.name = "s";
     field.data_type = struct_type;
     field.children.resize(2);
@@ -1128,9 +1198,9 @@ TEST(ParquetV2NativeDecoderTest, StructReaderRejectsShortSibling) {
                                                            std::vector<level_t> {0});
     StructColumnReader reader(scripted_row_ranges(), 2, nullptr, nullptr);
     ASSERT_TRUE(reader.init(std::move(children), &field).ok());
-    auto root = std::make_shared<TableSchemaChangeHelper::StructNode>();
-    root->add_children("a", "a", TableSchemaChangeHelper::ConstNode::get_instance());
-    root->add_children("b", "b", TableSchemaChangeHelper::ConstNode::get_instance());
+    auto root = std::make_shared<NativeStructSchemaNode>();
+    root->add_child("a", "a", std::make_shared<NativeScalarSchemaNode>());
+    root->add_child("b", "b", std::make_shared<NativeScalarSchemaNode>());
     FilterMap filter;
     size_t read_rows = 0;
     bool eof = false;
@@ -1144,7 +1214,7 @@ TEST(ParquetV2NativeDecoderTest, StructReaderRejectsShiftedRepeatedParentShape) 
     auto struct_type =
             std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
     ColumnPtr column = struct_type->create_column();
-    FieldSchema field;
+    NativeFieldSchema field;
     field.name = "s";
     field.repetition_level = 1;
     field.children.resize(2);
@@ -1158,9 +1228,9 @@ TEST(ParquetV2NativeDecoderTest, StructReaderRejectsShiftedRepeatedParentShape) 
             2, 3, true, std::vector<level_t> {0, 0, 1}, std::vector<level_t> {0, 0, 0});
     StructColumnReader reader(scripted_row_ranges(), 2, nullptr, nullptr);
     ASSERT_TRUE(reader.init(std::move(children), &field).ok());
-    auto root = std::make_shared<TableSchemaChangeHelper::StructNode>();
-    root->add_children("a", "a", TableSchemaChangeHelper::ConstNode::get_instance());
-    root->add_children("b", "b", TableSchemaChangeHelper::ConstNode::get_instance());
+    auto root = std::make_shared<NativeStructSchemaNode>();
+    root->add_child("a", "a", std::make_shared<NativeScalarSchemaNode>());
+    root->add_child("b", "b", std::make_shared<NativeScalarSchemaNode>());
     FilterMap filter;
     size_t read_rows = 0;
     bool eof = false;
@@ -1250,7 +1320,7 @@ TEST(ParquetV2NativeDecoderTest, FlatPagesRejectLogicalAndPhysicalCardinalityMis
         chunk.meta_data.__set_num_values(2);
         chunk.meta_data.__set_total_compressed_size(bytes.size());
         chunk.meta_data.__set_data_page_offset(0);
-        FieldSchema field;
+        NativeFieldSchema field;
         field.physical_type = tparquet::Type::INT32;
         field.repetition_level = 0;
         field.definition_level = 0;
@@ -1413,6 +1483,16 @@ TEST(ParquetV2NativeDecoderTest, ColumnChunkRangeRejectsSignedOverflowAndBoundsL
     ASSERT_TRUE(compute_column_chunk_range(metadata, 35, true, &range).ok());
     EXPECT_EQ(range.offset, 10);
     EXPECT_EQ(range.length, 25);
+
+    metadata.__set_dictionary_page_offset(0);
+    ASSERT_TRUE(compute_column_chunk_range(metadata, 35, false, &range).ok());
+    EXPECT_EQ(range.offset, 10);
+    EXPECT_EQ(range.length, 20);
+
+    metadata.__set_dictionary_page_offset(5);
+    ASSERT_TRUE(compute_column_chunk_range(metadata, 35, false, &range).ok());
+    EXPECT_EQ(range.offset, 5);
+    EXPECT_EQ(range.length, 20);
 }
 
 TEST(ParquetV2NativeDecoderTest, OffsetIndexValidationRejectsBackwardAndOverlappingLocations) {
@@ -1488,7 +1568,7 @@ TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsIndexPageBeforeInitializingData
     chunk.meta_data.__set_num_values(1);
     chunk.meta_data.__set_total_compressed_size(bytes.size());
     chunk.meta_data.__set_data_page_offset(0);
-    FieldSchema field;
+    NativeFieldSchema field;
     field.physical_type = tparquet::Type::INT32;
     ParquetPageReadContext context(false, "");
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
@@ -1599,6 +1679,14 @@ TEST(ParquetV2NativeDecoderTest, UncompressedV2PageCachePayloadIsAlwaysDecompres
     // The representation is explicit in V2; a codec and compression ratio cannot override it on
     // a warm cache hit.
     EXPECT_TRUE(should_cache_decompressed(&header, metadata));
+}
+
+TEST(ParquetV2NativeDecoderTest, CacheDisabledPagesDoNotPrepareCopiedPayload) {
+    EXPECT_FALSE(can_prepare_page_cache_payload(false, false, true, true));
+    EXPECT_FALSE(can_prepare_page_cache_payload(true, true, true, true));
+    EXPECT_FALSE(can_prepare_page_cache_payload(true, false, false, true));
+    EXPECT_FALSE(can_prepare_page_cache_payload(true, false, true, false));
+    EXPECT_TRUE(can_prepare_page_cache_payload(true, false, true, true));
 }
 
 TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchUsesIdleBatchHysteresis) {

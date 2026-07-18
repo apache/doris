@@ -17,6 +17,7 @@
 
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 
+#include <cctz/time_zone.h>
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 #include <parquet/metadata.h>
@@ -30,9 +31,11 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/column/column.h"
+#include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "format/parquet/schema_desc.h"
+#include "core/data_type_serde/parquet_timestamp.h"
+#include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
@@ -41,6 +44,7 @@
 #include "storage/cache/page_cache.h"
 #include "util/bit_util.h"
 #include "util/block_compression.h"
+#include "util/unaligned.h"
 
 namespace cctz {
 class time_zone;
@@ -53,6 +57,11 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::format::parquet::native {
+
+bool can_prepare_page_cache_payload(bool session_cache_enabled, bool storage_cache_disabled,
+                                    bool cache_available, bool header_available) {
+    return session_cache_enabled && !storage_cache_disabled && cache_available && header_available;
+}
 
 ParquetReaderCompat parquet_reader_compat(const std::string& created_by) {
     if (created_by.empty()) {
@@ -69,8 +78,10 @@ Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size
                                   bool parquet_816_padding, ColumnChunkRange* range) {
     DORIS_CHECK(range != nullptr);
     int64_t start = metadata.data_page_offset;
-    if (metadata.__isset.dictionary_page_offset && metadata.dictionary_page_offset >= 0 &&
+    if (metadata.__isset.dictionary_page_offset && metadata.dictionary_page_offset > 0 &&
         metadata.dictionary_page_offset < start) {
+        // Some writers use dictionary_page_offset=0 as an absence sentinel. Range validation must
+        // follow has_dict_page() or the native reader starts at the Parquet magic bytes.
         start = metadata.dictionary_page_offset;
     }
     const int64_t length = metadata.total_compressed_size;
@@ -129,6 +140,128 @@ bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunk
 
 namespace {
 
+Status append_v2_int96_datetime(ColumnDateTimeV2::Container& data,
+                                const ParquetInt96Timestamp& value,
+                                const cctz::time_zone& timezone) {
+    static constexpr int32_t JULIAN_EPOCH_OFFSET_DAYS = 2440588;
+    static constexpr int64_t MICROS_PER_DAY = 86400000000LL;
+    static constexpr int64_t MICROS_PER_SECOND = 1000000LL;
+
+    // Arrow normalized out-of-day INT96 nanos before the V2 native path replaced it. Preserve that
+    // file-compatibility invariant here; rejecting the raw nanos loses otherwise valid year-0 and
+    // pre-epoch timestamps used by existing Parquet files.
+    const __int128 days = static_cast<__int128>(value.julian_day) - JULIAN_EPOCH_OFFSET_DAYS;
+    // The compatibility cast truncates the signed nanos field itself. Normalizing it to a positive
+    // time-of-day first changes negative out-of-day values by one microsecond.
+    const __int128 timestamp_micros = days * MICROS_PER_DAY + value.nanos_of_day / 1000;
+    if (timestamp_micros < std::numeric_limits<int64_t>::min() ||
+        timestamp_micros > std::numeric_limits<int64_t>::max()) {
+        return Status::DataQualityError("Parquet INT96 timestamp overflows microseconds");
+    }
+
+    const int64_t micros = static_cast<int64_t>(timestamp_micros);
+    int64_t epoch_seconds = micros / MICROS_PER_SECOND;
+    int64_t micros_of_second = micros % MICROS_PER_SECOND;
+    if (micros_of_second < 0) {
+        micros_of_second += MICROS_PER_SECOND;
+        --epoch_seconds;
+    }
+    DateV2Value<DateTimeV2ValueType> datetime;
+    datetime.from_unixtime(epoch_seconds, timezone);
+    datetime.set_microsecond(static_cast<uint32_t>(micros_of_second));
+    if (!datetime.is_valid_date()) {
+        return Status::DataQualityError("Parquet INT96 timestamp is outside the Doris range");
+    }
+    data.push_back(datetime);
+    return Status::OK();
+}
+
+class V2Int96DateTimeConsumer final : public ParquetFixedValueConsumer {
+public:
+    V2Int96DateTimeConsumer(IColumn& column, const ParquetDecodeContext& context,
+                            ParquetMaterializationState* state)
+            : _data(assert_cast<ColumnDateTimeV2&>(column).get_data()), _state(state) {
+        static const auto utc = cctz::utc_time_zone();
+        _timezone = context.timezone == nullptr ? &utc : context.timezone;
+    }
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        DORIS_CHECK_EQ(value_width, sizeof(ParquetInt96Timestamp));
+        const size_t old_size = _data.size();
+        for (size_t row = 0; row < num_values; ++row) {
+            const auto value = unaligned_load<ParquetInt96Timestamp>(
+                    values + row * sizeof(ParquetInt96Timestamp));
+            const auto status = append_v2_int96_datetime(_data, value, *_timezone);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
+                    _data.emplace_back();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnDateTimeV2::Container& _data;
+    ParquetMaterializationState* _state;
+    const cctz::time_zone* _timezone = nullptr;
+};
+
+class RejectV2Int96BinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef*, size_t) override {
+        return Status::NotSupported("INT96 cannot be decoded from binary Parquet values");
+    }
+};
+
+Status read_v2_int96_datetime(IColumn& column, ParquetDecodeSource& source,
+                              const ParquetDecodeContext& context, size_t num_values,
+                              ParquetMaterializationState& state) {
+    V2Int96DateTimeConsumer consumer(column, context, &state);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        V2Int96DateTimeConsumer dictionary_consumer(*state.typed_dictionary, context, &state);
+        RejectV2Int96BinaryConsumer binary_consumer;
+        const auto dictionary_status =
+                source.decode_dictionary(dictionary_consumer, binary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+    const size_t old_size = column.size();
+    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
+                               state.dictionary_indices.data() + num_values);
+    if (state.can_insert_null_on_conversion_failure()) {
+        for (size_t row = 0; row < num_values; ++row) {
+            if (!state.dictionary_conversion_failures.empty() &&
+                state.dictionary_conversion_failures[state.dictionary_indices[row]] != 0) {
+                state.mark_conversion_failure(old_size + row);
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status read_native_or_serde(IColumn& column, const DataTypeSerDe& serde,
+                            ParquetDecodeSource& source, const ParquetDecodeContext& context,
+                            size_t num_values, ParquetMaterializationState& state) {
+    if (context.physical_type == ParquetPhysicalType::INT96 &&
+        check_and_get_column<ColumnDateTimeV2>(&column) != nullptr) {
+        return read_v2_int96_datetime(column, source, context, num_values, state);
+    }
+    return serde.read_column_from_parquet(column, source, context, num_values, state);
+}
+
 Status translate_value_encoding(tparquet::Encoding::type encoding,
                                 ParquetValueEncoding* translated) {
     DORIS_CHECK(translated != nullptr);
@@ -175,7 +308,7 @@ Status decode_selected_values(IColumn& column, const DataTypeSerDe& serde, Decod
         switch (read_type) {
         case ColumnSelectVector::CONTENT:
             RETURN_IF_ERROR(
-                    serde.read_column_from_parquet(column, decoder, context, run_length, state));
+                    read_native_or_serde(column, serde, decoder, context, run_length, state));
             break;
         case ColumnSelectVector::NULL_DATA:
             column.insert_many_defaults(run_length);
@@ -260,8 +393,8 @@ Status decode_selected_non_null_values(IColumn& column, const DataTypeSerDe& ser
 
     SCOPED_RAW_TIMER(materialization_time);
     SelectedDecodeSource selected_source(decoder, selection);
-    return serde.read_column_from_parquet(column, selected_source, context,
-                                          selection.selected_values, state);
+    return read_native_or_serde(column, serde, selected_source, context, selection.selected_values,
+                                state);
 }
 
 } // namespace
@@ -269,8 +402,8 @@ Status decode_selected_non_null_values(IColumn& column, const DataTypeSerDe& ser
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
         io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-        FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index, size_t total_rows,
-        io::IOContext* io_ctx, const ParquetPageReadContext& page_read_ctx,
+        NativeFieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
+        size_t total_rows, io::IOContext* io_ctx, const ParquetPageReadContext& page_read_ctx,
         const ColumnChunkRange* chunk_range)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
@@ -549,6 +682,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
     }
 
     if (!page_loaded) {
+        const bool prepare_cache_payload = can_prepare_page_cache_payload(
+                _page_read_ctx.enable_parquet_file_page_cache, config::disable_storage_page_cache,
+                StoragePageCache::instance() != nullptr, !_page_reader->header_bytes().empty());
         if (_block_compress_codec != nullptr) {
             Slice compressed_data;
             RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
@@ -563,7 +699,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 size_t rl = header_v2.repetition_levels_byte_length;
                 size_t dl = header_v2.definition_levels_byte_length;
                 size_t level_sz = rl + dl;
-                if (level_sz > 0) {
+                if (prepare_cache_payload && level_sz > 0) {
                     level_bytes.resize(level_sz);
                     memcpy(level_bytes.data(), compressed_data.data, level_sz);
                 }
@@ -591,10 +727,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 bool cache_payload_decompressed = should_cache_decompressed(
                         header, _metadata, _page_read_ctx.data_page_v2_always_compressed);
 
-                if (_page_read_ctx.enable_parquet_file_page_cache &&
-                    !config::disable_storage_page_cache &&
-                    StoragePageCache::instance() != nullptr &&
-                    !_page_reader->header_bytes().empty()) {
+                if (prepare_cache_payload) {
                     if (cache_payload_decompressed) {
                         _insert_page_into_cache(level_bytes, _page_data);
                         _chunk_statistics.page_cache_decompressed_write_counter += 1;
@@ -610,9 +743,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
             } else {
                 // no compression on this page, use the data directly
                 _page_data = Slice(compressed_data.data, compressed_data.size);
-                if (_page_read_ctx.enable_parquet_file_page_cache &&
-                    !config::disable_storage_page_cache &&
-                    StoragePageCache::instance() != nullptr) {
+                if (prepare_cache_payload) {
                     _insert_page_into_cache(level_bytes, _page_data);
                     _chunk_statistics.page_cache_decompressed_write_counter += 1;
                 }
@@ -627,7 +758,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 size_t rl = header_v2.repetition_levels_byte_length;
                 size_t dl = header_v2.definition_levels_byte_length;
                 size_t level_sz = rl + dl;
-                if (level_sz > 0) {
+                if (prepare_cache_payload && level_sz > 0) {
                     level_bytes.resize(level_sz);
                     memcpy(level_bytes.data(), uncompressed_data.data, level_sz);
                 }
@@ -636,8 +767,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
             // copy page data out
             _page_data = Slice(uncompressed_data.data, uncompressed_data.size);
             // Optionally cache uncompressed data for uncompressed pages
-            if (_page_read_ctx.enable_parquet_file_page_cache &&
-                !config::disable_storage_page_cache && StoragePageCache::instance() != nullptr) {
+            if (prepare_cache_payload) {
                 _insert_page_into_cache(level_bytes, _page_data);
                 _chunk_statistics.page_cache_decompressed_write_counter += 1;
             }

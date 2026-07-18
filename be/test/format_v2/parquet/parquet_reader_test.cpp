@@ -2024,6 +2024,13 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), ROW_COUNT);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 3);
     EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 2);
+    TRuntimeProfileTree profile_tree;
+    profile.to_thrift(&profile_tree);
+    ASSERT_FALSE(profile_tree.nodes.empty());
+    const auto parquet_children =
+            profile_tree.nodes.front().child_counters_map.find("ParquetReader");
+    ASSERT_NE(parquet_children, profile_tree.nodes.front().child_counters_map.end());
+    EXPECT_TRUE(parquet_children->second.contains("RowsFilteredByConjunct"));
     EXPECT_EQ(profile.get_counter("TotalBatches")->value(), 1);
     EXPECT_EQ(profile.get_counter("DenseBatches")->value(), 0);
     EXPECT_EQ(profile.get_counter("SelectedBatches")->value(), 1);
