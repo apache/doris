@@ -14,7 +14,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter(((cast(v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)))
+----------filter(((cast(f.v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
@@ -29,7 +29,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN colocated] hashCondition=((f2.k = d.k)) otherCondition=(((cast(v as BIGINT) * 2) > SUM(f2.v))) build RFs:RF1 k->k;RF2 k->k
+----------hashJoin[INNER_JOIN colocated] hashCondition=((f2.k = d.k)) otherCondition=(((cast(f.v as BIGINT) * 2) > SUM(f2.v))) build RFs:RF1 k->k;RF2 k->k
 ------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
 --------------PhysicalOlapScan[fact(f)] apply RFs: RF0 RF2
 --------------PhysicalProject
@@ -49,7 +49,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter(((cast(v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)) and (f.v > 5))
+----------filter(((cast(f.v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)) and (f.v > 5))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
@@ -67,7 +67,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter(((cast(v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)) and (f.v > d.tag))
+----------filter(((cast(f.v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)) and (f.v > d.tag))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
@@ -86,7 +86,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter(((cast(v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)))
+----------filter(((cast(f.v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
