@@ -57,7 +57,8 @@ suite("test_ivm_binlog_order_1") {
         notContains "type=FULL_OUTER_JOIN"
     }
 
-    // Scenario 3: Non-AGG MV with MOW base table → should contain FOJ
+    // Scenario 3: Non-AGG MV with MOW base table. The top-down delta rewriter reads the
+    // stream directly; it no longer materializes the old insert/delete FULL OUTER JOIN.
     sql """drop materialized view if exists test_ivm_bor_mow_mv;"""
     sql """drop table if exists test_ivm_bor_mow_t1;"""
     sql """
@@ -75,7 +76,8 @@ suite("test_ivm_binlog_order_1") {
     sql """INSERT INTO test_ivm_bor_mow_t1 VALUES (1, 10);"""
     explain {
         sql "LOGICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_bor_mow_mv INCREMENTAL"
-        contains "type=FULL_OUTER_JOIN"
+        contains "__doris_ivm_stream_"
+        notContains "type=FULL_OUTER_JOIN"
     }
 
     // Cleanup

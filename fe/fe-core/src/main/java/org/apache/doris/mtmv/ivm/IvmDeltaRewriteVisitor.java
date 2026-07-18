@@ -23,94 +23,93 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import java.util.Optional;
+
 /**
  * Internal visitor that dispatches each plan node to the linear, join, or aggregate handler.
  */
-class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefreshContext> {
+class IvmDeltaRewriteVisitor extends PlanVisitor<Optional<IvmDeltaRewriteResult>, IvmRefreshContext> {
     private final IvmLinearDeltaHandler linearHandler;
     private final IvmJoinDeltaHandler joinHandler;
     private final IvmAggDeltaHandler aggHandler;
+    private final IvmDeltaRewriteState rewriteState;
 
     IvmDeltaRewriteVisitor() {
-        this(new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler());
+        this(new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(), null);
     }
 
     IvmDeltaRewriteVisitor(IvmLinearDeltaHandler linearHandler,
-            IvmJoinDeltaHandler joinHandler, IvmAggDeltaHandler aggHandler) {
+            IvmJoinDeltaHandler joinHandler, IvmAggDeltaHandler aggHandler,
+            IvmDeltaRewriteState rewriteState) {
         this.linearHandler = linearHandler;
         this.joinHandler = joinHandler;
         this.aggHandler = aggHandler;
+        this.rewriteState = rewriteState;
     }
 
-    IvmDeltaRewriteResult rewritePlan(Plan normalizedPlan, IvmRefreshContext ctx) {
+    Optional<IvmDeltaRewriteResult> rewritePlan(Plan normalizedPlan, IvmRefreshContext ctx) {
         return normalizedPlan.accept(this, ctx);
     }
 
+    IvmDeltaRewriteState getRewriteState() {
+        return rewriteState;
+    }
+
     @Override
-    public IvmDeltaRewriteResult visit(Plan plan, IvmRefreshContext ctx) {
+    public Optional<IvmDeltaRewriteResult> visit(Plan plan, IvmRefreshContext ctx) {
         throw new AnalysisException(
                 "IVM delta rewrite does not support: " + plan.getClass().getSimpleName());
     }
 
-    /** Regular scan is a snapshot — no delta to process. */
     @Override
-    public IvmDeltaRewriteResult visitLogicalOlapScan(LogicalOlapScan scan, IvmRefreshContext ctx) {
-        return linearHandler.rewriteOlapScan(scan);
-    }
-
-    /** Stream scan is a delta source — build dml_factor if isIncremental. */
-    @Override
-    public IvmDeltaRewriteResult visitLogicalOlapTableStreamScan(
-            LogicalOlapTableStreamScan scan, IvmRefreshContext ctx) {
-        return linearHandler.rewriteOlapTableStreamScan(scan);
+    public Optional<IvmDeltaRewriteResult> visitLogicalOlapScan(LogicalOlapScan scan, IvmRefreshContext ctx) {
+        return linearHandler.rewriteOlapScan(scan, rewriteState);
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalProject(LogicalProject<? extends Plan> project,
+    public Optional<IvmDeltaRewriteResult> visitLogicalProject(LogicalProject<? extends Plan> project,
             IvmRefreshContext ctx) {
         return linearHandler.rewriteProject(project, this, ctx);
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalFilter(LogicalFilter<? extends Plan> filter,
+    public Optional<IvmDeltaRewriteResult> visitLogicalFilter(LogicalFilter<? extends Plan> filter,
             IvmRefreshContext ctx) {
         return linearHandler.rewriteFilter(filter, this, ctx);
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
+    public Optional<IvmDeltaRewriteResult> visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
             IvmRefreshContext ctx) {
         return linearHandler.rewriteSubQueryAlias(alias, this, ctx);
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalUnion(LogicalUnion union, IvmRefreshContext ctx) {
+    public Optional<IvmDeltaRewriteResult> visitLogicalUnion(LogicalUnion union, IvmRefreshContext ctx) {
         return linearHandler.rewriteUnion(union, this, ctx);
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat,
+    public Optional<IvmDeltaRewriteResult> visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat,
             IvmRefreshContext ctx) {
         return linearHandler.rewriteRepeat(repeat, this, ctx);
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+    public Optional<IvmDeltaRewriteResult> visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
             IvmRefreshContext ctx) {
         return joinHandler.rewriteJoin(join, this, ctx);
     }
 
     @Override
-    public IvmDeltaRewriteResult visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
+    public Optional<IvmDeltaRewriteResult> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
             IvmRefreshContext ctx) {
-        throw new AnalysisException(
-                "IVM: AGG node must be detached and handled by IvmDeltaRewriter, not the visitor");
+        return aggHandler.rewriteAggregate(aggregate, this, ctx);
     }
 }

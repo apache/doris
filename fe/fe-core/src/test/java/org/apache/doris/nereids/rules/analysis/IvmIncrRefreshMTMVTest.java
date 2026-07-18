@@ -302,7 +302,7 @@ class IvmIncrRefreshMTMVTest {
         }
 
         @Override
-        public Plan generateIncrementalRefreshPlan(Plan normalizedPlan, IvmRewriteResult rewriteResult,
+        public Plan generateIncrRefreshPlan(Plan normalizedPlan, IvmRewriteResult rewriteResult,
                 IvmRewriteContext rewriteContext, ConnectContext connectContext) {
             callCount++;
             this.normalizedPlan = normalizedPlan;
