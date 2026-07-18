@@ -116,3 +116,17 @@
 - **结果**：iceberg **968 pass / 0 fail / 1 skip**；fe-core 两段验 `ConnectorStatementScopeTest` 3 + `ConnectorSessionImplTest` 17 绿；两处 BUILD SUCCESS + checkstyle 0 违规，0 回归。summary 见 `designs/FIX-PERF-07-unified-per-statement-table-owner-summary.md`。
 - **新判据（可复用）**：**「唯一贯穿语句的对象是 `StatementContext`」**——连接器 session 一语句被重建 ~26 次、缓存挂它即死；跨读写共享须向上够到 StatementContext(经中性 SPI `getStatementScope()`)，**构造期捕获**(非实时读)才能让 off-thread 扫描泵够到(它们复用请求线程建的同一 session、无 ConnectContext thread-local)。
 - **下一步**：见 HANDOFF —— PERF-08（C19/C21 维护路径逐单位重扫/无去重；改动小可先行）。
+
+---
+
+## 2026-07-18 — session 3：PERF-08 实现 + 全绿（commit `89cc39c8d88` C19 + `be0035eff62` C21）
+
+- **开场复核（动码前，grep HEAD 校行号）**：PERF-07 后行号有漂——C19 driver STEP3 循环实在 `ConnectorRewriteDriver.java:143-145`（fe-core），iceberg 侧 `IcebergConnectorTransaction.registerRewriteSourceFiles:366`（每次 `useSnapshot(startingSnapshotId).planFiles()` 全表扫）；C21 `buildDeleteFileContentMap:271-293`。关键事实核实：**逐组注册的所有调用 pin 同一 `startingSnapshotId`**（beginWrite 捕获一次、共享事务恒定）、bin-pack 组**互斥**、四列结果计数来自组元数据非 `filesToDelete`；C21 map 只喂 `deleteWith` 分类回调。
+- **设计红队（2 独立对抗 agent，clean-room）**：两条均判 `parity_preserved=true`、0 破坏性发现。采纳提醒：①C19 union 的 List 去重正确性**依赖组互斥**（iceberg 可证，SPI 未强制）——落地在 STEP3 注释显式记该不变量 + 补空组 no-op 单测；stale-plan 报错文案计数从「首个缺失组」变「并集」属 cosmetic 同结局。②C21 `visited` set **必须方法作用域**（放进 snapshot 内层则每轮清零、dedup 空转仍 parity 但零收益）——落地加注释锁定。
+- **实现（两个独立 `[perf]` commit）**：
+  - **C19 fe-core（`89cc39c8d88`）**：STEP3 逐组循环 → 抽包私有静态纯函数 `unionSourceFilePaths(groups)` 并集**一次**调 `registerRewriteSourceFiles`。iceberg 连接器零改动。铁律核对：仅把已有 driver 对已有中性 SPI（`Set<String>`）的调用从 G 次收敛为 1 次，无 source-specific 分支、无逻辑上移 fe-core → 合「fe-core 只减不增 + connector-agnostic」。
+  - **C21 iceberg（`be0035eff62`）**：`buildDeleteFileContentMap` 加方法作用域 `visitedDeleteManifests`，`if (!add(manifest.path())) continue`；降包私有 + `@VisibleForTesting int lastDeleteManifestReadCount` 度量守门。
+- **测试**：C19 `ConnectorRewriteDriverTest` +2（并集去重/空组空 plan）→ 5/5；分布式 STEP3 需真 BE（类注释既定），单测守到并集函数层，端到端留 flip rehearsal e2e。C21 `IcebergExpireSnapshotsActionTest` +1 + `ActionTestTables` 加 position/equality delete 播种 helper；构造「同一 delete manifest 被多 snapshot 前推共享」表，自检 sanity（perSnapshotReads>distinct，防空测）+ 断言读次数==distinct + position/equality 分类 parity → 9/9。
+- **踩坑**：`ActionTestTables` 起初误加未命名的 `DeleteFile` import（builder 内联进 `addDeletes` 不具名）→ checkstyle UnusedImports；删 import + 删一个凑数的 anchor 方法（违简单律）。
+- **结果**：fe-core BUILD SUCCESS + `ConnectorRewriteDriverTest` 5/5 + 0 checkstyle；iceberg BUILD SUCCESS + `IcebergExpireSnapshotsActionTest` 9/9 + 0 checkstyle。度量：C19 整表 `planFiles()` G+1→1；C21 delete manifest 远程读 O(S×M)→O(distinct M)。
+- **下一步**：见 HANDOFF —— P2 剩余（PERF-09 fe-core streaming pump 微批 / PERF-10 WHERE conjunct memo / PERF-11 簇5 per-split 不变量+payload）。

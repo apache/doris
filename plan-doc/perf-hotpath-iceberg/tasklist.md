@@ -22,7 +22,7 @@
 | PERF-05 | P1 | C9 | information_schema.tables 每表 loadTable 取 comment → 复核缩小(普通目录 PERF-01 已覆盖);补**无 gate** `IcebergCommentCache` **仅 vended 非 session=user**(红队:session=user 缓存绕过 per-user 授权=泄漏) | — | ✅ 完成 | `aea3ebdd40e` |
 | PERF-06 | P1 | C3 | REST vended-cred 每 data/delete file 重建 StorageProperties+Configuration → scan 级「准备一次、逐文件套用」normalizer(SPI seam+fe-core override,连接器侧 hoist);~~fe-core 框架 memo~~否决(per-catalog 跨查询共享→并发冲刷退化+凭证保留贴红线) | — | ✅ 完成 | `6294edf2833` |
 | PERF-07 | P1 | C20 | 一条 DML 重复 load 同表 → 每语句「表加载归属者」(`ConnectorStatementScope` 挂 StatementContext) 读写共享一次加载；拆胖句柄；delete stash 下沉到每语句作用域(删单例+类)；beginWrite 取共享表 | — | ✅ 完成 | `97bdcd6bdbe`+`ea7fd1f6e7a` |
-| PERF-08 | P2 | C19 C21 | 维护路径逐单位重扫 / 无去重（rewrite_data_files 每 group planFiles；expire_snapshots S×M）→ union 一次注册 / 按 path 去重 | 改动小可先行 | ⏳ | |
+| PERF-08 | P2 | C19 C21 | 维护路径逐单位重扫 / 无去重（rewrite_data_files 每 group planFiles；expire_snapshots S×M）→ union 一次注册 / 按 path 去重 | 改动小可先行 | ✅ 完成 | `89cc39c8d88`(C19)+`be0035eff62`(C21) |
 | PERF-09 | P2 | C5 | **（fe-core 框架层）** streaming pump 逐 split 重建 backend 候选集 + 锁往返 → 微批 | ⚠ 跨连接器，见约束 | ⏳ | |
 | PERF-10 | P2 | C8 | 同组 WHERE conjunct 被转换 5~6 次/查询 → node 字段 memo（与 01 同点失效） | 与 01 同源 | ⏳ | |
 | PERF-11 | P2 | C12 C13 C14 C15 | per-split 不变量重算 + payload 逐 slice 复制 → hoist / (specId,PartitionData) memo / per-file 共享 | 同区域批量 · ⚠ 含 fe-core 通用节点 | ⏳ | |
@@ -83,10 +83,11 @@
 
 ## P2 — CPU/payload/维护路径，影响门槛高但模式典型
 
-### [ ] PERF-08 — 维护路径逐单位重扫/无去重（C19 C21）  ·改动小、可先行插队
-> 覆盖两条独立维护命令，同一"逐单位重扫、零去重"模式。同一任务，实现上可各自独立 commit。
-- **C19 rewrite_data_files**：`ConnectorRewriteDriver.run STEP3:143` 每个 rewrite group 调一次 `registerRewriteSourceFiles` → 每次一遍 `useSnapshot(...).planFiles():379-383`。G 个 group = G+1 次整表扫描，G~50-200 时分钟级。修：**union 所有 group 一次注册**（SPI 本来就收 `Set<String>`）。
-- **C21 expire_snapshots**：`IcebergExpireSnapshotsAction.buildDeleteFileContentMap:271-293` 对**每个** snapshot 读其全部 delete manifest、无 visited-path 去重 —— 相邻 snapshot manifest 大量重叠，S×M 串行远程读。修：按 `ManifestFile.path()` 去重坍缩为 O(distinct)。
+### [x] PERF-08 — 维护路径逐单位重扫/无去重（C19 C21） · ✅ `89cc39c8d88`(C19)+`be0035eff62`(C21)
+> 覆盖两条独立维护命令，同一"逐单位重扫、零去重"模式。两个独立 commit。权威设计/小结/红队见 [`designs/FIX-PERF-08-maintenance-path-rescan-design.md`](./designs/FIX-PERF-08-maintenance-path-rescan-design.md) + [`-summary.md`](./designs/FIX-PERF-08-maintenance-path-rescan-summary.md)。
+- **C19 rewrite_data_files**（fe-core `89cc39c8d88`）：`ConnectorRewriteDriver.run` STEP3 逐组调 `registerRewriteSourceFiles`（iceberg 每次一遍 `useSnapshot(startingSnapshotId).planFiles()`）→ G+1 次整表扫描。**落地=`unionSourceFilePaths(groups)` 并集一次登记**（同一固定快照 + 组互斥 + 连接器按 path 去重 ⇒ `filesToDelete` 逐元素一致；四列计数来自组元数据）。整表扫描 G+1→1。gate=`ConnectorRewriteDriverTest` 并集/去重/空组单测（分布式实路径留 flip rehearsal e2e）。
+- **C21 expire_snapshots**（iceberg `be0035eff62`）：`buildDeleteFileContentMap` 逐 snapshot 读全部 delete manifest、无去重。**落地=方法作用域 visited set 按 `manifest.path()` 去重**（manifest 不可变 + `putIfAbsent` 顺序无关 ⇒ 结果 map 逐字节不变）。远程读 O(S×M)→O(distinct M)。gate=`@VisibleForTesting lastDeleteManifestReadCount` + 共享 manifest 场景单测。
+- **红队**：2 独立对抗 agent 逐一证伪均 `parity_preserved=true`、0 破坏性发现。iceberg `IcebergExpireSnapshotsActionTest` 9/9 + fe-core `ConnectorRewriteDriverTest` 5/5，两处 BUILD SUCCESS + 0 checkstyle。
 
 ### [ ] PERF-09 — C5：streaming pump 逐 split 重建 backend 候选集（**fe-core 框架层**）
 - **病灶**：`startStreamingSplit:1638-1642` 逐 split `addToQueue` → `SplitAssignment` 每 split 重建 backend 候选集（`FederationBackendPolicy.computeScanRangeAssignment:225-235` 全量 backend 拷贝 + shuffle + multimap）+ `synchronized` 往返。10⁵~10⁶ split × ~100 BE ≈ 10⁷~10⁸ 冗余操作。
