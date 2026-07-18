@@ -466,6 +466,16 @@ TEST(UtilTest, test_set_s3_client_default_http_scheme) {
     doris::set_s3_client_default_http_scheme(client_config, "http");
     EXPECT_EQ(client_config.endpointOverride, "https://example.com:9000");
     EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
+
+    client_config.endpointOverride = "internal.example.com:9000";
+    doris::set_s3_client_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "internal.example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
+
+    client_config.endpointOverride = "http://internal.example.com:9000";
+    doris::set_s3_client_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "internal.example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
 }
 
 TEST(UtilTest, test_long_normalize_http_uri) {

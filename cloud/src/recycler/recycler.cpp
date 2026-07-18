@@ -640,7 +640,7 @@ int InstanceRecycler::init_obj_store_accessors() {
 #ifdef UNIT_TEST
         auto accessor = std::make_shared<MockAccessor>();
 #else
-        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+        auto s3_conf = S3Conf::from_obj_store_info(obj_info, true /* is_internal_bucket */);
         if (!s3_conf) {
             LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
             return -1;
@@ -717,7 +717,8 @@ int InstanceRecycler::init_storage_vault_accessors() {
                        << "but HDFS storage vaults were detected";
 #endif
         } else if (vault.has_obj_info()) {
-            auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
+            auto s3_conf =
+                    S3Conf::from_obj_store_info(vault.obj_info(), true /* is_internal_bucket */);
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, invalid conf, instance_id="
                              << instance_id_ << " s3_vault=" << vault.obj_info().ShortDebugString();
@@ -6898,14 +6899,17 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
     S3Conf s3_conf;
     if (stage_type == StagePB::EXTERNAL) {
         if (stage_access_type == StagePB::AKSK) {
-            auto conf = S3Conf::from_obj_store_info(object_store_info);
+            auto conf =
+                    S3Conf::from_obj_store_info(object_store_info, false /* is_internal_bucket */);
             if (!conf) {
                 return -1;
             }
 
             s3_conf = std::move(*conf);
         } else if (stage_access_type == StagePB::BUCKET_ACL) {
-            auto conf = S3Conf::from_obj_store_info(object_store_info, true /* skip_aksk */);
+            auto conf = S3Conf::from_obj_store_info(object_store_info,
+                                                    false /* is_internal_bucket */,
+                                                    true /* skip_aksk */);
             if (!conf) {
                 return -1;
             }
@@ -6940,7 +6944,7 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
         }
 
         const auto& old_obj = instance_info_.obj_info()[idx - 1];
-        auto conf = S3Conf::from_obj_store_info(old_obj);
+        auto conf = S3Conf::from_obj_store_info(old_obj, true /* is_internal_bucket */);
         if (!conf) {
             return -1;
         }
@@ -7011,7 +7015,8 @@ int InstanceRecycler::recycle_stage() {
         int ret = SYNC_POINT_HOOK_RETURN_VALUE(
                 [&] {
                     auto& old_obj = instance_info_.obj_info()[idx - 1];
-                    auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+                    auto s3_conf =
+                            S3Conf::from_obj_store_info(old_obj, true /* is_internal_bucket */);
                     if (!s3_conf) {
                         return -1;
                     }
@@ -7113,7 +7118,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         }
 
         const auto& old_obj = instance_info_.obj_info()[idx - 1];
-        auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+        auto s3_conf = S3Conf::from_obj_store_info(old_obj, true /* is_internal_bucket */);
         if (!s3_conf) {
             LOG(WARNING) << "failed to init s3_conf with obj_info=" << old_obj.ShortDebugString();
             continue;
@@ -7593,7 +7598,8 @@ int InstanceRecycler::scan_and_statistics_stage() {
         int ret = SYNC_POINT_HOOK_RETURN_VALUE(
                 [&] {
                     auto& old_obj = instance_info_.obj_info()[idx - 1];
-                    auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+                    auto s3_conf =
+                            S3Conf::from_obj_store_info(old_obj, true /* is_internal_bucket */);
                     if (!s3_conf) {
                         return 0;
                     }
@@ -7642,7 +7648,7 @@ int InstanceRecycler::scan_and_statistics_expired_stage_objects() {
                 continue;
             }
             const auto& old_obj = instance_info_.obj_info()[idx - 1];
-            auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+            auto s3_conf = S3Conf::from_obj_store_info(old_obj, true /* is_internal_bucket */);
             if (!s3_conf) {
                 continue;
             }

@@ -86,12 +86,20 @@ std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_
     return "";
 }
 
+void set_s3_client_http_scheme(Aws::Client::ClientConfiguration& client_config,
+                               const std::string& scheme) {
+    const auto scheme_end = client_config.endpointOverride.find("://");
+    if (scheme_end != std::string::npos) {
+        client_config.endpointOverride.erase(0, scheme_end + 3);
+    }
+    client_config.scheme = scheme == "http" ? Aws::Http::Scheme::HTTP : Aws::Http::Scheme::HTTPS;
+}
+
 void set_s3_client_default_http_scheme(Aws::Client::ClientConfiguration& client_config,
                                        const std::string& scheme) {
     if (client_config.endpointOverride.find("://") != std::string::npos) {
         return;
     }
-    client_config.scheme =
-            scheme == "http" ? Aws::Http::Scheme::HTTP : Aws::Http::Scheme::HTTPS;
+    set_s3_client_http_scheme(client_config, scheme);
 }
-}
+} // namespace doris

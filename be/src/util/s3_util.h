@@ -89,6 +89,10 @@ struct S3ClientConf {
     CredProviderType cred_provider_type = CredProviderType::Default;
     std::string role_arn;
     std::string external_id;
+    // True for Doris internal data traffic, such as instance object info, storage vaults, and
+    // internal stages. User-property and external-stage traffic remains false, regardless of
+    // where the endpoint was originally configured.
+    bool is_internal_bucket = false;
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
@@ -107,17 +111,19 @@ struct S3ClientConf {
         hash_code ^= static_cast<int>(cred_provider_type);
         hash_code ^= crc32_hash(role_arn);
         hash_code ^= crc32_hash(external_id);
-        return hash_code;
+        // Keep internal and external clients in disjoint hash domains so the protocol policy can
+        // never be lost through an XOR collision with another boolean field.
+        return hash_code * 2 + static_cast<uint64_t>(is_internal_bucket);
     }
 
     std::string to_string() const {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-                "cred_provider_type={},role_arn={}, external_id={}",
+                "cred_provider_type={},role_arn={}, external_id={}, is_internal_bucket={}",
                 hide_access_key(ak), token, endpoint, region, bucket, max_connections,
                 request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id);
+                role_arn, external_id, is_internal_bucket);
     }
 };
 
