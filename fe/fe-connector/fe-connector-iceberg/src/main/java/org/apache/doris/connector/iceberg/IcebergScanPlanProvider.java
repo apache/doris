@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BatchScan;
@@ -235,6 +236,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // a thrown planScan left behind. Attached only on the synchronous data/count path (never streaming or
     // system-table, which fe-core never drains), so the value list is appended single-threaded.
     private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
+
+    // Test-only gate for the PERF-11 per-file memo: how many times computePerFileInvariants actually ran across
+    // this provider's scans. A file split into k byte-slices must increment it ONCE (not k times), proving the
+    // per-slice recompute collapsed to per-file. Not reset per scan — a test uses a fresh provider.
+    @VisibleForTesting
+    int perFileInvariantComputeCount;
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps) {
         this(properties, catalogOps, null, null);
@@ -537,6 +544,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private CloseableIterator<FileScanTask> iterator;
         // Look-ahead buffer so hasNext() can skip data files filtered out by the rewrite scope.
         private IcebergScanRange buffered;
+        // Per-file invariant cache (PERF-11): per split-source = per scan; the pump is single-threaded, so the
+        // 1-entry cache stays O(1) memory (never accumulates), preserving the streaming path's OOM safety.
+        private final PerFileScratch scratch = new PerFileScratch();
 
         IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, int formatVersion,
                 boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
@@ -562,7 +572,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             while (iterator.hasNext()) {
                 IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null);
+                        orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
                 if (range != null) {
                     buffered = range;
                     return true;
@@ -673,6 +683,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // (buildRange re-attaches task.deletes()), so scoping never drops a delete binding.
         Set<String> rewriteScope = iceHandle.getRewriteFileScope();
 
+        // Per-file invariant cache (PERF-11): ONE instance per scan, never shared across scans. Reused across
+        // a data file's consecutive byte-slices so partition JSON / identity map / delete carriers are computed
+        // once per file, not per slice. The streaming source below holds its own.
+        PerFileScratch scratch = new PerFileScratch();
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (SplitPlan plan = planFileScanTask(scan, session, table, filter)) {
             for (FileScanTask task : plan.tasks) {
@@ -680,7 +694,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
                 IcebergScanRange range = buildRangeForTask(task, table, formatVersion, partitioned,
                         orderedPartitionKeys, zone, uriNormalizer, plan.targetSplitSize, rewriteScope,
-                        rewritableDeleteSupply);
+                        rewritableDeleteSupply, scratch);
                 if (range != null) {
                     ranges.add(range);
                 }
@@ -739,19 +753,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, int formatVersion,
             boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, long targetSplitSize, Set<String> rewriteScope,
-            Map<String, List<TIcebergDeleteFileDesc>> rewritableDeleteSupply) {
+            Map<String, List<TIcebergDeleteFileDesc>> rewritableDeleteSupply, PerFileScratch scratch) {
         DataFile dataFile = task.file();
         if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
             return null;
         }
+        // First byte-slice of a new data file? (scratch still holds the previous file until buildRange refreshes
+        // it below — so capture this BEFORE the buildRange call.) The v3 rewritable-delete supply is identical
+        // for every slice of a file, so record it exactly ONCE per file — on the file's first slice, keyed to
+        // the new file, so the LAST file in the stream is never dropped.
+        boolean firstSliceOfFile = scratch.file != dataFile;
         // targetSplitSize is the scan-level weight denominator (M-2): each data-file range carries a
         // size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
         IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
-                orderedPartitionKeys, zone, uriNormalizer, -1, targetSplitSize);
-        if (rewritableDeleteSupply != null) {
+                orderedPartitionKeys, zone, uriNormalizer, -1, targetSplitSize, scratch);
+        if (rewritableDeleteSupply != null && firstSliceOfFile) {
             // Record this data file's non-equality delete supply keyed on its RAW path (the exact string the BE
-            // matches a rewritable set against). Splits of one file carry an identical list, so the put is
-            // idempotent; an empty list (no old non-eq deletes) contributes nothing.
+            // matches a rewritable set against). An empty list (no old non-eq deletes) contributes nothing.
             List<TIcebergDeleteFileDesc> descs = range.rewritableDeleteDescs();
             if (range.getOriginalPath() != null && descs != null && !descs.isEmpty()) {
                 rewritableDeleteSupply.put(range.getOriginalPath(), descs);
@@ -1152,7 +1170,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling
                 // weight is irrelevant → PluginDrivenSplit keeps SplitWeight.standard().
                 return Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
-                        partitioned, orderedPartitionKeys, zone, uriNormalizer, realCount, -1));
+                        partitioned, orderedPartitionKeys, zone, uriNormalizer, realCount, -1, null));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
@@ -1187,15 +1205,91 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * Per-file scratch for {@link #buildRange}: the values identical for every byte-slice of one data file
+     * ({@code TableScanUtil.splitFiles} cuts a file into k slices whose {@code FileScanTask}s all return the
+     * SAME {@code DataFile} instance from {@code file()}, and emits them consecutively). Computed once on a
+     * file change and reused across the file's slices, collapsing the per-slice partition-JSON / identity-map /
+     * delete-carrier recompute to per-file (PERF-11 / C12); the k ranges then share the same immutable
+     * {@code partitionValues} / {@code deleteCarriers} instances (C15a). The eager loop and the streaming
+     * source each own ONE instance, never shared across scans. {@code file == null} = fresh / unused.
+     */
+    private static final class PerFileScratch {
+        private DataFile file;
+        private Integer partitionSpecId;
+        private String partitionDataJson;
+        private Map<String, String> partitionValues = Collections.emptyMap();
+        private List<IcebergScanRange.DeleteFile> deleteCarriers = Collections.emptyList();
+        private String fileFormat;
+        private Long firstRowId;
+        private Long lastUpdatedSequenceNumber;
+        private String rawDataPath;
+        private String normalizedPath;
+    }
+
+    /**
      * Build the BE-ready {@link IcebergScanRange} for one {@link FileScanTask}, mirroring legacy
      * {@code IcebergScanNode.createIcebergSplit} + {@code setIcebergParams}: the file path/offset/size, the
      * per-file format (native parquet/orc), the table format version, the v3 row-lineage fields, and — for a
      * partitioned table — the partition spec-id, the all-fields {@code partition_data_json}, and the ordered
      * identity {@code partitionValues} that become columns-from-path.
+     *
+     * <p>The per-file-invariant work is memoized through {@code scratch} (keyed by the shared {@code DataFile}
+     * instance) and reused across the file's byte-slices; only {@code start} / {@code length} / the
+     * size-proportional {@code selfSplitWeight} are per-slice. A {@code null} scratch (the single
+     * count-pushdown range) computes without caching. Byte-identical to the former per-slice recompute.</p>
      */
     private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
             boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, long pushDownRowCount, long targetSplitSize) {
+            UnaryOperator<String> uriNormalizer, long pushDownRowCount, long targetSplitSize,
+            PerFileScratch scratch) {
+        PerFileScratch file = (scratch != null && scratch.file == dataFile)
+                ? scratch
+                : computePerFileInvariants(table, dataFile, task, formatVersion, partitioned,
+                        orderedPartitionKeys, zone, uriNormalizer, scratch);
+        // M-2 size-proportional weight numerator = this split's byte length + the byte size of every
+        // merge-on-read delete file applying to it, mirroring legacy IcebergSplit.selfSplitWeight (ctor sets
+        // = length; setDeleteFileFilters adds Σ delete fileSizeInBytes). The delete-size sum is file-invariant
+        // but the task.length() term is per byte-slice, so the whole weight stays per-slice (NEVER memoized).
+        // The denominator (targetSplitSize) is passed in; for the single count-pushdown range it is -1 →
+        // PluginDrivenSplit keeps SplitWeight.standard() (one range, weight irrelevant).
+        long selfSplitWeight = task.length();
+        if (task.deletes() != null) {
+            for (DeleteFile delete : task.deletes()) {
+                selfSplitWeight += delete.fileSizeInBytes();
+            }
+        }
+        return new IcebergScanRange.Builder()
+                .path(file.normalizedPath)
+                .originalPath(file.rawDataPath)
+                .start(task.start())
+                .length(task.length())
+                .fileSize(dataFile.fileSizeInBytes())
+                .fileFormat(file.fileFormat)
+                .formatVersion(formatVersion)
+                .partitionSpecId(file.partitionSpecId)
+                .partitionDataJson(file.partitionDataJson)
+                .firstRowId(file.firstRowId)
+                .lastUpdatedSequenceNumber(file.lastUpdatedSequenceNumber)
+                .partitionValues(file.partitionValues)
+                .deleteFiles(file.deleteCarriers)
+                .pushDownRowCount(pushDownRowCount)
+                .selfSplitWeight(selfSplitWeight)
+                .targetSplitSize(targetSplitSize)
+                .build();
+    }
+
+    /**
+     * Compute {@link #buildRange}'s per-file invariants and, when {@code scratch} is non-null, store them into
+     * it so the file's remaining byte-slices reuse them. Uses {@code task.deletes()} (identical across a
+     * file's slices) for the delete carriers. Mirrors the former inline per-slice computation exactly — same
+     * partition-JSON / identity-map ordering, same fail-loud on a non-parquet/orc file, same v3 row-lineage —
+     * so the memoized range is byte-identical to the per-slice recompute. The scratch fields are assigned only
+     * after the fail-loud check, so a rejected file never leaves a half-populated scratch.
+     */
+    private PerFileScratch computePerFileInvariants(Table table, DataFile dataFile, FileScanTask task,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            UnaryOperator<String> uriNormalizer, PerFileScratch scratch) {
+        perFileInvariantComputeCount++;
         Integer partitionSpecId = null;
         String partitionDataJson = null;
         Map<String, String> partitionValues = Collections.emptyMap();
@@ -1236,40 +1330,22 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     dataFile.fileSequenceNumber() != null && dataFile.firstRowId() != null
                             ? dataFile.fileSequenceNumber() : -1L;
         }
-        // M-2 size-proportional weight numerator = this split's byte length + the byte size of every
-        // merge-on-read delete file applying to it, mirroring legacy IcebergSplit.selfSplitWeight (ctor sets
-        // = length; setDeleteFileFilters adds Σ delete fileSizeInBytes). task.deletes() is a cached list (no
-        // extra I/O; buildDeleteFiles reads the same one). The denominator (targetSplitSize) is passed in; for
-        // the single count-pushdown range it is -1 → PluginDrivenSplit keeps SplitWeight.standard() (one range,
-        // weight irrelevant), matching the normal-data-only weighting.
-        long selfSplitWeight = task.length();
-        if (task.deletes() != null) {
-            for (DeleteFile delete : task.deletes()) {
-                selfSplitWeight += delete.fileSizeInBytes();
-            }
-        }
         // The range path BE opens is scheme-normalized (legacy createIcebergSplit:852 normalizes via the
         // 2-arg LocationPath.of(path, storagePropertiesMap)); original_file_path stays raw so BE can match
         // position-delete entries against the raw iceberg path (legacy setOriginalFilePath:304).
         String rawDataPath = dataFile.path().toString();
-        return new IcebergScanRange.Builder()
-                .path(uriNormalizer.apply(rawDataPath))
-                .originalPath(rawDataPath)
-                .start(task.start())
-                .length(task.length())
-                .fileSize(dataFile.fileSizeInBytes())
-                .fileFormat(fileFormat)
-                .formatVersion(formatVersion)
-                .partitionSpecId(partitionSpecId)
-                .partitionDataJson(partitionDataJson)
-                .firstRowId(firstRowId)
-                .lastUpdatedSequenceNumber(lastUpdatedSequenceNumber)
-                .partitionValues(partitionValues)
-                .deleteFiles(buildDeleteFiles(task, uriNormalizer))
-                .pushDownRowCount(pushDownRowCount)
-                .selfSplitWeight(selfSplitWeight)
-                .targetSplitSize(targetSplitSize)
-                .build();
+        PerFileScratch file = scratch != null ? scratch : new PerFileScratch();
+        file.file = dataFile;
+        file.partitionSpecId = partitionSpecId;
+        file.partitionDataJson = partitionDataJson;
+        file.partitionValues = partitionValues;
+        file.fileFormat = fileFormat;
+        file.firstRowId = firstRowId;
+        file.lastUpdatedSequenceNumber = lastUpdatedSequenceNumber;
+        file.rawDataPath = rawDataPath;
+        file.normalizedPath = uriNormalizer.apply(rawDataPath);
+        file.deleteCarriers = buildDeleteFiles(task, uriNormalizer);
+        return file;
     }
 
     /**

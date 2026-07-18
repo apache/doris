@@ -382,6 +382,78 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(96 * mb, totalLength, "the split ranges must cover the whole file exactly");
     }
 
+    @Test
+    public void planScanMemoizesPerFileInvariantsAcrossByteSlices() {
+        // PERF-11 (C12/C15a): a data file split into k byte-slices must compute its per-file invariants
+        // (partition JSON, ordered partition values, delete carriers, format, normalized path) exactly ONCE,
+        // not once per slice — while each slice keeps its own byte start/length. MUTATION: recomputing per slice
+        // (dropping the PerFileScratch reuse) -> perFileInvariantComputeCount == k -> red; memoizing start/length
+        // into the scratch -> the contiguous-tiling assertion -> red.
+        long mb = 1024L * 1024L;
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/big.parquet", 96 * mb,
+                        Arrays.asList(0L, 32 * mb, 64 * mb), "p=7"))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("file_split_size", Long.toString(32 * mb)));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                session, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertTrue(ranges.size() > 1, "expected the 96MB file to split, got " + ranges.size());
+        // The per-file invariants were computed ONCE for the whole file — the memo gate.
+        Assertions.assertEquals(1, provider.perFileInvariantComputeCount,
+                "per-file invariants must be computed once per file, not once per byte-slice");
+        // Every slice carries byte-identical per-file params (partition values + JSON) but its own tiling range.
+        long expectedStart = 0;
+        for (ConnectorScanRange r : ranges) {
+            Assertions.assertEquals(expectedStart, r.getStart(), "slices must tile contiguously from 0");
+            Assertions.assertEquals(Collections.singletonMap("p", "7"), r.getPartitionValues(),
+                    "every slice of the file carries the same identity partition values");
+            Assertions.assertEquals("[\"7\"]",
+                    populate(r).getTableFormatParams().getIcebergParams().getPartitionDataJson(),
+                    "every slice carries the same partition_data_json");
+            expectedStart += r.getLength();
+        }
+        Assertions.assertEquals(96 * mb, expectedStart, "the split ranges must cover the whole file exactly");
+    }
+
+    @Test
+    public void planScanComputesPerFileInvariantsOncePerDistinctFile() {
+        // The memo recomputes on each file change and never returns a stale file's invariants: two split files
+        // -> perFileInvariantComputeCount == 2 (once per DISTINCT data file), regardless of total slice count,
+        // and each file's slices carry that file's OWN partition values.
+        long mb = 1024L * 1024L;
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=1/a.parquet", 96 * mb,
+                        Arrays.asList(0L, 32 * mb, 64 * mb), "p=1"))
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=2/b.parquet", 96 * mb,
+                        Arrays.asList(0L, 32 * mb, 64 * mb), "p=2"))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("file_split_size", Long.toString(32 * mb)));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                session, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertTrue(ranges.size() >= 4,
+                "two 96MB files at 32MB splits -> >=4 slices, got " + ranges.size());
+        Assertions.assertEquals(2, provider.perFileInvariantComputeCount,
+                "per-file invariants must be computed once per distinct data file, not per slice");
+        Assertions.assertEquals(Collections.singletonMap("p", "1"),
+                byPath(ranges, "p=1/a.parquet").getPartitionValues(),
+                "file a's slices carry p=1 (no cross-file staleness)");
+        Assertions.assertEquals(Collections.singletonMap("p", "2"),
+                byPath(ranges, "p=2/b.parquet").getPartitionValues(),
+                "file b's slices carry p=2 (no cross-file staleness)");
+    }
+
     // ── M-2: size-proportional BE scheduling weight (selfSplitWeight / targetSplitSize) ──
 
     @Test
