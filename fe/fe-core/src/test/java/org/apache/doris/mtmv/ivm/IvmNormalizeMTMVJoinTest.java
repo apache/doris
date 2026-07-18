@@ -340,7 +340,7 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeLeftOuterJoinWithNullSideUnionAllThrows() {
+    void testNormalizeLeftOuterJoinWithNullSideUnionAll() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -348,8 +348,10 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanA, union, JoinReorderContext.EMPTY);
 
-        assertIvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                () -> normalizeJoinPlan(join));
+        IvmRewriteResult result = getRewriteResult(join);
+
+        Assertions.assertNotNull(result.getNormalizedPlan(),
+                "LEFT_OUTER_JOIN should allow UNION ALL on null side");
     }
 
     @Test
@@ -366,7 +368,7 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeLeftOuterJoinWithNullSideUnionAllProjectScanThrows() {
+    void testNormalizeLeftOuterJoinWithNullSideUnionAllProjectScan() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -375,8 +377,10 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanA, union, JoinReorderContext.EMPTY);
 
-        assertIvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                () -> normalizeJoinPlan(join));
+        IvmRewriteResult result = getRewriteResult(join);
+
+        Assertions.assertNotNull(result.getNormalizedPlan(),
+                "LEFT_OUTER_JOIN should allow UNION ALL with project on null side");
     }
 
     @Test
@@ -425,7 +429,7 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeRightOuterJoinWithNullSideUnionAllThrows() {
+    void testNormalizeRightOuterJoinWithNullSideUnionAll() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -433,8 +437,10 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(), union, scanC, JoinReorderContext.EMPTY);
 
-        assertIvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                () -> normalizeJoinPlan(join));
+        IvmRewriteResult result = getRewriteResult(join);
+
+        Assertions.assertNotNull(result.getNormalizedPlan(),
+                "RIGHT_OUTER_JOIN should allow UNION ALL on null side");
     }
 
     @Test
@@ -492,7 +498,7 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeFullOuterJoinWithUnionAllOnEitherSideThrows() {
+    void testNormalizeFullOuterJoinWithUnionAllOnEitherSide() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -500,8 +506,10 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> leftUnionJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
                 ImmutableList.of(), leftUnion, scanC, JoinReorderContext.EMPTY);
 
-        assertIvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                () -> normalizeJoinPlan(leftUnionJoin));
+        IvmRewriteResult leftResult = getRewriteResult(leftUnionJoin);
+
+        Assertions.assertNotNull(leftResult.getNormalizedPlan(),
+                "FULL_OUTER_JOIN should allow UNION ALL on left null side");
 
         LogicalOlapScan scanD = buildMowScan(4, "d");
         LogicalOlapScan scanE = buildMowScan(5, "e");
@@ -510,8 +518,10 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> rightUnionJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
                 ImmutableList.of(), scanD, rightUnion, JoinReorderContext.EMPTY);
 
-        assertIvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                () -> normalizeJoinPlan(rightUnionJoin));
+        IvmRewriteResult rightResult = getRewriteResult(rightUnionJoin);
+
+        Assertions.assertNotNull(rightResult.getNormalizedPlan(),
+                "FULL_OUTER_JOIN should allow UNION ALL on right null side");
     }
 
     @Test
