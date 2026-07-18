@@ -85,3 +85,17 @@
 - **结果**：全 iceberg 模块 **973 pass / 0 fail / 0 error / 1 skip**，checkstyle 0 违规，0 回归。summary 见 `designs/FIX-PERF-05-*-summary.md`。
 - **新判据（可复用）**：**「缓存 gate 是授权决策，不止凭证泄漏决策」**——session=user 的授权发生在 load 调用里，缓存命中会绕过它，故即便缓存值不含凭证也不能对 session=user 共享；与「值含 FileIO/凭证才 gate」正交，二者叠加判定。
 - **下一步**：见 HANDOFF —— PERF-06（C3 REST vended-credentials 每 data/delete file 重建 StorageProperties+Configuration）。
+
+---
+
+## 2026-07-18 — session 4：PERF-06 实现 + 全绿（commit `6294edf2833`）
+
+- **复核（HEAD grep，行号已漂）**：确认贵活 `buildVendedStorageMap(token)` 纯 token 派生、与 per-file URI 无关（URI 只用于其后廉价 `LocationPath.of`）；token 每 scan 只提取一次且同一 Map 实例穿三路径（同步 data `planScanInternal`、流式 `streamSplits`、position_deletes）所有 `normalizeUri`（数据 1191/delete 1243/位置删除 935）。**关键生命周期事实**：`DefaultConnectorContext` 是 **per-catalog、跨查询（含并发）共享**（`PluginDrivenExternalCatalog:197`，已缓存 catalogFileSystem）——这决定了不能在其上做跨查询 memo。
+- **路线上交用户（AskUserQuestion）**：(A) 连接器侧「准备一次、逐文件套用」新增 SPI normalizer seam vs (B) fe-core 框架内按 token 单条目 memo。讲清 B 在 per-catalog 共享对象上并发冲刷退化 + 凭证跨查询保留贴红线；Trino 架构参考=每 scan 建一次 FileSystem 复用（对齐 A）。**用户选 A**。
+- **设计红队（独立 Explore agent，6 点核查）**：判 sound、**无 hard blocker**。确认①seam 完整（三路径全覆盖、`planSystemTableScan` 非 position_deletes 分支不 normalize）②parity 逐字（`buildVendedStorageMap` 纯函数 fail-soft、`storagePropertiesSupplier` scan 内稳定甚至更一致、空URI短路保序）③token 不变量④`TcclPinning` override 是拿到提升的必要条件且无需 TCCL pin⑤写路径 `getBackendFileType` O(1)/写、leg"在范围外正确⑥单线程套用无并发隐患。**采纳其加固**：`effective` 改**惰性 memo（首个非空 URI 才派生）**而非构造时 eager，消除"零文件/全空 URI 且 storage-map init 抛"的极窄异常时机分歧。另提示测试迁移 + `context==null` 用 `identity()` 兜底（均已计划）。
+- **实现（跨 3 模块一个 `[perf]` commit）**：SPI `ConnectorContext.newStorageUriNormalizer` default（逐文件折回）；`DefaultConnectorContext` override（惰性 memo 匿名 `UnaryOperator`）；iceberg `TcclPinning` 透传；`IcebergScanPlanProvider` 新增 `newUriNormalizer` helper + 三处 scan-start 构造 + 六 seam 参数 token→normalizer + 删旧 `normalizeUri` helper。
+- **测试**：连接器守门 `planScanDerivesUriNormalizerOncePerScanNotPerFile`（3 文件 scan → `newNormalizerCount==1` & `normalizeCount==3`）；`RecordingConnectorContext` +计数器 + override（仍逐 apply 折回 recording，现存断言零改）；迁移 8 处 convertDelete 签名（6 plain→`identity()`，2 归一化→`newUriNormalizer(token)` 保留 recording 断言）；fe-core `DefaultConnectorContextNormalizeUriTest` +4 parity（vended/static/空URI/坏路径 fail-loud + 一 normalizer 多 URI）。
+- **构建坑（实证）**：iceberg 连接器**不依赖 fe-core**（SPI 解耦），故 `-pl iceberg -am` 反应堆里**无 fe-core**——fe-core override + 其测试须**单独** `mvn test -pl fe-core -am` 验（本任务首个动 fe-core 的 perf 项，后续动 fe-core 者都要两段验）。
+- **结果**：iceberg 全模块 **974 pass / 0 fail / 1 skip**（+1 守门）；fe-core `DefaultConnectorContextNormalizeUriTest` **9→13 绿**；两处 BUILD SUCCESS + checkstyle 0 违规，0 回归。summary 见 `designs/FIX-PERF-06-*-summary.md`。
+- **新判据（可复用）**：**「作用域即安全边界」**——同一份"含凭证派生"的缓存，跨查询（catalog 级对象）做=撞凭证/授权 gate；**scan 级**做=天然安全（token 恒定、无跨用户、结束即回收）。PERF-05 的 gate 是"跨查询缓存必须判授权"，PERF-06 是"把作用域收回 scan 就不必判"——两面。
+- **下一步**：见 HANDOFF —— PERF-07（C20 写路径一条 DML 3~5 次 load 同表）。

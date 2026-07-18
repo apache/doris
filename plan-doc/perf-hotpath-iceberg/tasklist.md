@@ -20,7 +20,7 @@
 | PERF-03 | P0 | C2 C11 | #64134 复活：`file_format_type` 兜底走整表 planFiles → 跨查询 `(table,snapshotId)` memoize(连接器侧,无 gate);~~从枚举反推~~已否决(getFileFormatType 早于 planScan + 无过滤 vs 带谓词破 parity) | 与 01/02 共享快照 pin | ✅ 完成 | `0b96f2e6c78` |
 | PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 抽惰性 `cacheBackedFileScanTasks`(delete 索引 eager + data manifest 惰性扁平映射)三处复用;缓存与不 OOM 兼得(否决审计"退回物化"因重引 OOM) | — | ✅ 完成 | `2e5f393779c` |
 | PERF-05 | P1 | C9 | information_schema.tables 每表 loadTable 取 comment → 复核缩小(普通目录 PERF-01 已覆盖);补**无 gate** `IcebergCommentCache` **仅 vended 非 session=user**(红队:session=user 缓存绕过 per-user 授权=泄漏) | — | ✅ 完成 | `aea3ebdd40e` |
-| PERF-06 | P1 | C3 | REST vended-cred 每 data/delete file 重建 StorageProperties+Configuration → scan 级 memo | — | ⏳ | |
+| PERF-06 | P1 | C3 | REST vended-cred 每 data/delete file 重建 StorageProperties+Configuration → scan 级「准备一次、逐文件套用」normalizer(SPI seam+fe-core override,连接器侧 hoist);~~fe-core 框架 memo~~否决(per-catalog 跨查询共享→并发冲刷退化+凭证保留贴红线) | — | ✅ 完成 | `6294edf2833` |
 | PERF-07 | P1 | C20 | 一条 DML 3~5 次 load 同表 → 语句级 resolve 一次传递 | — | ⏳ | |
 | PERF-08 | P2 | C19 C21 | 维护路径逐单位重扫 / 无去重（rewrite_data_files 每 group planFiles；expire_snapshots S×M）→ union 一次注册 / 按 path 去重 | 改动小可先行 | ⏳ | |
 | PERF-09 | P2 | C5 | **（fe-core 框架层）** streaming pump 逐 split 重建 backend 候选集 + 锁往返 → 微批 | ⚠ 跨连接器，见约束 | ⏳ | |
@@ -65,9 +65,11 @@
 - **落地**：无 gate `IcebergCommentCache`（键 TableIdentifier、值 comment String），**仅 vended 且非 session=user 时建**。**红队 HIGH**：`tableCache==null` 做 gate 会卷入 session=user，其授权在 per-user loadTable 里、缓存绕过=元数据泄漏 → 收窄为 vended-only。首次 N load / view 未缓存记为诚实局限。
 - **收益**：vended 目录重复 information_schema 从次次 N load→命中；普通/session=user 不变。全模块 973 UT 绿。
 
-### [ ] PERF-06 — C3：vended-credentials 每文件重建 StorageProperties
-- **病灶**：`buildRange:1105 normalizeUri` / `convertDelete:1157 → DefaultConnectorContext.normalizeStorageUri:392-409 → buildVendedStorageMap:225-242 → StorageProperties.createAll`（遍历所有 provider + 建 hadoop `Configuration` + 逐 key set），**每 data file 和每 delete file 各一次**，而 vended token 整个 scan 内不变。50k 文件 ≈ 数十秒纯 FE CPU。门槛：REST + `iceberg.rest.vended-credentials-enabled=true`（MOR 加倍）。
-- **修复方向**：token→typed-map 推导按 scan 提升 / 在 `DefaultConnectorContext` 内做单条目 memo（token 恒等键）。
+### [x] PERF-06 — C3：vended-credentials 每文件重建 StorageProperties · ✅ `6294edf2833`
+- **病灶**：`buildRange normalizeUri` / `convertDelete` / `buildPositionDeleteRange` → `DefaultConnectorContext.normalizeStorageUri → buildVendedStorageMap → StorageProperties.createAll`（遍历所有 provider + 建 hadoop `Configuration` + 逐 key set），**每 data file 和每 delete file 各一次**，而 vended token 整个 scan 内不变（同一 Map 实例、贵活纯 token 派生与 URI 无关）。50k 文件 ≈ 数十秒纯 FE CPU。门槛：REST + `iceberg.rest.vended-credentials-enabled=true`（MOR 加倍）。
+- **路线决策（用户 2026-07-18 拍板 route A）**：连接器侧「准备一次、逐文件套用」——新增 SPI `ConnectorContext.newStorageUriNormalizer(token)`（默认逐文件折回、零影响其它连接器），`DefaultConnectorContext` override 惰性 memo 一次派生。**否决 fe-core 框架 memo**：`DefaultConnectorContext` per-catalog 跨查询共享，单条目 memo 并发冲刷退化 + 凭证跨查询保留贴红线；scan 级作用域天然规避（对齐 Trino 每 scan 建一次 FileSystem）。
+- **落地**：三处 scan-start（同步/流式/position_deletes）构造一次 normalizer 往下传，六个 per-file seam 参数由 token 换成 normalizer；`TcclPinning` 透传拿到提升；写路径 `getBackendFileType`（O(1)/写）不动。惰性 memo 对齐原逐文件版空URI短路/vended覆盖/坏路径 fail-loud/异常时机。
+- **收益/守门**：一次 vended scan 内 `buildVendedStorageMap`/`createAll` 从 O(N_files+N_deletes)→1。连接器守门测试断言 3 文件 scan `newNormalizerCount==1` 且 `normalizeCount==3`；fe-core parity 测试断言逐字等价。iceberg 974 UT 绿 + fe-core NormalizeUriTest 13 绿。
 
 ### [ ] PERF-07 — C20：写路径 3~5 次 load 同表
 - **病灶**：`PhysicalIcebergMergeSink.getRequirePhysicalProperties:161→198`、`PhysicalPlanTranslator.visitPhysicalConnectorTableSink:675,703`、`PluginDrivenTableSink.bindDataSink:175 → IcebergWritePlanProvider.resolveTable:689-702 / beginWrite`（内含 tableExists×2 + 无条件 refresh）。每条 DML +3~5 次串行远程往返。
