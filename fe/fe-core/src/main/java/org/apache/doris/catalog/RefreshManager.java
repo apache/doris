@@ -172,45 +172,65 @@ public class RefreshManager {
             LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
-        Optional<? extends ExternalTable> table;
-        if (!Strings.isNullOrEmpty(log.getTableName())) {
-            table = db.get().getTableForReplay(log.getTableName());
+        String localTableName;
+        String tableNameSource;
+        boolean hasTableName = !Strings.isNullOrEmpty(log.getTableName());
+        if (hasTableName) {
+            localTableName = log.getTableName();
+            tableNameSource = "edit log";
         } else {
-            table = db.get().getTableForReplay(log.getTableId());
-        }
-        if (!table.isPresent()) {
-            LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
-            return;
+            localTableName = db.get().getTableNameForReplay(log.getTableId()).orElse(null);
+            tableNameSource = "retained ID mapping";
         }
         if (!Strings.isNullOrEmpty(log.getNewTableName())) {
-            // this is a rename table op
-            db.get().unregisterTable(log.getTableName());
+            if (localTableName == null) {
+                LOG.warn("failed to resolve local table name when replaying rename table, skip rename: {}",
+                        log.debugForRefreshTable());
+                return;
+            }
+            db.get().unregisterTable(localTableName);
             db.get().resetMetaCacheNames();
             Env.getCurrentEnv().getConstraintManager().renameTable(
-                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getTableName()),
-                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getNewTableName()));
-        } else {
-            List<String> modifiedPartNames = log.getPartitionNames();
-            List<String> newPartNames = log.getNewPartitionNames();
-            if (catalog instanceof HMSExternalCatalog
-                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
-                    || (newPartNames != null && !newPartNames.isEmpty()))) {
-                // Partition-level cache invalidation, only for hive catalog
-                HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hive(catalog.getId());
-                cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
-                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
-                }
-                LOG.info("replay refresh partitions for table {}, "
-                                + "modified partitions count: {}, "
-                                + "new partitions count: {}",
-                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
-                        newPartNames == null ? 0 : newPartNames.size());
-            } else {
-                // Full table cache invalidation
-                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+                    new TableNameInfo(catalog.getName(), db.get().getFullName(), localTableName),
+                    new TableNameInfo(catalog.getName(), db.get().getFullName(), log.getNewTableName()));
+            return;
+        }
+        Optional<? extends ExternalTable> table = hasTableName
+                ? db.get().getTableForReplay(log.getTableName())
+                : db.get().getTableForReplay(log.getTableId());
+        if (!table.isPresent()) {
+            if (localTableName == null) {
+                LOG.warn("failed to resolve local table name when replaying refresh table, skip refresh: {}",
+                        log.debugForRefreshTable());
+                return;
             }
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTable(catalog.getId(), db.get().getFullName(), localTableName);
+            LOG.info("table object cache is cold when replaying refresh table; "
+                            + "invalidated engine caches by local name {} from {}: {}",
+                    localTableName, tableNameSource, log.debugForRefreshTable());
+            return;
+        }
+        List<String> modifiedPartNames = log.getPartitionNames();
+        List<String> newPartNames = log.getNewPartitionNames();
+        if (catalog instanceof HMSExternalCatalog
+                && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
+                || (newPartNames != null && !newPartNames.isEmpty()))) {
+            // Partition-level cache invalidation, only for hive catalog
+            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .hive(catalog.getId());
+            cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
+            if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
+                ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
+            }
+            LOG.info("replay refresh partitions for table {}, "
+                            + "modified partitions count: {}, "
+                            + "new partitions count: {}",
+                    table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
+                    newPartNames == null ? 0 : newPartNames.size());
+        } else {
+            // Full table cache invalidation
+            refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
         }
     }
 

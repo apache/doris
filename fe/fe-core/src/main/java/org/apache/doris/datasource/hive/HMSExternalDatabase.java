@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
@@ -46,13 +45,4 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
                 (HMSExternalDatabase) db);
     }
 
-    @Override
-    public boolean registerTable(TableIf tableIf) {
-        super.registerTable(tableIf);
-        HMSExternalTable table = getTableNullable(tableIf.getName());
-        if (table != null) {
-            table.setUpdateTime(tableIf.getUpdateTime());
-        }
-        return true;
-    }
 }

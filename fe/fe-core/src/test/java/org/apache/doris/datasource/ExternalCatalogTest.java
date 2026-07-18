@@ -20,7 +20,6 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -575,6 +574,39 @@ public class ExternalCatalogTest extends TestWithFeService {
                 "remote_table", "remote_table", "local_remote_table");
     }
 
+    @Test
+    public void testExternalTableCreateEventReplacesHotObjectWithoutLoadThrough() throws Exception {
+        EventHmsCatalog catalog = new EventHmsCatalog(2202L, "event_hms_hot_object", 0, false);
+        EventHmsDatabase db = new EventHmsDatabase(catalog, 221L, "db1", "db1");
+        catalog.setDatabase(db);
+        catalog.setInitializedForTest(true);
+        db.setInitializedForTest(true);
+
+        long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), "tbl1");
+        HMSExternalTable oldTable = db.buildTableForInit("tbl1", "tbl1", tableId, catalog, db, false);
+        oldTable.setUpdateTime(1L);
+        db.addTableForTest(oldTable);
+
+        @SuppressWarnings("unchecked")
+        Map<String, CatalogIf> nameToCatalog = Deencapsulation.getField(mgr, "nameToCatalog");
+        nameToCatalog.put(catalog.getName(), catalog);
+        mgr.getIdToCatalog().put(catalog.getId(), catalog);
+        try {
+            mgr.registerExternalTableFromEvent("db1", "tbl1", catalog.getName(), 123L, true);
+
+            HMSExternalTable eventTable = db.getCachedTableForTest("tbl1");
+            Assertions.assertNotNull(eventTable);
+            Assertions.assertNotSame(oldTable, eventTable);
+            Assertions.assertEquals(123L, eventTable.getUpdateTime());
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertEquals("tbl1", db.getCachedTableNameByIdForTest(tableId));
+            Assertions.assertEquals(0, db.getTableLookupCount());
+        } finally {
+            nameToCatalog.remove(catalog.getName());
+            mgr.getIdToCatalog().remove(catalog.getId());
+        }
+    }
+
     private void assertIgnoredExternalTableDropCleansColdEventState(EventHmsCatalog catalog,
             String remoteTableName, String dropTableName, String localTableName) throws Exception {
         EventHmsDatabase db = new EventHmsDatabase(catalog, 220L, "db_ci", "db_ci");
@@ -590,6 +622,7 @@ public class ExternalCatalogTest extends TestWithFeService {
             mgr.registerExternalTableFromEvent("db_ci", remoteTableName, catalog.getName(), 1L, true);
             long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), localTableName);
 
+            Assertions.assertEquals(0, db.getTableLookupCount());
             Assertions.assertNull(db.getCachedTableNamesForTest());
             Assertions.assertNull(db.getCachedTableForTest(localTableName));
             Assertions.assertEquals(localTableName, db.getCachedTableNameByIdForTest(tableId));
@@ -1140,15 +1173,6 @@ public class ExternalCatalogTest extends TestWithFeService {
         public HMSExternalTable getTableNullable(String tableName) {
             tableLookupCount.incrementAndGet();
             return null;
-        }
-
-        @Override
-        public boolean registerTable(TableIf tableIf) {
-            makeSureInitialized();
-            HMSExternalTable table = (HMSExternalTable) tableIf;
-            updateTableCache(table, table.getRemoteName(), table.getName(), false);
-            setLastUpdateTime(System.currentTimeMillis());
-            return true;
         }
 
         int getTableLookupCount() {
