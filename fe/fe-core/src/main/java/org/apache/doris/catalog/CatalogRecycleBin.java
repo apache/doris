@@ -29,6 +29,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
@@ -291,6 +292,39 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 && latency > Config.catalog_trash_expire_second * 1000L;
     }
 
+    /**
+     * Returns the effective TTL in milliseconds for a time-travel-enabled table in the recycle bin.
+     * The table's time_travel_retention_days is used as the TTL so that historical data remains
+     * available for the full retention window even after DROP TABLE.
+     * Returns -1 if the table does not have time travel enabled.
+     */
+    private long getTimeTravelExpireMs(long tableId) {
+        RecycleTableInfo info = idToTable.get(tableId);
+        if (info == null || !(info.getTable() instanceof OlapTable)) {
+            return -1;
+        }
+        OlapTable olapTable = (OlapTable) info.getTable();
+        if (!olapTable.isEnableTimeTravel()) {
+            return -1;
+        }
+        return (long) olapTable.getTimeTravelRetentionDays() * 86400L * 1000L;
+    }
+
+    private boolean isTableExpire(long tableId, long currentTimeMs) {
+        long ttExpireMs = getTimeTravelExpireMs(tableId);
+        if (ttExpireMs > 0) {
+            Long recycleTime = idToRecycleTime.get(tableId);
+            if (recycleTime == null) {
+                // Table was concurrently removed — treat as expired so the caller skips it cleanly.
+                return true;
+            }
+            long latency = currentTimeMs - recycleTime;
+            return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
+                    && latency > ttExpireMs;
+        }
+        return isExpire(tableId, currentTimeMs);
+    }
+
     private void eraseDatabase(long currentTimeMs, int keepNum) {
         int eraseNum = 0;
         StopWatch watch = StopWatch.createStarted();
@@ -451,7 +485,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             readLock();
             try {
                 for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
-                    if (isExpire(entry.getKey(), currentTimeMs)) {
+                    if (isTableExpire(entry.getKey(), currentTimeMs)) {
                         expiredIds.add(entry.getKey());
                     }
                 }
@@ -461,13 +495,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // 2. erase each expired table one at a time
             for (Long tableId : expiredIds) {
+                Table table = null;
                 writeLock();
                 try {
                     RecycleTableInfo tableInfo = idToTable.remove(tableId);
                     if (tableInfo == null) {
                         continue;
                     }
-                    Table table = tableInfo.getTable();
+                    table = tableInfo.getTable();
                     if (table.isManagedTable()) {
                         Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false);
                     }
@@ -486,6 +521,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 } finally {
                     writeUnlock();
                 }
+                // Remove FDB marker key outside the lock — RPC must not be held under lock.
+                // Time-travel retention has now expired.
+                InternalCatalog.disableTimeTravelMarkerIfNeeded(table);
             }
 
             // 3. erase exceed num
@@ -519,13 +557,21 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             readUnlock();
         }
         for (Long tableId : tableIdToErase) {
+            Table table = null;
             writeLock();
             try {
                 RecycleTableInfo tableInfo = idToTable.get(tableId);
                 if (tableInfo == null || !isExpireMinLatency(tableId, currentTimeMs)) {
                     continue;
                 }
-                Table table = tableInfo.getTable();
+                // Time-travel tables must not be evicted by keepNum before their retention
+                // window expires. Non-time-travel tables follow the original isExpireMinLatency
+                // check only (full TTL check happens in eraseTable, not here).
+                long ttExpireMs = getTimeTravelExpireMs(tableId);
+                if (ttExpireMs > 0 && !isTableExpire(tableId, currentTimeMs)) {
+                    continue;
+                }
+                table = tableInfo.getTable();
                 if (table.isManagedTable()) {
                     Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
                 }
@@ -543,6 +589,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             } finally {
                 writeUnlock();
             }
+            // Remove FDB marker key outside the lock — RPC must not be held under lock.
+            InternalCatalog.disableTimeTravelMarkerIfNeeded(table);
         }
     }
 
@@ -1219,6 +1267,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public void eraseTableInstantly(long tableId) throws DdlException {
         // 1. erase table
         RecycleTableInfo tableInfo;
+        Table erasedTable = null;
         writeLock();
         try {
             tableInfo = idToTable.get(tableId);
@@ -1228,6 +1277,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
                     Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
                 }
+                erasedTable = table;
 
                 idToTable.remove(tableId);
                 idToRecycleTime.remove(tableId);
@@ -1244,6 +1294,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         } finally {
             writeUnlock();
         }
+        // Remove FDB marker key outside the lock — RPC must not be held under lock.
+        InternalCatalog.disableTimeTravelMarkerIfNeeded(erasedTable);
 
         // 2. collect partitions with same tableId
         List<Long> partitionIdToErase = new ArrayList<>();

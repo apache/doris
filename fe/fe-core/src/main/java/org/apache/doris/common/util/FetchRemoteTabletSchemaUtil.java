@@ -227,7 +227,7 @@ public class FetchRemoteTabletSchemaUtil {
         });
     }
 
-    private Column initColumnFromPB(ColumnPB column) throws AnalysisException {
+    public static Column initColumnFromPB(ColumnPB column) throws AnalysisException {
         try {
             AggregateType aggType = AggregateType.getAggTypeFromAggName(column.getAggregation());
             Type type = getTypeFromTypeName(column.getType(), column.getPrecision(), column.getFrac());

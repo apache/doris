@@ -20,8 +20,11 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <map>
+#include <optional>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -218,6 +221,17 @@ public:
 
     virtual bool is_version_write_enabled(std::string_view instance_id) const;
 
+    // Returns true if the given table has time travel enabled.
+    // Used by meta_service_txn to write versioned partition keys per-table
+    // without enabling MULTI_VERSION_WRITE_ONLY for the whole instance.
+    virtual bool is_table_time_travel_enabled(std::string_view instance_id, int64_t table_id) const;
+
+    // Called by CreateTablets RPC when time_travel_retention_days > 0.
+    virtual void register_time_travel_table(const std::string& instance_id, int64_t table_id);
+
+    // Called by DisableTimeTravelTable RPC; evicts both positive and negative caches.
+    virtual void unregister_time_travel_table(const std::string& instance_id, int64_t table_id);
+
     virtual bool get_source_snapshot_info(const std::string& instance_id,
                                           std::string* source_instance_id,
                                           Versionstamp* source_snapshot_version);
@@ -231,12 +245,21 @@ private:
 
     MultiVersionStatus get_instance_multi_version_status(std::string_view instance_id) const;
 
+    // FDB point read for the time-travel marker key.
+    // Returns true/false on definitive result, nullopt on transient FDB error (must not be cached).
+    std::optional<bool> check_time_travel_in_fdb(const std::string& instance_id,
+                                                 int64_t table_id) const;
+
     mutable std::shared_mutex mtx_;
     // cloud_unique_id -> NodeInfo
     std::multimap<std::string, NodeInfo> node_info_;
 
     // instance_id -> MultiVersionStatus
     std::unordered_map<std::string, MultiVersionStatus> instance_multi_version_status_;
+    // instance_id → table_ids with time travel enabled; lazily populated on cache miss.
+    mutable std::unordered_map<std::string, std::unordered_set<int64_t>> time_travel_tables_;
+    // Tables confirmed NOT to have time travel; avoids repeated FDB reads for non-TT tables.
+    mutable std::unordered_map<std::string, std::unordered_set<int64_t>> time_travel_neg_cache_;
 
     // instance_id -> (source_instance_id, source_snapshot_version)
     std::unordered_map<std::string, std::pair<std::string, Versionstamp>>

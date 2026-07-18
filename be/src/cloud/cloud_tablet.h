@@ -66,6 +66,9 @@ struct SyncOptions {
     bool full_sync = false;
     bool merge_schema = false;
     int64_t query_version = -1;
+    // Time travel: if > 0, cap the delete bitmap fetch to this version so MoW
+    // tables see the correct historical delete state instead of current state.
+    int64_t delete_bitmap_max_version = -1;
 };
 
 struct RecycledRowsets {
@@ -154,6 +157,13 @@ public:
     void add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
                      std::unique_lock<BthreadSharedMutex>& meta_lock,
                      bool warmup_delta_data = false);
+
+    // Build a read source for spec_version, merging tt_extra_rowsets for compacted-away versions.
+    // Does not modify shared tablet state; caller provides pre-compaction rowsets from FDB.
+    Status capture_rs_readers_with_tt_rowsets(const Version& spec_version,
+                                              const std::vector<RowsetSharedPtr>& tt_extra_rowsets,
+                                              std::vector<RowSetSplits>* rs_splits,
+                                              bool skip_missing_version = false);
 
     // MUST hold EXCLUSIVE `_meta_lock`.
     void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,

@@ -48,6 +48,13 @@ namespace doris::cloud {
 
 static constexpr std::string_view kMetaSyncPointDummyKey = "__meta_service_sync_point_dummy_key__";
 
+// Returns true if a versioned partition key should be written.
+// True when instance-level versioned writes are enabled OR the table has time travel enabled.
+static inline bool should_write_versioned(bool is_versioned_write, ResourceManager* resource_mgr,
+                                          const std::string& instance_id, int64_t table_id) {
+    return is_versioned_write || resource_mgr->is_table_time_travel_enabled(instance_id, table_id);
+}
+
 struct TableStats {
     int64_t updated_row_count = 0;
 
@@ -1798,6 +1805,7 @@ void MetaServiceImpl::commit_txn_immediately(
         int64_t version_update_time_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         response->set_version_update_time_ms(version_update_time_ms);
+
         for (auto& [partition_id, version] : versions) {
             int64_t new_version = version + 1;
             std::string ver_val;
@@ -1821,12 +1829,16 @@ void MetaServiceImpl::commit_txn_immediately(
 
             VLOG_DEBUG << " table_id=" << table_id << " partition_id=" << partition_id;
 
-            if (is_versioned_write) {
+            // Write a versioned partition key for instance-level versioned writes or
+            // per-table time-travel-enabled tables.
+            bool write_versioned = should_write_versioned(is_versioned_write, resource_mgr_.get(),
+                                                          instance_id, table_id);
+            if (write_versioned) {
                 std::string partition_version_key =
                         versioned::partition_version_key({instance_id, partition_id});
                 versioned_put(txn.get(), partition_version_key, ver_val);
-                LOG(INFO) << "put versioned partition key=" << hex(partition_version_key)
-                          << ", txn_id=" << txn_id;
+                VLOG(1) << "put versioned partition key=" << hex(partition_version_key)
+                        << ", txn_id=" << txn_id;
             }
 
             response->add_table_ids(table_id);
@@ -2500,12 +2512,13 @@ void MetaServiceImpl::commit_txn_eventually(
             VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                        << " partition_id=" << partition_id << " version=" << version;
 
-            if (is_versioned_write) {
+            if (should_write_versioned(is_versioned_write, resource_mgr_.get(), instance_id,
+                                       table_id)) {
                 std::string partition_version_key =
                         versioned::partition_version_key({instance_id, partition_id});
                 versioned_put(txn.get(), partition_version_key, ver_val);
-                LOG(INFO) << "put versioned partition key=" << hex(partition_version_key)
-                          << ", txn_id=" << txn_id;
+                VLOG(1) << "put versioned partition key=" << hex(partition_version_key)
+                        << ", txn_id=" << txn_id;
             }
 
             int64_t new_version = version + 1;
@@ -3025,12 +3038,13 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                        << " partition_id=" << partition_id << " version=" << new_version;
 
-            if (is_versioned_write) {
+            if (should_write_versioned(is_versioned_write, resource_mgr_.get(), instance_id,
+                                       table_id)) {
                 std::string partition_version_key =
                         versioned::partition_version_key({instance_id, partition_id});
                 versioned_put(txn.get(), partition_version_key, ver_val);
-                LOG(INFO) << "put versioned partition key=" << hex(partition_version_key)
-                          << ", txn_id=" << txn_id;
+                VLOG(1) << "put versioned partition key=" << hex(partition_version_key)
+                        << ", txn_id=" << txn_id;
             }
             commit_txn_log.mutable_partition_version_map()->insert({partition_id, new_version});
 

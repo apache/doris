@@ -439,6 +439,7 @@ import org.apache.doris.nereids.DorisParser.ShowTableCreationContext;
 import org.apache.doris.nereids.DorisParser.ShowTableIdContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
+import org.apache.doris.nereids.DorisParser.ShowTimeTravelContext;
 import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
 import org.apache.doris.nereids.DorisParser.ShowUserPropertiesContext;
@@ -887,6 +888,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTimeTravelCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
@@ -2769,7 +2771,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         TableSnapshot tableSnapshot = null;
         if (ctx.tableSnapshot() != null) {
-            if (ctx.tableSnapshot().TIME() != null) {
+            if (ctx.tableSnapshot().SYSTEM_TIME() != null) {
+                tableSnapshot = TableSnapshot.systemTimeOf(
+                        stripQuotes(ctx.tableSnapshot().systemTime.getText()));
+            } else if (ctx.tableSnapshot().TIME() != null) {
                 tableSnapshot = TableSnapshot.timeOf(stripQuotes(ctx.tableSnapshot().time.getText()));
             } else {
                 tableSnapshot = TableSnapshot.versionOf(stripQuotes(ctx.tableSnapshot().version.getText()));
@@ -6662,6 +6667,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowTimeTravel(ShowTimeTravelContext ctx) {
+        java.util.List<String> name = visitMultipartIdentifier(ctx.name);
+        String start = ctx.start != null ? stripQuotes(ctx.start.getText()) : null;
+        String end = ctx.end != null ? stripQuotes(ctx.end.getText()) : null;
+        return new ShowTimeTravelCommand(name, start, end);
+    }
+
+    @Override
     public LogicalPlan visitShowTriggers(ShowTriggersContext ctx) {
         return new ShowTriggersCommand();
     }
@@ -6800,7 +6813,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private TableSnapshot visitTableSnapshotContext(TableSnapshotContext ctx) {
         if (ctx != null) {
-            if (ctx.TIME() != null) {
+            if (ctx.SYSTEM_TIME() != null) {
+                return TableSnapshot.systemTimeOf(stripQuotes(ctx.systemTime.getText()));
+            } else if (ctx.TIME() != null) {
                 return TableSnapshot.timeOf(stripQuotes(ctx.time.getText()));
             } else {
                 return TableSnapshot.versionOf(stripQuotes(ctx.version.getText()));

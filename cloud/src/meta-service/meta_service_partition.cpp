@@ -27,6 +27,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
+#include "meta-store/codec.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
@@ -434,6 +435,9 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     }
 
     std::string to_save_val;
+    // Check TT once — avoids extra FDB GET; result reused if TT lifecycle key write is needed.
+    bool tt_enabled_idx =
+            resource_mgr_->is_table_time_travel_enabled(instance_id, request->table_id());
     {
         RecycleIndexPB pb;
         pb.set_db_id(request->db_id());
@@ -441,6 +445,12 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         pb.set_creation_time(::time(nullptr));
         pb.set_expiration(request->expiration());
         pb.set_state(RecycleIndexPB::DROPPED);
+        if (tt_enabled_idx) {
+            using namespace std::chrono;
+            int64_t now_ms =
+                    duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            pb.set_dropped_ms(now_ms);
+        }
         pb.SerializeToString(&to_save_val);
     }
     bool need_commit = false;
@@ -959,6 +969,8 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         return;
     }
     std::string to_save_val;
+    // Check TT once here — result reused for both dropped_ms and lifecycle key write below.
+    bool tt_enabled = resource_mgr_->is_table_time_travel_enabled(instance_id, request->table_id());
     {
         RecyclePartitionPB pb;
         if (request->db_id() > 0) pb.set_db_id(request->db_id());
@@ -967,6 +979,12 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         pb.set_creation_time(::time(nullptr));
         pb.set_expiration(request->expiration());
         pb.set_state(RecyclePartitionPB::DROPPED);
+        if (tt_enabled) {
+            using namespace std::chrono;
+            int64_t now_ms =
+                    duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            pb.set_dropped_ms(now_ms);
+        }
         pb.SerializeToString(&to_save_val);
     }
     bool need_commit = false;
@@ -1103,6 +1121,57 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit txn: {}", err);
         return;
+    }
+
+    // Write TT partition lifecycle key in a separate non-fatal transaction.
+    // This lets the recycler defer tablet deletion and the meta service return
+    // dropped-partition info during time travel queries.
+    if (tt_enabled) {
+        using namespace std::chrono;
+        int64_t now_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        std::unique_ptr<Transaction> lc_txn;
+        if (txn_kv_->create_txn(&lc_txn) == TxnErrorCode::TXN_OK) {
+            for (auto part_id : request->partition_ids()) {
+                TtPartitionLifecyclePB lc;
+                lc.set_dropped_ms(now_ms);
+
+                // meta_tablet_key trailing layout: table_id + index_id + partition_id + tablet_id(9).
+                // Tablet ID is the last 9 bytes.
+                for (auto index_id : request->index_ids()) {
+                    std::string tk_begin, tk_end;
+                    meta_tablet_key({instance_id, request->table_id(), index_id, part_id, 0},
+                                    &tk_begin);
+                    meta_tablet_key({instance_id, request->table_id(), index_id, part_id,
+                                     std::numeric_limits<int64_t>::max()},
+                                    &tk_end);
+                    tk_end.push_back('\xff');
+                    std::unique_ptr<RangeGetIterator> iter;
+                    if (lc_txn->get(tk_begin, tk_end, &iter) != TxnErrorCode::TXN_OK || !iter) {
+                        continue;
+                    }
+                    while (iter->has_next()) {
+                        auto [k, v] = iter->next();
+                        if (k.size() < 9) continue;
+                        std::string_view tid_sv = k.substr(k.size() - 9);
+                        int64_t tablet_id = 0;
+                        if (decode_int64(&tid_sv, &tablet_id) == 0 && tablet_id > 0) {
+                            lc.add_tablet_ids(tablet_id);
+                        }
+                    }
+                }
+
+                std::string lc_key =
+                        tt_partition_lifecycle_key({instance_id, request->table_id(), part_id});
+                lc_txn->put(lc_key, lc.SerializeAsString());
+            }
+            if (lc_txn->commit() != TxnErrorCode::TXN_OK) {
+                LOG_WARNING(
+                        "failed to write TT partition lifecycle keys — time travel across "
+                        "this drop event will not be queryable")
+                        .tag("table_id", request->table_id());
+            }
+        }
     }
 
     // set table version in response

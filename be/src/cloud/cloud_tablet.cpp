@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 #include <bvar/latency_recorder.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
@@ -43,6 +44,7 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "cloud/pb_convert.h"
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -307,15 +309,23 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
                 _max_version = stale_version;
             }
         });
-        auto lock_start = std::chrono::steady_clock::now();
-        std::shared_lock rlock(_meta_lock);
-        if (stats) {
-            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                                std::chrono::steady_clock::now() - lock_start)
-                                                .count();
-        }
-        if (_max_version >= options.query_version) {
-            return Status::OK();
+        // For time-travel queries we must NOT short-circuit even when
+        // _max_version >= query_version.  The hot-cache rowset chain was built
+        // for the CURRENT version and may be missing the initial base rowset
+        // needed to form a complete [0, tt_version] chain.  Skipping the sync
+        // causes capture_read_source({0, tt_version}) to return no rowsets and
+        // the query returns 0 rows from the affected tablets.
+        if (options.delete_bitmap_max_version < 0) {
+            auto lock_start = std::chrono::steady_clock::now();
+            std::shared_lock rlock(_meta_lock);
+            if (stats) {
+                stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                    std::chrono::steady_clock::now() - lock_start)
+                                                    .count();
+            }
+            if (_max_version >= options.query_version) {
+                return Status::OK();
+            }
         }
     }
 
@@ -327,7 +337,7 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
                                                  std::chrono::steady_clock::now() - sync_lock_start)
                                                  .count();
     }
-    if (options.query_version > 0) {
+    if (options.query_version > 0 && options.delete_bitmap_max_version < 0) {
         auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
         if (stats) {
@@ -518,6 +528,52 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     }
 
     _tablet_meta->modify_rs_metas({}, rs_metas, false);
+}
+
+Status CloudTablet::capture_rs_readers_with_tt_rowsets(
+        const Version& spec_version, const std::vector<RowsetSharedPtr>& tt_extra_rowsets,
+        std::vector<RowSetSplits>* rs_splits, bool skip_missing_version) {
+    // Build a version path from the shared rowset map, then merge in tt_extra_rowsets
+    // for versions already compacted away. Only a shared lock is held; tablet state is unchanged.
+    std::shared_lock rlock(_meta_lock);
+
+    std::vector<RowsetSharedPtr> path;
+    for (auto& [ver, rs] : _rs_version_map) {
+        if (ver.second <= spec_version.second) path.push_back(rs);
+    }
+    for (auto& rs : tt_extra_rowsets) {
+        if (!rs || rs->end_version() > spec_version.second) continue;
+        bool covered = std::any_of(path.begin(), path.end(), [&rs](const RowsetSharedPtr& a) {
+            return a->start_version() <= rs->start_version() &&
+                   rs->end_version() <= a->end_version();
+        });
+        if (!covered) path.push_back(rs);
+    }
+
+    std::sort(path.begin(), path.end(), [](const RowsetSharedPtr& a, const RowsetSharedPtr& b) {
+        return a->start_version() < b->start_version();
+    });
+
+    int64_t expected = 0;
+    for (auto& rs : path) {
+        if (rs->start_version() != expected) {
+            if (!skip_missing_version) {
+                return Status::Error<ErrorCode::CAPTURE_ROWSET_READER_ERROR>(
+                        "missed versions: expected {} got {} tablet={}", expected,
+                        rs->start_version(), tablet_id());
+            }
+            break;
+        }
+        expected = rs->end_version() + 1;
+    }
+
+    rs_splits->clear();
+    for (auto& rs : path) {
+        RowsetReaderSharedPtr reader;
+        RETURN_IF_ERROR(rs->create_reader(&reader));
+        rs_splits->push_back({std::move(reader)});
+    }
+    return Status::OK();
 }
 
 void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,

@@ -306,6 +306,14 @@ public:
     // returns 0 for success otherwise error
     int recycle_rowsets();
 
+    // Scan and delete expired TT compaction checkpoint entries (tt_compaction_key).
+    // An entry expires when created_ms/1000 + table's retention_seconds < now.
+    int recycle_tt_compaction();
+
+    // Delete expired tt_partition_lifecycle_key entries (written at DROP PARTITION / TRUNCATE)
+    // and expired tt_schema_history_key entries (written at schema change completion).
+    int recycle_tt_metadata_keys();
+
     // like `recycle_rowsets`, but for versioned rowsets.
     int recycle_versioned_rowsets();
 
@@ -322,6 +330,12 @@ public:
      */
     int recycle_tablets(int64_t table_id, int64_t index_id, RecyclerMetricsContext& ctx,
                         int64_t partition_id = -1);
+
+    /**
+     * Returns the time-travel retention seconds for a table (0 = TT not enabled).
+     * Reads one tablet meta for the table. Callers should cache the result.
+     */
+    int64_t get_tt_retention_seconds_for_table(int64_t table_id);
 
     /**
      * recycle all rowsets belonging to the tablet specified by `tablet_id`

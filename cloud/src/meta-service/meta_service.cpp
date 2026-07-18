@@ -387,12 +387,670 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
     code = cast_as<ErrCategory::READ>(err);
 }
 
+// Reverse-scans versioned partition-version history and returns the highest committed
+// version whose update_time_ms <= timestamp_ms. Returns -1 if none found, -2 on FDB error.
+static int64_t resolve_version_at_time(Transaction* txn, const std::string& instance_id,
+                                       int64_t partition_id, int64_t timestamp_ms,
+                                       int64_t* out_update_time_ms = nullptr) {
+    if (partition_id == std::numeric_limits<int64_t>::max()) {
+        return -1;
+    }
+    // Reverse scan from Versionstamp::max() down to the bare prefix so the
+    // first hit is the most recently committed version. Versionstamp::max() as
+    // the end ensures the range covers all entries for this partition.
+    std::string begin_key = versioned::partition_version_key({instance_id, partition_id});
+    std::string end_key = begin_key;
+    encode_versionstamp(Versionstamp::max(), &end_key);
+
+    FullRangeGetOptions options;
+    options.reverse = true;
+    options.begin_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+    options.end_key_selector = RangeKeySelector::FIRST_GREATER_THAN;
+
+    std::unique_ptr<FullRangeGetIterator> iter =
+            txn->full_range_get(begin_key, end_key, std::move(options));
+
+    while (iter->is_valid()) {
+        auto item = iter->next();
+        if (!item.has_value()) break;
+
+        std::string_view raw_key = item->first;
+        std::string_view raw_value = item->second;
+
+        // Strip the trailing versionstamp suffix before deserialising the value.
+        std::string_view key_no_vs = raw_key;
+        Versionstamp vs;
+        if (decode_tailing_versionstamp_end(&key_no_vs) ||
+            decode_tailing_versionstamp(&key_no_vs, &vs)) {
+            // Not a versioned key — skip.
+            continue;
+        }
+
+        VersionPB version_pb;
+        if (!version_pb.ParseFromString(std::string(raw_value))) {
+            continue;
+        }
+        if (version_pb.update_time_ms() <= timestamp_ms) {
+            if (out_update_time_ms) {
+                *out_update_time_ms = version_pb.update_time_ms();
+            }
+            return version_pb.version();
+        }
+    }
+    if (!iter->is_valid() && iter->error_code() != TxnErrorCode::TXN_OK) {
+        return -2; // FDB scan error
+    }
+    return -1; // no version at or before timestamp_ms
+}
+
+// Appends historically-alive dropped partitions to the response by scanning
+// tt_partition_lifecycle_key. Called from both batch and single-partition paths.
+static void fill_dropped_partitions(TxnKv* txn_kv, const std::string& instance_id, int64_t table_id,
+                                    int64_t timestamp_ms, GetVersionAtTimeResponse* response) {
+    std::string lc_begin, lc_end;
+    tt_partition_lifecycle_key({instance_id, table_id, 0}, &lc_begin);
+    tt_partition_lifecycle_key({instance_id, table_id, std::numeric_limits<int64_t>::max()},
+                               &lc_end);
+    lc_end.push_back('\xff');
+
+    std::unique_ptr<Transaction> lc_txn;
+    if (txn_kv->create_txn(&lc_txn) != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn for dropped partition scan").tag("table_id", table_id);
+        return;
+    }
+
+    std::unique_ptr<RangeGetIterator> iter;
+    if (lc_txn->get(lc_begin, lc_end, &iter) != TxnErrorCode::TXN_OK || !iter) return;
+
+    while (iter->has_next()) {
+        auto [k, v] = iter->next();
+        TtPartitionLifecyclePB lc;
+        if (!lc.ParseFromArray(v.data(), v.size())) continue;
+        // Only include partitions dropped AFTER timestamp_ms (alive at T).
+        if (!lc.has_dropped_ms() || lc.dropped_ms() == 0 || lc.dropped_ms() <= timestamp_ms) {
+            continue;
+        }
+        if (k.size() < 9) continue;
+        std::string_view pid_sv = k.substr(k.size() - 9);
+        int64_t partition_id = 0;
+        if (decode_int64(&pid_sv, &partition_id) != 0 || partition_id == 0) continue;
+
+        int64_t dp_update_ms = -1;
+        int64_t dp_version = resolve_version_at_time(lc_txn.get(), instance_id, partition_id,
+                                                     timestamp_ms, &dp_update_ms);
+
+        auto* dp = response->add_dropped_partitions();
+        dp->set_partition_id(partition_id);
+        dp->set_version(dp_version);
+        dp->set_version_update_time_ms(dp_update_ms);
+
+        for (int64_t tid : lc.tablet_ids()) dp->add_tablet_ids(tid);
+
+        if (dp_version <= 0) continue;
+
+        for (int64_t tablet_id : lc.tablet_ids()) {
+            auto* row = dp->add_tablet_rowsets();
+            row->set_tablet_id(tablet_id);
+
+            std::string ck_begin, ck_end;
+            tt_compaction_key({instance_id, tablet_id, 0, 0}, &ck_begin);
+            tt_compaction_key({instance_id, tablet_id, std::numeric_limits<int64_t>::max(),
+                               std::numeric_limits<int64_t>::max()},
+                              &ck_end);
+            ck_end.push_back('\xff');
+
+            std::unique_ptr<RangeGetIterator> ck_iter;
+            if (lc_txn->get(ck_begin, ck_end, &ck_iter) != TxnErrorCode::TXN_OK || !ck_iter) {
+                continue;
+            }
+
+            int64_t best_start = std::numeric_limits<int64_t>::max();
+            std::string best_val;
+            bool found = false;
+            while (ck_iter->has_next()) {
+                auto [ck, cv] = ck_iter->next();
+                if (ck.size() < 18) continue;
+                std::string_view sv = ck.substr(ck.size() - 18, 9);
+                std::string_view ev = ck.substr(ck.size() - 9);
+                int64_t start_v = 0, end_v = 0;
+                if (decode_int64(&sv, &start_v) != 0) continue;
+                if (decode_int64(&ev, &end_v) != 0) continue;
+                if (start_v <= dp_version && dp_version <= end_v) {
+                    if (!found || start_v < best_start) {
+                        best_start = start_v;
+                        best_val = std::string(cv);
+                        found = true;
+                    }
+                }
+            }
+            if (!found) continue;
+
+            TtCompactionManifestPB checkpoint;
+            if (!checkpoint.ParseFromString(best_val)) continue;
+            for (const auto& entry : checkpoint.entries()) {
+                if (!entry.has_rowset_meta() || entry.version() > dp_version) continue;
+                *row->add_rowset_metas() = entry.rowset_meta();
+            }
+        }
+    }
+}
+
+// Resolves a wall-clock timestamp_ms to the highest committed partition version
+// whose update_time_ms <= timestamp_ms. Supports batch and single-partition modes.
+void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* controller,
+                                          const GetVersionAtTimeRequest* request,
+                                          GetVersionAtTimeResponse* response,
+                                          ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_version_at_time, get);
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+
+    if (!request->has_timestamp_ms()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "timestamp_ms is required";
+        return;
+    }
+
+    int64_t timestamp_ms = request->timestamp_ms();
+    int32_t retention_days = request->has_retention_days() ? request->retention_days() : 90;
+
+    // Validate timestamp window — same logic for both single and batch.
+    using namespace std::chrono;
+    int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    int64_t earliest_ms = now_ms - static_cast<int64_t>(retention_days) * 86400LL * 1000LL;
+    if (timestamp_ms < earliest_ms) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format(
+                "Requested timestamp {} ms is beyond the time travel retention window of {} days. "
+                "Earliest available timestamp is approximately {} ms.",
+                timestamp_ms, retention_days, earliest_ms);
+        return;
+    }
+    // Allow configurable clock skew to prevent spurious future-timestamp rejections.
+    if (timestamp_ms > now_ms + config::time_travel_clock_skew_tolerance_ms) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("Requested timestamp {} ms is in the future (now={} ms).", timestamp_ms,
+                          now_ms);
+        return;
+    }
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Batch mode: resolve timestamp for multiple partitions in one RPC.
+    // FE calls this after partition pruning; all partitions share the same timestamp_ms.
+    // -----------------------------------------------------------------------
+    if (request->batch_mode() && request->partition_ids_size() > 0) {
+        int n = request->partition_ids_size();
+        if (request->db_ids_size() != n || request->table_ids_size() != n) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "batch mode: db_ids, table_ids, partition_ids must have the same length";
+            return;
+        }
+        // Resolve all partitions before writing the response to avoid partial output on error.
+        std::vector<int64_t> resolved_versions(n);
+        std::vector<int64_t> resolved_times(n);
+        for (int i = 0; i < n; ++i) {
+            int64_t update_time_ms = -1;
+            int64_t version =
+                    resolve_version_at_time(txn.get(), instance_id, request->partition_ids(i),
+                                            timestamp_ms, &update_time_ms);
+            if (version == -2) {
+                code = MetaServiceCode::KV_TXN_GET_ERR;
+                msg = fmt::format("FDB scan error during time travel for partition {}",
+                                  request->partition_ids(i));
+                return;
+            }
+            resolved_versions[i] = version;
+            resolved_times[i] = update_time_ms;
+        }
+        for (int i = 0; i < n; ++i) {
+            response->add_versions(resolved_versions[i]);
+            response->add_version_update_times_ms(resolved_times[i]);
+        }
+
+        // Fetch compaction checkpoints in the same FDB transaction to avoid an extra RPC.
+        // For each tablet, find the checkpoint whose version range covers the resolved version.
+        if (request->tablet_infos_size() == n) {
+            for (int i = 0; i < n; ++i) {
+                int64_t version = resolved_versions[i];
+                if (version <= 0) continue;
+                const auto& info = request->tablet_infos(i);
+                for (int64_t tablet_id : info.tablet_ids()) {
+                    auto* row = response->add_tablet_rowsets();
+                    row->set_tablet_id(tablet_id);
+
+                    // Select the checkpoint whose [start_v, end_v] covers the query version,
+                    // preferring the lowest start_version to include all pre-compaction rowsets.
+                    // Each encoded int64 in the key is 9 bytes (1 tag + 8 data).
+                    std::string ck_begin, ck_end;
+                    tt_compaction_key({instance_id, tablet_id, 0, 0}, &ck_begin);
+                    tt_compaction_key({instance_id, tablet_id, std::numeric_limits<int64_t>::max(),
+                                       std::numeric_limits<int64_t>::max()},
+                                      &ck_end);
+                    ck_end.push_back('\xff');
+
+                    std::unique_ptr<RangeGetIterator> ck_iter;
+                    bool found_checkpoint = false;
+                    if (txn->get(ck_begin, ck_end, &ck_iter) == TxnErrorCode::TXN_OK && ck_iter) {
+                        // Trailing key layout: start_v(9) + end_v(9) = 18 bytes.
+                        int64_t best_start = INT64_MAX;
+                        std::string best_val;
+                        while (ck_iter->has_next()) {
+                            auto [k, v] = ck_iter->next();
+                            if (k.size() < 18) continue;
+                            std::string_view sv = k.substr(k.size() - 18, 9);
+                            std::string_view ev = k.substr(k.size() - 9, 9);
+                            int64_t start_v = 0, end_v = 0;
+                            if (decode_int64(&sv, &start_v) != 0) continue;
+                            if (decode_int64(&ev, &end_v) != 0) continue;
+                            if (start_v <= version && version <= end_v) {
+                                if (start_v < best_start) {
+                                    best_start = start_v;
+                                    best_val = std::string(v);
+                                }
+                                found_checkpoint = true;
+                            }
+                        }
+                        if (found_checkpoint && !best_val.empty()) {
+                            TtCompactionManifestPB checkpoint;
+                            if (checkpoint.ParseFromString(best_val)) {
+                                for (const auto& entry : checkpoint.entries()) {
+                                    if (entry.version() <= version && entry.has_rowset_meta()) {
+                                        row->add_rowset_metas()->CopyFrom(entry.rowset_meta());
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // No checkpoint: version is still in the active rowset chain; drop the
+                    // empty entry. If a checkpoint was found but had no entries at this
+                    // version (0 rows), keep the entry — BE uses it to take the TT read path.
+                    if (row->rowset_metas_size() == 0 && !found_checkpoint) {
+                        response->mutable_tablet_rowsets()->RemoveLast();
+                    }
+                }
+            }
+        }
+
+        // Append dropped partitions that were alive at timestamp_ms (if requested).
+        if (request->has_table_id_for_tt() && request->table_id_for_tt() > 0) {
+            fill_dropped_partitions(txn_kv_.get(), instance_id, request->table_id_for_tt(),
+                                    timestamp_ms, response);
+        }
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Single-partition mode (direct BE call, no batch).
+    // -----------------------------------------------------------------------
+    if (!request->has_partition_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "partition_id is required in single-partition mode";
+        return;
+    }
+
+    int64_t update_time_ms = -1;
+    int64_t version = resolve_version_at_time(txn.get(), instance_id, request->partition_id(),
+                                              timestamp_ms, &update_time_ms);
+    if (version == -2) {
+        code = MetaServiceCode::KV_TXN_GET_ERR;
+        msg = fmt::format("FDB scan error during time travel for partition {}",
+                          request->partition_id());
+        return;
+    }
+    if (version < 0) {
+        code = MetaServiceCode::VERSION_NOT_FOUND;
+        msg = fmt::format(
+                "No committed version found for partition {} at or before timestamp {} ms. "
+                "The table may not have had any data at that time.",
+                request->partition_id(), timestamp_ms);
+        return;
+    }
+    response->set_version(version);
+    response->set_version_update_time_ms(update_time_ms);
+
+    // Append dropped partitions that were alive at timestamp_ms (if requested).
+    if (request->has_table_id_for_tt() && request->table_id_for_tt() > 0) {
+        fill_dropped_partitions(txn_kv_.get(), instance_id, request->table_id_for_tt(),
+                                timestamp_ms, response);
+    }
+}
+
+void MetaServiceImpl::get_tt_schema_at_time(::google::protobuf::RpcController* controller,
+                                            const GetTtSchemaAtTimeRequest* request,
+                                            GetTtSchemaAtTimeResponse* response,
+                                            ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_tt_schema_at_time, get);
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    if (!request->has_table_id() || request->table_id() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing or invalid table_id";
+        return;
+    }
+    if (!request->has_timestamp_ms()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing timestamp_ms";
+        return;
+    }
+
+    int64_t table_id = request->table_id();
+    int64_t timestamp_ms = request->timestamp_ms();
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    // Scan all schema history entries for this table and find the one with
+    // the highest effective_ms that is still <= timestamp_ms.
+    std::string sh_begin, sh_end;
+    tt_schema_history_key({instance_id, table_id, 0}, &sh_begin);
+    tt_schema_history_key({instance_id, table_id, std::numeric_limits<int64_t>::max()}, &sh_end);
+    sh_end.push_back('\xff');
+
+    std::unique_ptr<RangeGetIterator> iter;
+    err = txn->get(sh_begin, sh_end, &iter);
+    if (err != TxnErrorCode::TXN_OK || !iter) {
+        // No schema history recorded — respond OK with no schema_pb.
+        // FE will use the current table schema.
+        return;
+    }
+
+    int64_t best_effective_ms = -1;
+    int64_t best_schema_version = -1;
+    std::string best_schema_pb;
+
+    while (iter->has_next()) {
+        auto [k, v] = iter->next();
+        TtSchemaHistoryPB sh;
+        if (!sh.ParseFromArray(v.data(), v.size())) continue;
+        if (!sh.has_effective_ms() || sh.effective_ms() > timestamp_ms) continue;
+        if (sh.effective_ms() > best_effective_ms) {
+            best_effective_ms = sh.effective_ms();
+            best_schema_version = sh.schema_version();
+            if (sh.has_schema_pb()) best_schema_pb = sh.schema_pb();
+        }
+    }
+
+    if (best_effective_ms >= 0 && !best_schema_pb.empty()) {
+        response->set_schema_pb(best_schema_pb);
+        response->set_effective_ms(best_effective_ms);
+        response->set_schema_version(best_schema_version);
+    }
+    // If no matching entry: OK with no schema_pb → FE uses current schema.
+}
+
+void MetaServiceImpl::show_time_travel(::google::protobuf::RpcController* controller,
+                                       const ShowTimeTravelRequest* request,
+                                       ShowTimeTravelResponse* response,
+                                       ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(show_time_travel, get);
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    if (!request->has_table_id() || request->partition_ids_size() == 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "table_id and partition_ids are required";
+        return;
+    }
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    using namespace std::chrono;
+    int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    // Use retention_days sent by FE (from table.getTimeTravelRetentionDays()).
+    // This is the correct per-table value — no FDB read needed.
+    int64_t retention_days = (request->has_retention_days() && request->retention_days() > 0 &&
+                              request->retention_days() <= 90)
+                                     ? request->retention_days()
+                                     : 7;
+
+    int64_t earliest_ms = now_ms - retention_days * 86400LL * 1000LL;
+    response->set_earliest_ms(earliest_ms);
+
+    int64_t scan_start_ms = request->has_start_ms() ? request->start_ms() : earliest_ms;
+    int64_t scan_end_ms = request->has_end_ms() ? request->end_ms() : now_ms;
+    int32_t limit = request->has_limit() && request->limit() > 0 ? request->limit() : 20;
+    // Collect all {update_time_ms, version} pairs across all partitions.
+    // For each partition, step backwards through commits using resolve_version_at_time.
+    // Collect limit+1 to detect whether more exist beyond the display window.
+    std::map<int64_t, int64_t, std::greater<int64_t>> snapshot_map;
+
+    for (int64_t partition_id : request->partition_ids()) {
+        int64_t scan_end = scan_end_ms;
+        while ((int32_t)snapshot_map.size() <= limit) { // collect up to limit+1
+            int64_t update_ms = -1;
+            int64_t ver = resolve_version_at_time(txn.get(), instance_id, partition_id, scan_end,
+                                                  &update_ms);
+            if (ver <= 0 || update_ms < 0) break;
+            if (update_ms < scan_start_ms) break;
+
+            auto it = snapshot_map.find(update_ms);
+            if (it == snapshot_map.end() || ver > it->second) {
+                snapshot_map[update_ms] = ver;
+            }
+            scan_end = update_ms - 1; // step back before this commit
+        }
+    }
+
+    bool has_more = (int32_t)snapshot_map.size() > limit;
+
+    int64_t total =
+            static_cast<int64_t>(has_more ? limit : static_cast<int32_t>(snapshot_map.size()));
+    response->set_total_count(total);
+    // Signal "has more" by returning limit+1 snapshots in the repeated field.
+    // FE detects: if snapshots_size() > requested_limit → has_more.
+
+    // Emit newest-first up to limit. If has_more, also emit the (limit+1)th entry
+    // so the FE can detect truncation via getSnapshotsCount() > limit.
+    // first_data_ms tracks oldest of the displayed (first limit) entries.
+    int64_t first_ms = -1;
+    int32_t emitted = 0;
+    for (auto& [t, ver] : snapshot_map) {
+        auto* snap = response->add_snapshots();
+        snap->set_commit_time_ms(t);
+        snap->set_version(ver);
+        ++emitted;
+        if (emitted <= limit && (first_ms < 0 || t < first_ms)) first_ms = t;
+        if (emitted > limit) break; // emitted limit+1, FE detects has_more
+    }
+    if (first_ms >= 0) response->set_first_data_ms(first_ms);
+
+    // Phase A: collect historical partition IDs from lifecycle keys.
+    // Fully exhaust the iterator and destroy lc_txn before any version resolution.
+    if (request->has_table_id() && request->table_id() > 0) {
+        std::string lc_begin, lc_end;
+        tt_partition_lifecycle_key({instance_id, request->table_id(), 0}, &lc_begin);
+        tt_partition_lifecycle_key(
+                {instance_id, request->table_id(), std::numeric_limits<int64_t>::max()}, &lc_end);
+        lc_end.push_back('\xff');
+
+        std::vector<int64_t> hist_partition_ids;
+        {
+            std::unique_ptr<Transaction> lc_txn;
+            if (txn_kv_->create_txn(&lc_txn) == TxnErrorCode::TXN_OK) {
+                std::unique_ptr<RangeGetIterator> lc_iter;
+                if (lc_txn->get(lc_begin, lc_end, &lc_iter) == TxnErrorCode::TXN_OK && lc_iter) {
+                    while (lc_iter->has_next()) {
+                        auto [k, v] = lc_iter->next();
+                        TtPartitionLifecyclePB lc;
+                        if (!lc.ParseFromArray(v.data(), v.size())) continue;
+                        if (!lc.has_dropped_ms() || lc.dropped_ms() == 0) continue;
+                        if (k.size() < 9) continue;
+                        std::string_view pid_sv = k.substr(k.size() - 9);
+                        int64_t partition_id = 0;
+                        if (decode_int64(&pid_sv, &partition_id) != 0 || partition_id == 0)
+                            continue;
+                        hist_partition_ids.push_back(partition_id);
+                    }
+                }
+            }
+        } // lc_txn and lc_iter fully destroyed here
+
+        // Phase B: for each historical partition, step backwards through commits.
+        // Each partition gets its own fresh transaction — no shared state.
+        bool updated = false;
+        for (int64_t partition_id : hist_partition_ids) {
+            std::unique_ptr<Transaction> ver_txn;
+            if (txn_kv_->create_txn(&ver_txn) != TxnErrorCode::TXN_OK) continue;
+
+            int64_t scan_end = scan_end_ms;
+            while ((int32_t)snapshot_map.size() <= limit) {
+                int64_t update_ms = -1;
+                int64_t ver = resolve_version_at_time(ver_txn.get(), instance_id, partition_id,
+                                                      scan_end, &update_ms);
+                if (ver <= 0 || update_ms < 0) break;
+                if (update_ms < scan_start_ms) break;
+
+                auto it = snapshot_map.find(update_ms);
+                if (it == snapshot_map.end() || ver > it->second) {
+                    snapshot_map[update_ms] = ver;
+                    updated = true;
+                }
+                scan_end = update_ms - 1;
+            }
+        } // each ver_txn destroyed after its partition loop
+
+        // Re-emit response if historical scan added new snapshots.
+        if (updated) {
+            response->clear_snapshots();
+            bool new_has_more = (int32_t)snapshot_map.size() > limit;
+            response->set_total_count(new_has_more ? limit
+                                                   : static_cast<int64_t>(snapshot_map.size()));
+            int64_t new_first_ms = -1;
+            int32_t new_emitted = 0;
+            for (auto& [t, ver] : snapshot_map) {
+                auto* snap = response->add_snapshots();
+                snap->set_commit_time_ms(t);
+                snap->set_version(ver);
+                ++new_emitted;
+                if (new_emitted <= limit && (new_first_ms < 0 || t < new_first_ms)) {
+                    new_first_ms = t;
+                }
+                if (new_emitted > limit) break;
+            }
+            if (new_first_ms >= 0) response->set_first_data_ms(new_first_ms);
+        }
+    }
+}
+
+void MetaServiceImpl::disable_time_travel_table(::google::protobuf::RpcController* controller,
+                                                const DisableTimeTravelTableRequest* request,
+                                                DisableTimeTravelTableResponse* response,
+                                                ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(disable_time_travel_table, get, del);
+
+    if (request->has_instance_id() && !request->instance_id().empty()) {
+        instance_id = request->instance_id();
+    } else {
+        instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    }
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+
+    if (!request->has_table_id() || request->table_id() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing or invalid table_id";
+        return;
+    }
+    int64_t table_id = request->table_id();
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    std::string key = time_travel_table_key({instance_id, table_id});
+    std::string val;
+    err = txn->get(key, &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // Already absent — idempotent success.
+        return;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to read time travel marker, table_id={} err={}", table_id, err);
+        return;
+    }
+
+    txn->remove(key);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to remove time travel marker, table_id={} err={}", table_id, err);
+        return;
+    }
+
+    resource_mgr_->unregister_time_travel_table(instance_id, table_id);
+
+    // Eagerly clean up TT metadata keys for this table in a separate non-fatal transaction.
+    // The periodic recycler will also handle these, but eager cleanup is best-effort here.
+    std::unique_ptr<Transaction> cleanup_txn;
+    if (txn_kv_->create_txn(&cleanup_txn) == TxnErrorCode::TXN_OK) {
+        // Remove all lifecycle keys for every partition of this table.
+        std::string lc_begin, lc_end;
+        tt_partition_lifecycle_key({instance_id, table_id, 0}, &lc_begin);
+        tt_partition_lifecycle_key({instance_id, table_id, std::numeric_limits<int64_t>::max()},
+                                   &lc_end);
+        lc_end.push_back('\xff');
+        cleanup_txn->remove(lc_begin, lc_end);
+
+        // Remove all schema history keys for this table.
+        std::string sh_begin, sh_end;
+        tt_schema_history_key({instance_id, table_id, 0}, &sh_begin);
+        tt_schema_history_key({instance_id, table_id, std::numeric_limits<int64_t>::max()},
+                              &sh_end);
+        sh_end.push_back('\xff');
+        cleanup_txn->remove(sh_begin, sh_end);
+
+        if (cleanup_txn->commit() != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to clean up TT metadata keys on disable — recycler will retry")
+                    .tag("table_id", table_id);
+        }
+    }
+
+    LOG(INFO) << "disabled time travel for table, instance=" << instance_id
+              << " table_id=" << table_id;
+}
+
 void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* controller,
                                         const GetVersionRequest* request,
                                         GetVersionResponse* response,
                                         ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_version, get);
-
     std::string cloud_unique_id;
     if (request->has_cloud_unique_id()) {
         cloud_unique_id = request->cloud_unique_id();
@@ -933,6 +1591,13 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
                   << " compact_stats_key=" << hex(compact_stats_key);
     }
 
+    // If this tablet belongs to a time-travel table, write the persistent marker key
+    // atomically with the tablet metadata. The ResourceManager uses this key for O(1)
+    // cache repopulation after a meta service restart (no tablet scan required).
+    if (tablet_meta.time_travel_retention_days() > 0) {
+        txn->put(time_travel_table_key({instance_id, tablet_meta.table_id()}), "");
+    }
+
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1035,6 +1700,9 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
                                stats, is_versioned_write);
         if (code != MetaServiceCode::OK) {
             return;
+        }
+        if (tablet_meta.time_travel_retention_days() > 0) {
+            resource_mgr_->register_time_travel_table(instance_id, tablet_meta.table_id());
         }
     }
 }

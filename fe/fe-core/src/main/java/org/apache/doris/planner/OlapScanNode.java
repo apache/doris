@@ -202,6 +202,11 @@ public class OlapScanNode extends ScanNode {
     private Set<Long> sampleTabletIds = Sets.newHashSet();
     private Set<Long> nereidsPrunedTabletIds = Sets.newHashSet();
     private TableSample tableSample;
+    // Time travel: timestamp_ms from FOR TIME AS OF. -1 = read current version.
+    private long timeTravelTimestampMs = -1L;
+    private int timeTravelRetentionDays = -1;
+    // tablet_id → serialised RowsetMetaCloudPB bytes for compacted-away versions.
+    private java.util.Map<Long, List<byte[]>> ttRowsetManifests = null;
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
     // a bucket seq may map to many tablets, and each tablet has a
@@ -267,6 +272,119 @@ public class OlapScanNode extends ScanNode {
 
     public void setTableSample(TableSample tSample) {
         this.tableSample = tSample;
+    }
+
+    public void setTimeTravelTimestampMs(long version) {
+        this.timeTravelTimestampMs = version;
+    }
+
+    public long getTimeTravelTimestampMs() {
+        return timeTravelTimestampMs;
+    }
+
+    public boolean hasTimeTravelTimestampMs() {
+        return timeTravelTimestampMs >= 0;
+    }
+
+    public void setTimeTravelRetentionDays(int days) {
+        this.timeTravelRetentionDays = days;
+    }
+
+    public int getTimeTravelRetentionDays() {
+        return timeTravelRetentionDays;
+    }
+
+    public void setTtRowsetManifests(java.util.Map<Long, List<byte[]>> manifests) {
+        this.ttRowsetManifests = manifests;
+    }
+
+    /**
+     * Adds synthetic scan ranges for dropped partitions that were historically alive at
+     * the time travel query timestamp. Called after get_version_at_time returns
+     * TtDroppedPartitionInfo entries in the response.
+     *
+     * In cloud mode any alive backend can serve any tablet (stateless storage), so we
+     * route each dropped-partition tablet to a live backend in the current compute cluster
+     * using a simple tablet-id-based selection for load distribution.
+     */
+    public void addDroppedPartitionScanRanges(
+            List<org.apache.doris.cloud.proto.Cloud.TtDroppedPartitionInfo> droppedInfos)
+            throws UserException {
+        if (droppedInfos == null || droppedInfos.isEmpty()) {
+            return;
+        }
+
+        // Resolve alive backends in the current cluster once for all tablets.
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCurrentClusterId();
+        List<Backend> clusterBEs = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getBackendsByClusterId(clusterId).stream()
+                .filter(Backend::isAlive)
+                .collect(java.util.stream.Collectors.toList());
+        if (clusterBEs.isEmpty()) {
+            throw new UserException(
+                    "time travel: no alive backends in cluster for dropped partition scan");
+        }
+
+        java.util.Map<Long, List<byte[]>> extraManifests =
+                ttRowsetManifests != null ? new java.util.HashMap<>(ttRowsetManifests)
+                                          : new java.util.HashMap<>();
+
+        for (org.apache.doris.cloud.proto.Cloud.TtDroppedPartitionInfo dp : droppedInfos) {
+            long version = dp.getVersion();
+            if (version <= 0) {
+                continue; // no data at the query timestamp for this dropped partition
+            }
+            for (long tabletId : dp.getTabletIdsList()) {
+                Backend backend = clusterBEs.get(
+                        (int) (Long.remainderUnsigned(tabletId, clusterBEs.size())));
+                TNetworkAddress addr = new TNetworkAddress(
+                        backend.getHost(), backend.getBePort());
+
+                TPaloScanRange paloRange = new TPaloScanRange();
+                paloRange.setDbName("");
+                paloRange.setSchemaHash("0");
+                paloRange.setVersion(String.valueOf(version));
+                paloRange.setVersionHash("");
+                paloRange.setTabletId(tabletId);
+                paloRange.addToHosts(addr);
+
+                TScanRange scanRange = new TScanRange();
+                scanRange.setPaloScanRange(paloRange);
+
+                TScanRangeLocation loc = new TScanRangeLocation(addr);
+                loc.setBackendId(backend.getId());
+
+                TScanRangeLocations locations = new TScanRangeLocations();
+                locations.setScanRange(scanRange);
+                locations.addToLocations(loc);
+
+                scanRangeLocations.add(locations);
+                scanTabletIds.add(tabletId);
+            }
+
+            // Register manifests for tablets in this dropped partition.
+            // Register empty manifest entry so BE uses capture_rs_readers_with_tt_rowsets.
+            // Empty list = rowsets still in active FDB chain (no post-drop compaction).
+            for (long tabletId : dp.getTabletIdsList()) {
+                if (!extraManifests.containsKey(tabletId)) {
+                    extraManifests.put(tabletId, new java.util.ArrayList<>());
+                }
+            }
+            for (org.apache.doris.cloud.proto.Cloud.TtTabletRowsetsPB tabletRowsets
+                    : dp.getTabletRowsetsList()) {
+                List<byte[]> bytesList = new java.util.ArrayList<>();
+                for (org.apache.doris.proto.OlapFile.RowsetMetaCloudPB meta
+                        : tabletRowsets.getRowsetMetasList()) {
+                    bytesList.add(meta.toByteArray());
+                }
+                extraManifests.put(tabletRowsets.getTabletId(), bytesList);
+            }
+        }
+
+        if (!extraManifests.isEmpty()) {
+            ttRowsetManifests = extraManifests;
+        }
     }
 
     public Set<Integer> getExtraKeyColumnSlotIds() {
@@ -1358,6 +1476,26 @@ public class OlapScanNode extends ScanNode {
             setPartitionBoundaries(msg.olap_scan_node);
         }
 
+        if (timeTravelTimestampMs >= 0) {
+            msg.olap_scan_node.setTimeTravelTimestampMs(timeTravelTimestampMs);
+            if (timeTravelRetentionDays > 0) {
+                msg.olap_scan_node.setTimeTravelRetentionDays(timeTravelRetentionDays);
+            }
+            if (ttRowsetManifests != null && !ttRowsetManifests.isEmpty()) {
+                // Thrift binary fields use ByteBuffer; wrap each byte[] before serialising.
+                java.util.Map<Long, List<java.nio.ByteBuffer>> thriftManifests =
+                        new java.util.HashMap<>();
+                for (java.util.Map.Entry<Long, List<byte[]>> e : ttRowsetManifests.entrySet()) {
+                    List<java.nio.ByteBuffer> bufs = new java.util.ArrayList<>();
+                    for (byte[] b : e.getValue()) {
+                        bufs.add(java.nio.ByteBuffer.wrap(b));
+                    }
+                    thriftManifests.put(e.getKey(), bufs);
+                }
+                msg.olap_scan_node.setTtRowsetManifests(thriftManifests);
+            }
+        }
+
         super.toThrift(msg);
     }
 
@@ -1385,7 +1523,7 @@ public class OlapScanNode extends ScanNode {
             return;
         }
 
-        // Build partition column name → slot ID mapping
+        // Build partition column name to slot ID mapping
         Map<String, Integer> partColToSlotId = Maps.newHashMap();
         for (SlotDescriptor slot : desc.getSlots()) {
             if (slot.getColumn() == null) {
@@ -1429,14 +1567,14 @@ public class OlapScanNode extends ScanNode {
         // boundaries. Projection rules (lex compare semantics):
         //
         //   single column [L, U):
-        //       projection = [L, U)              → range_end_inclusive = false
+        //       projection = [L, U)              -> range_end_inclusive = false
         //
         //   multi-column [(L1, L2, ...), (U1, U2, ...)):
-        //       k1 = L1 is reachable (inner tuple can be ≥ (L2, ...))
-        //       k1 ∈ (L1, U1) is fully reachable
+        //       k1 = L1 is reachable (inner tuple can be >= (L2, ...))
+        //       k1 in (L1, U1) is fully reachable
         //       k1 = U1 may be reachable via inner tuple < (U2, ...)
         //       projection = [L1, U1] (CLOSED both ends, conservative)
-        //                                        → range_end_inclusive = true
+        //                                        -> range_end_inclusive = true
         //
         // The half-open form [L1, U1) for multi-column would be a strict
         // UNDER-approximation. Example: partition [(1,1), (1,5)) projects to

@@ -196,7 +196,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
-                                    tbl.getVerticalCompactionNumColumnsPerGroup());
+                        tbl.getVerticalCompactionNumColumnsPerGroup(),
+                        tbl.isEnableTimeTravel() ? tbl.getTimeTravelRetentionDays() : 0);
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -231,7 +232,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
             boolean createInitialRowset, Map<String, List<String>> columnSeqMapping,
-            int verticalCompactionNumColumnsPerGroup) throws DdlException {
+            int verticalCompactionNumColumnsPerGroup, int timeTravelRetentionDays) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -267,6 +268,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         builder.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
         builder.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
+        if (timeTravelRetentionDays > 0) {
+            builder.setTimeTravelRetentionDays(timeTravelRetentionDays);
+        }
 
         OlapFile.TabletSchemaCloudPB.Builder schemaBuilder = OlapFile.TabletSchemaCloudPB.newBuilder();
         schemaBuilder.setSchemaVersion(schemaVersion);
@@ -933,6 +937,117 @@ public class CloudInternalCatalog extends InternalCatalog {
                 continue;
             }
             break;
+        }
+    }
+
+    /**
+     * Override dropPartitionWithoutCheck to eagerly write TT lifecycle keys for TT-enabled tables.
+     * Normal DROP PARTITION (isForceDrop=false) puts the partition in the FE recycle bin;
+     * dropCloudPartition is only called ~1 day later when the recycle bin expires. During that
+     * window, TT queries at timestamps before the drop cannot find the dropped partition because
+     * no lifecycle key exists yet. By calling dropCloudPartition eagerly here we write the
+     * lifecycle key immediately so TT queries work right away.
+     * For isForceDrop=true, erasePartitionDropBackendReplicas already calls dropCloudPartition
+     * synchronously, so we skip to avoid a duplicate RPC.
+     */
+    @Override
+    public void dropPartitionWithoutCheck(Database db, OlapTable olapTable, String partitionName,
+            boolean isTempPartition, boolean isForceDrop) throws DdlException {
+        // Collect partition info BEFORE the base class removes it from the catalog.
+        // Only needed for non-force drops going to the FE recycle bin.
+        long partitionId = -1;
+        java.util.List<Long> allIndexIds = new java.util.ArrayList<>();
+        boolean needEagerDrop = !isTempPartition && !isForceDrop && olapTable.isEnableTimeTravel();
+        if (needEagerDrop) {
+            org.apache.doris.catalog.Partition part = olapTable.getPartition(partitionName);
+            if (part != null) {
+                partitionId = part.getId();
+                part.getMaterializedIndices(
+                        org.apache.doris.catalog.MaterializedIndex.IndexExtState.ALL)
+                        .forEach(idx -> allIndexIds.add(idx.getId()));
+            }
+        }
+
+        // Run the base class logic (moves partition to FE recycle bin or force-drops it).
+        super.dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
+
+        // Eagerly write lifecycle key so TT queries find the dropped partition immediately.
+        // Skipped for isForceDrop=true because erasePartitionDropBackendReplicas handles it.
+        if (needEagerDrop && partitionId > 0 && !allIndexIds.isEmpty()) {
+            try {
+                dropCloudPartition(db.getId(), olapTable.getId(),
+                        java.util.Collections.singletonList(partitionId),
+                        allIndexIds, /*needUpdateTableVersion=*/false);
+            } catch (Exception e) {
+                LOG.warn("failed to write TT lifecycle key for dropped partition {} of table {}: {}",
+                        partitionName, olapTable.getName(), e);
+            }
+        }
+    }
+
+    /**
+     * Override truncateTable to write TT partition lifecycle keys for TT-enabled tables.
+     * The base class calls dropPartitionForTruncate → dropPartitionCommon which goes to the
+     * FE recycle bin and never calls the drop_partition meta-service RPC. That means
+     * dropped_ms is never set and the recycler never defers tablet deletion. By calling
+     * dropCloudPartition here (after the base class completes) we trigger the same write path
+     * as a normal DROP PARTITION: lifecycle key written, RecyclePartitionPB.dropped_ms set.
+     */
+    @Override
+    public void truncateTable(String dbName, String tableName,
+            org.apache.doris.catalog.info.PartitionNamesInfo partitionNamesInfo,
+            boolean forceDrop, String rawTruncateSql) throws DdlException {
+        // Collect the old partition info before truncation.
+        Database db = getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        boolean isTtTable = false;
+        long tableId = -1;
+        long dbId = -1;
+        List<Long> oldPartitionIds = new ArrayList<>();
+        Set<Long> allIndexIds = new HashSet<>();
+
+        olapTable.readLock();
+        try {
+            isTtTable = olapTable.isEnableTimeTravel();
+            if (isTtTable) {
+                tableId = olapTable.getId();
+                dbId = db.getId();
+                if (partitionNamesInfo == null || partitionNamesInfo.getPartitionNames().isEmpty()) {
+                    olapTable.getPartitions().forEach(p -> {
+                        oldPartitionIds.add(p.getId());
+                        p.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                                .forEach(idx -> allIndexIds.add(idx.getId()));
+                    });
+                } else {
+                    for (String partName : partitionNamesInfo.getPartitionNames()) {
+                        Partition p = olapTable.getPartition(partName);
+                        if (p != null) {
+                            oldPartitionIds.add(p.getId());
+                            p.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                                    .forEach(idx -> allIndexIds.add(idx.getId()));
+                        }
+                    }
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        // Execute the base class truncation (creates new partitions, replaces old ones).
+        super.truncateTable(dbName, tableName, partitionNamesInfo, forceDrop, rawTruncateSql);
+
+        // For TT-enabled tables, notify the meta service about the dropped old partitions
+        // so that: (a) RecyclePartitionPB.dropped_ms is set, (b) lifecycle keys are written,
+        // and (c) the recycler defers tablet deletion until the retention window expires.
+        if (isTtTable && !oldPartitionIds.isEmpty()) {
+            try {
+                dropCloudPartition(dbId, tableId, oldPartitionIds,
+                        new ArrayList<>(allIndexIds), /*needUpdateTableVersion=*/false);
+            } catch (Exception e) {
+                LOG.warn("failed to write TT lifecycle keys for truncated table {} — "
+                        + "time travel across this truncation will not be queryable: {}",
+                        tableName, e);
+            }
         }
     }
 

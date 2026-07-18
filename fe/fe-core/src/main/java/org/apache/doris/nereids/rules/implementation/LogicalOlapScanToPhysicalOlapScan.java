@@ -46,33 +46,33 @@ import java.util.Optional;
 public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapScan().then(olapScan ->
-                new PhysicalOlapScan(
-                        olapScan.getRelationId(),
-                        olapScan.getTable(),
-                        olapScan.getQualifier(),
-                        olapScan.getSelectedIndexId(),
-                        olapScan.getSelectedTabletIds(),
-                        olapScan.getSelectedPartitionIds(),
-                        olapScan.hasPartitionPredicate(),
-                        convertDistribution(olapScan),
-                        olapScan.getPreAggStatus(),
-                        olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
-                        Optional.empty(),
-                        olapScan.getLogicalProperties(),
-                        null,
-                        null,
-                        olapScan.getTableSample(),
-                        olapScan.getOperativeSlots(),
-                        olapScan.getVirtualColumns(),
-                        olapScan.getScoreOrderKeys(),
-                        olapScan.getScoreLimit(),
-                        olapScan.getScoreRangeInfo(),
-                        olapScan.getAnnOrderKeys(),
-                        olapScan.getAnnLimit(),
-                        olapScan.getTableAlias(),
-                        olapScan.getPartitionPrunablePredicates(),
-                        olapScan.getScanParams())
+        return logicalOlapScan().then(olapScan -> new PhysicalOlapScan(
+                    olapScan.getRelationId(),
+                    olapScan.getTable(),
+                    olapScan.getQualifier(),
+                    olapScan.getSelectedIndexId(),
+                    olapScan.getSelectedTabletIds(),
+                    olapScan.getSelectedPartitionIds(),
+                    olapScan.hasPartitionPredicate(),
+                    convertDistribution(olapScan),
+                    olapScan.getPreAggStatus(),
+                    olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
+                    Optional.empty(),
+                    olapScan.getLogicalProperties(),
+                    null,
+                    null,
+                    olapScan.getTableSample(),
+                    olapScan.getOperativeSlots(),
+                    olapScan.getVirtualColumns(),
+                    olapScan.getScoreOrderKeys(),
+                    olapScan.getScoreLimit(),
+                    olapScan.getScoreRangeInfo(),
+                    olapScan.getAnnOrderKeys(),
+                    olapScan.getAnnLimit(),
+                    olapScan.getTableAlias(),
+                    olapScan.getPartitionPrunablePredicates(),
+                    olapScan.getScanParams(),
+                    olapScan.getTimeTravelTimestampMs())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 

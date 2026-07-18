@@ -810,24 +810,57 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto read_version = config::delete_bitmap_store_read_version;
-            auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
-                                                resp.stats(), req.idx(), &delete_bitmap,
-                                                options.full_sync, sync_stats, read_version, false);
-            if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
-                LOG_INFO("rowset meta is expired, need to retry, " + tablet_info)
-                        .tag("tried", tried)
-                        .error(st);
-                continue;
+
+            // Time travel: filter rowset metas to only those visible at the historical version.
+            // Materialize into a vector because sync_tablet_delete_bitmap calls rbegin()
+            // (requiring a bidirectional range) and because RepeatedPtrField with filter_view
+            // is a forward-only range.
+            if (options.delete_bitmap_max_version > 0) {
+                google::protobuf::RepeatedPtrField<RowsetMetaCloudPB> filtered_metas;
+                for (const auto& rm : resp.rowset_meta()) {
+                    if (rm.end_version() <= options.delete_bitmap_max_version) {
+                        *filtered_metas.Add() = rm;
+                    }
+                }
+                if (!filtered_metas.empty()) {
+                    auto st = sync_tablet_delete_bitmap(
+                            tablet, old_max_version, filtered_metas, resp.stats(), req.idx(),
+                            &delete_bitmap, options.full_sync, sync_stats, read_version, false);
+                    if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
+                        LOG_INFO("rowset meta is expired during time travel, retrying")
+                                .tag("tried", tried)
+                                .error(st);
+                        continue;
+                    }
+                    if (!st.ok()) {
+                        LOG_WARNING("failed to get delete bitmap for time travel").error(st);
+                        return st;
+                    }
+                }
+                // _log_mow_delete_bitmap and _check_delete_bitmap_v2_correctness compare
+                // the bitmap against ALL current rowsets and would produce false failures on
+                // the historical subset — skip them for the time travel path.
+                tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
+            } else {
+                auto st = sync_tablet_delete_bitmap(
+                        tablet, old_max_version, resp.rowset_meta(), resp.stats(), req.idx(),
+                        &delete_bitmap, options.full_sync, sync_stats, read_version, false);
+                if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
+                    LOG_INFO("rowset meta is expired, need to retry, " + tablet_info)
+                            .tag("tried", tried)
+                            .error(st);
+                    continue;
+                }
+                if (!st.ok()) {
+                    LOG_WARNING("failed to get delete bitmap, " + tablet_info).error(st);
+                    return st;
+                }
+                tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
+                RETURN_IF_ERROR(_log_mow_delete_bitmap(tablet, resp, delete_bitmap, old_max_version,
+                                                       options.full_sync, read_version));
+                RETURN_IF_ERROR(
+                        _check_delete_bitmap_v2_correctness(tablet, req, resp, old_max_version));
             }
-            if (!st.ok()) {
-                LOG_WARNING("failed to get delete bitmap, " + tablet_info).error(st);
-                return st;
-            }
-            tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
-            RETURN_IF_ERROR(_log_mow_delete_bitmap(tablet, resp, delete_bitmap, old_max_version,
-                                                   options.full_sync, read_version));
-            RETURN_IF_ERROR(
-                    _check_delete_bitmap_v2_correctness(tablet, req, resp, old_max_version));
         }
         DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
             auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);

@@ -143,6 +143,58 @@ public class MetaServiceClient {
                 .getVersion(request);
     }
 
+    public Cloud.GetVersionAtTimeResponse getVersionAtTime(Cloud.GetVersionAtTimeRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetVersionAtTimeRequest.Builder builder = Cloud.GetVersionAtTimeRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getVersionAtTime(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getVersionAtTime(request);
+    }
+
+    public Cloud.DisableTimeTravelTableResponse disableTimeTravelTable(
+            Cloud.DisableTimeTravelTableRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.DisableTimeTravelTableRequest.Builder builder =
+                    Cloud.DisableTimeTravelTableRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                    TimeUnit.MILLISECONDS)
+                    .disableTimeTravelTable(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                TimeUnit.MILLISECONDS).disableTimeTravelTable(request);
+    }
+
+    public Cloud.GetTtSchemaAtTimeResponse getTtSchemaAtTime(
+            Cloud.GetTtSchemaAtTimeRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetTtSchemaAtTimeRequest.Builder builder =
+                    Cloud.GetTtSchemaAtTimeRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                    TimeUnit.MILLISECONDS)
+                    .getTtSchemaAtTime(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                TimeUnit.MILLISECONDS).getTtSchemaAtTime(request);
+    }
+
+    public Cloud.ShowTimeTravelResponse showTimeTravel(Cloud.ShowTimeTravelRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.ShowTimeTravelRequest.Builder builder =
+                    Cloud.ShowTimeTravelRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                    TimeUnit.MILLISECONDS)
+                    .showTimeTravel(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                TimeUnit.MILLISECONDS).showTimeTravel(request);
+    }
+
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.CreateTabletsRequest.Builder builder = Cloud.CreateTabletsRequest.newBuilder();

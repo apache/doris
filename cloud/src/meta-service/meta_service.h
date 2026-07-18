@@ -161,6 +161,25 @@ public:
                      const GetVersionRequest* request, GetVersionResponse* response,
                      ::google::protobuf::Closure* done) override;
 
+    void get_version_at_time(::google::protobuf::RpcController* controller,
+                             const GetVersionAtTimeRequest* request,
+                             GetVersionAtTimeResponse* response,
+                             ::google::protobuf::Closure* done) override;
+
+    void disable_time_travel_table(::google::protobuf::RpcController* controller,
+                                   const DisableTimeTravelTableRequest* request,
+                                   DisableTimeTravelTableResponse* response,
+                                   ::google::protobuf::Closure* done) override;
+
+    void get_tt_schema_at_time(::google::protobuf::RpcController* controller,
+                               const GetTtSchemaAtTimeRequest* request,
+                               GetTtSchemaAtTimeResponse* response,
+                               ::google::protobuf::Closure* done) override;
+
+    void show_time_travel(::google::protobuf::RpcController* controller,
+                          const ShowTimeTravelRequest* request, ShowTimeTravelResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
     void batch_get_version(::google::protobuf::RpcController* controller,
                            const GetVersionRequest* request, GetVersionResponse* response,
                            ::google::protobuf::Closure* done);
@@ -631,6 +650,34 @@ public:
                      const GetVersionRequest* request, GetVersionResponse* response,
                      ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_version, controller, request, response, done);
+    }
+
+    void get_version_at_time(::google::protobuf::RpcController* controller,
+                             const GetVersionAtTimeRequest* request,
+                             GetVersionAtTimeResponse* response,
+                             ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_version_at_time, controller, request, response, done);
+    }
+
+    void disable_time_travel_table(::google::protobuf::RpcController* controller,
+                                   const DisableTimeTravelTableRequest* request,
+                                   DisableTimeTravelTableResponse* response,
+                                   ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::disable_time_travel_table, controller, request, response,
+                  done);
+    }
+
+    void get_tt_schema_at_time(::google::protobuf::RpcController* controller,
+                               const GetTtSchemaAtTimeRequest* request,
+                               GetTtSchemaAtTimeResponse* response,
+                               ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_tt_schema_at_time, controller, request, response, done);
+    }
+
+    void show_time_travel(::google::protobuf::RpcController* controller,
+                          const ShowTimeTravelRequest* request, ShowTimeTravelResponse* response,
+                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::show_time_travel, controller, request, response, done);
     }
 
     void create_tablets(::google::protobuf::RpcController* controller,

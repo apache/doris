@@ -465,6 +465,10 @@ CONF_Int32(snapshot_chain_compactor_concurrent, "2");
 CONF_Int32(snapshot_migrate_parallelism, "2");
 CONF_Int32(snapshot_compact_parallelism, "2");
 
+// Time travel: tolerance for clock skew between FE and meta service when validating
+// FOR TIME AS OF timestamps. Timestamps within this window past 'now' are accepted.
+CONF_Int64(time_travel_clock_skew_tolerance_ms, "10000");
+
 CONF_mString(aws_credentials_provider_version, "v2");
 CONF_Validator(aws_credentials_provider_version,
                [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });

@@ -1169,14 +1169,69 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     compaction_log.set_end_version(end);
     int num_rowsets = 0;
 
+    // Read time_travel_retention_days from the exact compacting tablet's meta.
+    // A direct point lookup is used (table_id + index_id + partition_id + tablet_id)
+    // to avoid reading a different tablet's meta from the same table.
+    int32_t tt_retention_days = 0;
+    {
+        std::string tk;
+        meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}, &tk);
+        std::string tv;
+        if (txn->get(tk, &tv, true /* snapshot */) == TxnErrorCode::TXN_OK) {
+            doris::TabletMetaCloudPB tablet_meta;
+            if (tablet_meta.ParseFromString(tv)) {
+                tt_retention_days = tablet_meta.time_travel_retention_days();
+            }
+        }
+    }
+
+    // Read input rowsets once. For time-travel tables this snapshot feeds the checkpoint write;
+    // for non-versioned tables it feeds the cleanup scan. Avoids duplicate FDB reads.
+    // Per-table TT tables use versioned_write=false, so rowsets live in meta_rowset_key space
+    // (not the versioned key space scanned by CloneChainReader).
+    std::vector<RowsetMetaCloudPB> input_rowsets_snapshot;
+    if (tt_retention_days > 0 || !is_versioned_read) {
+        if (tt_retention_days > 0 && !is_versioned_read) {
+            // Per-table TT with non-versioned instance: scan meta_rowset_key directly.
+            auto begin_key = meta_rowset_key({instance_id, tablet_id, start});
+            auto end_key = meta_rowset_key({instance_id, tablet_id, end + 1});
+            std::unique_ptr<RangeGetIterator> it;
+            TxnErrorCode snap_err = txn->get(begin_key, end_key, &it);
+            if (snap_err == TxnErrorCode::TXN_OK) {
+                while (it->has_next()) {
+                    auto [k, v] = it->next();
+                    RowsetMetaCloudPB rs;
+                    if (rs.ParseFromString(std::string(v))) {
+                        input_rowsets_snapshot.push_back(std::move(rs));
+                    }
+                }
+            } else {
+                LOG(WARNING) << "time travel: failed to scan rowset range for TT checkpoint"
+                             << " tablet_id=" << tablet_id << " err=" << snap_err;
+            }
+        } else {
+            TxnErrorCode snap_err = meta_reader.get_rowset_metas(txn.get(), tablet_id, start, end,
+                                                                 &input_rowsets_snapshot);
+            if (snap_err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to read compaction input rowset metas, tablet_id="
+                             << tablet_id << " err=" << snap_err;
+            }
+        }
+    }
+
     auto handle_compaction_input_rowset_meta = [&](doris::RowsetMetaCloudPB rs) {
-        // remove delete bitmap of input rowset for MoW table
         if (compaction.has_delete_bitmap_lock_initiator()) {
-            auto delete_bitmap_start =
-                    meta_delete_bitmap_key({instance_id, tablet_id, rs.rowset_id_v2(), 0, 0});
-            auto delete_bitmap_end = meta_delete_bitmap_key(
-                    {instance_id, tablet_id, rs.rowset_id_v2(), INT64_MAX, INT64_MAX});
-            txn->remove(delete_bitmap_start, delete_bitmap_end);
+            if (tt_retention_days > 0) {
+                // Retain delete bitmaps for MoW tables with time travel enabled so that
+                // historical reads can reconstruct per-version delete state. The recycler
+                // removes them when the compaction checkpoint expires.
+            } else {
+                auto delete_bitmap_start =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rs.rowset_id_v2(), 0, 0});
+                auto delete_bitmap_end = meta_delete_bitmap_key(
+                        {instance_id, tablet_id, rs.rowset_id_v2(), INT64_MAX, INT64_MAX});
+                txn->remove(delete_bitmap_start, delete_bitmap_end);
+            }
         }
 
         auto recycle_key = recycle_rowset_key({instance_id, tablet_id, rs.rowset_id_v2()});
@@ -1184,7 +1239,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         recycle_rowset.set_creation_time(now);
         recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
         if (config::enable_recycle_rowset_strip_key_bounds) {
-            // Strip key bounds to shrink operation log for ts compaction recycle entries
             recycle_rowset.mutable_rowset_meta()->clear_segments_key_bounds();
             recycle_rowset.mutable_rowset_meta()->clear_segments_key_bounds_truncated();
         }
@@ -1199,28 +1253,109 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                                << " key=" << hex(recycle_key);
         }
     };
+
+    // Write the compaction checkpoint BEFORE the cleanup transaction commits.
+    // This ordering guarantees that if the cleanup succeeds, the checkpoint exists in FDB.
+    // If the checkpoint write fails after retries we abort the compaction so that the BE
+    // retries later — it is better to skip a compaction cycle than to silently destroy the
+    // time travel window for this version range.
+    if (tt_retention_days > 0) {
+        if (input_rowsets_snapshot.empty()) {
+            LOG(WARNING) << "TT checkpoint skipped: no input rowsets found, tablet_id=" << tablet_id
+                         << " range=[" << start << "," << end << "]";
+        } else {
+            TtCompactionManifestPB checkpoint;
+            int64_t min_created_ms = INT64_MAX;
+            for (auto& rs : input_rowsets_snapshot) {
+                for (int64_t v = rs.start_version(); v <= rs.end_version(); ++v) {
+                    auto* entry = checkpoint.add_entries();
+                    entry->set_version(v);
+                    RowsetMetaCloudPB rs_copy(rs);
+                    rs_copy.clear_segments_key_bounds();
+                    rs_copy.clear_segments_key_bounds_truncated();
+                    entry->mutable_rowset_meta()->Swap(&rs_copy);
+                }
+                min_created_ms = std::min(min_created_ms, static_cast<int64_t>(rs.creation_time()) *
+                                                                  static_cast<int64_t>(1000));
+            }
+            checkpoint.set_created_ms(min_created_ms);
+
+            std::string ck_key = tt_compaction_key({instance_id, tablet_id, start, end});
+            std::string ck_val;
+            if (!checkpoint.SerializeToString(&ck_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("TT checkpoint serialization failed, tablet_id={}", tablet_id);
+                return;
+            }
+
+            constexpr int kMaxRetries = 3;
+            TxnErrorCode ck_err = TxnErrorCode::TXN_INVALID_DATA;
+            for (int attempt = 0; attempt < kMaxRetries; ++attempt) {
+                std::unique_ptr<Transaction> ck_txn;
+                ck_err = txn_kv->create_txn(&ck_txn);
+                if (ck_err != TxnErrorCode::TXN_OK) break;
+                ck_txn->put(ck_key, ck_val);
+                ck_err = ck_txn->commit();
+                if (ck_err == TxnErrorCode::TXN_OK) break;
+                LOG(WARNING) << "TT checkpoint commit attempt " << (attempt + 1) << "/"
+                             << kMaxRetries << " failed, tablet_id=" << tablet_id
+                             << " err=" << ck_err;
+            }
+            if (ck_err != TxnErrorCode::TXN_OK) {
+                // Abort the compaction — the BE will retry. Better to delay compaction
+                // than to permanently lose time travel history for this version range.
+                code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+                msg = fmt::format(
+                        "TT checkpoint write failed after {} retries, tablet_id={}, "
+                        "aborting compaction to preserve time travel history",
+                        kMaxRetries, tablet_id);
+                return;
+            }
+            LOG(INFO) << "TT checkpoint written tablet_id=" << tablet_id << " [" << start << ","
+                      << end << "]"
+                      << " entries=" << checkpoint.entries_size();
+        }
+    }
+
     if (!is_versioned_read) {
-        std::tie(code, msg) =
-                scan_compaction_input_rowsets(txn.get(), instance_id, tablet_id, rs_start, rs_end,
-                                              num_rowsets, handle_compaction_input_rowset_meta);
-        if (code != MetaServiceCode::OK) {
-            LOG(WARNING) << msg;
-            return;
+        // Reuse the snapshot already read above to avoid a second FDB scan.
+        if (!input_rowsets_snapshot.empty()) {
+            for (auto&& rs : input_rowsets_snapshot) {
+                handle_compaction_input_rowset_meta(std::move(rs));
+            }
+            num_rowsets = static_cast<int>(input_rowsets_snapshot.size());
+        } else {
+            std::tie(code, msg) = scan_compaction_input_rowsets(
+                    txn.get(), instance_id, tablet_id, rs_start, rs_end, num_rowsets,
+                    handle_compaction_input_rowset_meta);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << msg;
+                return;
+            }
         }
     } else {
-        std::vector<RowsetMetaCloudPB> rowset_metas;
-        TxnErrorCode err =
-                meta_reader.get_rowset_metas(txn.get(), tablet_id, start, end, &rowset_metas);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get rowset metas, tablet_id={}, start={}, end={}, err={}",
-                              tablet_id, start, end, err);
-            LOG(WARNING) << msg;
-            return;
-        }
-        num_rowsets = rowset_metas.size();
-        for (auto&& rowset_meta : rowset_metas) {
-            handle_compaction_input_rowset_meta(std::move(rowset_meta));
+        // Versioned-read path: use the pre-fetched snapshot if available.
+        if (!input_rowsets_snapshot.empty()) {
+            num_rowsets = static_cast<int>(input_rowsets_snapshot.size());
+            for (auto&& rs : input_rowsets_snapshot) {
+                handle_compaction_input_rowset_meta(std::move(rs));
+            }
+        } else {
+            std::vector<RowsetMetaCloudPB> rowset_metas;
+            TxnErrorCode err =
+                    meta_reader.get_rowset_metas(txn.get(), tablet_id, start, end, &rowset_metas);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format(
+                        "failed to get rowset metas, tablet_id={}, start={}, end={}, err={}",
+                        tablet_id, start, end, err);
+                LOG(WARNING) << msg;
+                return;
+            }
+            num_rowsets = rowset_metas.size();
+            for (auto&& rowset_meta : rowset_metas) {
+                handle_compaction_input_rowset_meta(std::move(rowset_meta));
+            }
         }
     }
 
@@ -1968,6 +2103,30 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     }
     INSTANCE_LOG(INFO) << "remove schema_change job tablet_id=" << tablet_id
                        << " key=" << hex(job_key);
+
+    // Write schema history key for TT-enabled tables (non-fatal).
+    // Enables FE to resolve historical column definitions at time T.
+    if (resource_mgr->is_table_time_travel_enabled(instance_id, new_table_id)) {
+        using namespace std::chrono;
+        int64_t now_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        std::unique_ptr<Transaction> sh_txn;
+        if (txn_kv->create_txn(&sh_txn) == TxnErrorCode::TXN_OK) {
+            TtSchemaHistoryPB sh;
+            sh.set_schema_version(new_tablet_meta.schema_hash());
+            sh.set_effective_ms(now_ms);
+            sh.set_schema_pb(new_tablet_val); // full tablet meta for FE schema resolution
+            std::string sh_key =
+                    tt_schema_history_key({instance_id, new_table_id,
+                                           static_cast<int64_t>(new_tablet_meta.schema_hash())});
+            sh_txn->put(sh_key, sh.SerializeAsString());
+            if (sh_txn->commit() != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to write TT schema history key")
+                        .tag("table_id", new_table_id)
+                        .tag("schema_hash", new_tablet_meta.schema_hash());
+            }
+        }
+    }
 
     need_commit = true;
 

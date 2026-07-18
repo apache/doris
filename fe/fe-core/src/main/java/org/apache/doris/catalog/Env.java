@@ -4230,6 +4230,13 @@ public class Env {
         if (olapTable.isInAtomicRestore()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
         }
+
+        // time travel
+        if (olapTable.isEnableTimeTravel()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL).append("\" = \"true\"");
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS)
+                    .append("\" = \"").append(olapTable.getTimeTravelRetentionDays()).append("\"");
+        }
     }
 
     /**.
@@ -6369,7 +6376,8 @@ public class Env {
                 .buildVerticalCompactionNumColumnsPerGroup()
                 .buildTTLSeconds()
                 .buildAutoAnalyzeProperty()
-                .buildPartitionRetentionCount();
+                .buildPartitionRetentionCount()
+                .buildTimeTravelConfig(); // disable-only via ALTER; enable only at CREATE TABLE
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -7030,9 +7038,46 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
+        // For TT-enabled tables: collect old partition info BEFORE the swap removes them.
+        // Written as lifecycle keys afterward so TT queries in the recycle bin window still work.
+        java.util.Map<Long, java.util.List<Long>> oldPartitionTablets = new java.util.HashMap<>();
+        if (org.apache.doris.common.Config.isCloudMode() && olapTable.isEnableTimeTravel()) {
+            for (String partName : partitionNames) {
+                org.apache.doris.catalog.Partition part = olapTable.getPartition(partName);
+                if (part == null) {
+                    continue;
+                }
+                java.util.List<Long> tabletIds = new java.util.ArrayList<>();
+                for (org.apache.doris.catalog.MaterializedIndex idx
+                        : part.getMaterializedIndices(
+                                org.apache.doris.catalog.MaterializedIndex.IndexExtState.ALL)) {
+                    for (org.apache.doris.catalog.Tablet t : idx.getTablets()) {
+                        tabletIds.add(t.getId());
+                    }
+                }
+                oldPartitionTablets.put(part.getId(), tabletIds);
+            }
+        }
+
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,
                 useTempPartitionName, isForceDropOld);
+
+        // Write lifecycle keys eagerly so TT queries find replaced partitions.
+        // If already DROPPED in meta service, the RPC is idempotent.
+        if (org.apache.doris.common.Config.isCloudMode() && !oldPartitionTablets.isEmpty()) {
+            try {
+                java.util.List<Long> allIndexIds = olapTable.getIndexIds();
+                ((org.apache.doris.cloud.datasource.CloudInternalCatalog)
+                        getCurrentInternalCatalog())
+                        .dropCloudPartition(db.getId(), olapTable.getId(),
+                                new java.util.ArrayList<>(oldPartitionTablets.keySet()),
+                                allIndexIds, false);
+            } catch (Exception e) {
+                LOG.warn("failed to write TT lifecycle keys for replaced partitions in table {}: {}",
+                        olapTable.getName(), e.getMessage());
+            }
+        }
         long version = 0L;
         long versionTime = System.currentTimeMillis();
         // In cloud mode, the internal partition deletion logic will update the table version,

@@ -40,9 +40,12 @@ import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
@@ -117,8 +120,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
@@ -298,16 +303,50 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return checkAndAddChangeScanFilter(scan, changeScanType,
                     parseTimestampRange(unboundRelation.getScanParams()), false);
         }
-        // Time-travel (FOR VERSION/TIME AS OF): wrap the scan with a __DORIS_COMMIT_TSO_COL__
-        // predicate (dup) or a base/binlog union (mow).
+        // FOR VERSION/TIME AS OF: two independent implementations share the same SQL syntax.
+        // Routed by enable_time_travel table property — not by deployment mode.
+        //
+        //   enable_time_travel=true  → metadata-driven MVCC path:
+        //                              point-in-time analytics snapshot, no binlog required.
+        //                              Currently backed by FDB in cloud mode; coupled mode
+        //                              will use EditLog + local checkpoints via the same path.
+        //
+        //   everything else          → binlog/TSO path:
+        //                              filters rows by __DORIS_COMMIT_TSO_COL__ (DUP) or
+        //                              base UNION binlog before-images (MoW). Requires
+        //                              binlog.enable=true on the table.
+        //
+        // Note: CREATE STREAM (SELECT * FROM stream_table) uses its own separate code path
+        // FOR VERSION/TIME AS OF: two independent implementations, disambiguated by SQL syntax.
+        //
+        //   FOR SYSTEM_TIME AS OF '<timestamp>'  → metadata-driven MVCC path (this feature):
+        //                                          ISO SQL 2011 standard syntax. Requires
+        //                                          enable_time_travel=true on the table.
+        //                                          No binlog required.
+        //
+        //   FOR TIME/VERSION AS OF               → binlog/TSO path (upstream feature):
+        //                                          requires binlog.enable=true on the table.
+        //
+        // Syntax is the routing key — not the table property. This eliminates ambiguity
+        // when a table has both features enabled. FOR SYSTEM_TIME AS OF always means
+        // metadata MVCC; FOR TIME AS OF always means binlog/TSO.
+        //
+        // Note: CREATE STREAM (SELECT * FROM stream_table) uses its own separate code path
+        // via NormalizeOlapTableStreamScan and does NOT go through this block.
         if (unboundRelation.getTableSnapshot().isPresent()) {
-            return buildTimeTravelPlan(scan, (OlapTable) table,
-                    unboundRelation.getTableSnapshot().get(), unboundRelation, qualifier,
-                    partIds, tabletIds, cascadesContext);
+            OlapTable olapTable = (OlapTable) table;
+            TableSnapshot snapshot = unboundRelation.getTableSnapshot().get();
+            if (snapshot.getType() == TableSnapshot.VersionType.SYSTEM_TIME) {
+                scan = validateAndStoreTimeTravelSnapshot(scan, olapTable, snapshot);
+            } else {
+                return buildTimeTravelPlan(scan, olapTable, snapshot, unboundRelation, qualifier,
+                        partIds, tabletIds, cascadesContext);
+            }
         }
         if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
             return scan.withPreAggStatus(PreAggStatus.on());
         }
+
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
             // add agg on olap scan
@@ -316,6 +355,125 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // it's a duplicate, unique or hash distribution agg table
             // add delete sign filter on olap scan if needed
             return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+        }
+    }
+
+    /**
+     * Validates a FOR SYSTEM_TIME AS OF clause and stamps the parsed timestamp (ms) onto the scan.
+     * Version resolution happens at the BE per partition during scan execution, not here,
+     * so multi-partition tables work correctly.
+     *
+     * <p>Rejects with AnalysisException if:
+     * <ul>
+     *   <li>Not running in cloud/decoupled mode</li>
+     *   <li>Table does not have enable_time_travel=true</li>
+     *   <li>FOR VERSION AS OF is used (only FOR SYSTEM_TIME AS OF is supported)</li>
+     *   <li>Timestamp cannot be parsed</li>
+     *   <li>Timestamp is in the future or beyond the retention window</li>
+     * </ul>
+     */
+    private LogicalOlapScan validateAndStoreTimeTravelSnapshot(LogicalOlapScan scan, OlapTable olapTable,
+            TableSnapshot snapshot) {
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException(
+                    "FOR SYSTEM_TIME AS OF is only supported in cloud/decoupled mode. "
+                            + "Table: " + olapTable.getName());
+        }
+        if (!olapTable.isEnableTimeTravel()) {
+            throw new AnalysisException(
+                    "Table '" + olapTable.getName() + "' does not have time travel enabled. "
+                            + "Use: CREATE TABLE ... PROPERTIES (\"enable_time_travel\" = \"true\"). "
+                            + "If this table has binlog enabled for CDC, use FOR TIME AS OF instead.");
+        }
+        // Only FOR SYSTEM_TIME AS OF reaches here — reject FOR VERSION AS OF.
+        if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
+            throw new AnalysisException(
+                    "FOR VERSION AS OF is not supported for internal OLAP time travel. "
+                            + "Use FOR SYSTEM_TIME AS OF '<timestamp>' instead.");
+        }
+
+        // Parse the timestamp using the session timezone (same as Doris DATETIME semantics).
+        long timestampMs;
+        try {
+            java.time.ZoneId sessionZone = org.apache.doris.nereids.util.DateUtils.getTimeZone();
+            java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(
+                    snapshot.getValue().trim(),
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            timestampMs = ldt.atZone(sessionZone).toInstant().toEpochMilli();
+        } catch (Exception e) {
+            throw new AnalysisException(
+                    "Invalid timestamp for FOR SYSTEM_TIME AS OF: '" + snapshot.getValue()
+                            + "'. Expected format: 'yyyy-MM-dd HH:mm:ss'. Cause: " + e.getMessage());
+        }
+
+        // Validate timestamp is not in the future or beyond the retention window.
+        long nowMs = System.currentTimeMillis();
+        int retentionDays = olapTable.getTimeTravelRetentionDays();
+        if (retentionDays <= 0) {
+            throw new AnalysisException(
+                    "FOR SYSTEM_TIME AS OF is not available on table '" + olapTable.getName()
+                            + "': time_travel_retention_days must be >= 1. "
+                            + "Set it with ALTER TABLE ... SET (\"time_travel_retention_days\"=\"7\").");
+        }
+        if (timestampMs > nowMs) {
+            throw new AnalysisException(
+                    "FOR SYSTEM_TIME AS OF timestamp '" + snapshot.getValue() + "' is in the future.");
+        }
+        long retentionMs = (long) retentionDays * 86400L * 1000L;
+        if (timestampMs < nowMs - retentionMs) {
+            throw new AnalysisException(
+                    "FOR SYSTEM_TIME AS OF timestamp '" + snapshot.getValue()
+                            + "' is beyond the retention window of "
+                            + retentionDays + " days for table '"
+                            + olapTable.getName() + "'.");
+        }
+
+        // Store timestamp_ms on the scan. The BE resolves it to the correct version
+        // per partition during scan execution via get_version_at_time RPC.
+        LogicalOlapScan result = scan.withTimeTravelTimestampMs(timestampMs);
+
+        // Fetch the historical schema if a schema change was recorded after T.
+        // This allows FE column resolution to succeed for columns that were dropped after T.
+        List<Column> historicalColumns = fetchHistoricalSchemaIfNeeded(olapTable, timestampMs);
+        if (historicalColumns != null && !historicalColumns.isEmpty()) {
+            result = result.withHistoricalSchema(historicalColumns);
+        }
+        return result;
+    }
+
+    private List<Column> fetchHistoricalSchemaIfNeeded(OlapTable olapTable, long timestampMs) {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+        try {
+            Cloud.GetTtSchemaAtTimeRequest req =
+                    Cloud.GetTtSchemaAtTimeRequest.newBuilder()
+                            .setCloudUniqueId(Config.cloud_unique_id)
+                            .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                            .setTableId(olapTable.getId())
+                            .setTimestampMs(timestampMs)
+                            .build();
+            Cloud.GetTtSchemaAtTimeResponse resp =
+                    MetaServiceProxy.getInstance().getTtSchemaAtTime(req);
+            if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("getTtSchemaAtTime failed for table {}: {}",
+                        olapTable.getId(), resp.getStatus().getMsg());
+                return null;
+            }
+            if (!resp.hasSchemaPb()) {
+                return null;
+            }
+            OlapFile.TabletMetaCloudPB tabletMeta =
+                    OlapFile.TabletMetaCloudPB.parseFrom(resp.getSchemaPb().toByteArray());
+            List<Column> cols = new ArrayList<>();
+            for (OlapFile.ColumnPB colPB : tabletMeta.getSchema().getColumnList()) {
+                cols.add(FetchRemoteTabletSchemaUtil.initColumnFromPB(colPB));
+            }
+            return cols;
+        } catch (Exception e) {
+            LOG.warn("failed to fetch historical schema for table {}: {}",
+                    olapTable.getId(), e.getMessage());
+            return null;
         }
     }
 

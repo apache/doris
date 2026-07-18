@@ -301,6 +301,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         getOrCreatTableProperty().setBinlogConfig(binlogConfig);
     }
 
+    public boolean isEnableTimeTravel() {
+        return getOrCreatTableProperty().isEnableTimeTravel();
+    }
+
+    public int getTimeTravelRetentionDays() {
+        return getOrCreatTableProperty().getTimeTravelRetentionDays();
+    }
+
+    /** Called by InternalCatalog at CREATE TABLE time to store time travel properties. */
+    public void setTimeTravelConfigFromProperties(java.util.Map<String, String> properties) {
+        TableProperty tp = getOrCreatTableProperty();
+        tp.modifyTableProperties(properties);
+        tp.buildTimeTravelConfig();
+    }
+
     public void setIsBeingSynced(boolean isBeingSynced) {
         getOrCreatTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED,
                 String.valueOf(isBeingSynced));
@@ -2123,6 +2138,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             LOG.warn("Table [{}-{}] has incomplete dynamic partition properties {}, "
                     + "treat it as a non-dynamic-partition table.",
                     name, id, tableProperty.getOriginDynamicPartitionProperty());
+        }
+        if (tableProperty != null) {
+            tableProperty.buildTimeTravelConfig();
         }
     }
 
