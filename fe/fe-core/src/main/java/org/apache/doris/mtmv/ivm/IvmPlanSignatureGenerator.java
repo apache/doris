@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;

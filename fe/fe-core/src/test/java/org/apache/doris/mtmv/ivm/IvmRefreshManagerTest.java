@@ -97,7 +97,7 @@ public class IvmRefreshManagerTest {
         assertKnownExecutionFailureFallback(IvmFailureReason.MIN_MAX_BOUNDARY_HIT,
                 IvmFailureClassifier.MIN_MAX_BOUNDARY_MSG_PREFIX + ": deleted row may be current MIN value");
         assertKnownExecutionFailureFallback(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
-                IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX + " in INNER_JOIN");
+                IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX);
     }
 
     @Test

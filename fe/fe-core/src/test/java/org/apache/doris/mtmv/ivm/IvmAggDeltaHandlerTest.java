@@ -67,7 +67,9 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
-        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
+        mtmv.getIvmInfo().advanceRefreshVersion();
+        mtmv.getIvmInfo().advanceRefreshVersion();
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
                 IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
         Assertions.assertNotNull(rewritten);
@@ -78,11 +80,19 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     private LogicalJoin<?, ?> getJoin(AggRewriteResult result) {
-        Plan applyInput = getApplyProject(result).child();
+        Plan applyInput = stripProjects(getApplyProject(result).child());
         if (applyInput instanceof LogicalFilter) {
-            return (LogicalJoin<?, ?>) ((LogicalFilter<?>) applyInput).child();
+            return (LogicalJoin<?, ?>) stripProjects(((LogicalFilter<?>) applyInput).child());
         }
         return (LogicalJoin<?, ?>) applyInput;
+    }
+
+    private Plan stripProjects(Plan plan) {
+        Plan current = plan;
+        while (current instanceof LogicalProject) {
+            current = ((LogicalProject<?>) current).child();
+        }
+        return current;
     }
 
     private LogicalProject<?> getDeltaTopProject(AggRewriteResult result) {
@@ -97,6 +107,32 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         return (LogicalProject<?>) getNormalizedTopProject(result).child();
     }
 
+    private NamedExpression findProjectExpression(Plan plan, String columnName) {
+        Plan current = plan;
+        while (current instanceof LogicalProject) {
+            Optional<NamedExpression> match = ((LogicalProject<?>) current).getProjects().stream()
+                    .filter(expression -> columnName.equals(expression.getName()))
+                    .filter(Alias.class::isInstance)
+                    .findFirst();
+            if (match.isPresent()) {
+                return match.get();
+            }
+            current = ((LogicalProject<?>) current).child();
+        }
+        throw new AssertionError("No defining project expression found for column: " + columnName);
+    }
+
+    private boolean projectChainContainsAssertTrue(Plan plan) {
+        Plan current = plan;
+        while (current instanceof LogicalProject) {
+            if (((LogicalProject<?>) current).getProjects().stream().anyMatch(this::containsAssertTrue)) {
+                return true;
+            }
+            current = ((LogicalProject<?>) current).child();
+        }
+        return false;
+    }
+
     private void assertSinkProjectMatchesSinkColumns(AggRewriteResult result) {
         Assertions.assertEquals(result.mtmv.getInsertedColumnNames(), result.sink.getColNames());
         List<String> expectedProjectOutputs = new ArrayList<>(result.mtmv.getInsertedColumnNames());
@@ -104,12 +140,11 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         expectedProjectOutputs.add(Column.DELETE_SIGN);
         Assertions.assertEquals(expectedProjectOutputs, result.finalProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toList()));
-        NamedExpression sequence = result.finalProject.getProjects().stream()
-                .filter(expression -> Column.SEQUENCE_COL.equals(expression.getName()))
-                .findFirst().orElseThrow();
+        NamedExpression sequence = findProjectExpression(getNormalizedTopProject(result).child(), Column.SEQUENCE_COL);
         Assertions.assertInstanceOf(Alias.class, sequence);
         Assertions.assertInstanceOf(BigIntLiteral.class, ((Alias) sequence).child());
-        Assertions.assertEquals(0L, ((BigIntLiteral) ((Alias) sequence).child()).getValue());
+        Assertions.assertEquals((3L << 11) | 1L,
+                ((BigIntLiteral) ((Alias) sequence).child()).getValue());
     }
 
     private LogicalOlapScan buildMowScan(long tableId, String tableName, boolean delta) {
@@ -178,16 +213,42 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertTrue(applyOutputNames.containsAll(result.mtmv.getInsertedColumnNames().stream()
                 .filter(name -> !Column.IVM_ROW_ID_COL.equals(name)).collect(Collectors.toList())));
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL,
+                applyOutputNames.get(applyOutputNames.size() - 2));
+        Assertions.assertEquals(Column.SEQUENCE_COL,
                 applyOutputNames.get(applyOutputNames.size() - 1));
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, getNormalizedTopProject(result).getOutput().get(0).getName());
         assertSinkProjectMatchesSinkColumns(result);
     }
 
     @Test
+    void testAggRootUsesSharedNonDeterministicRowIdGuard() {
+        PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(buildScan()));
+        Slot rootRowId = IvmUtil.findRowIdSlot(bundle.normalizedPlan.getOutput(), "normalized aggregate root");
+        bundle.rewriteResult.addRowId(rootRowId, false);
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
+
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
+                bundle.normalizedPlan, bundle.rewriteResult,
+                IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
+
+        Assertions.assertTrue(rewritten.anyMatch(node -> node instanceof LogicalProject
+                && ((LogicalProject<?>) node).getProjects().stream().anyMatch(this::containsNonDeterministicGuard)));
+    }
+
+    private boolean containsNonDeterministicGuard(Expression expression) {
+        if (expression instanceof StringLiteral
+                && IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX.equals(
+                        ((StringLiteral) expression).getStringValue())) {
+            return true;
+        }
+        return expression.children().stream().anyMatch(this::containsNonDeterministicGuard);
+    }
+
+    @Test
     void testScalarAggSkipsNetZeroFilterButKeepsDeleteSignSink() {
         AggRewriteResult result = rewriteAgg(buildScalarAgg(buildScan()));
 
-        Assertions.assertInstanceOf(LogicalJoin.class, getApplyProject(result).child());
+        Assertions.assertInstanceOf(LogicalJoin.class, stripProjects(getApplyProject(result).child()));
         Assertions.assertEquals(Column.DELETE_SIGN,
                 result.finalProject.getOutput().get(result.finalProject.getOutput().size() - 1).getName());
     }
@@ -273,8 +334,8 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertInstanceOf(Alias.class, lastExpr);
         Assertions.assertInstanceOf(If.class, ((Alias) lastExpr).child());
 
-        NamedExpression dmlFactor = getApplyProject(result).getProjects()
-                .get(getApplyProject(result).getProjects().size() - 1);
+        NamedExpression dmlFactor = findProjectExpression(
+                getNormalizedTopProject(result).child(), Column.IVM_DML_FACTOR_COL);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, dmlFactor.getName());
         Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) dmlFactor).child());
     }
@@ -380,11 +441,34 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalAggregate<?> agg = buildGroupedAgg(buildScan());
         MTMV mtmv = buildMtmvFromPlan(agg.getOutput());
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
-        IvmDeltaRewriteResult childResult = new IvmDeltaRewriteResult(agg.child(0), (Slot) null, (Slot) null);
+        IvmDeltaRewriteResult childResult = new IvmDeltaRewriteResult(agg.child(0),
+                agg.child(0).getOutput().get(0), agg.child(0).getOutput().get(1), 0);
+        IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor() {
+            @Override
+            public Optional<IvmDeltaRewriteResult> visitLogicalOlapScan(LogicalOlapScan scan,
+                    IvmRefreshContext ignored) {
+                return Optional.of(childResult);
+            }
+        };
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> new IvmAggDeltaHandler().rewriteAggregate(agg, childResult, ctx));
+                () -> new IvmAggDeltaHandler().rewriteAggregate(agg, visitor, ctx));
         Assertions.assertTrue(ex.getMessage().contains("normalize result"));
+    }
+
+    @Test
+    void testAggregateWithoutChildDeltaReturnsEmpty() {
+        LogicalAggregate<?> agg = buildGroupedAgg(buildScan());
+        IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor() {
+            @Override
+            public Optional<IvmDeltaRewriteResult> visitLogicalOlapScan(LogicalOlapScan scan,
+                    IvmRefreshContext ignored) {
+                return Optional.empty();
+            }
+        };
+
+        Assertions.assertFalse(new IvmAggDeltaHandler().rewriteAggregate(agg, visitor,
+                new IvmRefreshContext(buildMtmvFromPlan(agg.getOutput()), new ConnectContext(), null)).isPresent());
     }
 
     @Test
@@ -415,7 +499,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(buildScalarMinAgg(buildScan()));
 
         // Scalar agg: no net-zero filter — join is direct child of finalProject
-        Assertions.assertInstanceOf(LogicalJoin.class, getApplyProject(result).child(),
+        Assertions.assertInstanceOf(LogicalJoin.class, stripProjects(getApplyProject(result).child()),
                 "Scalar MIN should have no net-zero filter");
         // Delete sign is produced by the common sink project from the aggregate-level dml_factor.
         NamedExpression lastExpr = result.finalProject.getProjects()
@@ -424,8 +508,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertInstanceOf(Alias.class, lastExpr);
         Assertions.assertInstanceOf(If.class, ((Alias) lastExpr).child());
         // Must contain assert_true guard for MIN boundary protection
-        boolean hasAssertTrue = getApplyProject(result).getProjects().stream()
-                .anyMatch(this::containsAssertTrue);
+        boolean hasAssertTrue = projectChainContainsAssertTrue(getNormalizedTopProject(result).child());
         Assertions.assertTrue(hasAssertTrue, "Scalar MIN should have assert_true guard");
     }
 
@@ -433,15 +516,14 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testScalarMaxAggSkipsNetZeroFilterAndHasGuard() {
         AggRewriteResult result = rewriteAgg(buildScalarMaxAgg(buildScan()));
 
-        Assertions.assertInstanceOf(LogicalJoin.class, getApplyProject(result).child(),
+        Assertions.assertInstanceOf(LogicalJoin.class, stripProjects(getApplyProject(result).child()),
                 "Scalar MAX should have no net-zero filter");
         NamedExpression lastExpr = result.finalProject.getProjects()
                 .get(result.finalProject.getProjects().size() - 1);
         Assertions.assertEquals(Column.DELETE_SIGN, lastExpr.getName());
         Assertions.assertInstanceOf(Alias.class, lastExpr);
         Assertions.assertInstanceOf(If.class, ((Alias) lastExpr).child());
-        boolean hasAssertTrue = getApplyProject(result).getProjects().stream()
-                .anyMatch(this::containsAssertTrue);
+        boolean hasAssertTrue = projectChainContainsAssertTrue(getNormalizedTopProject(result).child());
         Assertions.assertTrue(hasAssertTrue, "Scalar MAX should have assert_true guard");
     }
 

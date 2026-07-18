@@ -35,10 +35,8 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -52,6 +50,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -82,64 +81,11 @@ public class IvmDeltaRewriteHelper {
     }
 
     /**
-     * Add a runtime fallback guard when a joined delta may delete rows and the snapshot side row-id is
-     * non-deterministic.
-     *
-     * <p>The delta side itself is known to have deterministic row-ids for delete rows: base-table deletes only come
-     * from MOW tables and this property is preserved while delta rows are rewritten upward. Outer join does not break
-     * this assumption. Its NULL-row repair delete is derived from the normalized preserved/non-delta side row-id plus
-     * NULL; LEFT/RIGHT OUTER JOIN normalization requires that side to be deterministic, and FULL OUTER JOIN
-     * normalization requires both children to be deterministic. Therefore this guard only needs to check the snapshot
-     * side that is joined with the delta side.
-     *
-     * <p>For an aggregate MV, child join row-ids are only used to compute signed aggregate input rows. The MV row-id
-     * is rebuilt from group-by keys at the aggregate, so delete rows can be applied without this child join fallback
-     * guard.
+     * Adds the root-level fallback guard for a non-deterministic MV row-id. Inserts remain valid;
+     * any delete delta fails so the caller can fall back to a full refresh.
      */
-    IvmDeltaRewriteResult addNonDetGuardForJoinDelta(LogicalJoin<Plan, Plan> join,
-            IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, IvmRefreshContext ctx) {
-        boolean deltaOnLeft = leftResult.dmlFactorSlot != null;
-        Slot dmlFactorSlot = deltaOnLeft ? leftResult.dmlFactorSlot : rightResult.dmlFactorSlot;
-        Slot baseOpSlot = deltaOnLeft ? leftResult.baseOpSlot : rightResult.baseOpSlot;
-        Plan snapshotSidePlan = deltaOnLeft ? join.right() : join.left();
-
-        if (needNonDetGuard(snapshotSidePlan, ctx)) {
-            return wrapDmlFactorWithNonDetGuard(
-                    new IvmDeltaRewriteResult(join, dmlFactorSlot, baseOpSlot), join.getJoinType());
-        }
-        return new IvmDeltaRewriteResult(join, dmlFactorSlot, baseOpSlot);
-    }
-
-    /**
-     * Checks if the snapshot side's row_id slot is non-deterministic.
-     * Returns true when rewriteResult or row_id slot is unavailable. Aggregate MV returns false because final
-     * delete rows use aggregate group-key row-id instead of child join row-id.
-     */
-    boolean needNonDetGuard(Plan snapshotSidePlan, IvmRefreshContext ctx) {
-        IvmRewriteResult rewriteResult = ctx.getRewriteResult();
-        if (rewriteResult == null) {
-            return true;
-        }
-        // Aggregate MV delete rows are applied by the aggregate output row-id, which is rebuilt from group-by keys.
-        // The child join row-id is only an intermediate input for aggregate state changes, so it does not need this
-        // fallback guard even when the snapshot side row-id is non-deterministic.
-        if (rewriteResult.isAggMv()) {
-            return false;
-        }
-        Slot rowIdSlot = IvmUtil.findRowIdSlotOrNull(snapshotSidePlan.getOutput());
-        if (rowIdSlot == null) {
-            return true;
-        } else {
-            return !rewriteResult.isDeterministic(rowIdSlot);
-        }
-    }
-
-    /**
-     * Wraps the dml_factor slot with an assert_true guard that triggers a runtime exception
-     * when dml_factor < 0 and preserves the fallback reason for recovery.
-     */
-    IvmDeltaRewriteResult wrapDmlFactorWithNonDetGuard(IvmDeltaRewriteResult result, JoinType joinType) {
-        String msg = IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX + " in " + joinType;
+    IvmDeltaRewriteResult wrapDmlFactorWithRootNonDetGuard(IvmDeltaRewriteResult result) {
+        String msg = IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX;
         Expression guardedExpr = new If(
                 new AssertTrue(new GreaterThanEqual(result.dmlFactorSlot,
                         new TinyIntLiteral((byte) 0)), new StringLiteral(msg)),
@@ -160,8 +106,38 @@ public class IvmDeltaRewriteHelper {
                 .findFirst()
                 .orElseThrow(() -> new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM: lost dml_factor after non-det guard"));
-        Slot newBaseOpSlot = findSlotByName(guardProject.getOutput(), Column.IVM_BASE_OP_COL);
-        return new IvmDeltaRewriteResult(guardProject, newDmlFactorSlot, newBaseOpSlot);
+        Slot newSequenceSlot = findSlotByName(guardProject.getOutput(), Column.SEQUENCE_COL);
+        return new IvmDeltaRewriteResult(guardProject, newDmlFactorSlot, newSequenceSlot, result.maxSeqSuffix);
+    }
+
+    Optional<IvmDeltaRewriteResult> combineDeltaResults(List<IvmDeltaRewriteResult> children,
+            List<Slot> targetOutputs) {
+        if (children.isEmpty()) {
+            return Optional.empty();
+        }
+        if (children.size() == 1) {
+            return Optional.of(children.get(0));
+        }
+        List<Plan> unionChildren = new java.util.ArrayList<>(children.size());
+        long maxSeqSuffix = 0;
+        for (IvmDeltaRewriteResult child : children) {
+            unionChildren.add(freshDeltaResult(child).plan);
+            maxSeqSuffix = Math.max(maxSeqSuffix, child.maxSeqSuffix);
+        }
+        LogicalUnion union = buildUnionAll(unionChildren);
+        List<Slot> projectionTargets = new java.util.ArrayList<>(targetOutputs);
+        projectionTargets.add(union.getOutput().get(union.getOutput().size() - 2));
+        projectionTargets.add(union.getOutput().get(union.getOutput().size() - 1));
+        LogicalProject<Plan> project = projectUnionOutputs(union, projectionTargets);
+        Slot dmlFactorSlot = findSlotByName(project.getOutput(), Column.IVM_DML_FACTOR_COL);
+        Slot sequenceSlot = findSlotByName(project.getOutput(), Column.SEQUENCE_COL);
+        return Optional.of(new IvmDeltaRewriteResult(project, dmlFactorSlot, sequenceSlot, maxSeqSuffix));
+    }
+
+    IvmDeltaRewriteResult freshDeltaResult(IvmDeltaRewriteResult source) {
+        Pair<Plan, Map<Slot, Slot>> copied = freshPlan(source.plan);
+        return new IvmDeltaRewriteResult(copied.first, copied.second.get(source.dmlFactorSlot),
+                copied.second.get(source.sequenceSlot), source.maxSeqSuffix);
     }
 
     /**
@@ -445,7 +421,7 @@ public class IvmDeltaRewriteHelper {
      * filter always false. Version and sequence use their valid default value 0 when
      * absent from the stream scan. Other hidden columns still fall back to NULL.
      */
-    private Literal hiddenColumnFallbackLiteral(NamedExpression oldExpr) {
+    Literal hiddenColumnFallbackLiteral(NamedExpression oldExpr) {
         String name = oldExpr.getName();
         if (IvmUtil.isCommonHiddenSlot(name)) {
             return IvmUtil.getCommonHiddenSlotDefault(name);

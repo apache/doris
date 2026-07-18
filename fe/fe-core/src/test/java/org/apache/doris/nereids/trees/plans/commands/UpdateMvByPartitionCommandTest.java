@@ -284,11 +284,11 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
 
     private List<String> getAnalyzedIvmSinkColumnNames(MTMV mtmv) {
         List<String> columnNames = new ArrayList<>(mtmv.getInsertedColumnNames());
-        columnNames.add(Column.SEQUENCE_COL);
         columnNames.add(Column.DELETE_SIGN);
         if (Config.enable_hidden_version_column_by_default) {
             columnNames.add(Column.VERSION_COL);
         }
+        columnNames.add(Column.SEQUENCE_COL);
         return columnNames;
     }
 

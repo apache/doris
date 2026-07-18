@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -236,6 +237,12 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                         .collect(ImmutableList.toImmutableList()))
                 .build();
         return new LogicalProject<>(outputs, scan);
+    }
+
+    @Override
+    public Plan visitLogicalOlapTableStreamScan(LogicalOlapTableStreamScan scan, NormalizeContext context) {
+        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                "IVM normalize does not support LogicalOlapTableStreamScan");
     }
 
     // whitelisted: project — recurse into child, then propagate row-id if not already present

@@ -166,10 +166,6 @@ abstract class IvmDeltaTestBase {
         Map<Long, Long> next = new HashMap<>();
         for (Partition partition : baseTable.getPartitions()) {
             long partitionId = partition.getId();
-            Long previousOffset = stream.getStreamUpdate(partitionId).first;
-            if (previousOffset != null) {
-                prev.put(partitionId, previousOffset);
-            }
             next.put(partitionId, offset);
         }
         baseTable.writeLock();
@@ -185,7 +181,7 @@ abstract class IvmDeltaTestBase {
         registerTestStream(baseTable, 1L);
     }
 
-    private OlapTableStream registerTestStream(OlapTable baseTable, long mvId) {
+    protected OlapTableStream registerTestStream(OlapTable baseTable, long mvId) {
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test_db");
         if (db == null) {
             db = new Database(10_000L, "test_db");

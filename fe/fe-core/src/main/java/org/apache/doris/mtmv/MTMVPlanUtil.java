@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
@@ -989,9 +990,7 @@ public class MTMVPlanUtil {
 
     private static void checkColumnIfChange(MTMV mtmv, List<ColumnDefinition> analyzedColumnDefinitions)
             throws JobException {
-        List<Column> analyzedColumns = analyzedColumnDefinitions.stream()
-                .map(ColumnDefinition::translateToCatalogStyle)
-                .collect(Collectors.toList());
+        List<Column> analyzedColumns = buildExpectedPhysicalSchema(mtmv, analyzedColumnDefinitions);
         List<Column> originalColumns = mtmv.getBaseSchema(true);
         if (analyzedColumns.size() != originalColumns.size()) {
             throw new JobException(String.format(
@@ -1008,6 +1007,18 @@ public class MTMVPlanUtil {
                         analyzedColumns.get(i).getType().toSql()));
             }
         }
+    }
+
+    private static List<Column> buildExpectedPhysicalSchema(MTMV mtmv,
+            List<ColumnDefinition> analyzedColumnDefinitions) {
+        List<Column> analyzedColumns = analyzedColumnDefinitions.stream()
+                .map(ColumnDefinition::translateToCatalogStyle)
+                .collect(Collectors.toList());
+        if (mtmv.isIvm()) {
+            analyzedColumns.add(ColumnDefinition.newSequenceColumnDefinition(
+                    BigIntType.INSTANCE, AggregateType.NONE).translateToCatalogStyle());
+        }
+        return analyzedColumns;
     }
 
     private static boolean isTypeLike(Type type, Type typeOther) {

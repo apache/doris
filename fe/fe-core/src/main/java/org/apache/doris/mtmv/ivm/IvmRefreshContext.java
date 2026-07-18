@@ -32,21 +32,28 @@ import java.util.Objects;
  * Shared immutable context for one FE-side incremental refresh attempt.
  *
  * <p>TSO positions are now obtained from {@code OlapTableStream} per-partition offsets
- * in {@link IvmDeltaRewriter#collectDeltaScanContexts} rather than stored here.
+ * in {@link IvmDeltaRewriteState} rather than stored here.
  */
 public class IvmRefreshContext {
     private final MTMV mtmv;
     private final ConnectContext connectContext;
     private final IvmRewriteResult rewriteResult;
+    private final boolean includeUpToDateStreams;
 
     public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext) {
-        this(mtmv, connectContext, null);
+        this(mtmv, connectContext, null, false);
     }
 
     public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult) {
+        this(mtmv, connectContext, rewriteResult, false);
+    }
+
+    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
+            boolean includeUpToDateStreams) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
         this.rewriteResult = rewriteResult;
+        this.includeUpToDateStreams = includeUpToDateStreams;
     }
 
     public MTMV getMtmv() {
@@ -60,6 +67,10 @@ public class IvmRefreshContext {
     /** Returns the IVM rewrite result captured during MV query rewriting. */
     public IvmRewriteResult getRewriteResult() {
         return rewriteResult;
+    }
+
+    public boolean isIncludeUpToDateStreams() {
+        return includeUpToDateStreams;
     }
 
     static TableNameInfo toTableNameInfo(LogicalOlapScan scan) {
@@ -94,12 +105,13 @@ public class IvmRefreshContext {
         IvmRefreshContext that = (IvmRefreshContext) o;
         return Objects.equals(mtmv, that.mtmv)
                 && Objects.equals(connectContext, that.connectContext)
-                && Objects.equals(rewriteResult, that.rewriteResult);
+                && Objects.equals(rewriteResult, that.rewriteResult)
+                && includeUpToDateStreams == that.includeUpToDateStreams;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mtmv, connectContext, rewriteResult);
+        return Objects.hash(mtmv, connectContext, rewriteResult, includeUpToDateStreams);
     }
 
     @Override

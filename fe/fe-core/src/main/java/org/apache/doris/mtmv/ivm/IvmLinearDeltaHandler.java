@@ -18,18 +18,20 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
@@ -37,11 +39,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Rewrites plan nodes whose delta propagates linearly through the plan.
@@ -49,38 +55,54 @@ import java.util.List;
 class IvmLinearDeltaHandler {
     private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
 
-    /** Regular scan is a snapshot — no delta to process, return as-is with null dmlFactor. */
-    IvmDeltaRewriteResult rewriteOlapScan(LogicalOlapScan scan) {
-        return new IvmDeltaRewriteResult(scan, null, null);
+    Optional<IvmDeltaRewriteResult> rewriteOlapScan(LogicalOlapScan scan, IvmDeltaRewriteState state) {
+        Optional<LogicalOlapTableStreamScan> deltaScan = state.createDeltaScan(scan);
+        if (!deltaScan.isPresent()) {
+            return Optional.empty();
+        }
+        return buildDeltaScanResult(scan, deltaScan.get(), state);
     }
 
-    /**
-     * Wraps incremental stream scan with Project(scan_output + dml_factor).
-     * Returns null dmlFactor for non-incremental stream scans.
-     */
-    IvmDeltaRewriteResult rewriteOlapTableStreamScan(LogicalOlapTableStreamScan scan) {
-        if (!scan.isIncremental()) {
-            return new IvmDeltaRewriteResult(scan, null, null);
-        }
-        Expression factorExpr = buildDmlFactorExpr(scan);
+    private Optional<IvmDeltaRewriteResult> buildDeltaScanResult(LogicalOlapScan originalScan,
+            LogicalOlapTableStreamScan deltaScan, IvmDeltaRewriteState state) {
+        long subSeqPrefix = state.nextSubSeqPrefix();
+        Expression factorExpr = buildDmlFactorExpr(deltaScan);
         Alias factorAlias = new Alias(factorExpr, Column.IVM_DML_FACTOR_COL);
-        Alias baseOpAlias = new Alias(factorExpr, Column.IVM_BASE_OP_COL);
+        Expression sequenceExpr = new If(
+                new GreaterThan(factorExpr, new TinyIntLiteral((byte) 0)),
+                new BigIntLiteral(state.toSequence(subSeqPrefix | 1)),
+                new BigIntLiteral(state.toSequence(subSeqPrefix)));
+        Alias sequenceAlias = new Alias(sequenceExpr, Column.SEQUENCE_COL);
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(
-                scan.getOutput().size() + 2);
-        scan.getOutput().forEach(outputs::add);
+                deltaScan.getOutput().size() + 2);
+        deltaScan.getOutput().forEach(outputs::add);
         outputs.add(factorAlias);
-        outputs.add(baseOpAlias);
-        LogicalProject<?> project = new LogicalProject<>(outputs.build(), scan);
+        outputs.add(sequenceAlias);
+        LogicalProject<?> deltaProject = new LogicalProject<>(outputs.build(), deltaScan);
+        ImmutableList.Builder<NamedExpression> remappedOutputs = ImmutableList.builderWithExpectedSize(
+                originalScan.getOutput().size() + 2);
+        for (Slot originalSlot : originalScan.getOutput()) {
+            Slot deltaSlot = helper.findSlotByNameOrNull(deltaProject.getOutput(), originalSlot.getName());
+            if (deltaSlot != null) {
+                remappedOutputs.add(new Alias(originalSlot.getExprId(), deltaSlot, originalSlot.getName()));
+            } else if (originalSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+                remappedOutputs.add(new Alias(originalSlot.getExprId(),
+                        helper.hiddenColumnFallbackLiteral(originalSlot), originalSlot.getName()));
+            } else {
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM: delta scan missing column " + originalSlot.getName());
+            }
+        }
+        remappedOutputs.add(helper.findSlotByName(deltaProject.getOutput(), Column.IVM_DML_FACTOR_COL));
+        remappedOutputs.add(helper.findSlotByName(deltaProject.getOutput(), Column.SEQUENCE_COL));
+        LogicalProject<?> project = new LogicalProject<>(remappedOutputs.build(), deltaProject);
         int lastIdx = project.getOutput().size() - 1;
         Slot dmlFactorSlot = project.getOutput().get(lastIdx - 1);
-        Slot baseOpSlot = project.getOutput().get(lastIdx);
-        return new IvmDeltaRewriteResult(project, dmlFactorSlot, baseOpSlot);
+        Slot sequenceSlot = project.getOutput().get(lastIdx);
+        return Optional.of(new IvmDeltaRewriteResult(project, dmlFactorSlot, sequenceSlot,
+                state.maxSeqSuffix(subSeqPrefix)));
     }
 
-    /**
-     * Builds the dml_factor expression from the stream change type column.
-     * APPEND, UPDATE_AFTER → dml_factor = +1, DELETE, UPDATE_BEFORE → dml_factor = -1
-     */
     private Expression buildDmlFactorExpr(LogicalOlapTableStreamScan scan) {
         Slot opSlot = IvmDeltaRewriteHelper.INSTANCE.findSlotByName(
                 scan.getOutput(), Column.STREAM_CHANGE_TYPE_COL);
@@ -91,148 +113,120 @@ class IvmLinearDeltaHandler {
                 new TinyIntLiteral((byte) -1));
     }
 
-    IvmDeltaRewriteResult rewriteProject(LogicalProject<? extends Plan> project,
+    Optional<IvmDeltaRewriteResult> rewriteProject(LogicalProject<? extends Plan> project,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
-        IvmDeltaRewriteResult childResult = project.child().accept(visitor, ctx);
-        if (childResult.dmlFactorSlot == null) {
-            LogicalProject<?> newProject = project.withProjectsAndChild(project.getProjects(), childResult.plan);
-            return new IvmDeltaRewriteResult(newProject, null, null);
+        Optional<IvmDeltaRewriteResult> childResult = project.child().accept(visitor, ctx);
+        if (!childResult.isPresent()) {
+            return Optional.empty();
         }
-        // IVM normalize only adds hidden row-id columns to existing projects. dml_factor and op_type are
-        // introduced later while rewriting delta scans, so normalized projects need to propagate them explicitly.
-        int dmlFactorIndex = -1;
-        int baseOpIndex = -1;
-        for (int i = 0; i < project.getProjects().size(); i++) {
-            NamedExpression expr = project.getProjects().get(i);
-            if (Column.IVM_DML_FACTOR_COL.equals(expr.getName())) {
-                dmlFactorIndex = i;
-            } else if (Column.IVM_BASE_OP_COL.equals(expr.getName())) {
-                baseOpIndex = i;
-            }
-        }
-        if (dmlFactorIndex >= 0 && baseOpIndex >= 0) {
-            LogicalProject<?> newProject = project.withProjectsAndChild(project.getProjects(), childResult.plan);
-            return new IvmDeltaRewriteResult(newProject,
-                    newProject.getOutput().get(dmlFactorIndex), newProject.getOutput().get(baseOpIndex));
-        }
+        IvmDeltaRewriteResult child = childResult.get();
         ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList.builderWithExpectedSize(
                 project.getProjects().size() + 2);
-        newOutputs.addAll(project.getProjects());
-        if (dmlFactorIndex < 0) {
-            newOutputs.add(childResult.dmlFactorSlot);
+        Map<Slot, Slot> childOutputMapping = new HashMap<>();
+        for (int i = 0; i < project.child().getOutput().size(); i++) {
+            childOutputMapping.put(project.child().getOutput().get(i), child.plan.getOutput().get(i));
         }
-        if (baseOpIndex < 0) {
-            newOutputs.add(childResult.baseOpSlot);
+        for (NamedExpression output : project.getProjects()) {
+            for (Slot inputSlot : output.getInputSlots()) {
+                if (!childOutputMapping.containsKey(inputSlot)) {
+                    childOutputMapping.put(inputSlot, helper.findSlotByName(child.plan.getOutput(),
+                            inputSlot.getName()));
+                }
+            }
+            newOutputs.add((NamedExpression) ExpressionUtils.replace(output, childOutputMapping));
         }
-        LogicalProject<?> newProject = project.withProjectsAndChild(newOutputs.build(), childResult.plan);
-        Slot newDmlFactor = dmlFactorIndex >= 0 ? newProject.getOutput().get(dmlFactorIndex)
-                : newProject.getOutput().get(newProject.getOutput().size() - 2);
-        Slot newBaseOp = baseOpIndex >= 0 ? newProject.getOutput().get(baseOpIndex)
-                : newProject.getOutput().get(newProject.getOutput().size() - 1);
-        return new IvmDeltaRewriteResult(newProject, newDmlFactor, newBaseOp);
+        newOutputs.add(child.dmlFactorSlot);
+        newOutputs.add(child.sequenceSlot);
+        LogicalProject<?> newProject = project.withProjectsAndChild(newOutputs.build(), child.plan);
+        Slot newDmlFactor = helper.findSlotByName(newProject.getOutput(), Column.IVM_DML_FACTOR_COL);
+        Slot newSequence = helper.findSlotByName(newProject.getOutput(), Column.SEQUENCE_COL);
+        return Optional.of(new IvmDeltaRewriteResult(newProject, newDmlFactor, newSequence, child.maxSeqSuffix));
     }
 
-    IvmDeltaRewriteResult rewriteFilter(LogicalFilter<? extends Plan> filter,
+    Optional<IvmDeltaRewriteResult> rewriteFilter(LogicalFilter<? extends Plan> filter,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
         return rewritePassThroughPlan(filter, visitor, ctx, false);
     }
 
-    IvmDeltaRewriteResult rewriteSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
+    Optional<IvmDeltaRewriteResult> rewriteSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
         return rewritePassThroughPlan(alias, visitor, ctx, true);
     }
 
-    private IvmDeltaRewriteResult rewritePassThroughPlan(Plan plan, IvmDeltaRewriteVisitor visitor,
+    private Optional<IvmDeltaRewriteResult> rewritePassThroughPlan(UnaryPlan<? extends Plan> plan,
+            IvmDeltaRewriteVisitor visitor,
             IvmRefreshContext ctx, boolean remapHiddenSlotsFromOutput) {
-        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.children().size());
-        Slot dmlFactorSlot = null;
-        Slot baseOpSlot = null;
-        for (Plan child : plan.children()) {
-            IvmDeltaRewriteResult childResult = child.accept(visitor, ctx);
-            newChildren.add(childResult.plan);
-            if (childResult.dmlFactorSlot == null) {
+        Optional<IvmDeltaRewriteResult> childResult = plan.child().accept(visitor, ctx);
+        if (!childResult.isPresent()) {
+            return Optional.empty();
+        }
+        IvmDeltaRewriteResult deltaChild = childResult.get();
+        Plan newPlan = plan.withChildren(ImmutableList.of(deltaChild.plan));
+        if (!remapHiddenSlotsFromOutput) {
+            return Optional.of(new IvmDeltaRewriteResult(newPlan,
+                    deltaChild.dmlFactorSlot, deltaChild.sequenceSlot, deltaChild.maxSeqSuffix));
+        } else {
+            Slot newDmlFactorSlot = helper.findSlotByName(newPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
+            Slot newSequenceSlot = helper.findSlotByName(newPlan.getOutput(), Column.SEQUENCE_COL);
+            return Optional.of(new IvmDeltaRewriteResult(newPlan, newDmlFactorSlot,
+                    newSequenceSlot, deltaChild.maxSeqSuffix));
+        }
+    }
+
+    Optional<IvmDeltaRewriteResult> rewriteUnion(LogicalUnion union,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
+        List<IvmDeltaRewriteResult> childResults = new ArrayList<>();
+        for (int i = 0; i < union.children().size(); i++) {
+            Optional<IvmDeltaRewriteResult> childResult = union.child(i).accept(visitor, ctx);
+            if (!childResult.isPresent()) {
                 continue;
             }
-            if (dmlFactorSlot != null) {
-                throw new AnalysisException(
-                        "IVM: multiple pass-through children have dml_factor — expected at most one delta child");
+            IvmDeltaRewriteResult deltaChild = childResult.get();
+            List<SlotReference> childMapping = union.getRegularChildrenOutputs().get(i);
+            List<NamedExpression> unionOutputs = union.getOutputs();
+            ImmutableList.Builder<NamedExpression> projections = ImmutableList.builder();
+            for (int j = 0; j < unionOutputs.size(); j++) {
+                NamedExpression unionOut = unionOutputs.get(j);
+                SlotReference childSlot = childMapping.get(j);
+                projections.add(new Alias(unionOut.getExprId(), childSlot, unionOut.getName()));
             }
-            dmlFactorSlot = childResult.dmlFactorSlot;
-            baseOpSlot = childResult.baseOpSlot;
+            projections.add(deltaChild.dmlFactorSlot);
+            projections.add(deltaChild.sequenceSlot);
+            LogicalProject<Plan> mappedProject = new LogicalProject<>(projections.build(), deltaChild.plan);
+            Slot newDmlFactor = helper.findSlotByName(mappedProject.getOutput(), Column.IVM_DML_FACTOR_COL);
+            Slot newSequence = helper.findSlotByName(mappedProject.getOutput(), Column.SEQUENCE_COL);
+            childResults.add(new IvmDeltaRewriteResult(mappedProject, newDmlFactor, newSequence,
+                    deltaChild.maxSeqSuffix));
         }
-
-        Plan newPlan = plan.withChildren(newChildren.build());
-        if (dmlFactorSlot == null) {
-            return new IvmDeltaRewriteResult(newPlan, null, null);
-        }
-        if (!remapHiddenSlotsFromOutput) {
-            return new IvmDeltaRewriteResult(newPlan, dmlFactorSlot, baseOpSlot);
-        }
-        Slot newDmlFactorSlot = helper.findSlotByName(newPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
-        Slot newBaseOpSlot = helper.findSlotByName(newPlan.getOutput(), Column.IVM_BASE_OP_COL);
-        return new IvmDeltaRewriteResult(newPlan, newDmlFactorSlot, newBaseOpSlot);
+        return helper.combineDeltaResults(childResults, union.getOutput());
     }
 
-    IvmDeltaRewriteResult rewriteUnion(LogicalUnion union, IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
-        List<IvmDeltaRewriteResult> childResults = new ArrayList<>();
-        for (Plan child : union.children()) {
-            childResults.add(child.accept(visitor, ctx));
-        }
-
-        int deltaIdx = -1;
-        for (int i = 0; i < childResults.size(); i++) {
-            if (childResults.get(i).dmlFactorSlot != null) {
-                if (deltaIdx != -1) {
-                    throw new AnalysisException(
-                            "IVM: multiple UNION ALL arms have dml_factor — expected at most one delta arm");
-                }
-                deltaIdx = i;
-            }
-        }
-
-        if (deltaIdx == -1) {
-            ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
-            for (IvmDeltaRewriteResult result : childResults) {
-                newChildren.add(result.plan);
-            }
-            Plan newUnion = union.withChildren(newChildren.build());
-            return new IvmDeltaRewriteResult(newUnion, null, null);
-        }
-
-        IvmDeltaRewriteResult deltaChild = childResults.get(deltaIdx);
-        List<SlotReference> childMapping = union.getRegularChildrenOutputs().get(deltaIdx);
-        List<NamedExpression> unionOutputs = union.getOutputs();
-
-        ImmutableList.Builder<NamedExpression> projections = ImmutableList.builder();
-        for (int j = 0; j < unionOutputs.size(); j++) {
-            NamedExpression unionOut = unionOutputs.get(j);
-            SlotReference childSlot = childMapping.get(j);
-            projections.add(new Alias(unionOut.getExprId(), childSlot, unionOut.getName()));
-        }
-        projections.add(deltaChild.dmlFactorSlot);
-        projections.add(deltaChild.baseOpSlot);
-
-        LogicalProject<Plan> mappedProject = new LogicalProject<>(projections.build(), deltaChild.plan);
-        int lastIdx = mappedProject.getOutput().size() - 1;
-        Slot newDmlFactor = mappedProject.getOutput().get(lastIdx - 1);
-        Slot newBaseOp = mappedProject.getOutput().get(lastIdx);
-        return new IvmDeltaRewriteResult(mappedProject, newDmlFactor, newBaseOp);
-    }
-
-    IvmDeltaRewriteResult rewriteRepeat(LogicalRepeat<? extends Plan> repeat,
+    Optional<IvmDeltaRewriteResult> rewriteRepeat(LogicalRepeat<? extends Plan> repeat,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
-        IvmDeltaRewriteResult childResult = repeat.child().accept(visitor, ctx);
-        if (childResult.dmlFactorSlot == null) {
-            return new IvmDeltaRewriteResult(repeat.withChildren(ImmutableList.of(childResult.plan)), null, null);
+        Optional<IvmDeltaRewriteResult> childResult = repeat.child().accept(visitor, ctx);
+        if (!childResult.isPresent()) {
+            return Optional.empty();
         }
-
+        IvmDeltaRewriteResult child = childResult.get();
         List<NamedExpression> newOutputs = new ArrayList<>(repeat.getOutputExpressions());
-        newOutputs.add(childResult.dmlFactorSlot);
-        newOutputs.add(childResult.baseOpSlot);
-        LogicalRepeat<Plan> newRepeat = repeat.withAggOutputAndChild(newOutputs, childResult.plan);
+        newOutputs.add(child.dmlFactorSlot);
+        newOutputs.add(child.sequenceSlot);
+        LogicalRepeat<Plan> newRepeat = repeat.withAggOutputAndChild(newOutputs, child.plan);
+        // LogicalRepeat appends GROUPING_ID after outputExpressions. Restore the original output order before
+        // appending delta metadata, otherwise an upper Project maps GROUPING_ID to a hidden delta slot.
+        ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
+                repeat.getOutput().size() + 2);
+        for (Slot output : repeat.getOutput()) {
+            Slot repeatedOutput = helper.findSlotByName(newRepeat.getOutput(), output.getName());
+            projects.add(new Alias(output.getExprId(), repeatedOutput, output.getName()));
+        }
         Slot repeatDmlFactorSlot = helper.findSlotByName(newRepeat.getOutput(), Column.IVM_DML_FACTOR_COL);
-        Slot repeatBaseOpSlot = helper.findSlotByName(newRepeat.getOutput(), Column.IVM_BASE_OP_COL);
-        return new IvmDeltaRewriteResult(newRepeat, repeatDmlFactorSlot, repeatBaseOpSlot);
+        Slot repeatSequenceSlot = helper.findSlotByName(newRepeat.getOutput(), Column.SEQUENCE_COL);
+        projects.add(repeatDmlFactorSlot);
+        projects.add(repeatSequenceSlot);
+        LogicalProject<Plan> project = new LogicalProject<>(projects.build(), newRepeat);
+        return Optional.of(new IvmDeltaRewriteResult(project,
+                helper.findSlotByName(project.getOutput(), Column.IVM_DML_FACTOR_COL),
+                helper.findSlotByName(project.getOutput(), Column.SEQUENCE_COL), child.maxSeqSuffix));
     }
-
 }
