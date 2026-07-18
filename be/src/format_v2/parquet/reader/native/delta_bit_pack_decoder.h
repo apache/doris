@@ -36,7 +36,6 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "exec/common/arithmetic_overflow.h"
-#include "format/parquet/parquet_common.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"

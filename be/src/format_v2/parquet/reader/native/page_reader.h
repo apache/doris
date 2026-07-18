@@ -26,7 +26,6 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "format/parquet/parquet_common.h"
 #include "storage/cache/page_cache.h"
 #include "util/block_compression.h"
 namespace doris {

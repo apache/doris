@@ -24,7 +24,6 @@
 
 #include "core/column/column_vector.h"
 #include "core/types.h"
-#include "format/parquet/parquet_common.h"
 #include "util/bit_util.h"
 
 namespace doris::format::parquet::native {

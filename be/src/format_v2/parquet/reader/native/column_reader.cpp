@@ -22,6 +22,7 @@
 #include <sys/types.h>
 
 #include <algorithm>
+#include <string_view>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -103,6 +104,146 @@ bool is_direct_binary_type(PrimitiveType type) {
     return is_string_type(type) || type == TYPE_VARBINARY;
 }
 
+Status validate_decimal_physical_type(const NativeFieldSchema& field, int precision, int scale) {
+    if (precision <= 0 || scale < 0 || scale > precision) {
+        return Status::Corruption("Parquet decimal field {} has invalid precision {} and scale {}",
+                                  field.name, precision, scale);
+    }
+    switch (field.physical_type) {
+    case tparquet::Type::INT32:
+        if (precision <= 9) {
+            return Status::OK();
+        }
+        break;
+    case tparquet::Type::INT64:
+        if (precision <= 18) {
+            return Status::OK();
+        }
+        break;
+    case tparquet::Type::BYTE_ARRAY:
+        return Status::OK();
+    case tparquet::Type::FIXED_LEN_BYTE_ARRAY: {
+        const int length =
+                field.parquet_schema.__isset.type_length ? field.parquet_schema.type_length : -1;
+        if (length > 0) {
+            const int64_t max_precision = (static_cast<int64_t>(length) * 8 - 1) * 30103 / 100000;
+            if (precision <= max_precision) {
+                return Status::OK();
+            }
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return Status::Corruption("Parquet decimal field {} has incompatible physical type {}",
+                              field.name, tparquet::to_string(field.physical_type));
+}
+
+Status validate_physical_annotation(const NativeFieldSchema& field) {
+    const auto& schema = field.parquet_schema;
+    if (field.physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+        (!schema.__isset.type_length || schema.type_length <= 0)) {
+        return Status::Corruption("Parquet fixed-length field {} has invalid width {}", field.name,
+                                  schema.__isset.type_length ? schema.type_length : -1);
+    }
+    auto require = [&](bool valid, std::string_view annotation) -> Status {
+        if (valid) {
+            return Status::OK();
+        }
+        return Status::Corruption("Parquet {} field {} is incompatible with physical type {}",
+                                  annotation, field.name, tparquet::to_string(field.physical_type));
+    };
+
+    if (schema.__isset.logicalType) {
+        const auto& logical = schema.logicalType;
+        if (logical.__isset.STRING || logical.__isset.ENUM || logical.__isset.JSON ||
+            logical.__isset.BSON) {
+            return require(field.physical_type == tparquet::Type::BYTE_ARRAY, "string");
+        }
+        if (logical.__isset.DECIMAL) {
+            return validate_decimal_physical_type(field, logical.DECIMAL.precision,
+                                                  logical.DECIMAL.scale);
+        }
+        if (logical.__isset.DATE) {
+            return require(field.physical_type == tparquet::Type::INT32, "date");
+        }
+        if (logical.__isset.TIME) {
+            const auto unit = parquet_time_unit(logical.TIME.unit);
+            return require(
+                    (unit == ParquetTimeUnit::MILLIS &&
+                     field.physical_type == tparquet::Type::INT32) ||
+                            ((unit == ParquetTimeUnit::MICROS || unit == ParquetTimeUnit::NANOS) &&
+                             field.physical_type == tparquet::Type::INT64),
+                    "time");
+        }
+        if (logical.__isset.TIMESTAMP) {
+            return require(
+                    field.physical_type == tparquet::Type::INT64 &&
+                            parquet_time_unit(logical.TIMESTAMP.unit) != ParquetTimeUnit::UNKNOWN,
+                    "timestamp");
+        }
+        if (logical.__isset.INTEGER) {
+            const int width = logical.INTEGER.bitWidth;
+            return require(((width == 8 || width == 16 || width == 32) &&
+                            field.physical_type == tparquet::Type::INT32) ||
+                                   (width == 64 && field.physical_type == tparquet::Type::INT64),
+                           "integer");
+        }
+        if (logical.__isset.UUID) {
+            return require(field.physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+                                   schema.type_length == 16,
+                           "UUID");
+        }
+        if (logical.__isset.FLOAT16) {
+            return require(field.physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+                                   schema.type_length == 2,
+                           "FLOAT16");
+        }
+        if (logical.__isset.UNKNOWN) {
+            return Status::OK();
+        }
+        return Status::Corruption("Unsupported Parquet logical annotation on field {}", field.name);
+    }
+
+    if (!schema.__isset.converted_type) {
+        return Status::OK();
+    }
+    switch (schema.converted_type) {
+    case tparquet::ConvertedType::UTF8:
+    case tparquet::ConvertedType::ENUM:
+    case tparquet::ConvertedType::JSON:
+    case tparquet::ConvertedType::BSON:
+        return require(field.physical_type == tparquet::Type::BYTE_ARRAY, "converted string");
+    case tparquet::ConvertedType::DECIMAL:
+        return validate_decimal_physical_type(field,
+                                              schema.__isset.precision ? schema.precision : -1,
+                                              schema.__isset.scale ? schema.scale : -1);
+    case tparquet::ConvertedType::DATE:
+    case tparquet::ConvertedType::TIME_MILLIS:
+    case tparquet::ConvertedType::UINT_8:
+    case tparquet::ConvertedType::UINT_16:
+    case tparquet::ConvertedType::UINT_32:
+    case tparquet::ConvertedType::INT_8:
+    case tparquet::ConvertedType::INT_16:
+    case tparquet::ConvertedType::INT_32:
+        return require(field.physical_type == tparquet::Type::INT32, "converted INT32");
+    case tparquet::ConvertedType::TIME_MICROS:
+    case tparquet::ConvertedType::TIMESTAMP_MILLIS:
+    case tparquet::ConvertedType::TIMESTAMP_MICROS:
+    case tparquet::ConvertedType::UINT_64:
+    case tparquet::ConvertedType::INT_64:
+        return require(field.physical_type == tparquet::Type::INT64, "converted INT64");
+    case tparquet::ConvertedType::INTERVAL:
+        return require(field.physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+                               schema.type_length == 12,
+                       "interval");
+    default:
+        return Status::Corruption("Unsupported Parquet converted annotation {} on field {}",
+                                  tparquet::to_string(schema.converted_type), field.name);
+    }
+}
+
 IColumn::Filter* conversion_failure_map(const NativeFieldSchema& field,
                                         const DataTypePtr& target_type, bool strict_mode,
                                         IColumn::Filter* output_null_map,
@@ -170,6 +311,9 @@ bool serde_can_materialize_directly(const DataTypePtr& source_type,
 Status init_decode_context(const NativeFieldSchema& field, const cctz::time_zone* ctz,
                            ParquetDecodeContext* context) {
     DORIS_CHECK(context != nullptr);
+    // Annotation validation belongs before decoder construction: accepting an impossible pair
+    // lets the logical SerDe reinterpret a differently sized physical value stream.
+    RETURN_IF_ERROR(validate_physical_annotation(field));
     switch (field.physical_type) {
     case tparquet::Type::BOOLEAN:
         context->physical_type = ParquetPhysicalType::BOOLEAN;
@@ -511,11 +655,21 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
         reader.reset(struct_reader.release());
     } else {
         auto physical_index = field->physical_column_index;
+        if (physical_index < 0 || static_cast<size_t>(physical_index) >= row_group.columns.size()) {
+            // Keep the leaf-to-chunk invariant checked at this consumer too because unit callers
+            // can construct a reader without going through NativeParquetMetadata::init_schema().
+            return Status::Corruption("Parquet physical column index {} is out of range {}",
+                                      physical_index, row_group.columns.size());
+        }
         const auto offset_it = col_offsets.find(physical_index);
         const tparquet::OffsetIndex* offset_index =
                 offset_it != col_offsets.end() ? &offset_it->second : nullptr;
 
         const tparquet::ColumnChunk& chunk = row_group.columns[physical_index];
+        if (!chunk.__isset.meta_data) {
+            return Status::Corruption("Parquet physical column {} has no chunk metadata",
+                                      physical_index);
+        }
         if (in_collection) {
             if (offset_index == nullptr) {
                 auto scalar_reader = ScalarColumnReader<true, false>::create_unique(

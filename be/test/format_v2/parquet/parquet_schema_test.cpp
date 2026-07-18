@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <parquet/api/schema.h>
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_file_context.h"
 
 namespace doris::format::parquet {
 namespace {
@@ -624,6 +626,84 @@ TEST(ParquetSchemaTest, NativeGroupEnumLogicalTypeIsRejected) {
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("Logical type Enum cannot be applied to group node"),
               std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeSchemaRejectsUnboundedChildCountsBeforeAllocation) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(std::numeric_limits<int32_t>::max());
+    NativeFieldDescriptor descriptor;
+    EXPECT_FALSE(descriptor.parse_from_thrift({root}).ok());
+
+    root.__set_num_children(1);
+    tparquet::SchemaElement nested;
+    nested.__set_name("nested");
+    nested.__set_num_children(std::numeric_limits<int32_t>::max());
+    nested.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    EXPECT_FALSE(descriptor.parse_from_thrift({root, nested}).ok());
+}
+
+std::vector<tparquet::SchemaElement> nested_native_schema(size_t depth) {
+    std::vector<tparquet::SchemaElement> schema;
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    schema.push_back(root);
+    for (size_t level = 0; level < depth; ++level) {
+        tparquet::SchemaElement group;
+        group.__set_name("g" + std::to_string(level));
+        group.__set_num_children(1);
+        group.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+        schema.push_back(group);
+    }
+    tparquet::SchemaElement leaf;
+    leaf.__set_name("value");
+    leaf.__set_type(tparquet::Type::INT32);
+    leaf.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    schema.push_back(leaf);
+    return schema;
+}
+
+TEST(ParquetSchemaTest, NativeSchemaBoundsRecursiveDepth) {
+    NativeFieldDescriptor accepted;
+    EXPECT_TRUE(accepted.parse_from_thrift(nested_native_schema(MAX_NATIVE_SCHEMA_DEPTH)).ok());
+    NativeFieldDescriptor rejected;
+    EXPECT_FALSE(
+            rejected.parse_from_thrift(nested_native_schema(MAX_NATIVE_SCHEMA_DEPTH + 1)).ok());
+}
+
+TEST(ParquetSchemaTest, NativeMetadataRejectsRowGroupChunkCardinalityAndMissingMetadata) {
+    auto make_metadata = []() {
+        tparquet::FileMetaData metadata;
+        tparquet::SchemaElement root;
+        root.__set_name("schema");
+        root.__set_num_children(2);
+        tparquet::SchemaElement first;
+        first.__set_name("a");
+        first.__set_type(tparquet::Type::INT32);
+        first.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+        tparquet::SchemaElement second = first;
+        second.__set_name("b");
+        metadata.__set_schema({root, first, second});
+        tparquet::RowGroup row_group;
+        row_group.__set_num_rows(1);
+        metadata.__set_row_groups({row_group});
+        return metadata;
+    };
+
+    {
+        NativeParquetMetadata metadata(make_metadata(), 0);
+        EXPECT_FALSE(metadata.init_schema(true, false).ok());
+    }
+    {
+        auto thrift = make_metadata();
+        thrift.row_groups[0].columns.resize(2);
+        tparquet::ColumnMetaData first_meta;
+        first_meta.__set_type(tparquet::Type::INT32);
+        thrift.row_groups[0].columns[0].__set_meta_data(first_meta);
+        NativeParquetMetadata metadata(std::move(thrift), 0);
+        EXPECT_FALSE(metadata.init_schema(true, false).ok());
+    }
 }
 
 } // namespace doris::format::parquet

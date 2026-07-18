@@ -47,18 +47,49 @@
 #include "core/field.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
-#include "format/parquet/parquet_block_split_bloom_filter.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
+#include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "format_v2/timestamp_statistics.h"
 #include "runtime/runtime_profile.h"
+#include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "util/thrift_util.h"
 #include "util/unaligned.h"
 
 namespace doris::format::parquet {
+
+namespace detail {
+
+Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
+                                           int64_t payload_size, int64_t declared_length,
+                                           size_t file_size) {
+    if (offset < 0 || header_size == 0 || payload_size < segment_v2::BloomFilter::MINIMUM_BYTES ||
+        payload_size > segment_v2::BloomFilter::MAXIMUM_BYTES || payload_size % 32 != 0) {
+        return Status::Corruption(
+                "Invalid Parquet Bloom filter layout: offset {}, header {}, payload {}", offset,
+                header_size, payload_size);
+    }
+    const uint64_t unsigned_offset = static_cast<uint64_t>(offset);
+    const uint64_t total_size = static_cast<uint64_t>(header_size) + payload_size;
+    if (unsigned_offset > file_size || total_size > file_size - unsigned_offset) {
+        return Status::Corruption("Parquet Bloom filter range exceeds file size {}", file_size);
+    }
+    if (declared_length >= 0) {
+        const uint64_t unsigned_declared_length = static_cast<uint64_t>(declared_length);
+        if (unsigned_declared_length < total_size ||
+            unsigned_declared_length > file_size - unsigned_offset) {
+            return Status::Corruption(
+                    "Parquet Bloom filter requires {} bytes, metadata declares {}, file has {}",
+                    total_size, declared_length, file_size - unsigned_offset);
+        }
+    }
+    return Status::OK();
+}
+
+} // namespace detail
 
 namespace {
 
@@ -76,15 +107,25 @@ enum class ParquetRowGroupPruneReason {
 
 Status read_native_bloom_filter(const tparquet::ColumnMetaData& metadata,
                                 const io::FileReaderSPtr& file, io::IOContext* io_ctx,
-                                std::unique_ptr<ParquetBlockSplitBloomFilter>* result) {
+                                std::unique_ptr<native::BlockSplitBloomFilter>* result) {
     if (result == nullptr || file == nullptr || !metadata.__isset.bloom_filter_offset) {
         return Status::NotSupported("Parquet Bloom filter is unavailable");
     }
     constexpr size_t MAX_BLOOM_HEADER_BYTES = 64;
-    const size_t header_read_size =
-            metadata.__isset.bloom_filter_length && metadata.bloom_filter_length > 0
-                    ? std::min<size_t>(metadata.bloom_filter_length, MAX_BLOOM_HEADER_BYTES)
-                    : MAX_BLOOM_HEADER_BYTES;
+    if (metadata.bloom_filter_offset < 0 ||
+        (metadata.__isset.bloom_filter_length && metadata.bloom_filter_length <= 0)) {
+        return Status::Corruption("Invalid Parquet Bloom filter offset or declared length");
+    }
+    const uint64_t bloom_offset = static_cast<uint64_t>(metadata.bloom_filter_offset);
+    if (bloom_offset >= file->size()) {
+        return Status::Corruption("Parquet Bloom filter offset exceeds file size {}", file->size());
+    }
+    const size_t available = file->size() - bloom_offset;
+    const size_t declared_available =
+            metadata.__isset.bloom_filter_length
+                    ? std::min<size_t>(metadata.bloom_filter_length, available)
+                    : available;
+    const size_t header_read_size = std::min(declared_available, MAX_BLOOM_HEADER_BYTES);
     std::vector<uint8_t> header_buffer(header_read_size);
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file->read_at(metadata.bloom_filter_offset,
@@ -98,13 +139,20 @@ Status read_native_bloom_filter(const tparquet::ColumnMetaData& metadata,
         return Status::NotSupported("Unsupported Parquet Bloom filter encoding");
     }
 
+    // Validate the complete split-block layout before allocating or adding footer-controlled
+    // offsets; BloomFilter::init() otherwise receives a truncated or oversized backing buffer.
+    RETURN_IF_ERROR(detail::validate_native_bloom_filter_layout(
+            metadata.bloom_filter_offset, header_size, header.numBytes,
+            metadata.__isset.bloom_filter_length ? metadata.bloom_filter_length : -1,
+            file->size()));
+
     std::vector<uint8_t> data(cast_set<size_t>(header.numBytes));
-    RETURN_IF_ERROR(file->read_at(metadata.bloom_filter_offset + header_size,
+    RETURN_IF_ERROR(file->read_at(static_cast<size_t>(metadata.bloom_filter_offset) + header_size,
                                   Slice(data.data(), data.size()), &bytes_read, io_ctx));
     if (bytes_read != data.size()) {
         return Status::Corruption("Truncated Parquet Bloom filter payload");
     }
-    auto bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
+    auto bloom_filter = std::make_unique<native::BlockSplitBloomFilter>();
     RETURN_IF_ERROR(bloom_filter->init(reinterpret_cast<const char*>(data.data()), data.size(),
                                        segment_v2::HashStrategyPB::XX_HASH_64));
     *result = std::move(bloom_filter);
@@ -875,6 +923,12 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         return result;
     }
 
+    if (statistics->__isset.null_count && statistics->null_count > column_value_count) {
+        // An impossible null count makes all derived min/max and all-null flags untrustworthy;
+        // disable pruning instead of turning corrupt footer metadata into false negatives.
+        return result;
+    }
+
     const bool has_null_count = statistics->__isset.null_count && statistics->null_count >= 0;
     const int64_t null_count = has_null_count ? statistics->null_count : 0;
     const bool has_not_null = has_null_count ? column_value_count > null_count : true;
@@ -1357,7 +1411,7 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
         if (!chunk.__isset.meta_data) {
             continue;
         }
-        std::unique_ptr<ParquetBlockSplitBloomFilter> bloom_filter;
+        std::unique_ptr<native::BlockSplitBloomFilter> bloom_filter;
         Status status;
         {
             int64_t timer_sink = 0;

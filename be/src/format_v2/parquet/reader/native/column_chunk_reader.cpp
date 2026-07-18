@@ -1187,6 +1187,16 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_nested_rows(
         if (UNLIKELY(rep_level < 0)) {
             return Status::Corruption("Parquet repetition level stream ended unexpectedly");
         }
+        if constexpr (!OFFSET_INDEX && IN_COLLECTION) {
+            // A continuation level is valid across later V1 pages only after this chunk has seen
+            // a row start; accepting it on the first sequential page invents an orphan parent row.
+            if (!_nested_row_started && rep_level != 0) {
+                return Status::Corruption(
+                        "First Parquet nested data page starts with repetition level {}",
+                        rep_level);
+            }
+            _nested_row_started = true;
+        }
         if (rep_level == 0) {               // rep_level 0 indicates start of new row
             if (*result_rows == max_rows) { // this page contain max_rows, page no end.
                 _current_row += max_rows;
@@ -1230,6 +1240,14 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_cross_page_nested_ro
         level_t rep_level = _rep_level_get_next();
         if (UNLIKELY(rep_level < 0)) {
             return Status::Corruption("Parquet repetition level stream ended unexpectedly");
+        }
+        if constexpr (!OFFSET_INDEX && IN_COLLECTION) {
+            if (!_nested_row_started && rep_level != 0) {
+                return Status::Corruption(
+                        "First Parquet nested data page starts with repetition level {}",
+                        rep_level);
+            }
+            _nested_row_started = true;
         }
         if (rep_level == 0) { // rep_level 0 indicates start of new row
             *cross_page = false;

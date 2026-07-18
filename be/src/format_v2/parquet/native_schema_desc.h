@@ -37,6 +37,7 @@ namespace doris::format::parquet {
 
 // Constant for unassigned column IDs
 constexpr uint64_t NATIVE_UNASSIGNED_COLUMN_ID = UINT64_MAX;
+constexpr size_t MAX_NATIVE_SCHEMA_DEPTH = 100;
 
 struct NativeFieldSchema {
     std::string name;
@@ -149,6 +150,12 @@ public:
     std::string debug_string() const;
 
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
+
+    size_t physical_fields_size() const { return _physical_fields.size(); }
+
+    const NativeFieldSchema* get_physical_field(size_t index) const {
+        return _physical_fields[index];
+    }
 
     const std::vector<NativeFieldSchema>& get_fields_schema() const { return _fields; }
 

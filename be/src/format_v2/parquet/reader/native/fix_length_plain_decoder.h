@@ -22,12 +22,7 @@
 #include "common/status.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/data_type/data_type.h"
-#include "format/parquet/parquet_common.h"
 #include "format_v2/parquet/reader/native/decoder.h"
-
-namespace doris {
-class ColumnSelectVector;
-} // namespace doris
 
 namespace doris::format::parquet::native {
 

@@ -69,6 +69,33 @@ Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
     // Native readers address projected leaves by stable DFS IDs. Assign them only on the private
     // v2 schema object so v1's cached schema lifecycle and numbering remain untouched.
     _schema.assign_ids();
+    for (size_t row_group_idx = 0; row_group_idx < _metadata.row_groups.size(); ++row_group_idx) {
+        const auto& row_group = _metadata.row_groups[row_group_idx];
+        if (row_group.num_rows < 0) {
+            return Status::Corruption("Parquet row group {} has negative row count {}",
+                                      row_group_idx, row_group.num_rows);
+        }
+        if (row_group.columns.size() != _schema.physical_fields_size()) {
+            // All v2 planners index chunks by the native DFS leaf order, so validate cardinality
+            // once before any projection, prefetch, or decoder can perform indexed access.
+            return Status::Corruption(
+                    "Parquet row group {} has {} column chunks but schema has {} physical fields",
+                    row_group_idx, row_group.columns.size(), _schema.physical_fields_size());
+        }
+        for (size_t column_idx = 0; column_idx < row_group.columns.size(); ++column_idx) {
+            const auto& chunk = row_group.columns[column_idx];
+            if (!chunk.__isset.meta_data) {
+                return Status::Corruption("Parquet row group {} column {} has no metadata",
+                                          row_group_idx, column_idx);
+            }
+            if (chunk.meta_data.type != _schema.get_physical_field(column_idx)->physical_type) {
+                return Status::Corruption(
+                        "Parquet row group {} column {} physical type {} does not match schema {}",
+                        row_group_idx, column_idx, tparquet::to_string(chunk.meta_data.type),
+                        tparquet::to_string(_schema.get_physical_field(column_idx)->physical_type));
+            }
+        }
+    }
     return Status::OK();
 }
 

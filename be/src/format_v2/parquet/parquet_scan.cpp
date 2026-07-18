@@ -36,6 +36,7 @@
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/global_rowid_column_reader.h"
+#include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
 #include "util/defer_op.h"
@@ -272,10 +273,17 @@ void materialize_count_star_placeholders(const format::FileScanRequest& request,
     }
 }
 
-std::vector<ParquetPageCacheRange> build_row_group_prefetch_ranges(
+} // namespace
+
+namespace detail {
+
+Status build_native_prefetch_ranges(
         const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const std::vector<format::LocalColumnIndex>& scan_columns, int row_group_idx) {
+        const std::vector<format::LocalColumnIndex>& scan_columns, int row_group_idx,
+        size_t file_size, bool parquet_816_padding, std::vector<ParquetPageCacheRange>* ranges) {
+    DORIS_CHECK(ranges != nullptr);
+    ranges->clear();
     std::unordered_set<int> leaf_column_ids;
     for (const auto& projection : scan_columns) {
         const auto local_id = projection.local_id();
@@ -283,40 +291,55 @@ std::vector<ParquetPageCacheRange> build_row_group_prefetch_ranges(
             local_id == format::GLOBAL_ROWID_COLUMN_ID) {
             continue;
         }
-        DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
-        DORIS_CHECK(file_schema[local_id] != nullptr);
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
+            file_schema[local_id] == nullptr) {
+            return Status::Corruption("Invalid Parquet projected column id {}", local_id);
+        }
         // Prefetch and merge-reader ranges must be physical leaf chunks, not Doris logical slots.
         // Example: for a struct column s<a:int,b:string>, projecting only s.a should include only
         // the Parquet leaf chunk of a. Projecting the whole struct includes both a and b.
         collect_projected_leaf_column_ids(*file_schema[local_id], projection, &leaf_column_ids);
     }
 
-    DORIS_CHECK(row_group_idx >= 0 && row_group_idx < static_cast<int>(metadata.row_groups.size()));
+    if (row_group_idx < 0 || row_group_idx >= static_cast<int>(metadata.row_groups.size())) {
+        return Status::Corruption("Invalid Parquet row group index {}", row_group_idx);
+    }
     const auto& row_group_metadata = metadata.row_groups[row_group_idx];
     std::vector<int> ordered_leaf_column_ids(leaf_column_ids.begin(), leaf_column_ids.end());
     std::ranges::sort(ordered_leaf_column_ids);
 
-    std::vector<ParquetPageCacheRange> ranges;
-    ranges.reserve(ordered_leaf_column_ids.size());
+    ranges->reserve(ordered_leaf_column_ids.size());
     for (const auto leaf_column_id : ordered_leaf_column_ids) {
-        DORIS_CHECK(leaf_column_id >= 0 &&
-                    leaf_column_id < static_cast<int>(row_group_metadata.columns.size()));
+        if (leaf_column_id < 0 ||
+            leaf_column_id >= static_cast<int>(row_group_metadata.columns.size())) {
+            return Status::Corruption("Invalid Parquet leaf column id {}", leaf_column_id);
+        }
         const auto& chunk = row_group_metadata.columns[leaf_column_id];
         if (!chunk.__isset.meta_data) {
-            continue;
+            return Status::Corruption("Parquet leaf column {} has no chunk metadata",
+                                      leaf_column_id);
         }
-        const auto& column_metadata = chunk.meta_data;
-        const int64_t offset = column_metadata.__isset.dictionary_page_offset
-                                       ? column_metadata.dictionary_page_offset
-                                       : column_metadata.data_page_offset;
-        const int64_t size = column_metadata.total_compressed_size;
-        DORIS_CHECK(offset >= 0);
-        if (size > 0) {
-            ranges.push_back(ParquetPageCacheRange {.offset = offset, .size = size});
+        native::ColumnChunkRange chunk_range;
+        RETURN_IF_ERROR(native::compute_column_chunk_range(chunk.meta_data, file_size,
+                                                           parquet_816_padding, &chunk_range));
+        if (chunk_range.length > 0) {
+            if (chunk_range.offset > static_cast<size_t>(std::numeric_limits<int64_t>::max()) ||
+                chunk_range.length > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
+                return Status::Corruption("Parquet column chunk range exceeds int64 coordinates");
+            }
+            // Prefetch must use the same checked chunk extent as the decoder, including the
+            // PARQUET-816 compatibility padding, so warm-up cannot target different bytes.
+            ranges->push_back(
+                    ParquetPageCacheRange {.offset = static_cast<int64_t>(chunk_range.offset),
+                                           .size = static_cast<int64_t>(chunk_range.length)});
         }
     }
-    return ranges;
+    return Status::OK();
 }
+
+} // namespace detail
+
+namespace {
 
 Status select_row_groups_by_scan_range(const ::parquet::FileMetaData& metadata,
                                        const ParquetScanRange& scan_range,
@@ -463,43 +486,33 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
     return Status::OK();
 }
 
-namespace {
-
-int64_t native_column_start_offset(const tparquet::ColumnMetaData& column_metadata) {
-    return column_metadata.__isset.dictionary_page_offset ? column_metadata.dictionary_page_offset
-                                                          : column_metadata.data_page_offset;
-}
-
-bool is_native_row_group_outside_range(const tparquet::RowGroup& row_group,
-                                       const ParquetScanRange& scan_range) {
-    if (scan_range.size < 0) {
-        return false;
-    }
-    const int64_t range_start = scan_range.start_offset;
-    const int64_t range_end = range_start + scan_range.size;
-    DORIS_CHECK(range_start >= 0 && range_end >= range_start);
-    if (range_start == 0 && (scan_range.file_size < 0 || range_end >= scan_range.file_size)) {
-        return false;
-    }
-    if (row_group.columns.empty() || !row_group.columns.front().__isset.meta_data ||
-        !row_group.columns.back().__isset.meta_data) {
-        return false;
-    }
-    const auto& first = row_group.columns.front().meta_data;
-    const auto& last = row_group.columns.back().meta_data;
-    const int64_t group_start = native_column_start_offset(first);
-    const int64_t group_end = native_column_start_offset(last) + last.total_compressed_size;
-    const int64_t group_mid = group_start + (group_end - group_start) / 2;
-    return group_mid < range_start || group_mid >= range_end;
-}
+namespace detail {
 
 Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
                                               const ParquetScanRange& scan_range,
                                               std::vector<int64_t>* row_group_first_rows,
                                               std::vector<int>* selected_row_groups) {
     DORIS_CHECK(row_group_first_rows != nullptr && selected_row_groups != nullptr);
+    if (scan_range.start_offset < 0 || scan_range.size < -1 ||
+        (scan_range.size >= 0 &&
+         scan_range.start_offset > std::numeric_limits<int64_t>::max() - scan_range.size)) {
+        return Status::Corruption("Invalid Parquet scan range [{}, {})", scan_range.start_offset,
+                                  scan_range.size);
+    }
+    const uint64_t range_start = static_cast<uint64_t>(scan_range.start_offset);
+    const uint64_t range_end = scan_range.size < 0
+                                       ? std::numeric_limits<uint64_t>::max()
+                                       : range_start + static_cast<uint64_t>(scan_range.size);
+    const size_t file_size = scan_range.file_size < 0 ? std::numeric_limits<size_t>::max()
+                                                      : static_cast<size_t>(scan_range.file_size);
+    const bool full_file_range =
+            scan_range.size < 0 || (range_start == 0 && scan_range.file_size >= 0 &&
+                                    range_end >= static_cast<uint64_t>(scan_range.file_size));
+    const auto compat = native::parquet_reader_compat(
+            metadata.__isset.created_by ? metadata.created_by : std::string {});
     row_group_first_rows->assign(metadata.row_groups.size(), 0);
     selected_row_groups->clear();
+    selected_row_groups->reserve(metadata.row_groups.size());
     int64_t next_first_row = 0;
     for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
         (*row_group_first_rows)[row_group_idx] = next_first_row;
@@ -508,13 +521,46 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
             return Status::Corruption("Invalid negative row count in parquet row group {}",
                                       row_group_idx);
         }
+        if (row_group.num_rows > std::numeric_limits<int64_t>::max() - next_first_row) {
+            return Status::Corruption("Parquet row counts overflow at row group {}", row_group_idx);
+        }
         next_first_row += row_group.num_rows;
-        if (!is_native_row_group_outside_range(row_group, scan_range)) {
+        bool selected = full_file_range;
+        if (!full_file_range) {
+            if (row_group.columns.empty()) {
+                return Status::Corruption("Parquet row group {} has no column chunks",
+                                          row_group_idx);
+            }
+            size_t group_start = std::numeric_limits<size_t>::max();
+            size_t group_end = 0;
+            for (size_t column_idx = 0; column_idx < row_group.columns.size(); ++column_idx) {
+                const auto& chunk = row_group.columns[column_idx];
+                if (!chunk.__isset.meta_data) {
+                    return Status::Corruption("Parquet row group {} column {} has no metadata",
+                                              row_group_idx, column_idx);
+                }
+                native::ColumnChunkRange chunk_range;
+                RETURN_IF_ERROR(native::compute_column_chunk_range(
+                        chunk.meta_data, file_size, compat.parquet_816_padding, &chunk_range));
+                group_start = std::min(group_start, chunk_range.offset);
+                group_end = std::max(group_end, chunk_range.offset + chunk_range.length);
+            }
+            // Checked chunk ranges make end >= start; this midpoint form cannot overflow even
+            // when footer offsets are close to the host coordinate limit.
+            const uint64_t group_mid =
+                    static_cast<uint64_t>(group_start) + (group_end - group_start) / 2;
+            selected = group_mid >= range_start && group_mid < range_end;
+        }
+        if (selected) {
             selected_row_groups->push_back(cast_set<int>(row_group_idx));
         }
     }
     return Status::OK();
 }
+
+} // namespace detail
+
+namespace {
 
 Status build_native_row_group_read_plans(
         const NativeParquetMetadata& metadata,
@@ -580,7 +626,7 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     plan->pruning_stats = {};
     std::vector<int64_t> row_group_first_rows;
     std::vector<int> scan_range_selected;
-    RETURN_IF_ERROR(select_native_row_groups_by_scan_range(
+    RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
             metadata.to_thrift(), scan_range, &row_group_first_rows, &scan_range_selected));
     std::vector<int> metadata_selected;
     RETURN_IF_ERROR(select_row_groups_by_metadata(
@@ -1055,9 +1101,13 @@ Status ParquetScanScheduler::open_next_row_group(
     // row-group-scoped MergeRangeFileReader policy as v1. Sharing one wrapper is important: a
     // separate merge reader per leaf would duplicate its 128MB scratch capacity and defeat lazy
     // materialization for wide schemas.
-    const auto native_ranges =
-            build_row_group_prefetch_ranges(file_context.native_metadata->to_thrift(), file_schema,
-                                            request_scan_columns(request), row_group_idx);
+    const auto& thrift_metadata = file_context.native_metadata->to_thrift();
+    const auto compat = native::parquet_reader_compat(
+            thrift_metadata.__isset.created_by ? thrift_metadata.created_by : std::string {});
+    std::vector<ParquetPageCacheRange> native_ranges;
+    RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
+            thrift_metadata, file_schema, request_scan_columns(request), row_group_idx,
+            file_context.native_file->size(), compat.parquet_816_padding, &native_ranges));
     _current_merge_range_active = file_context.set_native_random_access_ranges(
             native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
             _merge_read_slice_size);
@@ -1098,8 +1148,8 @@ Status ParquetScanScheduler::open_next_row_group(
     // changes row/column materialization order.
     if (!_current_merge_range_active) {
         const auto prefetch_columns = adaptive_predicate_prefetch_columns(request);
-        prefetch_current_row_group_columns(file_context, file_schema, prefetch_columns,
-                                           &_current_predicate_prefetched);
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(
+                file_context, file_schema, prefetch_columns, &_current_predicate_prefetched));
     }
     for (const auto& col : request.non_predicate_columns) {
         const auto local_id = col.local_id();
@@ -1136,9 +1186,9 @@ Status ParquetScanScheduler::open_next_row_group(
         // With no row-level filters there is no lazy-read decision to wait for, so start warming
         // output chunks immediately after their readers are created. Filtered scans still defer
         // this until at least one row survives the predicate phase.
-        prefetch_current_row_group_columns(file_context, file_schema,
-                                           physical_non_predicate_columns(request),
-                                           &_current_non_predicate_prefetched);
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema,
+                                                           physical_non_predicate_columns(request),
+                                                           &_current_non_predicate_prefetched));
     }
     *has_row_group = true;
     return Status::OK();
@@ -1771,24 +1821,29 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     return compact_predicate_columns_with_profile();
 }
 
-void ParquetScanScheduler::prefetch_current_row_group_columns(
+Status ParquetScanScheduler::prefetch_current_row_group_columns(
         ParquetFileContext& file_context,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const std::vector<format::LocalColumnIndex>& scan_columns, bool* prefetched) {
     DORIS_CHECK(prefetched != nullptr);
     if (_current_merge_range_active || *prefetched || scan_columns.empty() ||
         _current_row_group_id < 0 || file_context.native_metadata == nullptr) {
-        return;
+        return Status::OK();
     }
     *prefetched = true;
     // The scanner request separates predicate and non-predicate columns so Parquet can read
     // predicate columns first and lazily materialize the rest. Keep the same contract for
     // prefetch: callers decide which side to warm, and this helper only translates that selected
     // projection into physical column-chunk byte ranges for the current row group.
-    file_context.prefetch_ranges(
-            build_row_group_prefetch_ranges(file_context.native_metadata->to_thrift(), file_schema,
-                                            scan_columns, _current_row_group_id),
-            nullptr);
+    const auto& metadata = file_context.native_metadata->to_thrift();
+    const auto compat = native::parquet_reader_compat(
+            metadata.__isset.created_by ? metadata.created_by : std::string {});
+    std::vector<ParquetPageCacheRange> ranges;
+    RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
+            metadata, file_schema, scan_columns, _current_row_group_id,
+            file_context.native_file->size(), compat.parquet_816_padding, &ranges));
+    file_context.prefetch_ranges(ranges, nullptr);
+    return Status::OK();
 }
 
 Status ParquetScanScheduler::read_current_row_group_batch(
@@ -1884,9 +1939,9 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         // Do not prefetch lazy output columns until at least one row survives filtering. This is
         // the same decision point where the v2 reader switches from predicate-only reads to
         // materializing non-predicate columns, so fully filtered batches avoid unnecessary IO.
-        prefetch_current_row_group_columns(file_context, file_schema,
-                                           physical_non_predicate_columns(request),
-                                           &_current_non_predicate_prefetched);
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema,
+                                                           physical_non_predicate_columns(request),
+                                                           &_current_non_predicate_prefetched));
     }
 
     {

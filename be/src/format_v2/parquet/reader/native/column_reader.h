@@ -31,9 +31,9 @@
 #include "core/data_type/data_type.h"
 #include "format/column_type_convert.h"
 #include "format/generic_reader.h"
-#include "format/parquet/parquet_common.h"
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
+#include "format_v2/parquet/reader/native/common.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 

@@ -569,6 +569,33 @@ TEST(ParquetStatisticsTransformTest, MissingNullCountConservativelyReportsPossib
     EXPECT_EQ(statistics.max_value.get<TYPE_INT>(), 3);
 }
 
+TEST(ParquetStatisticsTransformTest, InvalidFooterNullCountDisablesPruningStatistics) {
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("i", arrow::int32(), true)}),
+                                    {int32_array({7})});
+    auto reader = make_reader(table, 1, false, true);
+    auto schema = build_file_schema(*reader);
+    tparquet::Statistics malformed;
+    malformed.__set_null_count(2);
+    malformed.__set_min_value(encoded_value<int32_t>(7));
+    malformed.__set_max_value(encoded_value<int32_t>(7));
+    const auto statistics = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            *schema[0], &malformed, 1);
+    EXPECT_FALSE(statistics.has_null_count);
+    EXPECT_FALSE(statistics.has_min_max);
+}
+
+TEST(ParquetBloomFilterPruningTest, NativeBloomLayoutRejectsSubBlockAndHugePayloads) {
+    using format::parquet::detail::validate_native_bloom_filter_layout;
+    EXPECT_TRUE(validate_native_bloom_filter_layout(8, 12, 32, 44, 128).ok());
+    EXPECT_FALSE(validate_native_bloom_filter_layout(8, 12, 2, 14, 128).ok());
+    EXPECT_FALSE(validate_native_bloom_filter_layout(8, 12, 33, 45, 128).ok());
+    EXPECT_FALSE(validate_native_bloom_filter_layout(8, 12, std::numeric_limits<int32_t>::max(), -1,
+                                                     std::numeric_limits<size_t>::max())
+                         .ok());
+    EXPECT_FALSE(validate_native_bloom_filter_layout(120, 12, 32, 44, 128).ok());
+    EXPECT_FALSE(validate_native_bloom_filter_layout(8, 12, 32, 200, 128).ok());
+}
+
 TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleMinMax) {
     auto table = arrow::Table::Make(arrow::schema({arrow::field("f", arrow::float32(), false),
                                                    arrow::field("d", arrow::float64(), false)}),

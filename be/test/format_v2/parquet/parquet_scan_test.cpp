@@ -81,6 +81,64 @@ const ColumnString& string_data_column(const IColumn& column) {
     return assert_cast<const ColumnString&>(column);
 }
 
+TEST(ParquetScanMetadataSafetyTest, CheckedChunkRangesDrivePrefetchAndSplitAssignment) {
+    tparquet::FileMetaData metadata;
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement leaf;
+    leaf.__set_name("value");
+    leaf.__set_type(tparquet::Type::INT32);
+    leaf.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    metadata.__set_schema({root, leaf});
+
+    tparquet::ColumnMetaData column;
+    column.__set_type(tparquet::Type::INT32);
+    column.__set_data_page_offset(100);
+    column.__set_dictionary_page_offset(-1);
+    column.__set_total_compressed_size(20);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column);
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(1);
+    row_group.__set_columns({chunk});
+    metadata.__set_row_groups({row_group});
+
+    auto schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    schema->local_id = 0;
+    schema->leaf_column_id = 0;
+    schema->type = std::make_shared<DataTypeInt32>();
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
+    file_schema.push_back(std::move(schema));
+    std::vector<format::parquet::ParquetPageCacheRange> ranges;
+    ASSERT_TRUE(format::parquet::detail::build_native_prefetch_ranges(
+                        metadata, file_schema, {field_projection(0)}, 0, 200, false, &ranges)
+                        .ok());
+    ASSERT_EQ(ranges.size(), 1);
+    EXPECT_EQ(ranges[0].offset, 100);
+    EXPECT_EQ(ranges[0].size, 20);
+
+    std::vector<int64_t> first_rows;
+    std::vector<int> selected;
+    format::parquet::ParquetScanRange first_split {
+            .start_offset = 0, .size = 100, .file_size = 200};
+    ASSERT_TRUE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                        metadata, first_split, &first_rows, &selected)
+                        .ok());
+    EXPECT_TRUE(selected.empty());
+    format::parquet::ParquetScanRange second_split {
+            .start_offset = 100, .size = 100, .file_size = 200};
+    ASSERT_TRUE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                        metadata, second_split, &first_rows, &selected)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({0}));
+
+    metadata.row_groups[0].columns[0].meta_data.__set_data_page_offset(190);
+    EXPECT_FALSE(format::parquet::detail::build_native_prefetch_ranges(
+                         metadata, file_schema, {field_projection(0)}, 0, 200, false, &ranges)
+                         .ok());
+}
+
 class Int32ZoneMapExpr final : public VExpr {
 public:
     enum class Op { GE, GT, LT };

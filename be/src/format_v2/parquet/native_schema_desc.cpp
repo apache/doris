@@ -69,6 +69,55 @@ static int num_children_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.num_children ? schema.num_children : 0;
 }
 
+static Status validate_native_schema_structure(
+        const std::vector<tparquet::SchemaElement>& schemas) {
+    if (schemas.empty() || !is_group_node(schemas[0])) {
+        return Status::InvalidArgument("Wrong parquet root schema element");
+    }
+
+    struct PendingGroup {
+        size_t remaining_children;
+        size_t depth;
+    };
+    const auto root_children = num_children_node(schemas[0]);
+    if (root_children < 0 || static_cast<size_t>(root_children) > schemas.size() - 1) {
+        return Status::InvalidArgument("Invalid parquet root child count {}", root_children);
+    }
+    std::vector<PendingGroup> pending {{static_cast<size_t>(root_children), 0}};
+    for (size_t pos = 1; pos < schemas.size(); ++pos) {
+        while (!pending.empty() && pending.back().remaining_children == 0) {
+            pending.pop_back();
+        }
+        if (pending.empty()) {
+            return Status::InvalidArgument("Schema element {} is not reachable from the root", pos);
+        }
+
+        const size_t depth = pending.back().depth + 1;
+        --pending.back().remaining_children;
+        const int children = num_children_node(schemas[pos]);
+        if (children < 0 || static_cast<size_t>(children) > schemas.size() - pos - 1) {
+            return Status::InvalidArgument("Invalid child count {} at schema element {}", children,
+                                           pos);
+        }
+        if (children > 0) {
+            // Bound the tree before any resize or recursion so an untrusted footer cannot
+            // turn a tiny schema into an unbounded allocation or parser stack.
+            if (depth > MAX_NATIVE_SCHEMA_DEPTH) {
+                return Status::InvalidArgument("Parquet schema depth {} exceeds limit {}", depth,
+                                               MAX_NATIVE_SCHEMA_DEPTH);
+            }
+            pending.push_back({static_cast<size_t>(children), depth});
+        }
+    }
+    while (!pending.empty() && pending.back().remaining_children == 0) {
+        pending.pop_back();
+    }
+    if (!pending.empty()) {
+        return Status::InvalidArgument("Parquet schema ended before all children were parsed");
+    }
+    return Status::OK();
+}
+
 /**
  * `repeated_parent_def_level` is the definition level of the first ancestor node whose repetition_type equals REPEATED.
  * Empty array/map values are not stored in doris columns, so have to use `repeated_parent_def_level` to skip the
@@ -134,9 +183,10 @@ std::string NativeFieldSchema::debug_string() const {
 
 Status NativeFieldDescriptor::parse_from_thrift(
         const std::vector<tparquet::SchemaElement>& t_schemas) {
-    if (t_schemas.size() == 0 || !is_group_node(t_schemas[0])) {
-        return Status::InvalidArgument("Wrong parquet root schema element");
-    }
+    _fields.clear();
+    _physical_fields.clear();
+    _name_to_field.clear();
+    RETURN_IF_ERROR(validate_native_schema_structure(t_schemas));
     const auto& root_schema = t_schemas[0];
     _fields.resize(root_schema.num_children);
     _next_schema_pos = 1;

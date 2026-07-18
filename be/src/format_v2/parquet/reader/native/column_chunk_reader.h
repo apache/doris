@@ -30,8 +30,8 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/parquet_decode_source.h"
-#include "format/parquet/parquet_common.h"
 #include "format_v2/parquet/native_schema_desc.h"
+#include "format_v2/parquet/reader/native/common.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
@@ -335,6 +335,7 @@ private:
     Slice _v2_def_levels;
     bool _dict_checked = false;
     bool _has_dict = false;
+    bool _nested_row_started = false;
     Decoder* _page_decoder = nullptr;
     tparquet::Encoding::type _current_encoding = tparquet::Encoding::PLAIN;
     // Map: encoding -> Decoder

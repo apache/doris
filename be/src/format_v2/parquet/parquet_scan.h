@@ -60,6 +60,8 @@ namespace doris::format::parquet {
 
 struct ParquetFileContext;
 struct ParquetColumnSchema;
+struct ParquetPageCacheRange;
+struct ParquetScanRange;
 class NativeParquetMetadata;
 
 namespace detail {
@@ -82,6 +84,15 @@ std::vector<size_t> adaptive_prefetch_prefix(
         const std::unordered_map<size_t, AdaptivePredicateStats>& stats,
         double minimum_reach_probability);
 bool should_sample_adaptive_predicate(size_t samples, size_t batch_sequence);
+Status build_native_prefetch_ranges(
+        const tparquet::FileMetaData& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const std::vector<format::LocalColumnIndex>& scan_columns, int row_group_idx,
+        size_t file_size, bool parquet_816_padding, std::vector<ParquetPageCacheRange>* ranges);
+Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
+                                              const ParquetScanRange& scan_range,
+                                              std::vector<int64_t>* row_group_first_rows,
+                                              std::vector<int>* selected_row_groups);
 } // namespace detail
 
 // ============================================================================
@@ -214,7 +225,7 @@ private:
             const format::FileScanRequest& request, int row_group_idx,
             const tparquet::RowGroup& row_group_metadata);
 
-    void prefetch_current_row_group_columns(
+    Status prefetch_current_row_group_columns(
             ParquetFileContext& file_context,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
             const std::vector<format::LocalColumnIndex>& scan_columns, bool* prefetched);

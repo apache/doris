@@ -288,7 +288,7 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
         return Status::OK();
     }
 
-    ::doris::FilterMap filter;
+    native::FilterMap filter;
     RETURN_IF_ERROR(filter.init(filter_data, static_cast<size_t>(rows), filter_all));
     _native_reader->reset_filter_map_index();
     ColumnPtr native_column(std::move(column));

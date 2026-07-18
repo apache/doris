@@ -26,7 +26,6 @@
 
 #include "core/column/column_vector.h"
 #include "core/types.h"
-#include "format/parquet/parquet_common.h"
 #include "util/coding.h"
 #include "util/slice.h"
 

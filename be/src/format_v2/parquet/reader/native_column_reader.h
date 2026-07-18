@@ -28,7 +28,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "format/parquet/parquet_common.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/reader/column_reader.h"

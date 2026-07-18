@@ -56,6 +56,12 @@ namespace doris::format::parquet {
 struct ParquetColumnSchema;
 struct ParquetFileContext;
 
+namespace detail {
+Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
+                                           int64_t payload_size, int64_t declared_length,
+                                           size_t file_size);
+} // namespace detail
+
 // ============================================================================
 // ============================================================================
 

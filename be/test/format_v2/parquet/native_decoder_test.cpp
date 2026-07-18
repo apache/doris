@@ -390,6 +390,79 @@ TEST(ParquetV2NativeDecoderTest, LegacyConvertedTimestampsRemainUtcAdjusted) {
     }
 }
 
+TEST(ParquetV2NativeDecoderTest, InvalidLogicalPhysicalPairsFailBeforeDecode) {
+    auto invalid = [](tparquet::Type::type physical, const tparquet::LogicalType& logical) {
+        NativeFieldSchema field;
+        field.name = "bad";
+        field.physical_type = physical;
+        field.parquet_schema.__set_logicalType(logical);
+        ParquetDecodeContext context;
+        return init_decode_context_for_test(field, nullptr, &context);
+    };
+
+    tparquet::LogicalType date;
+    date.__set_DATE(tparquet::DateType());
+    EXPECT_FALSE(invalid(tparquet::Type::BOOLEAN, date).ok());
+
+    tparquet::LogicalType timestamp;
+    timestamp.__set_TIMESTAMP(tparquet::TimestampType());
+    timestamp.TIMESTAMP.__set_unit(tparquet::TimeUnit());
+    timestamp.TIMESTAMP.unit.__set_MICROS(tparquet::MicroSeconds());
+    EXPECT_FALSE(invalid(tparquet::Type::INT32, timestamp).ok());
+
+    tparquet::LogicalType integer;
+    integer.__set_INTEGER(tparquet::IntType());
+    integer.INTEGER.__set_bitWidth(64);
+    integer.INTEGER.__set_isSigned(true);
+    EXPECT_FALSE(invalid(tparquet::Type::INT32, integer).ok());
+
+    tparquet::LogicalType string;
+    string.__set_STRING(tparquet::StringType());
+    EXPECT_FALSE(invalid(tparquet::Type::INT32, string).ok());
+
+    tparquet::LogicalType uuid;
+    uuid.__set_UUID(tparquet::UUIDType());
+    EXPECT_FALSE(invalid(tparquet::Type::BYTE_ARRAY, uuid).ok());
+
+    auto invalid_converted = [](tparquet::Type::type physical,
+                                tparquet::ConvertedType::type converted, int type_length = -1,
+                                int precision = -1, int scale = -1) {
+        NativeFieldSchema field;
+        field.name = "bad";
+        field.physical_type = physical;
+        field.parquet_schema.__set_converted_type(converted);
+        if (type_length >= 0) {
+            field.parquet_schema.__set_type_length(type_length);
+        }
+        if (precision >= 0) {
+            field.parquet_schema.__set_precision(precision);
+        }
+        if (scale >= 0) {
+            field.parquet_schema.__set_scale(scale);
+        }
+        ParquetDecodeContext context;
+        return init_decode_context_for_test(field, nullptr, &context);
+    };
+    EXPECT_FALSE(invalid_converted(tparquet::Type::INT32, tparquet::ConvertedType::UTF8).ok());
+    EXPECT_FALSE(
+            invalid_converted(tparquet::Type::INT32, tparquet::ConvertedType::TIME_MICROS).ok());
+    EXPECT_FALSE(invalid_converted(tparquet::Type::INT32, tparquet::ConvertedType::UINT_64).ok());
+    EXPECT_FALSE(invalid_converted(tparquet::Type::FIXED_LEN_BYTE_ARRAY,
+                                   tparquet::ConvertedType::INTERVAL, 8)
+                         .ok());
+    EXPECT_FALSE(
+            invalid_converted(tparquet::Type::INT32, tparquet::ConvertedType::DECIMAL, -1, 10, 2)
+                    .ok());
+
+    NativeFieldSchema fixed;
+    fixed.name = "fixed";
+    fixed.physical_type = tparquet::Type::FIXED_LEN_BYTE_ARRAY;
+    ParquetDecodeContext context;
+    EXPECT_FALSE(init_decode_context_for_test(fixed, nullptr, &context).ok());
+    fixed.parquet_schema.__set_type_length(4);
+    EXPECT_TRUE(init_decode_context_for_test(fixed, nullptr, &context).ok());
+}
+
 TEST(ParquetV2NativeDecoderTest, NonStrictLegacyTimestampsKeepDefaultOnOverflow) {
     DataTypePtr datetime_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
     NativeFieldSchema int96_field;
@@ -1387,6 +1460,63 @@ TEST(ParquetV2NativeDecoderTest, NestedV2PageRejectsMissingAdvertisedRowStarts) 
     // Two values [0, 1] contain only one repetition-level zero, so they describe one row.
     EXPECT_TRUE(load_malformed_nested_page(header, {2, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0}, 2)
                         .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, FirstNestedV1PageRejectsOrphanContinuation) {
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE;
+    // A two-value RLE run at repetition level 1 has no level-0 row start.
+    const std::vector<uint8_t> payload {2, 0, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0};
+    header.__set_compressed_page_size(payload.size());
+    header.__set_uncompressed_page_size(payload.size());
+    header.__isset.data_page_header = true;
+    header.data_page_header.__set_num_values(2);
+    header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    EXPECT_TRUE(load_malformed_nested_page(header, payload, 2).is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, NestedV1ContinuationRemainsValidAfterFirstRowStart) {
+    auto make_page = [](int values, std::vector<uint8_t> payload) {
+        tparquet::PageHeader header;
+        header.type = tparquet::PageType::DATA_PAGE;
+        header.__set_compressed_page_size(payload.size());
+        header.__set_uncompressed_page_size(payload.size());
+        header.__isset.data_page_header = true;
+        header.data_page_header.__set_num_values(values);
+        header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+        header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+        header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+        return serialize_page(header, payload);
+    };
+    auto first_page = make_page(2, {2, 0, 0, 0, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0});
+    auto second_page = make_page(1, {2, 0, 0, 0, 2, 1, 0, 0, 0, 0});
+    first_page.insert(first_page.end(), second_page.begin(), second_page.end());
+
+    MemoryBufferedReader reader(first_page);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(3);
+    chunk.meta_data.__set_total_compressed_size(first_page.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.repetition_level = 1;
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<true, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
+                                                context);
+    ASSERT_TRUE(chunk_reader.init().ok());
+    ASSERT_TRUE(chunk_reader.load_page_data().ok());
+    std::vector<level_t> levels;
+    size_t rows = 0;
+    bool cross_page = false;
+    ASSERT_TRUE(chunk_reader.load_page_nested_rows(levels, 1, &rows, &cross_page).ok());
+    ASSERT_TRUE(cross_page);
+    ASSERT_TRUE(chunk_reader.load_cross_page_nested_row(levels, &cross_page).ok());
+    EXPECT_FALSE(cross_page);
+    EXPECT_EQ(levels, std::vector<level_t>({0, 1, 1}));
 }
 
 TEST(ParquetV2NativeDecoderTest, HugeNestedPageCountsDoNotPreallocateFromHeaders) {

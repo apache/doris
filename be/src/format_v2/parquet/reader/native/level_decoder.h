@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/parquet/parquet_common.h"
+#include "format_v2/parquet/reader/native/common.h"
 #include "util/bit_stream_utils.h"
 #include "util/rle_encoding.h"
 #include "util/slice.h"

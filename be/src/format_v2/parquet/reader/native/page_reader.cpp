@@ -26,7 +26,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "format/parquet/parquet_common.h"
 #include "io/fs/buffered_reader.h"
 #include "runtime/runtime_profile.h"
 #include "storage/cache/page_cache.h"
