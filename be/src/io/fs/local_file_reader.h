@@ -18,7 +18,6 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
 
 #include "common/status.h"
 #include "io/fs/file_reader.h"

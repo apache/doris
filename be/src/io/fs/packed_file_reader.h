@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <memory>
-
 #include "butil/macros.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"

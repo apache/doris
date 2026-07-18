@@ -20,7 +20,6 @@
 #include <butil/iobuf.h>
 
 #include <atomic>
-#include <memory>
 #include <string>
 #include <vector>
 

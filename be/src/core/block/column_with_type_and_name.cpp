@@ -23,7 +23,6 @@
 #include <gen_cpp/data.pb.h>
 #include <stddef.h>
 
-#include <memory>
 #include <sstream>
 #include <string>
 

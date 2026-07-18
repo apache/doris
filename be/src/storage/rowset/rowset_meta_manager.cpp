@@ -23,7 +23,6 @@
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
 #include <functional>
-#include <memory>
 #include <new>
 #include <string>
 #include <string_view>

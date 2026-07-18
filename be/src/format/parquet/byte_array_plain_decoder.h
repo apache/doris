@@ -20,7 +20,6 @@
 #include <string.h>
 
 #include <cstdint>
-#include <memory>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"

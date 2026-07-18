@@ -19,7 +19,6 @@
 
 #include <gen_cpp/FrontendService_types.h>
 
-#include <memory>
 #include <vector>
 
 #include "common/status.h"

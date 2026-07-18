@@ -23,7 +23,6 @@
 #include <stdint.h>
 
 #include <map>
-#include <memory>
 #include <string>
 
 #include "common/factory_creator.h"

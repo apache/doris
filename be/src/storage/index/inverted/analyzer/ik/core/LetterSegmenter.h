@@ -18,7 +18,6 @@
 #pragma once
 
 #include <algorithm>
-#include <memory>
 #include <vector>
 
 #include "storage/index/inverted/analyzer/ik/core/AnalyzeContext.h"

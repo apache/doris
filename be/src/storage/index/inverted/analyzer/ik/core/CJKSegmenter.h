@@ -18,7 +18,6 @@
 #pragma once
 
 #include <list>
-#include <memory>
 #include <string>
 
 #include "storage/index/inverted/analyzer/ik/core/AnalyzeContext.h"

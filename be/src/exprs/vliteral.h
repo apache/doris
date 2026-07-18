@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <memory>
 #include <string>
 
 #include "common/object_pool.h"

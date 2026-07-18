@@ -20,7 +20,6 @@
 #include <glog/logging.h>
 
 #include <cstdint>
-#include <memory>
 #include <ostream>
 #include <utility>
 
