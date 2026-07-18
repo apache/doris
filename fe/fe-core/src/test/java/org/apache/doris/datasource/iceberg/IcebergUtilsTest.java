@@ -35,6 +35,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
@@ -63,6 +64,28 @@ import java.util.Map;
 import java.util.Optional;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
+        Mockito.when(table.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
+
+        Assert.assertEquals(org.apache.iceberg.FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
+        // Do not call newScan planFiles()
+        Mockito.verify(table, Mockito.never()).newScan();
+    }
+
+    @Test
+    public void testGetFileFormatUsesConfiguredTableFormat() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"));
+
+        Assert.assertEquals(org.apache.iceberg.FileFormat.ORC, IcebergUtils.getFileFormat(table));
+        // Do not call newScan planFiles()
+        Mockito.verify(table, Mockito.never()).newScan();
+    }
+
     @Test
     public void testParseTableName() {
         try {

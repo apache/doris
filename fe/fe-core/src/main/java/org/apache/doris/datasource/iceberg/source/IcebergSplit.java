@@ -22,6 +22,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Data;
+import org.apache.iceberg.FileFormat;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +44,8 @@ public class IcebergSplit extends FileSplit {
     private long tableLevelRowCount = -1;
     // Partition values are used to do runtime filter partition pruning.
     private Map<String, String> icebergPartitionValues = null;
+    // maybe mixed file format type in one table. so need record it for every split
+    private FileFormat splitFileFormat;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,

@@ -1059,7 +1059,7 @@ public class IcebergUtils {
 
     public static FileFormat getFileFormat(Table icebergTable) {
         Map<String, String> properties = icebergTable.properties();
-        String fileFormatName = resolveFileFormatName(icebergTable, properties);
+        String fileFormatName = resolveFileFormatName(properties);
         FileFormat fileFormat;
         if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             fileFormat = FileFormat.ORC;
@@ -1071,7 +1071,7 @@ public class IcebergUtils {
         return fileFormat;
     }
 
-    private static String resolveFileFormatName(Table icebergTable, Map<String, String> properties) {
+    private static String resolveFileFormatName(Map<String, String> properties) {
         // 1. Check "write-format" (nickname in Flink and Spark)
         if (properties.containsKey(WRITE_FORMAT)) {
             return properties.get(WRITE_FORMAT);
@@ -1080,27 +1080,7 @@ public class IcebergUtils {
         if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
             return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
         }
-        // 3. Last resort: infer from the actual data files in the current snapshot.
-        //    This handles migrated tables where none of the above properties are set.
-        return inferFileFormatFromDataFiles(icebergTable);
-    }
-
-    private static String inferFileFormatFromDataFiles(Table icebergTable) {
-        if (icebergTable.currentSnapshot() == null) {
-            LOG.info("Iceberg table {} has no snapshot, defaulting to {}", icebergTable.name(), PARQUET_NAME);
-            return PARQUET_NAME;
-        }
-        try (CloseableIterable<FileScanTask> files = icebergTable.newScan().planFiles()) {
-            java.util.Iterator<FileScanTask> it = files.iterator();
-            if (it.hasNext()) {
-                String format = it.next().file().format().name().toLowerCase();
-                LOG.info("Iceberg table {} inferred file format {} from data files", icebergTable.name(), format);
-                return format;
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to infer file format from data files for table {}, defaulting to {}",
-                    icebergTable.name(), PARQUET_NAME, e);
-        }
+        // Iceberg defaults the write format to Parquet when the table does not declare one.
         return PARQUET_NAME;
     }
 
