@@ -154,6 +154,15 @@ TEST_F(StreamingAggOperatorTest, test1) {
     { EXPECT_TRUE(local_state->close(state.get()).ok()); }
 }
 
+TEST_F(StreamingAggOperatorTest, require_passthrough_local_exchange_before_non_finalize_agg) {
+    state->_query_options.__set_enable_local_exchange_before_agg(true);
+    op->_needs_finalize = false;
+    op->_partition_exprs.emplace_back();
+
+    const auto distribution = op->required_data_distribution(state.get());
+    EXPECT_EQ(ExchangeType::PASSTHROUGH, distribution.distribution_type);
+}
+
 TEST_F(StreamingAggOperatorTest, test2) {
     op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
             pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()), false,

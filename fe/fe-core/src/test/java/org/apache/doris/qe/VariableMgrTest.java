@@ -220,6 +220,19 @@ public class VariableMgrTest {
     }
 
     @Test
+    public void testLocalExchangeBeforeAggDefaultsToThrift() {
+        SessionVariable var = new SessionVariable();
+        TQueryOptions options = var.toThrift();
+
+        Assert.assertTrue(var.enableLocalExchangeBeforeAgg);
+        Assert.assertTrue(options.isEnableLocalExchangeBeforeAgg());
+
+        var.enableLocalExchangeBeforeAgg = false;
+        options = var.toThrift();
+        Assert.assertFalse(options.isEnableLocalExchangeBeforeAgg());
+    }
+
+    @Test
     public void testAdaptiveBatchSizeRejectsTinyNonZeroBytes() {
         SessionVariable var = new SessionVariable();
         DdlException exception = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,

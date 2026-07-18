@@ -220,7 +220,11 @@ public:
             state->enable_streaming_agg_hash_join_force_passthrough()) {
             return DataDistribution(ExchangeType::PASSTHROUGH);
         }
-        if (!_needs_finalize && !state->enable_local_exchange_before_agg()) {
+        // Streaming aggregation needs pipeline decoupling but not a key repartition.
+        if (!_needs_finalize && state->enable_local_exchange_before_agg()) {
+            return DataDistribution(ExchangeType::PASSTHROUGH);
+        }
+        if (!_needs_finalize) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
         }
         if (_partition_exprs.empty()) {
