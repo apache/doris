@@ -334,10 +334,17 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
 }
 
 // Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
-// formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
+// formats and V3 deletion vectors. A scan-level Avro write default does not make actual Avro ranges
+// supported, but it also must not prevent historical Parquet or ORC ranges from using V2.
 TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
     TFileScanRangeParams params;
+    // The scan-level value comes from write.delete.format.default. Each range still carries the
+    // actual delete file format, which may differ from this default.
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TQueryOptions query_options;
+    query_options.__set_enable_file_scanner_v2(true);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
     const auto parquet_position_delete = iceberg_position_deletes_range(
             TFileFormatType::FORMAT_PARQUET, kIcebergPositionDeleteContent);
@@ -348,10 +355,18 @@ TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
     const auto avro_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_AVRO,
                                                                      kIcebergPositionDeleteContent);
 
+    EXPECT_TRUE(FileScannerV2::is_supported(params, orc_position_delete));
+
+    params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_position_delete));
     EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_deletion_vector));
     EXPECT_TRUE(FileScannerV2::is_supported(params, orc_position_delete));
     EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
+
+    params.__set_format_type(TFileFormatType::FORMAT_UNKNOWN);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_deletion_vector));
 }
 
 // Ready IN/Bloom/MinMax runtime filters all expose their payload through get_digest(). Rebuilding

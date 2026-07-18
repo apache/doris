@@ -1305,6 +1305,15 @@ public class IcebergUtils {
         return fileFormat;
     }
 
+    public static FileFormat getDefaultDeleteFileFormat(Table icebergTable) {
+        Map<String, String> properties = icebergTable.properties();
+        String deleteFileFormat = properties.get(TableProperties.DELETE_DEFAULT_FILE_FORMAT);
+        if (deleteFileFormat == null) {
+            deleteFileFormat = resolveFileFormatName(icebergTable, properties);
+        }
+        return FileFormat.fromString(deleteFileFormat);
+    }
+
     private static String resolveFileFormatName(Table icebergTable, Map<String, String> properties) {
         // 1. Check "write-format" (nickname in Flink and Spark)
         if (properties.containsKey(WRITE_FORMAT)) {
