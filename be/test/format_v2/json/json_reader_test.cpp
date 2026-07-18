@@ -590,9 +590,9 @@ TEST(JsonReaderTest, AppliesDeleteAndNormalConjunctsWithPredicateFilterAccountin
     request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
     request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
     request->delete_conjuncts = {
-            prepared_conjunct(&state, std::make_shared<NullableIntGreaterThanExpr>(0, 1))};
-    request->conjuncts = {
             prepared_conjunct(&state, std::make_shared<NullableIntGreaterThanExpr>(0, 2))};
+    request->conjuncts = {
+            prepared_conjunct(&state, std::make_shared<NullableIntGreaterThanExpr>(0, 1))};
     ASSERT_TRUE(reader.open(request).ok());
 
     auto block = make_block(schema, {0, 1});
@@ -600,8 +600,8 @@ TEST(JsonReaderTest, AppliesDeleteAndNormalConjunctsWithPredicateFilterAccountin
     bool eof = false;
     ASSERT_TRUE(reader.get_block(&block, &rows, &eof).ok());
     ASSERT_EQ(rows, 1);
-    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 3);
-    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "carol");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 2);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "bob");
     EXPECT_EQ(io_ctx->predicate_filtered_rows, 1);
 }
 

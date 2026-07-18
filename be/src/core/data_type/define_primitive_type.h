@@ -23,6 +23,9 @@ namespace doris {
 
 using PrimitiveNative = uint8_t;
 
+// Compute-layer types. When adding a new value, decide how it maps to FieldType and explicitly
+// define its behavior in primitive_type_to_storage_field_type() and
+// storage_field_type_to_primitive_type(), either by providing a mapping or by throwing.
 enum PrimitiveType : PrimitiveNative {
     INVALID_TYPE = 0,
     TYPE_NULL,     /* 1 */

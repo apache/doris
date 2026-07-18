@@ -19,12 +19,12 @@
 
 #include <glog/logging.h>
 
-#include <cstring>
 #include <string>
 #include <utility>
 
 #include "exprs/vexpr_context.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/schema_history_util.h"
@@ -38,7 +38,17 @@ Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
     if (paimon_params.__isset.schema_id) {
         _split_schema_id = paimon_params.schema_id;
     }
-    return format::TableReader::prepare_split(options);
+    RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
+    // Paimon commits data-file changes by adding and logically deleting files in snapshots.
+    // Compaction also writes replacement files and commits them in a new snapshot instead of
+    // modifying an existing Parquet/ORC file in place. Native Paimon data files are therefore
+    // safe to cache by path and size when the split does not provide mtime. Serialized JNI splits
+    // do not reach this reader.
+    mark_current_data_file_immutable();
+    return Status::OK();
 }
 
 format::TableColumnMappingMode PaimonReader::mapping_mode() const {
@@ -66,14 +76,7 @@ Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_d
     }
     const auto& deletion_file = table_desc.deletion_file;
 
-    const std::string key_prefix = "paimon_dv:";
-    desc->key.resize(key_prefix.size() + deletion_file.path.size() + sizeof(deletion_file.offset));
-    char* key_data = desc->key.data();
-    memcpy(key_data, key_prefix.data(), key_prefix.size());
-    key_data += key_prefix.size();
-    memcpy(key_data, deletion_file.path.data(), deletion_file.path.size());
-    key_data += deletion_file.path.size();
-    memcpy(key_data, &deletion_file.offset, sizeof(deletion_file.offset));
+    desc->key = build_paimon_deletion_vector_cache_key(deletion_file);
     desc->path = deletion_file.path;
     desc->start_offset = deletion_file.offset;
     desc->size = deletion_file.length + 4;
@@ -98,6 +101,16 @@ Status PaimonHybridReader::get_block(Block* block, bool* eos) {
     return _current_split_reader->get_block(block, eos);
 }
 
+bool PaimonHybridReader::current_split_pruned() const {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->current_split_pruned();
+}
+
+Status PaimonHybridReader::abort_split() {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->abort_split();
+}
+
 Status PaimonHybridReader::close() {
     Status close_status = Status::OK();
     if (_native_reader != nullptr) {
@@ -111,6 +124,16 @@ Status PaimonHybridReader::close() {
     }
     _current_split_reader = nullptr;
     return close_status;
+}
+
+void PaimonHybridReader::set_batch_size(size_t batch_size) {
+    format::TableReader::set_batch_size(batch_size);
+    if (_native_reader != nullptr) {
+        _native_reader->set_batch_size(_batch_size);
+    }
+    if (_jni_reader != nullptr) {
+        _jni_reader->set_batch_size(_batch_size);
+    }
 }
 
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
@@ -141,7 +164,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
     DORIS_CHECK(reader != nullptr);
     VExprContextSPtrs conjuncts;
     RETURN_IF_ERROR(_clone_conjuncts(&conjuncts));
-    return reader->init({
+    RETURN_IF_ERROR(reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(conjuncts),
             .format = file_format,
@@ -151,7 +174,13 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .scanner_profile = _scanner_profile,
             .push_down_agg_type = _push_down_agg_type,
             .condition_cache_digest = _condition_cache_digest,
-    });
+    }));
+    // Zero means no adaptive prediction has been produced yet. Preserve the child's normal
+    // runtime default until FileScannerV2 supplies the first positive prediction.
+    if (_batch_size > 0) {
+        reader->set_batch_size(_batch_size);
+    }
+    return Status::OK();
 }
 
 Status PaimonHybridReader::_clone_conjuncts(VExprContextSPtrs* conjuncts) const {

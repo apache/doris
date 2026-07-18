@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "format_v2/table_reader.h"
 
 namespace doris {
@@ -35,6 +37,10 @@ public:
     format::TableColumnMappingMode TEST_mapping_mode() const { return mapping_mode(); }
     Status TEST_annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) {
         return annotate_file_schema(file_schema);
+    }
+    Status TEST_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                                           bool* has_delete_file) {
+        return _parse_deletion_vector_file(t_desc, desc, has_delete_file);
     }
 #endif
 
@@ -59,13 +65,23 @@ public:
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
+    bool current_split_pruned() const override;
+    Status abort_split() override;
     Status close() override;
+    void set_batch_size(size_t batch_size) override;
 
 #ifdef BE_TEST
     static bool TEST_is_jni_split(const TFileRangeDesc& range) { return _is_jni_split(range); }
     static Status TEST_to_file_format(const TFileRangeDesc& range,
                                       format::FileFormat* file_format) {
         return _to_file_format(range, file_format);
+    }
+    void TEST_install_batch_size_children() {
+        _native_reader = std::make_unique<format::TableReader>();
+        _jni_reader = std::make_unique<format::TableReader>();
+    }
+    std::pair<size_t, size_t> TEST_child_batch_sizes() const {
+        return {_native_reader->TEST_batch_size(), _jni_reader->TEST_batch_size()};
     }
 #endif
 

@@ -116,6 +116,12 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
     }
 
     @Override
+    public String shapeInfo() {
+        return "(" + left().shapeInfo() + " " + symbol + " " + right().shapeInfo()
+                + analyzerSqlFragment() + ")";
+    }
+
+    @Override
     public String toString() {
         return "(" + left().toString() + " " + symbol + " " + right().toString()
                 + analyzerSqlFragment() + ")";

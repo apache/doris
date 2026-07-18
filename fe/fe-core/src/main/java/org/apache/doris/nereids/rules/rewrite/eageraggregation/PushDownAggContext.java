@@ -158,6 +158,9 @@ public class PushDownAggContext {
     public PushDownAggContext forOneBranch(List<AggregateFunction> branchAggFunctions,
             Map<AggregateFunction, Alias> branchAliasMap, List<SlotReference> groupKeys,
             boolean passThroughBigJoin, boolean needOutputCount) {
+        if (branchAggFunctions.isEmpty() && groupKeys.isEmpty()) {
+            return null;
+        }
         return new PushDownAggContext(branchAggFunctions, groupKeys, branchAliasMap,
                 cascadesContext, passThroughBigJoin, hasDecomposedAggIf, containsNullToNonNull,
                 bilateralState, needOutputCount);

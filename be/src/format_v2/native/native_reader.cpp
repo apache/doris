@@ -134,8 +134,8 @@ Status NativeReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     RETURN_IF_ERROR(source_block.deserialize(pblock, &uncompressed_bytes, &decompress_time));
     RETURN_IF_ERROR(_materialize_requested_columns(source_block, file_block));
     *rows = file_block->rows();
+    _record_scan_rows(cast_set<int64_t>(*rows));
     RETURN_IF_ERROR(_apply_filters(file_block, rows));
-    _reader_statistics.read_rows += *rows;
 
     if (_first_block_loaded && !_first_block_consumed) {
         _first_block_consumed = true;

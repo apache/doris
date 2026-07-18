@@ -38,6 +38,8 @@ struct AtomicStatistics {
     std::atomic<int64_t> num_io_bytes_read_from_cache = 0;
     std::atomic<int64_t> num_io_bytes_read_from_remote = 0;
     std::atomic<int64_t> num_io_bytes_read_from_peer = 0;
+    std::atomic<int64_t> inverted_index_bytes_read_from_remote = 0;
+    std::atomic<int64_t> segment_footer_index_bytes_read_from_remote = 0;
 };
 class FileCacheMetrics {
 public:
@@ -87,6 +89,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* lock_wait_timer = nullptr;
     RuntimeProfile::Counter* get_timer = nullptr;
     RuntimeProfile::Counter* set_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_triggered = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_threshold_bytes = nullptr;
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
@@ -98,6 +102,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_peer_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_write_cache_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_write_into_cache = nullptr;
 
     RuntimeProfile::Counter* segment_footer_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* segment_footer_index_num_remote_io_total = nullptr;
@@ -108,6 +114,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* segment_footer_index_local_io_timer = nullptr;
     RuntimeProfile::Counter* segment_footer_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* segment_footer_index_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_write_cache_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_write_into_cache = nullptr;
 
     // Cross-CG / Same-CG peer read counters
     RuntimeProfile::Counter* num_cross_cg_peer_io_total = nullptr;

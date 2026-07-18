@@ -26,6 +26,7 @@
 #include <exception>
 #include <limits>
 #include <mutex>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
@@ -36,6 +37,7 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/tracing_file_reader.h"
+#include "io/io_common.h"
 #include "storage/cache/page_cache.h"
 #include "util/slice.h"
 
@@ -190,10 +192,12 @@ std::string build_page_cache_file_key(const io::FileReader& file_reader,
                                       const io::FileDescription& file_description) {
     const int64_t mtime =
             file_description.mtime != 0 ? file_description.mtime : file_reader.mtime();
-    if (mtime == 0) {
-        // StoragePageCache is process-global. A key with only path + unknown mtime can outlive a
-        // rewritten local test file, or any external file whose version was not propagated. Disable
-        // v2 parquet page cache until the scan descriptor carries a stable object version.
+    if (mtime == 0 && !file_description.is_immutable) {
+        // mtime == 0 means "unknown version", not the Unix epoch. V1 historically caches such a
+        // file under path::0, but copying that behavior for every V2 file is unsafe: a mutable file
+        // can be overwritten with different bytes while retaining both its path and size, causing
+        // process-global page cache entries to return stale data. Only callers that explicitly
+        // guarantee path immutability may use the mtime=0 cache key below.
         return {};
     }
     const int64_t file_size = file_description.file_size >= 0
@@ -245,6 +249,9 @@ public:
         if (!_file_reader) {
             return arrow::Status::IOError("Doris file reader is not open");
         }
+        if (_io_ctx != nullptr && _io_ctx->should_stop) {
+            return arrow::Status::IOError("stop");
+        }
         return static_cast<int64_t>(_file_reader->size());
     }
 
@@ -265,6 +272,9 @@ public:
     arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override {
         if (!_file_reader) {
             return arrow::Status::IOError("Doris file reader is not open");
+        }
+        if (_io_ctx != nullptr && _io_ctx->should_stop) {
+            return arrow::Status::IOError("stop");
         }
         if (position < 0 || nbytes < 0) {
             return arrow::Status::Invalid("negative read position or length");
@@ -344,6 +354,8 @@ public:
                 profile, _base_file_reader, random_access_ranges, merge_read_slice_size));
         return true;
     }
+
+    void reset_random_access_ranges() { reset_active_file_reader(); }
 
     ParquetPageCacheStats page_cache_stats() const {
         std::lock_guard lock(_page_cache_mutex);
@@ -537,8 +549,16 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         metadata = this->file_reader->metadata();
         schema = metadata != nullptr ? metadata->schema() : nullptr;
     } catch (const ::parquet::ParquetException& e) {
+        if (io_ctx != nullptr && io_ctx->should_stop &&
+            std::string_view(e.what()).find("stop") != std::string_view::npos) {
+            return Status::EndOfFile("stop");
+        }
         return Status::Corruption("Failed to open parquet file: {}", e.what());
     } catch (const std::exception& e) {
+        if (io_ctx != nullptr && io_ctx->should_stop &&
+            std::string_view(e.what()).find("stop") != std::string_view::npos) {
+            return Status::EndOfFile("stop");
+        }
         return Status::InternalError("Failed to open parquet file: {}", e.what());
     }
 
@@ -566,6 +586,11 @@ bool ParquetFileContext::set_random_access_ranges(const std::vector<ParquetPageC
     DORIS_CHECK(arrow_file != nullptr);
     return static_cast<DorisRandomAccessFile*>(arrow_file.get())
             ->set_random_access_ranges(ranges, avg_io_size, profile, merge_read_slice_size);
+}
+
+void ParquetFileContext::reset_random_access_ranges() {
+    DORIS_CHECK(arrow_file != nullptr);
+    static_cast<DorisRandomAccessFile*>(arrow_file.get())->reset_random_access_ranges();
 }
 
 ParquetPageCacheStats ParquetFileContext::page_cache_stats() const {

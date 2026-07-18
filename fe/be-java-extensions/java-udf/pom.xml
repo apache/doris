@@ -49,7 +49,8 @@ under the License.
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
+            <artifactId>hive-udf-shade</artifactId>
+            <version>${project.version}</version>
             <scope>compile</scope>
         </dependency>
     </dependencies>

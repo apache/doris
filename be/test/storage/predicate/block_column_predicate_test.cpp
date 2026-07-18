@@ -2703,7 +2703,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 }
 
 // Verifies the core algorithm of SegmentIterator::_can_prune_segment_by_tso: on a
-// single-version binlog segment the tso column (__DORIS_BINLOG_TIMESTAMP__) is replaced at
+// single-version binlog segment the tso column (__DORIS_BINLOG_TSO__) is replaced at
 // read time with a constant commit_tso, so whole-segment pruning is decided by matching the
 // tso predicates against a degenerate zonemap (min == max == commit_tso). evaluate_and()
 // returns false iff commit_tso fails the predicates, i.e. the whole segment can be pruned.

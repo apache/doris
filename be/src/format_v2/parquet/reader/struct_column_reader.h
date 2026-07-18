@@ -41,8 +41,10 @@ public:
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
     Status load_nested_batch(int64_t rows) override;
+    Status load_nested_levels_batch(int64_t rows) override;
     Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                int64_t* values_read) override;
+    Status consume_nested_column(int64_t length_upper_bound, int64_t* values_consumed) override;
     const std::vector<int16_t>& nested_definition_levels() const override;
     const std::vector<int16_t>& nested_repetition_levels() const override;
     int64_t nested_levels_written() const override;
@@ -50,6 +52,8 @@ public:
     void advance_nested_build_level_cursor_past_parent(int16_t parent_repetition_level) override;
 
 private:
+    Status _consume_or_build_nested_column(int64_t length_upper_bound, MutableColumnPtr* column,
+                                           int64_t* values_processed);
     ParquetColumnReader* shape_source_reader() const;
     Status advance_child_past_null_parent(ParquetColumnReader* child_reader,
                                           int64_t parent_level_idx) const;

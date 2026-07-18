@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -333,20 +334,18 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (distributionRequestFromParent instanceof DistributionSpecHash) {
             // shuffle according to parent require
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
-            addRequestPropertyToChildren(createHashRequestAccordingToParent(
-                    setOperation, distributionSpecHash, context));
+            addRequestPropertyToChildren(downgradeRequireWhenBucketShuffleNotAllowed(
+                    createHashRequestAccordingToParent(setOperation, distributionSpecHash, context)));
         } else {
             // shuffle all column
             // TODO: for wide table, may be we should add a upper limit of shuffle columns
-
-            // TODO: open comment when support `enable_local_shuffle_planner` and change to REQUIRE
-            // intersect/except always need hash distribution, we use REQUIRE to auto select
-            // bucket shuffle or execution shuffle
+            ShuffleType setOperationShuffleType = setOperationBucketShuffleAllowed()
+                    ? ShuffleType.REQUIRE : ShuffleType.EXECUTION_BUCKETED;
             addRequestPropertyToChildren(setOperation.getRegularChildrenOutputs().stream()
                     .map(childOutputs -> childOutputs.stream()
                             .map(SlotReference::getExprId)
                             .collect(ImmutableList.toImmutableList()))
-                    .map(l -> PhysicalProperties.createHash(l, ShuffleType.EXECUTION_BUCKETED))
+                    .map(l -> PhysicalProperties.createHash(l, setOperationShuffleType))
                     .collect(Collectors.toList()));
         }
         return null;
@@ -366,9 +365,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
             if (distributionRequestFromParent instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
-                List<PhysicalProperties> requestHash
-                        = createHashRequestAccordingToParent(union, distributionSpecHash, context);
-                addRequestPropertyToChildren(requestHash);
+                addRequestPropertyToChildren(downgradeRequireWhenBucketShuffleNotAllowed(
+                        createHashRequestAccordingToParent(union, distributionSpecHash, context)));
             }
         }
 
@@ -579,6 +577,43 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
         double combinedNdv = StatsCalculator.estimateGroupByRowCount(parentHashExprs, aggChildStats);
         return combinedNdv > AggregateUtils.LOW_NDV_THRESHOLD;
+    }
+
+    /**
+     * A ShuffleType.REQUIRE request lets ChildrenPropertiesRegulator choose the bucket
+     * shuffle alternative for the set operation. That needs either no local shuffle at all
+     * (every pipeline runs a single task per instance, so the bucket alignment holds
+     * naturally) or the FE local-shuffle planner (which plans the correct bucket-hash
+     * local exchanges): with the BE-planned local shuffle the backend cannot infer the
+     * correct local shuffle type for the set sink/probe and computes wrong results.
+     * It also requires the nereids distribute planner: the legacy coordinator only
+     * supports bucket-shuffle-partitioned sinks whose dest fragment contains a bucket
+     * shuffle join.
+     */
+    private boolean setOperationBucketShuffleAllowed() {
+        return connectContext != null
+                && SessionVariable.canUseNereidsDistributePlanner(connectContext)
+                && (!connectContext.getSessionVariable().isEnableLocalShuffle()
+                        || connectContext.getSessionVariable().isEnableLocalShufflePlanner());
+    }
+
+    /**
+     * The parent may pass ShuffleType.REQUIRE down through
+     * {@link #createHashRequestAccordingToParent}; downgrade it to EXECUTION_BUCKETED so the
+     * regulator does not pick the bucket shuffle alternative when it is not allowed.
+     */
+    private List<PhysicalProperties> downgradeRequireWhenBucketShuffleNotAllowed(
+            List<PhysicalProperties> requests) {
+        if (setOperationBucketShuffleAllowed()) {
+            return requests;
+        }
+        return requests.stream().map(request -> {
+            DistributionSpecHash requestHash = (DistributionSpecHash) request.getDistributionSpec();
+            return requestHash.getShuffleType() == ShuffleType.REQUIRE
+                    ? PhysicalProperties.createHash(
+                            requestHash.getOrderedShuffledColumns(), ShuffleType.EXECUTION_BUCKETED)
+                    : request;
+        }).collect(Collectors.toList());
     }
 
     private List<PhysicalProperties> createHashRequestAccordingToParent(

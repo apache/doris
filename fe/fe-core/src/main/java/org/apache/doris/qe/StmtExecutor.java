@@ -1648,9 +1648,12 @@ public class StmtExecutor {
                 "delete_existing_files requires a remote outfile sink");
         Preconditions.checkState(outFileClause.getBrokerDesc().storageType() != StorageType.LOCAL,
                 "delete_existing_files is not supported for local outfile sinks");
+        // Concrete filesystems only accept their native schemes; normalize legacy compatibility
+        // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
+        String filePath = outFileClause.getBrokerDesc().getFileLocation(outFileClause.getFilePath());
         try (org.apache.doris.filesystem.FileSystem fs =
                 FileSystemFactory.getFileSystem(outFileClause.getBrokerDesc())) {
-            fs.delete(Location.of(FileSystemUtil.extractParentDirectory(outFileClause.getFilePath())), true);
+            fs.delete(Location.of(FileSystemUtil.extractParentDirectory(filePath)), true);
         } catch (java.io.IOException e) {
             throw new UserException("Failed to delete existing files: " + e.getMessage(), e);
         }

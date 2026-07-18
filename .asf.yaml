@@ -16,7 +16,7 @@
 #
 
 github:
-  description: Apache Doris is an easy-to-use, high performance and unified analytics database.
+  description: Apache Doris is a real-time analytics and hybrid search database for AI agents.
   homepage: https://doris.apache.org
   labels:
     - real-time
@@ -34,8 +34,8 @@ github:
     - hudi
     - delta-lake
     - paimon
-    - spark
-    - dbt
+    - vector
+    - search
     - database
   enabled_merge_buttons:
     squash:  true
@@ -192,12 +192,12 @@ github:
   collaborators:
     - Yukang-Lian
     - Hastyshell
-    - freemandealer
+    - yujun777
     - shuke987
     - wm1581066
     - doris-robot
     - ixzc
-    - deardeng
+    - feiniaofeiafei
     - wyxxxcat
     - linrrzqqq
 notifications:

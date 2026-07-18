@@ -123,6 +123,8 @@ protected:
     // Whether this file can start at a non-zero split offset. Compressed delimited files cannot be
     // split because the decompressor needs the stream from the beginning.
     virtual bool _can_split() const;
+    // Let formats adjust parser metadata that was computed before the common reader removed a BOM.
+    virtual void _on_bom_removed(size_t bom_size);
 
     Status _append_null(IColumn* output);
     // Match the generic nullable serde semantics exactly: a field is NULL when its raw slice is

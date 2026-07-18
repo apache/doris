@@ -149,9 +149,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 context.needOutputCount(), rightFuncs);
         boolean rightNeedOutputCount = needOutputCountForJoinChild(join, toRight, toLeft,
                 context.needOutputCount(), leftFuncs);
-        Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.of(context.forOneBranch(leftFuncs,
+        Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.ofNullable(context.forOneBranch(leftFuncs,
                 leftAliasMap, leftChildGroupByKeys, passThroughBigJoin, leftNeedOutputCount)) : Optional.empty();
-        Optional<PushDownAggContext> rightChildContext = toRight ? Optional.of(context.forOneBranch(rightFuncs,
+        Optional<PushDownAggContext> rightChildContext = toRight ? Optional.ofNullable(context.forOneBranch(rightFuncs,
                 rightAliasMap, rightChildGroupByKeys, passThroughBigJoin, rightNeedOutputCount)) : Optional.empty();
 
         Plan newLeft = join.left();
@@ -747,6 +747,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visitLogicalRelation(LogicalRelation relation, PushDownAggContext context) {
+        if (context.aggFuncAndGroupKeyAllEmpty()) {
+            return relation;
+        }
         return genAggregate(relation, context);
     }
 
@@ -771,6 +774,43 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     private Plan genAggregate(Plan child, PushDownAggContext context) {
         if (isPushDisabledByVariable(context)) {
+            return child;
+        }
+        // Forbid creating a scalar aggregate (aggregate without GROUP BY keys) during
+        // push-down. A scalar aggregate emits 1 row even when its input is empty
+        // (SQL standard: SELECT COUNT(*) FROM empty_table returns 1 row with 0).
+        // When placed below a join, that 1 row joins with rows from the other side,
+        // producing phantom rows that do not exist in the original query.
+        //
+        // This guard is placed at the aggregate-creation boundary rather than upstream
+        // (e.g. visitLogicalJoin or createContextFromProject) because context.groupKeys
+        // can change during intermediate rewrites. Checking groupKeys.isEmpty() early
+        // would either fire on a stale empty state (missing a later filter that adds
+        // keys) or fail to fire because a constant key has not yet been resolved to
+        // empty input slots. Example plan that reaches genAggregate with groupKeys=[]:
+        //
+        //   Aggregate(group=[k], sum(z))
+        //     CrossJoin
+        //       Project(1 AS k, A.v + B.v AS z)
+        //         InnerJoin(A.id = B.id)
+        //           Scan A
+        //           Scan B
+        //       Scan R
+        //
+        // Walk:
+        // 1. visitLogicalJoin(crossJoin): parentContext.groupKeys=[k]
+        //    → fillGroupByKeys puts k in leftChildGroupByKeys → forOneBranch succeeds
+        // 2. visitLogicalProject: createContextFromProject maps k through "1 AS k"
+        //    → literal 1 has no input slots → newContext.groupKeys=[]
+        // 3. visitLogicalJoin(innerJoin): sum(A.v+B.v) spans both sides
+        //    → toLeft=false, toRight=false → falls back to genAggregate with groupKeys=[]
+        //    → without this guard, creates scalar agg below crossJoin → phantom rows
+        //
+        // If the guard were at visitLogicalJoin step 1, groupKeys=[k] (non-empty) would
+        // pass. If at createContextFromProject step 2, it would block before a downstream
+        // filter had the chance to add keys. Only genAggregate sees the final state.
+        // See regression test: scalar_agg_pushdown.groovy
+        if (context.getGroupKeys().isEmpty()) {
             return child;
         }
         if (checkStats(child, context) || isPushEnabledByVariable(context)) {

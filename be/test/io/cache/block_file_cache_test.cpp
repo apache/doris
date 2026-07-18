@@ -24,6 +24,7 @@
 #include <future>
 
 #include "io/cache/block_file_cache_test_common.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/cache/shard_mem_cache.h"
 #include "io/fs/buffered_reader.h"
 #include "storage/olap_define.h"
@@ -385,6 +386,655 @@ void complete_into_memory(const io::FileBlocksHolder& holder) {
         ASSERT_TRUE(file_block->get_or_set_downloader() == io::FileBlock::get_caller_id());
         download_into_memory(file_block);
     }
+}
+
+io::FileCacheSettings remote_only_on_miss_test_settings() {
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 8_mb;
+    settings.query_queue_elements = 128;
+    settings.index_queue_size = 1_mb;
+    settings.index_queue_elements = 16;
+    settings.disposable_queue_size = 1_mb;
+    settings.disposable_queue_elements = 16;
+    settings.capacity = 10_mb;
+    settings.max_file_block_size = 1_mb;
+    settings.max_query_cache_size = 8_mb;
+    return settings;
+}
+
+TEST_F(BlockFileCacheTest, file_cache_profile_remote_only_on_miss_state_counters) {
+    RuntimeProfile profile("file_cache_profile_test");
+    FileCacheProfileReporter reporter(&profile);
+
+    FileCacheStatistics stats;
+    stats.remote_only_on_miss_triggered = 1;
+    stats.remote_only_on_miss_threshold_bytes = 128;
+    reporter.update(&stats);
+    reporter.update(&stats);
+
+    auto* triggered = profile.get_counter("RemoteOnlyOnMissTriggered");
+    auto* threshold_bytes = profile.get_counter("RemoteOnlyOnMissThresholdBytes");
+    ASSERT_NE(triggered, nullptr);
+    ASSERT_NE(threshold_bytes, nullptr);
+    ASSERT_NE(dynamic_cast<RuntimeProfile::HighWaterMarkCounter*>(triggered), nullptr);
+    ASSERT_NE(dynamic_cast<RuntimeProfile::HighWaterMarkCounter*>(threshold_bytes), nullptr);
+    EXPECT_EQ(triggered->value(), 1);
+    EXPECT_EQ(threshold_bytes->value(), 128);
+
+    FileCacheStatistics later_stats;
+    later_stats.remote_only_on_miss_threshold_bytes = 64;
+    reporter.update(&later_stats);
+    EXPECT_EQ(triggered->value(), 1);
+    EXPECT_EQ(threshold_bytes->value(), 128);
+
+    later_stats.remote_only_on_miss_threshold_bytes = 256;
+    reporter.update(&later_stats);
+    EXPECT_EQ(threshold_bytes->value(), 256);
+}
+
+TEST_F(BlockFileCacheTest, file_cache_profile_specialized_write_cache_counters) {
+    RuntimeProfile profile("file_cache_profile_specialized_write_test");
+    FileCacheProfileReporter reporter(&profile);
+
+    FileCacheStatistics stats;
+    stats.inverted_index_write_cache_io_timer = 11;
+    stats.inverted_index_bytes_write_into_cache = 17;
+    stats.segment_footer_index_write_cache_io_timer = 23;
+    stats.segment_footer_index_bytes_write_into_cache = 29;
+    reporter.update(&stats);
+
+    auto* inverted_index_write_timer = profile.get_counter("InvertedIndexWriteCacheIOUseTimer");
+    auto* inverted_index_write_bytes = profile.get_counter("InvertedIndexBytesWriteIntoCache");
+    auto* segment_footer_write_timer =
+            profile.get_counter("SegmentFooterIndexWriteCacheIOUseTimer");
+    auto* segment_footer_write_bytes = profile.get_counter("SegmentFooterIndexBytesWriteIntoCache");
+    ASSERT_NE(inverted_index_write_timer, nullptr);
+    ASSERT_NE(inverted_index_write_bytes, nullptr);
+    ASSERT_NE(segment_footer_write_timer, nullptr);
+    ASSERT_NE(segment_footer_write_bytes, nullptr);
+    EXPECT_EQ(inverted_index_write_timer->value(), 11);
+    EXPECT_EQ(inverted_index_write_bytes->value(), 17);
+    EXPECT_EQ(segment_footer_write_timer->value(), 23);
+    EXPECT_EQ(segment_footer_write_bytes->value(), 29);
+}
+
+TEST_F(BlockFileCacheTest, get_downloaded_blocks_if_fully_covered_is_read_only) {
+    const std::string local_cache_path =
+            (caches_dir / "remote_only_on_miss_helper_cache" / "").string();
+    if (fs::exists(local_cache_path)) {
+        fs::remove_all(local_cache_path);
+    }
+    fs::create_directories(local_cache_path);
+
+    io::BlockFileCache mgr(local_cache_path, cached_remote_reader_cache_settings());
+    ASSERT_TRUE(mgr.initialize().ok());
+
+    ReadStatistics read_stats;
+    io::CacheContext context;
+    context.stats = &read_stats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("remote_only_on_miss_helper_key");
+    const size_t block_size = cached_remote_reader_cache_settings().max_file_block_size;
+
+    auto assert_not_fully_covered = [&](size_t offset, size_t size, size_t expected_blocks_num) {
+        io::FileBlocks blocks;
+        bool fully_covered = true;
+        ASSERT_TRUE(mgr.get_downloaded_blocks_if_fully_covered(key, offset, size, context, &blocks,
+                                                               &fully_covered)
+                            .ok());
+        EXPECT_FALSE(fully_covered);
+        EXPECT_TRUE(blocks.empty());
+        EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::NORMAL), expected_blocks_num);
+    };
+
+    auto assert_fully_covered = [&](size_t offset, size_t size, size_t expected_blocks_size) {
+        io::FileBlocks blocks;
+        bool fully_covered = false;
+        ASSERT_TRUE(mgr.get_downloaded_blocks_if_fully_covered(key, offset, size, context, &blocks,
+                                                               &fully_covered)
+                            .ok());
+        EXPECT_TRUE(fully_covered);
+        EXPECT_EQ(blocks.size(), expected_blocks_size);
+    };
+
+    assert_not_fully_covered(0, 10, 0);
+
+    complete_into_memory(mgr.get_or_set(key, 0, block_size, context));
+    ASSERT_EQ(mgr.get_file_blocks_num(io::FileCacheType::NORMAL), 1);
+    assert_fully_covered(2, 5, 1);
+    assert_not_fully_covered(block_size - 4, 8, 1);
+
+    complete_into_memory(mgr.get_or_set(key, block_size, block_size, context));
+    ASSERT_EQ(mgr.get_file_blocks_num(io::FileCacheType::NORMAL), 2);
+    assert_fully_covered(block_size - 4, 8, 2);
+
+    complete_into_memory(mgr.get_or_set(key, 2 * block_size, block_size, context));
+    ASSERT_EQ(mgr.get_file_blocks_num(io::FileCacheType::NORMAL), 3);
+    assert_fully_covered(block_size - 4, block_size + 8, 3);
+
+    const size_t partial_block_size = 123 * 1024 + 17;
+    complete_into_memory(mgr.get_or_set(key, 3 * block_size, partial_block_size, context));
+    ASSERT_EQ(mgr.get_file_blocks_num(io::FileCacheType::NORMAL), 4);
+    assert_fully_covered(3 * block_size + 7, 31, 1);
+    assert_fully_covered(3 * block_size - 4, 16, 2);
+    assert_fully_covered(0, 3 * block_size + partial_block_size, 4);
+    assert_not_fully_covered(3 * block_size + partial_block_size - 4, 8, 4);
+    assert_not_fully_covered(0, 3 * block_size + partial_block_size + 1, 4);
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_remote_only_on_miss) {
+    const std::string local_cache_path =
+            (caches_dir / "remote_only_on_miss_reader_cache" / "").string();
+    BlockFileCache* cache = nullptr;
+    ASSERT_TRUE(create_cached_remote_reader_cache(local_cache_path, &cache).ok());
+
+    {
+        const auto remote_file = caches_dir / "remote_only_on_miss_reader_file";
+        {
+            std::ofstream ofs(remote_file, std::ios::binary | std::ios::trunc);
+            ASSERT_TRUE(ofs.is_open());
+            for (int i = 0; i < 2; ++i) {
+                std::string data(1_mb, static_cast<char>('a' + i));
+                ofs.write(data.data(), data.size());
+            }
+        }
+
+        FileReaderSPtr local_reader;
+        ASSERT_TRUE(global_local_filesystem()->open_file(remote_file, &local_reader).ok());
+        io::FileReaderOptions opts;
+        opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+        opts.is_doris_table = true;
+        opts.tablet_id = 10086;
+        auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+        auto key = io::BlockFileCache::hash(remote_file.filename().string());
+        Defer fd_cache_cleanup {
+                [key] { io::FDCache::instance()->remove_file_reader(std::make_pair(key, 0)); }};
+        cache->remove_if_cached(key);
+
+        std::string buffer(4_kb, '\0');
+        size_t bytes_read = 0;
+        io::IOContext io_ctx;
+        io::FileCacheStatistics stats;
+        io_ctx.file_cache_stats = &stats;
+        io_ctx.file_cache_miss_policy = io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+
+        ASSERT_TRUE(reader->read_at(123, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                            .ok());
+        EXPECT_EQ(bytes_read, buffer.size());
+        EXPECT_EQ(stats.num_remote_io_total, 1);
+        EXPECT_EQ(stats.bytes_read_from_remote, buffer.size());
+        EXPECT_EQ(stats.num_skip_cache_io_total, 1);
+        EXPECT_EQ(stats.bytes_write_into_cache, 0);
+        EXPECT_TRUE(cache->get_blocks_by_key(key).empty());
+
+        io::FileCacheStatistics write_back_stats;
+        io_ctx.file_cache_stats = &write_back_stats;
+        io_ctx.file_cache_miss_policy = io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+        ASSERT_TRUE(reader->read_at(123, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                            .ok());
+        EXPECT_EQ(bytes_read, buffer.size());
+        EXPECT_GT(write_back_stats.bytes_write_into_cache, 0);
+        EXPECT_FALSE(cache->get_blocks_by_key(key).empty());
+
+        io::FileCacheStatistics full_hit_stats;
+        io_ctx.file_cache_stats = &full_hit_stats;
+        io_ctx.file_cache_miss_policy = io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+        ASSERT_TRUE(reader->read_at(123, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                            .ok());
+        EXPECT_EQ(bytes_read, buffer.size());
+        EXPECT_EQ(full_hit_stats.num_local_io_total, 1);
+        EXPECT_EQ(full_hit_stats.bytes_read_from_local, buffer.size());
+        EXPECT_EQ(full_hit_stats.num_remote_io_total, 0);
+        EXPECT_EQ(full_hit_stats.bytes_write_into_cache, 0);
+    }
+
+    cleanup_cached_remote_reader_cache(local_cache_path);
+}
+
+TEST_F(BlockFileCacheTest, remote_scan_cache_write_limiter_strict_budget) {
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 2;
+    RemoteScanCacheWriteLimiter state(query_id, 100);
+
+    EXPECT_TRUE(state.enabled());
+    EXPECT_TRUE(state.try_admit_cache_write(60));
+    EXPECT_EQ(state.admitted_data_bytes(), 60);
+    EXPECT_FALSE(state.remote_only_on_miss());
+    EXPECT_TRUE(state.try_admit_cache_write(40));
+    EXPECT_EQ(state.admitted_data_bytes(), 100);
+    EXPECT_FALSE(state.remote_only_on_miss());
+
+    EXPECT_FALSE(state.try_admit_cache_write(1));
+    EXPECT_TRUE(state.remote_only_on_miss());
+    EXPECT_EQ(state.admitted_data_bytes(), 100);
+    EXPECT_FALSE(state.try_admit_cache_write(1));
+}
+
+TEST_F(BlockFileCacheTest, remote_scan_cache_write_limiter_threshold_zero_and_negative) {
+    TUniqueId query_id;
+    query_id.hi = 11;
+    query_id.lo = 12;
+
+    RemoteScanCacheWriteLimiter disabled(query_id, -1);
+    EXPECT_FALSE(disabled.enabled());
+    EXPECT_TRUE(disabled.try_admit_cache_write(1_mb));
+    EXPECT_FALSE(disabled.remote_only_on_miss());
+    EXPECT_EQ(disabled.admitted_data_bytes(), 0);
+
+    RemoteScanCacheWriteLimiter no_write(query_id, 0);
+    EXPECT_TRUE(no_write.enabled());
+    EXPECT_TRUE(no_write.remote_only_on_miss());
+    EXPECT_FALSE(no_write.try_admit_cache_write(1));
+    EXPECT_EQ(no_write.admitted_data_bytes(), 0);
+}
+
+TEST_F(BlockFileCacheTest, remote_scan_cache_write_limiter_concurrent_budget) {
+    TUniqueId query_id;
+    query_id.hi = 3;
+    query_id.lo = 4;
+    RemoteScanCacheWriteLimiter state(query_id, 100);
+
+    std::atomic<int> admitted_count {0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 32; ++i) {
+        threads.emplace_back([&] {
+            if (state.try_admit_cache_write(10)) {
+                admitted_count.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_LE(admitted_count.load(), 10);
+    EXPECT_TRUE(state.remote_only_on_miss());
+    EXPECT_LE(state.admitted_data_bytes(), 100);
+}
+
+TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_admission) {
+    const std::string local_cache_path =
+            (caches_dir / "remote_only_on_miss_threshold_cache" / "").string();
+    if (fs::exists(local_cache_path)) {
+        fs::remove_all(local_cache_path);
+    }
+    fs::create_directories(local_cache_path);
+
+    io::BlockFileCache mgr(local_cache_path, remote_only_on_miss_test_settings());
+    ASSERT_TRUE(mgr.initialize().ok());
+
+    TUniqueId query_id;
+    query_id.hi = 5;
+    query_id.lo = 6;
+    RemoteScanCacheWriteLimiter state(query_id, 1_mb);
+
+    ReadStatistics read_stats;
+    io::CacheContext context;
+    context.stats = &read_stats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.remote_scan_cache_write_limiter = &state;
+    context.admit_cache_write_by_remote_scan_limiter = true;
+
+    auto key = io::BlockFileCache::hash("remote_only_on_miss_threshold_key");
+    auto first = mgr.get_or_set(key, 0, 1_mb, context);
+    ASSERT_EQ(first.file_blocks.size(), 1);
+    EXPECT_EQ(first.file_blocks.front()->state(), FileBlock::State::EMPTY);
+    complete_into_memory(first);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::NORMAL), 1);
+    EXPECT_FALSE(state.remote_only_on_miss());
+
+    auto second = mgr.get_or_set(key, 1_mb, 1_mb, context);
+    ASSERT_EQ(second.file_blocks.size(), 1);
+    EXPECT_EQ(second.file_blocks.front()->state(), FileBlock::State::SKIP_CACHE);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::NORMAL), 1);
+    EXPECT_TRUE(state.remote_only_on_miss());
+
+    auto hit_after_threshold = mgr.get_or_set(key, 0, 1_mb, context);
+    ASSERT_EQ(hit_after_threshold.file_blocks.size(), 1);
+    EXPECT_EQ(hit_after_threshold.file_blocks.front()->state(), FileBlock::State::DOWNLOADED);
+}
+
+TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_is_query_wide_for_index) {
+    const std::string local_cache_path =
+            (caches_dir / "remote_only_on_miss_query_wide_index_cache" / "").string();
+    if (fs::exists(local_cache_path)) {
+        fs::remove_all(local_cache_path);
+    }
+    fs::create_directories(local_cache_path);
+
+    io::BlockFileCache mgr(local_cache_path, remote_only_on_miss_test_settings());
+    ASSERT_TRUE(mgr.initialize().ok());
+
+    TUniqueId query_id;
+    query_id.hi = 15;
+    query_id.lo = 16;
+    RemoteScanCacheWriteLimiter state(query_id, 1_mb);
+
+    io::IOContext data_io_ctx;
+    data_io_ctx.reader_type = ReaderType::READER_QUERY;
+    data_io_ctx.query_id = &query_id;
+    data_io_ctx.remote_scan_cache_write_limiter = &state;
+    io::CacheContext data_context(&data_io_ctx);
+    ReadStatistics data_read_stats;
+    data_context.stats = &data_read_stats;
+    EXPECT_TRUE(data_context.admit_cache_write_by_remote_scan_limiter);
+    EXPECT_EQ(data_context.cache_type, io::FileCacheType::NORMAL);
+
+    auto data_key = io::BlockFileCache::hash("remote_only_on_miss_query_wide_data_key");
+    auto data_holder = mgr.get_or_set(data_key, 0, 1_mb, data_context);
+    ASSERT_EQ(data_holder.file_blocks.size(), 1);
+    EXPECT_EQ(data_holder.file_blocks.front()->state(), FileBlock::State::EMPTY);
+    complete_into_memory(data_holder);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::NORMAL), 1);
+    EXPECT_FALSE(state.remote_only_on_miss());
+    EXPECT_EQ(state.admitted_data_bytes(), 1_mb);
+
+    io::IOContext index_io_ctx;
+    index_io_ctx.reader_type = ReaderType::READER_QUERY;
+    index_io_ctx.query_id = &query_id;
+    index_io_ctx.is_index_data = true;
+    index_io_ctx.is_inverted_index = true;
+    index_io_ctx.remote_scan_cache_write_limiter = &state;
+    io::CacheContext index_context(&index_io_ctx);
+    ReadStatistics index_read_stats;
+    index_context.stats = &index_read_stats;
+    EXPECT_TRUE(index_context.admit_cache_write_by_remote_scan_limiter);
+    EXPECT_EQ(index_context.cache_type, io::FileCacheType::INDEX);
+
+    auto index_key = io::BlockFileCache::hash("remote_only_on_miss_query_wide_index_key");
+    auto index_holder = mgr.get_or_set(index_key, 0, 1_mb, index_context);
+    ASSERT_EQ(index_holder.file_blocks.size(), 1);
+    EXPECT_EQ(index_holder.file_blocks.front()->state(), FileBlock::State::SKIP_CACHE);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 0);
+    EXPECT_TRUE(state.remote_only_on_miss());
+    EXPECT_EQ(state.admitted_data_bytes(), 1_mb);
+}
+
+TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_segment_meta_config) {
+    const bool old_enable_file_cache_query_limit_segment_meta =
+            config::enable_file_cache_query_limit_segment_meta;
+    Defer restore_config {[&] {
+        config::enable_file_cache_query_limit_segment_meta =
+                old_enable_file_cache_query_limit_segment_meta;
+    }};
+
+    const std::string local_cache_path =
+            (caches_dir / "remote_only_on_miss_query_segment_meta_cache" / "").string();
+    if (fs::exists(local_cache_path)) {
+        fs::remove_all(local_cache_path);
+    }
+    fs::create_directories(local_cache_path);
+
+    io::BlockFileCache mgr(local_cache_path, remote_only_on_miss_test_settings());
+    ASSERT_TRUE(mgr.initialize().ok());
+
+    TUniqueId query_id;
+    query_id.hi = 25;
+    query_id.lo = 26;
+
+    io::IOContext segment_footer_io_ctx;
+    segment_footer_io_ctx.reader_type = ReaderType::READER_QUERY;
+    segment_footer_io_ctx.query_id = &query_id;
+    segment_footer_io_ctx.is_index_data = true;
+    segment_footer_io_ctx.is_inverted_index = false;
+
+    config::enable_file_cache_query_limit_segment_meta = false;
+    RemoteScanCacheWriteLimiter default_state(query_id, 1_mb);
+    segment_footer_io_ctx.remote_scan_cache_write_limiter = &default_state;
+    io::CacheContext default_context(&segment_footer_io_ctx);
+    ReadStatistics default_read_stats;
+    default_context.stats = &default_read_stats;
+    EXPECT_FALSE(default_context.admit_cache_write_by_remote_scan_limiter);
+    EXPECT_EQ(default_context.cache_type, io::FileCacheType::INDEX);
+
+    auto default_key = io::BlockFileCache::hash("remote_only_on_miss_default_segment_meta_key");
+    auto default_holder = mgr.get_or_set(default_key, 0, 1_mb, default_context);
+    ASSERT_EQ(default_holder.file_blocks.size(), 1);
+    EXPECT_EQ(default_holder.file_blocks.front()->state(), FileBlock::State::EMPTY);
+    complete_into_memory(default_holder);
+    EXPECT_FALSE(default_state.remote_only_on_miss());
+    EXPECT_EQ(default_state.admitted_data_bytes(), 0);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 1);
+
+    config::enable_file_cache_query_limit_segment_meta = true;
+    RemoteScanCacheWriteLimiter enabled_state(query_id, 1_mb);
+    segment_footer_io_ctx.remote_scan_cache_write_limiter = &enabled_state;
+    io::CacheContext enabled_context(&segment_footer_io_ctx);
+    ReadStatistics enabled_read_stats;
+    enabled_context.stats = &enabled_read_stats;
+    EXPECT_TRUE(enabled_context.admit_cache_write_by_remote_scan_limiter);
+    EXPECT_EQ(enabled_context.cache_type, io::FileCacheType::INDEX);
+
+    auto enabled_key = io::BlockFileCache::hash("remote_only_on_miss_enabled_segment_meta_key");
+    auto first = mgr.get_or_set(enabled_key, 0, 1_mb, enabled_context);
+    ASSERT_EQ(first.file_blocks.size(), 1);
+    EXPECT_EQ(first.file_blocks.front()->state(), FileBlock::State::EMPTY);
+    complete_into_memory(first);
+    EXPECT_FALSE(enabled_state.remote_only_on_miss());
+    EXPECT_EQ(enabled_state.admitted_data_bytes(), 1_mb);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 2);
+
+    auto second = mgr.get_or_set(enabled_key, 1_mb, 1, enabled_context);
+    ASSERT_EQ(second.file_blocks.size(), 1);
+    EXPECT_EQ(second.file_blocks.front()->state(), FileBlock::State::SKIP_CACHE);
+    EXPECT_TRUE(enabled_state.remote_only_on_miss());
+    EXPECT_EQ(enabled_state.admitted_data_bytes(), 1_mb);
+    EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 2);
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_specialized_write_cache_stats) {
+    const fs::path cache_path = caches_dir / "specialized_write_cache_stats_cache";
+    BlockFileCache* cache = nullptr;
+    Defer cleanup_cache {[&]() {
+        std::error_code ignore;
+        fs::remove_all(cache_path, ignore);
+        cleanup_cached_remote_reader_cache(cache_path.string());
+    }};
+
+    ASSERT_TRUE(create_cached_remote_reader_cache(cache_path.string(), &cache).ok());
+
+    auto read_and_check = [&](const std::string& name, bool is_inverted_index, int64_t mtime) {
+        const auto remote_file = caches_dir / name;
+        {
+            std::ofstream ofs(remote_file, std::ios::binary | std::ios::trunc);
+            ASSERT_TRUE(ofs.is_open());
+            ofs << "abcdefghijklmnop";
+        }
+        Defer cleanup_file {[&]() {
+            std::error_code ec;
+            fs::remove(remote_file, ec);
+        }};
+
+        FileReaderSPtr local_reader;
+        ASSERT_TRUE(global_local_filesystem()->open_file(remote_file.string(), &local_reader).ok());
+        io::FileReaderOptions opts;
+        opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+        opts.is_doris_table = false;
+        opts.cache_base_path = cache_path.string();
+        opts.mtime = mtime;
+        auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+        std::string buffer(4, '#');
+        size_t bytes_read = 0;
+        io::IOContext io_ctx;
+        io::FileCacheStatistics stats;
+        io_ctx.file_cache_stats = &stats;
+        io_ctx.is_index_data = true;
+        io_ctx.is_inverted_index = is_inverted_index;
+
+        ASSERT_TRUE(
+                reader->read_at(2, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+        EXPECT_EQ(bytes_read, buffer.size());
+        EXPECT_EQ(buffer, "cdef");
+        EXPECT_GT(stats.bytes_write_into_cache, 0);
+
+        if (is_inverted_index) {
+            EXPECT_EQ(stats.inverted_index_bytes_write_into_cache, stats.bytes_write_into_cache);
+            EXPECT_EQ(stats.inverted_index_write_cache_io_timer, stats.write_cache_io_timer);
+            EXPECT_EQ(stats.segment_footer_index_bytes_write_into_cache, 0);
+            EXPECT_EQ(stats.segment_footer_index_write_cache_io_timer, 0);
+        } else {
+            EXPECT_EQ(stats.segment_footer_index_bytes_write_into_cache,
+                      stats.bytes_write_into_cache);
+            EXPECT_EQ(stats.segment_footer_index_write_cache_io_timer, stats.write_cache_io_timer);
+            EXPECT_EQ(stats.inverted_index_bytes_write_into_cache, 0);
+            EXPECT_EQ(stats.inverted_index_write_cache_io_timer, 0);
+        }
+    };
+
+    read_and_check("specialized_write_cache_stats_inverted_index", true, 1);
+    read_and_check("specialized_write_cache_stats_segment_footer_index", false, 2);
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_policy_remote_only_with_scan_limiter) {
+    const std::string local_cache_path =
+            (caches_dir / "remote_only_on_miss_policy_with_threshold_reader_cache" / "").string();
+    if (fs::exists(local_cache_path)) {
+        fs::remove_all(local_cache_path);
+    }
+    fs::create_directories(local_cache_path);
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_cache(local_cache_path, remote_only_on_miss_test_settings())
+                        .ok());
+    Defer cleanup_cache {[&] { cleanup_cached_remote_reader_cache(local_cache_path); }};
+
+    const auto remote_file = caches_dir / "remote_only_on_miss_policy_with_threshold_reader_file";
+    {
+        std::ofstream ofs(remote_file, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(ofs.is_open());
+        std::string data(1_mb, 'a');
+        ofs.write(data.data(), data.size());
+    }
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(remote_file, &local_reader).ok());
+    io::FileReaderOptions opts;
+    opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.tablet_id = 10086;
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+    auto key = io::BlockFileCache::hash(remote_file.filename().string());
+    auto* cache = FileCacheFactory::instance()->get_by_path(key);
+    ASSERT_NE(cache, nullptr);
+    cache->remove_if_cached(key);
+
+    TUniqueId query_id;
+    query_id.hi = 9;
+    query_id.lo = 10;
+    RemoteScanCacheWriteLimiter state(query_id, 1_mb);
+
+    std::string buffer(4_kb, '\0');
+    size_t bytes_read = 0;
+    io::IOContext io_ctx;
+    io::FileCacheStatistics stats;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &stats;
+    io_ctx.file_cache_miss_policy = FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+    io_ctx.remote_scan_cache_write_limiter = &state;
+
+    ASSERT_TRUE(
+            reader->read_at(123, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(bytes_read, buffer.size());
+    EXPECT_EQ(stats.num_remote_io_total, 1);
+    EXPECT_EQ(stats.num_skip_cache_io_total, 1);
+    EXPECT_EQ(stats.bytes_write_into_cache, 0);
+    EXPECT_FALSE(state.remote_only_on_miss());
+    EXPECT_EQ(state.admitted_data_bytes(), 0);
+    EXPECT_TRUE(cache->get_blocks_by_key(key).empty());
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_remote_scan_cache_write_limiter) {
+    const std::string local_cache_path =
+            (caches_dir / "remote_only_on_miss_threshold_reader_cache" / "").string();
+    if (fs::exists(local_cache_path)) {
+        fs::remove_all(local_cache_path);
+    }
+    fs::create_directories(local_cache_path);
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_cache(local_cache_path, remote_only_on_miss_test_settings())
+                        .ok());
+    Defer cleanup_cache {[&] { cleanup_cached_remote_reader_cache(local_cache_path); }};
+
+    const auto remote_file = caches_dir / "remote_only_on_miss_threshold_reader_file";
+    {
+        std::ofstream ofs(remote_file, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(ofs.is_open());
+        for (int i = 0; i < 3; ++i) {
+            std::string data(1_mb, static_cast<char>('a' + i));
+            ofs.write(data.data(), data.size());
+        }
+    }
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(remote_file, &local_reader).ok());
+    io::FileReaderOptions opts;
+    opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.tablet_id = 10086;
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+    auto key = io::BlockFileCache::hash(remote_file.filename().string());
+    Defer fd_cache_cleanup {
+            [key] { io::FDCache::instance()->remove_file_reader(std::make_pair(key, 0)); }};
+    auto* cache = FileCacheFactory::instance()->get_by_path(key);
+    ASSERT_NE(cache, nullptr);
+    cache->remove_if_cached(key);
+
+    TUniqueId query_id;
+    query_id.hi = 7;
+    query_id.lo = 8;
+    RemoteScanCacheWriteLimiter state(query_id, 1_mb);
+
+    std::string buffer(4_kb, '\0');
+    size_t bytes_read = 0;
+    io::IOContext io_ctx;
+    io::FileCacheStatistics stats;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &stats;
+    io_ctx.remote_scan_cache_write_limiter = &state;
+
+    ASSERT_TRUE(
+            reader->read_at(123, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(bytes_read, buffer.size());
+    EXPECT_GT(stats.bytes_write_into_cache, 0);
+    EXPECT_FALSE(state.remote_only_on_miss());
+    EXPECT_EQ(cache->get_blocks_by_key(key).size(), 1);
+
+    io::FileCacheStatistics threshold_stats;
+    io_ctx.file_cache_stats = &threshold_stats;
+    ASSERT_TRUE(
+            reader->read_at(1_mb + 123, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                    .ok());
+    EXPECT_EQ(bytes_read, buffer.size());
+    EXPECT_TRUE(state.remote_only_on_miss());
+    EXPECT_EQ(threshold_stats.bytes_write_into_cache, 0);
+    EXPECT_EQ(threshold_stats.num_skip_cache_io_total, 1);
+    EXPECT_EQ(threshold_stats.remote_only_on_miss_triggered, 1);
+    EXPECT_EQ(threshold_stats.remote_only_on_miss_threshold_bytes, 1_mb);
+    EXPECT_EQ(cache->get_blocks_by_key(key).size(), 1);
+
+    io::FileCacheStatistics full_hit_stats;
+    io_ctx.file_cache_stats = &full_hit_stats;
+    ASSERT_TRUE(
+            reader->read_at(123, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(bytes_read, buffer.size());
+    EXPECT_EQ(full_hit_stats.num_local_io_total, 1);
+    EXPECT_EQ(full_hit_stats.num_remote_io_total, 0);
+    EXPECT_EQ(full_hit_stats.bytes_write_into_cache, 0);
+
+    io::FileCacheStatistics remote_only_stats;
+    io_ctx.file_cache_stats = &remote_only_stats;
+    ASSERT_TRUE(
+            reader->read_at(2_mb + 123, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                    .ok());
+    EXPECT_EQ(bytes_read, buffer.size());
+    EXPECT_EQ(remote_only_stats.num_remote_io_total, 1);
+    EXPECT_EQ(remote_only_stats.num_skip_cache_io_total, 1);
+    EXPECT_EQ(remote_only_stats.bytes_write_into_cache, 0);
+    EXPECT_EQ(cache->get_blocks_by_key(key).size(), 1);
 }
 
 void test_file_cache(io::FileCacheType cache_type) {

@@ -62,7 +62,6 @@ Usage: $0 <options>
      --index-tool               build Backend inverted index tool. Default OFF.
      --benchmark                build Google Benchmark. Default OFF.
      --task-executor-simulator  build Backend task executor simulator. Default OFF.
-     --broker                   build Broker. Default ON.
      --hive-udf                 build Hive UDF library for Ingestion Load. Default ON.
      --be-java-extensions       build Backend java extensions. Default ON.
      --be-cdc-client            build Cdc Client for backend. Default ON.
@@ -97,11 +96,10 @@ Usage: $0 <options>
     $0 --fe --clean                         clean and build Frontend.
     $0 --fe --be --clean                    clean and build Frontend and Backend
     $0 --task-executor-simulator            build task executor simulator
-    $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
-    $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hadoop-hudi-scanner
+    $0 --be-extension-ignore paimon-scanner build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore paimon-scanner,hadoop-hudi-scanner
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -277,7 +275,6 @@ PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
 BUILD_CLOUD=0
-BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
@@ -302,7 +299,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_BE=1
     BUILD_CLOUD=1
 
-    BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
     BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
     BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
@@ -332,10 +328,6 @@ else
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
-        --broker)
-            BUILD_BROKER=1
-            shift
-            ;;
         --meta-tool)
             BUILD_META_TOOL='ON'
             shift
@@ -360,6 +352,13 @@ else
             ;;
         --spark-dpp)
             BUILD_SPARK_DPP=1
+            shift
+            ;;
+        --broker)
+            # Deprecated no-op: the in-tree apache_hdfs_broker daemon has been
+            # removed. The option is still accepted so existing build/CI scripts
+            # that pass --broker do not break, but it no longer builds anything.
+            echo "Warning: --broker is deprecated and has no effect; the apache_hdfs_broker module has been removed."
             shift
             ;;
         --hive-udf)
@@ -434,7 +433,6 @@ else
         BUILD_FE=1
         BUILD_BE=1
         BUILD_CLOUD=1
-        BUILD_BROKER=1
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
@@ -663,7 +661,6 @@ echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
     BUILD_CLOUD                         -- ${BUILD_CLOUD}
-    BUILD_BROKER                        -- ${BUILD_BROKER}
     BUILD_META_TOOL                     -- ${BUILD_META_TOOL}
     BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
     BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
@@ -720,7 +717,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
-    for _fs_mod in s3 oss cos obs azure hdfs local broker; do
+    for _fs_mod in s3 oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -751,7 +748,6 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
-    modules+=("be-java-extensions/avro-scanner")
     # lakesoul-scanner has been deprecated
     # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
@@ -1052,7 +1048,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy filesystem provider plugins as independent plugin directories
     # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
     FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
-    for fs_module in s3 azure oss cos obs hdfs local broker; do
+    for fs_module in s3 azure oss cos obs hdfs oss-hdfs jfs local broker http; do
         fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
         fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
         if [ ! -d "${fs_module_dir}" ]; then
@@ -1172,7 +1168,6 @@ EOF
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-connector")
-    extensions_modules+=("avro-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
@@ -1258,17 +1253,6 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
     cp -r -p "${DORIS_HOME}/be/src/udf/python/python_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"
-fi
-
-if [[ "${BUILD_BROKER}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/apache_hdfs_broker"
-
-    cd "${DORIS_HOME}/fs_brokers/apache_hdfs_broker"
-    bash ./build.sh
-    rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
-    cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
-    copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
-    cd "${DORIS_HOME}"
 fi
 
 if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then

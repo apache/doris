@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_array.h"
@@ -39,6 +40,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format::parquet {
@@ -169,16 +171,16 @@ int64_t count_loaded_non_null_values(const ParquetColumnSchema& root_schema,
         return count;
     }
 
-    // For repeated encodings, one top-level row starts when the leaf repetition level moves above
-    // no higher than the top-level container's repeated boundary. Empty MAP/LIST rows have no
-    // entries but still carry a level slot; they are non-NULL and must be counted by count(col).
-    const int16_t non_null_definition_level =
-            static_cast<int16_t>(root_schema.definition_level - 1);
+    // For repeated encodings, repetition level zero starts a top-level row. Empty MAP/LIST rows
+    // have no entries but still carry a level slot; they are non-NULL and must be counted by
+    // count(col). The root nullable level distinguishes a NULL top-level value from a non-NULL
+    // value regardless of which repeated leaf represents its shape.
+    const int16_t non_null_definition_level = root_schema.nullable_definition_level;
     int64_t counted_rows = 0;
     int64_t non_null_rows = 0;
     for (int64_t level_idx = 0; level_idx < levels_written && counted_rows < expected_rows;
          ++level_idx) {
-        if (rep_levels[level_idx] >= root_schema.repetition_level) {
+        if (rep_levels[level_idx] != 0) {
             continue;
         }
         ++counted_rows;
@@ -285,6 +287,22 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
                                    child_projection.local_id(), column_schema.name);
 }
 
+static Status validate_minmax_aggregate_statistics(const ParquetColumnSchema& column_schema) {
+    DORIS_CHECK(column_schema.descriptor != nullptr);
+    switch (column_schema.descriptor->physical_type()) {
+    case ::parquet::Type::BYTE_ARRAY:
+    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
+        // Arrow 17 does not expose Parquet's min/max exactness flags. Binary statistics may be
+        // truncated bounds rather than values present in the file, so they are safe for pruning
+        // but cannot be returned as exact aggregate results.
+        return Status::NotSupported(
+                "Parquet MIN/MAX aggregate pushdown requires exact statistics for column {}",
+                column_schema.name);
+    default:
+        return Status::OK();
+    }
+}
+
 void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
                                             format::ColumnDefinition* field) const {
     if (column_schema.parquet_field_id >= 0) {
@@ -318,6 +336,9 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
 ParquetReader::~ParquetReader() = default;
 
 Status ParquetReader::init(RuntimeState* state) {
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        return Status::EndOfFile("stop");
+    }
     RETURN_IF_ERROR(format::FileReader::init(state));
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_reader_create_time,
@@ -466,6 +487,10 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     *rows = 0;
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        *eof = true;
+        return Status::OK();
+    }
     if (_eof) {
         *eof = true;
         return Status::OK();
@@ -476,15 +501,38 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto predicate_filtered_rows_before = _state->scheduler.predicate_filtered_rows();
-    RETURN_IF_ERROR(_state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
-                                                      *request_snapshot, file_block, rows, eof));
+    const auto raw_rows_read_before = _state->scheduler.raw_rows_read();
+    Status st = _state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
+                                                  *request_snapshot, file_block, rows, eof);
+    if (!st.ok()) {
+        if (_io_ctx != nullptr && _io_ctx->should_stop) {
+            *rows = 0;
+            *eof = true;
+            return Status::OK();
+        }
+        return st;
+    }
     _sync_page_cache_profile();
     if (_io_ctx != nullptr) {
         _io_ctx->predicate_filtered_rows +=
                 _state->scheduler.predicate_filtered_rows() - predicate_filtered_rows_before;
     }
+    const auto raw_rows_read = _state->scheduler.raw_rows_read();
+    DORIS_CHECK(raw_rows_read >= raw_rows_read_before);
+    _record_scan_rows(raw_rows_read - raw_rows_read_before);
     _eof = *eof;
     return Status::OK();
+}
+
+bool ParquetReader::_should_stop() const {
+    return _io_ctx != nullptr && _io_ctx->should_stop;
+}
+
+Status ParquetReader::_stop_status_if_requested(const Status& status) const {
+    if (!status.ok() && _should_stop()) {
+        return Status::EndOfFile("stop");
+    }
+    return status;
 }
 
 void ParquetReader::_sync_page_cache_profile() {
@@ -539,6 +587,9 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
+    if (_should_stop()) {
+        return Status::EndOfFile("stop");
+    }
     result->count = 0;
     result->columns.clear();
     if (request.agg_type != TPushAggOp::type::COUNT &&
@@ -569,9 +620,15 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             try {
                 row_group = _state->file_context.file_reader->RowGroup(row_group_plan.row_group_id);
             } catch (const ::parquet::ParquetException& e) {
+                if (_should_stop()) {
+                    return Status::EndOfFile("stop");
+                }
                 return Status::Corruption("Failed to open parquet row group {}: {}",
                                           row_group_plan.row_group_id, e.what());
             } catch (const std::exception& e) {
+                if (_should_stop()) {
+                    return Status::EndOfFile("stop");
+                }
                 return Status::InternalError("Failed to open parquet row group {}: {}",
                                              row_group_plan.row_group_id, e.what());
             }
@@ -589,7 +646,8 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             int64_t row_group_cursor = 0;
             for (const auto& selected_range : row_group_plan.selected_ranges) {
                 DORIS_CHECK(selected_range.start >= row_group_cursor);
-                RETURN_IF_ERROR(shape_reader->skip(selected_range.start - row_group_cursor));
+                RETURN_IF_ERROR(_stop_status_if_requested(
+                        shape_reader->skip(selected_range.start - row_group_cursor)));
                 row_group_cursor = selected_range.start;
 
                 int64_t range_rows_read = 0;
@@ -601,7 +659,9 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                     // or values_column. MAP chooses the key leaf; ARRAY/STRUCT may choose a string
                     // leaf, but the levels-only protocol still avoids Doris-side string
                     // materialization for that leaf.
-                    RETURN_IF_ERROR(shape_reader->load_nested_levels_batch(batch_rows));
+                    RETURN_IF_ERROR(_stop_status_if_requested(
+                            shape_reader->load_nested_levels_batch(batch_rows)));
+                    _record_scan_rows(batch_rows);
                     result->count +=
                             count_loaded_non_null_values(root_schema, *shape_reader, batch_rows);
                     range_rows_read += batch_rows;
@@ -627,6 +687,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         RETURN_IF_ERROR(find_projected_minmax_leaf(
                 *column_schema, request.columns[request_column_idx].projection, &leaf_schema));
         DORIS_CHECK(leaf_schema != nullptr);
+        RETURN_IF_ERROR(validate_minmax_aggregate_statistics(*leaf_schema));
 
         auto& aggregate_column = result->columns[request_column_idx];
         aggregate_column.projection = request.columns[request_column_idx].projection;

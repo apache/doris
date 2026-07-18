@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -74,6 +75,8 @@ protected:
     Status _init_delete_predicates(const TTableFormatFileDesc& t_desc);
 
 private:
+    struct EqualityDeleteFilter;
+
     bool _has_field_id(const std::vector<format::ColumnDefinition>& schema) const {
         for (const auto& field : schema) {
             // TopN lazy materialization asks the file reader to synthesize GLOBAL_ROWID in the
@@ -110,16 +113,15 @@ private:
 
     class PositionDeleteRowsCollector final {
     public:
-        PositionDeleteRowsCollector(std::string data_file_path, format::DeleteRows* rows);
+        using PositionDeleteFile = std::unordered_map<std::string, format::DeleteRows>;
+
+        explicit PositionDeleteRowsCollector(PositionDeleteFile* rows_by_data_file);
 
         Status collect(const Block& block, size_t read_rows);
 
     private:
-        std::string _data_file_path;
-        format::DeleteRows* _rows = nullptr;
+        PositionDeleteFile* _rows_by_data_file = nullptr;
     };
-
-    static std::string _iceberg_delete_vector_cache_key(const TIcebergDeleteFileDesc& delete_file);
 
     static std::shared_ptr<io::FileSystemProperties> _delete_file_system_properties(
             const TFileScanRangeParams& scan_params);
@@ -134,18 +136,36 @@ private:
     // Append equality delete predicates to file scan request based on the delete files in iceberg
     // params. DeleteVector and position delete files use the common DeleteRows path in TableReader.
     Status _append_equality_delete_predicates(format::FileScanRequest* request);
+    const format::ColumnDefinition* _find_equality_delete_data_field(
+            const EqualityDeleteFilter& filter, size_t key_idx) const;
+    std::optional<format::ColumnDefinition> _find_equality_delete_table_field(
+            const EqualityDeleteFilter& filter, size_t key_idx) const;
+    void _append_equality_delete_row_count_carrier(format::FileScanRequest* request);
+    std::string _delete_file_cache_key(const char* prefix, const std::string& path) const;
 
     Status _init_equality_delete_predicates(
             const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
     // Read equality/position delete files.
-    Status _read_parquet_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
-                                              const TFileScanRangeParams& scan_params,
-                                              IcebergDeleteFileIOContext* delete_io_ctx);
-    Status _read_parquet_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
-                                              const TFileScanRangeParams& scan_params,
-                                              IcebergDeleteFileIOContext* delete_io_ctx,
-                                              PositionDeleteRowsCollector* collector);
+    Status _create_delete_file_reader(const TIcebergDeleteFileDesc& delete_file,
+                                      const TFileScanRangeParams& scan_params,
+                                      IcebergDeleteFileIOContext* delete_io_ctx,
+                                      std::unique_ptr<format::FileReader>* reader);
+    Status _read_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                      const TFileScanRangeParams& scan_params,
+                                      IcebergDeleteFileIOContext* delete_io_ctx);
+    Status _load_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                      const TFileScanRangeParams& scan_params,
+                                      IcebergDeleteFileIOContext* delete_io_ctx,
+                                      EqualityDeleteFilter* result);
+    Status _resolve_equality_delete_fields(const TIcebergDeleteFileDesc& delete_file,
+                                           const std::vector<format::ColumnDefinition>& schema,
+                                           std::vector<format::ColumnDefinition>* delete_fields,
+                                           EqualityDeleteFilter* result) const;
+    Status _read_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                      const TFileScanRangeParams& scan_params,
+                                      IcebergDeleteFileIOContext* delete_io_ctx,
+                                      PositionDeleteRowsCollector* collector);
 
     // Read position delete files and collect deleted row positions to update DeletePredicate.
     Status _init_position_delete_rows(const std::vector<TIcebergDeleteFileDesc>& delete_files);
@@ -163,10 +183,16 @@ private:
     format::DeleteRows _position_delete_rows_storage;
     struct EqualityDeleteFilter {
         std::vector<int> field_ids;
+        // Delete-file names are retained for Iceberg tables imported from formats that did not
+        // persist field ids. In BY_NAME mode they are the fallback binding key.
+        std::vector<std::string> field_names;
         std::vector<DataTypePtr> key_types;
         Block delete_block;
     };
     std::vector<EqualityDeleteFilter> _equality_delete_filters;
+    // Scanner-shared cache supplied in SplitReadOptions. Parsed delete files outlive one data-file
+    // split and can be reused by every split referencing the same delete file.
+    ShardedKVCache* _split_cache = nullptr;
 
     bool _need_row_lineage_row_id() const;
     bool _need_iceberg_rowid() const;

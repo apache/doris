@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
@@ -73,7 +74,8 @@ struct FileScanRequest {
     std::map<LocalColumnId, LocalIndex> local_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
-    // Delete predicates converted to file-local expressions.
+    // Delete predicates converted to file-local expressions. A TRUE result means that the row is
+    // deleted, so readers must invert each result when building their keep filter.
     VExprContextSPtrs delete_conjuncts;
 };
 
@@ -319,6 +321,13 @@ public:
 
 protected:
     virtual void _init_profile() {}
+    void _record_scan_rows(int64_t rows) {
+        DORIS_CHECK(rows >= 0);
+        _reader_statistics.read_rows += rows;
+        if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
+            _io_ctx->file_reader_stats->read_rows += cast_set<size_t>(rows);
+        }
+    }
 
     io::FileReaderSPtr _file_reader;
     // _tracing_file_reader wraps _file_reader.
