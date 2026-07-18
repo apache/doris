@@ -666,6 +666,66 @@ public class BDBEnvironmentTest {
     }
 
     @RepeatedTest(1)
+    public void testRemoveDatabaseWithPreemptedHandle() throws Exception {
+        int port = findValidPort();
+        String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
+        String selfNodeHostPort = "127.0.0.1:" + port;
+
+        BDBEnvironment bdbEnvironment = new BDBEnvironment(true, false);
+        bdbEnvironment.setup(new File(createTmpDir()), selfNodeName, selfNodeHostPort, selfNodeHostPort);
+
+        // Open a real database
+        String dbName = "testRemoveWithPreempted";
+        Database db = bdbEnvironment.openDatabase(dbName);
+        Assertions.assertNotNull(db);
+
+        // Inject a mock "preempted" database handle before the real one in openedDatabases.
+        // This simulates a DatabasePreemptedException scenario where getDatabaseName() throws.
+        Database preemptedDb = new MockUp<Database>() {
+            @Mock
+            public String getDatabaseName() {
+                throw new IllegalStateException("Database was forcibly closed (simulated preemption)");
+            }
+
+            @Mock
+            public void close() {
+                // no-op for mock
+            }
+        }.getMockInstance();
+
+        List<Database> openedDatabases = Deencapsulation.getField(bdbEnvironment, "openedDatabases");
+        openedDatabases.add(0, preemptedDb);
+
+        // removeDatabase should skip the preempted handle and still successfully
+        // close and remove the real database
+        bdbEnvironment.removeDatabase(dbName);
+
+        // Verify the preempted handle was removed from the list
+        Assertions.assertFalse(openedDatabases.contains(preemptedDb),
+                "Preempted database handle should have been removed from openedDatabases");
+
+        // Verify the real database was also removed (the database should not be in the list)
+        boolean found = false;
+        for (Database d : openedDatabases) {
+            try {
+                if (dbName.equals(d.getDatabaseName())) {
+                    found = true;
+                }
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        Assertions.assertFalse(found,
+                "The target database should have been removed from openedDatabases");
+
+        // Verify the database was removed from the replicated environment
+        // (calling removeDatabase again should just get DatabaseNotFoundException, not crash)
+        bdbEnvironment.removeDatabase(dbName);
+
+        bdbEnvironment.close();
+    }
+
+    @RepeatedTest(1)
     public void testReadTxnIsNotMatched() throws Exception {
         List<Pair<BDBEnvironment, NodeInfo>> followersInfo = new ArrayList<>();
 
