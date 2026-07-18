@@ -70,6 +70,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -465,8 +466,17 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
                     TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS));
         } else {
-            String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
+            // getPartitionRangeString returns a datetime string in the partition's timezone
+            // (e.g., "2026-04-13 00:00:00" in Europe/London), but analyzeDataProperty parses
+            // storage_cooldown_time using the FE server timezone. To avoid this mismatch,
+            // parse the string back with the partition timezone to get the correct UTC instant,
+            // then re-format it using TimeUtils.longToTimeString() which uses the FE timezone.
+            String partitionTzTime = DynamicPartitionUtil.getPartitionRangeString(
                     property, now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
+            LocalDateTime localDt = LocalDateTime.parse(partitionTzTime,
+                    DateTimeFormatter.ofPattern(DynamicPartitionUtil.DATETIME_FORMAT));
+            ZonedDateTime cooldownZdt = localDt.atZone(property.getTimeZone().toZoneId());
+            String cooldownTime = TimeUtils.longToTimeString(cooldownZdt.toInstant().toEpochMilli());
             partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
             partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownTime);
         }

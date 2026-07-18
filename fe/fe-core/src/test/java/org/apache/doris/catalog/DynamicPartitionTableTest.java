@@ -1326,6 +1326,177 @@ public class DynamicPartitionTableTest {
         createTable(createOlapTblStmt);
     }
 
+    /**
+     * Regression test: when dynamic_partition.time_zone differs from the FE server timezone,
+     * setStorageMediumProperty formats the cooldown time string in partition timezone but
+     * analyzeDataProperty parses it in FE timezone. This mismatch shifts the cooldown time
+     * by the timezone difference (up to ±15 hours), which can make it appear in the past.
+     *
+     * This test verifies the cooldown time equals the correct UTC epoch by independently
+     * computing the expected value, so it catches the bug regardless of what time the test runs.
+     */
+    @Test
+    public void testHotPartitionCooldownTimeWithNonDefaultTimezone() throws Exception {
+        changeBeDisk(TStorageMedium.SSD);
+
+        Database testDb = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+
+        // Use UTC+0 timezone to maximize difference from a CST (UTC+8) FE.
+        // hot_partition_num=1: partition at offset=0 (today) is "hot" with cooldown at
+        // "tomorrow midnight in partition timezone". The bug would interpret this as
+        // "tomorrow midnight in FE timezone" — an 8-hour difference.
+        String createOlapTblStmt = "CREATE TABLE test.`hot_partition_tz_cooldown` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "()\n"
+                + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.hot_partition_num\" = \"1\",\n"
+                + "\"dynamic_partition.time_zone\" = \"+00:00\"\n"
+                + ");";
+
+        createTable(createOlapTblStmt);
+
+        OlapTable tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_tz_cooldown");
+        RangePartitionInfo partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        Map<Long, DataProperty> idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+
+        // Independently compute the expected cooldown: "tomorrow midnight in UTC+0" as epoch ms.
+        // hot_partition_num=1 means the cooldown for idx=0 (today) is the start of idx=1 (tomorrow).
+        ZonedDateTime expectedCooldown = ZonedDateTime.now(ZoneId.of("+00:00"))
+                .plusDays(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        long expectedCooldownMs = expectedCooldown.toInstant().toEpochMilli();
+
+        boolean foundHotPartition = false;
+        for (DataProperty dp : idToDataProperty.values()) {
+            if (dp.getStorageMedium() == TStorageMedium.SSD
+                    && dp.getCooldownTimeMs() != DataProperty.MAX_COOLDOWN_TIME_MS) {
+                foundHotPartition = true;
+                long actualMs = dp.getCooldownTimeMs();
+                long diffHours = Math.abs(actualMs - expectedCooldownMs) / (3600 * 1000);
+                // Allow 1 hour tolerance for test execution time, but the timezone bug
+                // would cause an 8-hour shift (for CST) — this assertion catches it.
+                Assert.assertTrue(
+                        "Cooldown time differs from expected by " + diffHours + " hours."
+                                + " Expected ~" + expectedCooldownMs + " (tomorrow midnight UTC+0)"
+                                + " but got " + actualMs
+                                + ". Likely timezone mismatch in setStorageMediumProperty.",
+                        diffHours <= 1);
+            }
+        }
+        Assert.assertTrue("Should have at least one hot partition with non-MAX cooldown",
+                foundHotPartition);
+
+        // 2. Test HOUR granularity with America/Los_Angeles (UTC-7/-8).
+        //    15-16 hour difference from CST makes the bug even more visible.
+        createOlapTblStmt = "CREATE TABLE test.`hot_partition_tz_cooldown_hour` (\n"
+                + "  `k1` datetime NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "()\n"
+                + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"HOUR\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.hot_partition_num\" = \"1\",\n"
+                + "\"dynamic_partition.time_zone\" = \"America/Los_Angeles\"\n"
+                + ");";
+
+        createTable(createOlapTblStmt);
+
+        tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_tz_cooldown_hour");
+        partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+
+        ZoneId laZone = ZoneId.of("America/Los_Angeles");
+        ZonedDateTime expectedHourCooldown = ZonedDateTime.now(laZone)
+                .plusHours(1).withMinute(0).withSecond(0).withNano(0);
+        long expectedHourCooldownMs = expectedHourCooldown.toInstant().toEpochMilli();
+
+        foundHotPartition = false;
+        for (DataProperty dp : idToDataProperty.values()) {
+            if (dp.getStorageMedium() == TStorageMedium.SSD
+                    && dp.getCooldownTimeMs() != DataProperty.MAX_COOLDOWN_TIME_MS) {
+                foundHotPartition = true;
+                long actualMs = dp.getCooldownTimeMs();
+                long diffHours = Math.abs(actualMs - expectedHourCooldownMs) / (3600 * 1000);
+                Assert.assertTrue(
+                        "HOUR cooldown time differs from expected by " + diffHours + " hours."
+                                + " Expected ~" + expectedHourCooldownMs
+                                + " but got " + actualMs,
+                        diffHours <= 1);
+            }
+        }
+        Assert.assertTrue("Should have at least one hot partition with non-MAX cooldown (HOUR)",
+                foundHotPartition);
+
+        // 3. Verify that when partition timezone matches FE timezone, cooldown is still correct.
+        //    This guards against regressions where the fix might break the same-timezone case.
+        createOlapTblStmt = "CREATE TABLE test.`hot_partition_tz_cooldown_same` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "()\n"
+                + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.hot_partition_num\" = \"1\",\n"
+                + "\"dynamic_partition.time_zone\" = \"" + java.util.TimeZone.getDefault().getID() + "\"\n"
+                + ");";
+
+        createTable(createOlapTblStmt);
+
+        tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_tz_cooldown_same");
+        partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+
+        ZonedDateTime expectedSameTzCooldown = ZonedDateTime.now()
+                .plusDays(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        long expectedSameTzMs = expectedSameTzCooldown.toInstant().toEpochMilli();
+
+        foundHotPartition = false;
+        for (DataProperty dp : idToDataProperty.values()) {
+            if (dp.getStorageMedium() == TStorageMedium.SSD
+                    && dp.getCooldownTimeMs() != DataProperty.MAX_COOLDOWN_TIME_MS) {
+                foundHotPartition = true;
+                long actualMs = dp.getCooldownTimeMs();
+                long diffHours = Math.abs(actualMs - expectedSameTzMs) / (3600 * 1000);
+                Assert.assertTrue(
+                        "Same-timezone cooldown time differs from expected by " + diffHours + " hours."
+                                + " Expected ~" + expectedSameTzMs
+                                + " but got " + actualMs,
+                        diffHours <= 1);
+            }
+        }
+        Assert.assertTrue("Should have at least one hot partition with non-MAX cooldown (same tz)",
+                foundHotPartition);
+    }
+
     @Test
     public void testRuntimeInfo() throws Exception {
         DynamicPartitionScheduler scheduler = new DynamicPartitionScheduler("test", 10);
