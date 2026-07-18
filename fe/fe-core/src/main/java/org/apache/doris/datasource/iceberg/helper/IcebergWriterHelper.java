@@ -30,8 +30,12 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Metrics;
+import org.apache.iceberg.MetricsConfig;
+import org.apache.iceberg.MetricsModes;
+import org.apache.iceberg.MetricsUtil;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.WriteResult;
@@ -70,7 +74,7 @@ public class IcebergWriterHelper {
             long fileSize = commitData.getFileSize();
             long recordCount = commitData.getRowCount();
             CommonStatistics stat = new CommonStatistics(recordCount, DEFAULT_FILE_COUNT, fileSize);
-            Metrics metrics = buildDataFileMetrics(table, fileFormat, commitData);
+            Metrics metrics = buildDataFileMetrics(table, commitData);
             Optional<PartitionData> partitionData = Optional.empty();
             //get and check partitionValues when table is partitionedTable
             if (spec.isPartitioned()) {
@@ -153,7 +157,7 @@ public class IcebergWriterHelper {
         return partitionData;
     }
 
-    private static Metrics buildDataFileMetrics(Table table, FileFormat fileFormat, TIcebergCommitData commitData) {
+    private static Metrics buildDataFileMetrics(Table table, TIcebergCommitData commitData) {
         Map<Integer, Long> columnSizes = new HashMap<>();
         Map<Integer, Long> valueCounts = new HashMap<>();
         Map<Integer, Long> nullValueCounts = new HashMap<>();
@@ -178,8 +182,27 @@ public class IcebergWriterHelper {
             }
         }
 
-        return new Metrics(commitData.getRowCount(), columnSizes, valueCounts,
-                nullValueCounts, null, lowerBounds, upperBounds);
+        MetricsConfig metricsConfig = MetricsConfig.forTable(table);
+        Schema schema = table.schema();
+        // Physical file stats may contain every column, but manifest metrics must honor the table's metadata policy.
+        return new Metrics(commitData.getRowCount(),
+                filterDisabledMetrics(columnSizes, schema, metricsConfig),
+                filterDisabledMetrics(valueCounts, schema, metricsConfig),
+                filterDisabledMetrics(nullValueCounts, schema, metricsConfig),
+                null,
+                filterDisabledMetrics(lowerBounds, schema, metricsConfig),
+                filterDisabledMetrics(upperBounds, schema, metricsConfig));
+    }
+
+    private static <T> Map<Integer, T> filterDisabledMetrics(
+            Map<Integer, T> metrics, Schema schema, MetricsConfig metricsConfig) {
+        Map<Integer, T> filteredMetrics = new HashMap<>();
+        metrics.forEach((fieldId, value) -> {
+            if (MetricsUtil.metricsMode(schema, metricsConfig, fieldId) != MetricsModes.None.get()) {
+                filteredMetrics.put(fieldId, value);
+            }
+        });
+        return filteredMetrics;
     }
 
     /**

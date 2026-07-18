@@ -18,19 +18,28 @@
 package org.apache.doris.datasource.iceberg.helper;
 
 import org.apache.doris.thrift.TFileContent;
+import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Test for IcebergWriterHelper DeleteFile conversion
@@ -56,6 +65,39 @@ public class IcebergWriterHelperTest {
         // Use Parquet format
         format = FileFormat.PARQUET;
 
+    }
+
+    @Test
+    public void testConvertToWriterResultRespectsNoneMetricsMode() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(Map.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setColumnSizes(Map.of(2, 128L));
+        columnStats.setValueCounts(Map.of(2, 10L));
+        columnStats.setNullValueCounts(Map.of(2, 0L));
+        columnStats.setLowerBounds(Map.of(2, ByteBuffer.wrap(new byte[] {0x01})));
+        columnStats.setUpperBounds(Map.of(2, ByteBuffer.wrap(new byte[] {0x02})));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.parquet");
+        commitData.setRowCount(10);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+
+        WriteResult result = IcebergWriterHelper.convertToWriterResult(table, List.of(commitData));
+        DataFile dataFile = result.dataFiles()[0];
+
+        Assertions.assertTrue(dataFile.columnSizes() == null || dataFile.columnSizes().isEmpty());
+        Assertions.assertTrue(dataFile.valueCounts() == null || dataFile.valueCounts().isEmpty());
+        Assertions.assertTrue(dataFile.nullValueCounts() == null || dataFile.nullValueCounts().isEmpty());
+        Assertions.assertTrue(dataFile.lowerBounds() == null || dataFile.lowerBounds().isEmpty());
+        Assertions.assertTrue(dataFile.upperBounds() == null || dataFile.upperBounds().isEmpty());
     }
 
     @Test
