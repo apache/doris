@@ -19,7 +19,7 @@
 | PERF-02 | P0 | C7 C22 C23 | 分区视图每查询重扫 PARTITIONS 元数据表 → `(table,snapshotId)` 缓存(连接器侧,无凭证 gate);MTMV refresh pin 判定为多余(靠 latestSnapshotCache 稳定快照坍缩,不改 fe-core) | 与 01 共享快照 pin 机制 | ✅ 完成 | `518d0599cbf` |
 | PERF-03 | P0 | C2 C11 | #64134 复活：`file_format_type` 兜底走整表 planFiles → 跨查询 `(table,snapshotId)` memoize(连接器侧,无 gate);~~从枚举反推~~已否决(getFileFormatType 早于 planScan + 无过滤 vs 带谓词破 parity) | 与 01/02 共享快照 pin | ✅ 完成 | `0b96f2e6c78` |
 | PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 抽惰性 `cacheBackedFileScanTasks`(delete 索引 eager + data manifest 惰性扁平映射)三处复用;缓存与不 OOM 兼得(否决审计"退回物化"因重引 OOM) | — | ✅ 完成 | `2e5f393779c` |
-| PERF-05 | P1 | C9 | information_schema.tables 循环内每表 loadTable（只为拿 comment） → 随表缓存 / 惰性取 | — | ⏳ | |
+| PERF-05 | P1 | C9 | information_schema.tables 每表 loadTable 取 comment → 复核缩小(普通目录 PERF-01 已覆盖);补**无 gate** `IcebergCommentCache` **仅 vended 非 session=user**(红队:session=user 缓存绕过 per-user 授权=泄漏) | — | ✅ 完成 | `aea3ebdd40e` |
 | PERF-06 | P1 | C3 | REST vended-cred 每 data/delete file 重建 StorageProperties+Configuration → scan 级 memo | — | ⏳ | |
 | PERF-07 | P1 | C20 | 一条 DML 3~5 次 load 同表 → 语句级 resolve 一次传递 | — | ⏳ | |
 | PERF-08 | P2 | C19 C21 | 维护路径逐单位重扫 / 无去重（rewrite_data_files 每 group planFiles；expire_snapshots S×M）→ union 一次注册 / 按 path 去重 | 改动小可先行 | ⏳ | |
@@ -59,9 +59,11 @@
 - **落地**：抽惰性 `cacheBackedFileScanTasks`（delete 索引 eager + data manifest 惰性扁平映射，产整文件任务不攒整表），三处复用（同步物化它保启发式切片；流式喂它保 OOM 安全+固定切片+现在命中缓存；COUNT 迭代取首文件惰性早停）。决策不改；失败 `catch(Exception)` 退 SDK；`statsQueryId` 可空(流式 null 消跨线程 stats 竞争)。红队 7 攻击核心 sound，采纳 catch 类型/线程/测试 3 修正。
 - **收益**：开缓存大表流式从 0 命中→命中且不 OOM；COUNT 从全提交→首文件即停。全模块 962 UT 绿。
 
-### [ ] PERF-05 — C9：information_schema.tables 每表 loadTable
-- **病灶**：`FrontendServiceImpl.listTableStatus:719 for(table)` → `:755 setComment(table.getComment())`（**无条件**，不看请求是否要 comment 列）→ `PluginDrivenExternalTable.getComment:944 → IcebergConnectorMetadata.getTableComment:305 → loadTable`。N 表 = N 次串行远程 load；几百表的库一条 `SELECT * FROM information_schema.tables` 数十秒~分钟，BI 工具高频触发。教科书级"伪装成轻访问器"。
-- **修复方向**：建表/schema-cache 时捕获 comment 随表对象缓存，或该路径按需惰性取。
+### [x] PERF-05 — C9：information_schema.tables 每表 loadTable 取 comment · ✅ `aea3ebdd40e`
+- **病灶**：`FrontendServiceImpl.listTableStatus` fe-core 循环每表**无条件** `getComment` → 连接器 `getTableComment` → 每表一次 loadTable 只为读 `comment`。N 表 = N 串行远端 load，BI 高频。
+- **复核缩小（审计早于 PERF-01）**：`getTableComment` 现走 `resolveTableForRead → IcebergTableCache` → **普通目录重复查询已命中**；残余 = 凭证 gated 目录（tableCache=null）。
+- **落地**：无 gate `IcebergCommentCache`（键 TableIdentifier、值 comment String），**仅 vended 且非 session=user 时建**。**红队 HIGH**：`tableCache==null` 做 gate 会卷入 session=user，其授权在 per-user loadTable 里、缓存绕过=元数据泄漏 → 收窄为 vended-only。首次 N load / view 未缓存记为诚实局限。
+- **收益**：vended 目录重复 information_schema 从次次 N load→命中；普通/session=user 不变。全模块 973 UT 绿。
 
 ### [ ] PERF-06 — C3：vended-credentials 每文件重建 StorageProperties
 - **病灶**：`buildRange:1105 normalizeUri` / `convertDelete:1157 → DefaultConnectorContext.normalizeStorageUri:392-409 → buildVendedStorageMap:225-242 → StorageProperties.createAll`（遍历所有 provider + 建 hadoop `Configuration` + 逐 key set），**每 data file 和每 delete file 各一次**，而 vended token 整个 scan 内不变。50k 文件 ≈ 数十秒纯 FE CPU。门槛：REST + `iceberg.rest.vended-credentials-enabled=true`（MOR 加倍）。

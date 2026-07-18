@@ -71,3 +71,17 @@
 - **踩坑（CI 前本地捕获）**：① `java.util.Iterator` 漏 import（编译挂）；② 重构后同步 `planFileScanTaskWithManifestCache` 顶部无条件 `session.getQueryId()`，而既有空表用例传 **null session**（旧码 snapshot==null 早返回、从不碰 session）→ NPE；改 `statsQueryId = session != null ? getQueryId() : null`。
 - **结果**：全 iceberg 模块 **962 pass / 0 fail / 0 error / 1 skip**，checkstyle 0 违规，0 回归（现有测试全绿）。summary 见 `designs/FIX-PERF-04-*-summary.md`。
 - **下一步**：见 HANDOFF —— PERF-05（C9 information_schema.tables 每表 loadTable 只为取 comment）。
+
+---
+
+## 2026-07-18 — session 3（续）：PERF-05 实现 + 全绿（commit `aea3ebdd40e`）
+
+- **复核缩小（关键）**：审计 C9 写于 PERF-01 之前。核当前代码：`getTableComment → loadTable → resolveTableForRead → IcebergTableCache`（PERF-01）→ **普通目录重复 information_schema 查询已命中缓存**（"BI 反复查反复慢"最痛点普通目录已解）。残余 = **凭证 gated 目录**（tableCache 因带凭证被 gate 为 null）次次重载。→ 上交用户决策（AskUserQuestion，A 补注释缓存 / B 判定基本修复）。
+- **用户选 A（补注释缓存，仅特殊目录）**。设计：无 gate `IcebergCommentCache`（键 TableIdentifier、值 comment String），仅在 tableCache 关掉的凭证 gated 目录建。
+- **设计红队（独立 agent，7 攻击）抓 1 HIGH（关键安全）**：原设计 gate=`tableCache==null` **过宽**——把 **session=user** 卷入。session=user 的授权在 per-user loadTable 调用本身；共享 comment 缓存会把用户 A 加载的 comment 发给"有合法 token+过 Doris 权限、但 REST 侧对该表无权"的用户 B（B 的 token 从未被校验）= **元数据泄漏，且相对现状回退**。→ 收窄 gate 为 **`restVendedCredentialsEnabled && !isUserSessionEnabled()`**（vended 单一静态身份共享安全；session=user 保持 live）。另 2 LOW（ttl≤0→disabled 映射 load-bearing；vended 新增陈旧窗口）并入。其余 6 攻击 SURVIVES。
+- **实现（连接器侧一个 `[perf]` commit）**：新增 `IcebergCommentCache`（镜像 `IcebergTableCache` + `loadCountForTest`）；`IcebergConnector` 字段 + vended-only 构造 + getMetadata 传参 + 三 invalidate（null-guard）+ `commentCacheForTest`；`IcebergConnectorMetadata` 7 参 ctor + `getTableComment` 路由 + 抽 `loadTableComment`。
+- **测试**：`IcebergCommentCacheTest`（8：TTL/关/失效/失败不缓存）；`IcebergConnectorMetadataTest` 度量守门（`loadCountForTest()==1` + `ops.log` 远端 load 计数）；`IcebergConnectorCacheTest`（+2：gate=plain null / vended非session 非null / session=user null / vended+session null；vended REFRESH 失效）。
+- **踩坑（CI 前本地捕获）**：2 处主源行超 120（javadoc）→ checkstyle 挂 → 缩短文案（纯 docs，无行为变）。
+- **结果**：全 iceberg 模块 **973 pass / 0 fail / 0 error / 1 skip**，checkstyle 0 违规，0 回归。summary 见 `designs/FIX-PERF-05-*-summary.md`。
+- **新判据（可复用）**：**「缓存 gate 是授权决策，不止凭证泄漏决策」**——session=user 的授权发生在 load 调用里，缓存命中会绕过它，故即便缓存值不含凭证也不能对 session=user 共享；与「值含 FileIO/凭证才 gate」正交，二者叠加判定。
+- **下一步**：见 HANDOFF —— PERF-06（C3 REST vended-credentials 每 data/delete file 重建 StorageProperties+Configuration）。
