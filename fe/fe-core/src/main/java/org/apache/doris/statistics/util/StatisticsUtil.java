@@ -619,6 +619,8 @@ public class StatisticsUtil {
             }
         } catch (IOException e) {
             LOG.warn("Error to close FileScanTask.", e);
+            // A failed close can cancel an in-flight empty return, so accumulated stats are not reliable.
+            return Optional.empty();
         }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(totalDataCount);
         columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);

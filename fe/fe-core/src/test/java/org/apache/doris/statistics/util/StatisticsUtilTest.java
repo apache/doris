@@ -71,6 +71,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -110,6 +111,28 @@ class StatisticsUtilTest {
                 .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
         Mockito.when(fileScanTask.spec()).thenReturn(spec);
         Mockito.when(fileScanTask.file()).thenReturn(dataFile);
+
+        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
+    }
+
+    @Test
+    void testGetIcebergColumnStatsReturnsEmptyWhenCloseFails() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).build();
+        org.apache.iceberg.Table table = Mockito.mock(org.apache.iceberg.Table.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(table.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
+        Mockito.when(tableScan.planFiles()).thenReturn(CloseableIterable.combine(
+                List.of(fileScanTask), () -> {
+                    throw new IOException("close failed");
+                }));
+        Mockito.when(fileScanTask.spec()).thenReturn(spec);
+        Mockito.when(fileScanTask.file()).thenReturn(dataFile);
+        Mockito.when(dataFile.columnSizes()).thenReturn(Map.of());
+        Mockito.when(dataFile.nullValueCounts()).thenReturn(Map.of());
 
         Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
     }
