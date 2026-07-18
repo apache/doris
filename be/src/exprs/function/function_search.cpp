@@ -274,8 +274,13 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     OlapReaderStatistics* outer_stats = index_query_context ? index_query_context->stats : nullptr;
     SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_query_timer : &query_timer_dummy);
 
-    // DSL result cache: reuse InvertedIndexQueryCache with SEARCH_DSL_QUERY type
-    auto* dsl_cache = enable_cache ? InvertedIndexQueryCache::instance() : nullptr;
+    const bool need_similarity_score =
+            index_query_context && index_query_context->collection_similarity;
+
+    // DSL result cache only stores bitmap/null bitmap. It does not store BM25 scores,
+    // so score() queries must execute scorers to populate CollectionSimilarity.
+    auto* dsl_cache = (enable_cache && !need_similarity_score) ? InvertedIndexQueryCache::instance()
+                                                               : nullptr;
     std::string seg_prefix;
     std::string dsl_sig;
     InvertedIndexQueryCache::CacheKey dsl_cache_key;

@@ -29,9 +29,12 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/block_bloom_filter.hpp"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/column_helper.h"
 #include "util/url_coding.h"
 
@@ -77,6 +80,30 @@ TEST_F(BloomFilterFuncTest, Init) {
 
     bloom_filter_func.light_copy(&bloom_filter_func2);
     bloom_filter_func2.light_copy(&bloom_filter_func);
+}
+
+TEST_F(BloomFilterFuncTest, TrackBlockBloomFilterMemory) {
+    constexpr int initial_log_space_bytes = 22;
+    constexpr int resized_log_space_bytes = 23;
+    auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "BlockBloomFilterMemoryTest");
+    auto switch_mem_tracker = SwitchThreadMemTrackerLimiter(mem_tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t initial_consumption = mem_tracker->consumption();
+
+    BlockBloomFilter bloom_filter;
+    ASSERT_TRUE(bloom_filter.init(initial_log_space_bytes, 0).ok());
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(mem_tracker->consumption(), initial_consumption + (1ULL << initial_log_space_bytes));
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(bloom_filter.directory().data) % 32, 0);
+
+    ASSERT_TRUE(bloom_filter.init(resized_log_space_bytes, 0).ok());
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(mem_tracker->consumption(), initial_consumption + (1ULL << resized_log_space_bytes));
+
+    bloom_filter.close();
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(mem_tracker->consumption(), initial_consumption);
 }
 
 TEST_F(BloomFilterFuncTest, FixedLenToUInt32) {

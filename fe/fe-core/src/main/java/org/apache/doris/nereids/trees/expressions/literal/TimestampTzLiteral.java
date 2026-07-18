@@ -380,7 +380,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
-    public Expression plusMicroSeconds(long microSeconds) {
+    public TimestampTzLiteral plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
     }
 
@@ -473,7 +473,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     /**
      * convert java LocalDateTime object to TimeStampTzTypeLiteral object.
      */
-    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+    public static TimestampTzLiteral fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, TimeStampTzType.MAX_SCALE - precision);
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range" + dateTime.toString());

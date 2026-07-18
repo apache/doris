@@ -398,11 +398,11 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
                 Rows rows;
                 rows.partition_id = partition_ids[i];
                 rows.index_id = _schema->indexes()[index_idx]->index_id;
-                rows.row_idxes.reserve(row_ids.size());
+                rows.row_payload.row_idxs.reserve(row_ids.size());
                 auto [tmp_it, _] = rows_for_tablet.insert({tablet_id, rows});
                 it = tmp_it;
             }
-            it->second.row_idxes.push_back(row_ids[i]);
+            it->second.row_payload.row_idxs.push_back(row_ids[i]);
             _number_output_rows++;
         }
     }
@@ -605,7 +605,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
     SCOPED_TIMER(_write_memtable_timer);
     bool memtable_flushed = false;
     st = delta_writer->write(
-            block.get(), rows.row_idxes,
+            block.get(), rows.row_payload,
             [state = _state]() {
                 if (state->is_cancelled()) {
                     return state->cancel_reason();
@@ -670,8 +670,9 @@ Status VTabletWriterV2::close(Status exec_status) {
     }
 
     DBUG_EXECUTE_IF("VTabletWriterV2.close.sleep", {
-        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "VTabletWriterV2.close.sleep", "sleep_sec", 1);
+        auto sleep_sec = dp->param<int32_t>("sleep_sec", 1);
+        auto token = dp->param<std::string>("token", "");
+        LOG(INFO) << "hit debug point VTabletWriterV2.close.sleep, token=" << token;
         std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
     });
     DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",

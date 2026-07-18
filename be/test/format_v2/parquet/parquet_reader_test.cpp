@@ -593,6 +593,48 @@ std::shared_ptr<arrow::Array> build_nullable_string_struct_array() {
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_nullable_struct_with_list_array(bool list_first) {
+    auto list_type = arrow::list(arrow::field("element", arrow::int32(), false));
+    auto scalar_field = arrow::field("scalar", arrow::int32(), false);
+    auto list_field = arrow::field("items", list_type, true);
+    auto struct_type = arrow::struct_(list_first ? arrow::FieldVector {list_field, scalar_field}
+                                                 : arrow::FieldVector {scalar_field, list_field});
+
+    auto scalar_builder = std::make_shared<arrow::Int32Builder>();
+    auto list_value_builder = std::make_shared<arrow::Int32Builder>();
+    auto list_builder = std::make_shared<arrow::ListBuilder>(arrow::default_memory_pool(),
+                                                             list_value_builder, list_type);
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders =
+            list_first ? std::vector<std::shared_ptr<arrow::ArrayBuilder>> {list_builder,
+                                                                            scalar_builder}
+                       : std::vector<std::shared_ptr<arrow::ArrayBuilder>> {scalar_builder,
+                                                                            list_builder};
+    arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                 std::move(field_builders));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(scalar_builder->Append(1).ok());
+    EXPECT_TRUE(list_builder->Append().ok());
+    EXPECT_TRUE(list_value_builder->Append(10).ok());
+    EXPECT_TRUE(list_value_builder->Append(11).ok());
+
+    EXPECT_TRUE(builder.AppendNull().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(scalar_builder->Append(2).ok());
+    EXPECT_TRUE(list_builder->AppendEmptyValue().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(scalar_builder->Append(3).ok());
+    EXPECT_TRUE(list_builder->AppendNull().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(scalar_builder->Append(4).ok());
+    EXPECT_TRUE(list_builder->Append().ok());
+    EXPECT_TRUE(list_value_builder->Append(20).ok());
+    return finish_array(&builder);
+}
+
 void write_nullable_map_parquet_file(const std::string& file_path) {
     auto array = build_nullable_int_string_map_array();
     auto field = arrow::field("arr", array->type(), true);
@@ -631,6 +673,26 @@ void write_nullable_string_struct_parquet_file(const std::string& file_path) {
     auto array = build_nullable_string_struct_array();
     auto field = arrow::field("s", array->type(), true);
     auto table = arrow::Table::Make(arrow::schema({field}), {array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, builder.build()));
+}
+
+void write_nullable_struct_with_list_parquet_file(const std::string& file_path) {
+    auto scalar_first = build_nullable_struct_with_list_array(false);
+    auto list_first = build_nullable_struct_with_list_array(true);
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("scalar_first", scalar_first->type(), true),
+                           arrow::field("list_first", list_first->type(), true)}),
+            {scalar_first, list_first});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
@@ -1073,7 +1135,8 @@ protected:
             int64_t range_start_offset = 0, int64_t range_size = -1,
             RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false,
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
-            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt) const {
+            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
+            bool is_immutable = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1081,6 +1144,7 @@ protected:
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
+        file_description->is_immutable = is_immutable;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
                 global_rowid_context, enable_mapping_timestamp_tz);
@@ -1183,6 +1247,28 @@ TEST_F(NewParquetReaderTest, CountStructColumnUsesLevelsOnlyPath) {
     EXPECT_EQ(result.count, 4);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, CountStructWithRepeatedChildUsesTopLevelRowBoundaries) {
+    write_nullable_struct_with_list_parquet_file(_file_path);
+
+    for (int32_t column_id = 0; column_id < 2; ++column_id) {
+        auto reader = create_reader();
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
+
+        format::FileAggregateRequest request;
+        request.agg_type = TPushAggOp::type::COUNT;
+        request.columns.push_back({.projection = format::LocalColumnIndex::top_level(
+                                           format::LocalColumnId(column_id))});
+        format::FileAggregateResult result;
+        ASSERT_TRUE(reader->get_aggregate_result(request, &result).ok());
+
+        // Rows are: non-empty ARRAY, NULL STRUCT, empty ARRAY, NULL ARRAY, non-empty ARRAY.
+        // COUNT(struct) excludes only the NULL STRUCT regardless of child field order.
+        EXPECT_EQ(result.count, 4);
+    }
 }
 
 TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {
@@ -1420,11 +1506,46 @@ TEST_F(NewParquetReaderTest, ReadMultipleRowGroups) {
     EXPECT_EQ(values, std::vector<std::string>({"one", "two", "three", "four", "five"}));
 }
 
-TEST_F(NewParquetReaderTest, RewriteSameLocalPathDoesNotReuseUnknownMtimePageCache) {
+TEST_F(NewParquetReaderTest, UnknownMtimeSkipsPageCacheForMutableFile) {
+    _file_path = (_test_dir / "mutable_unknown_mtime.parquet").string();
+    write_parquet_file(_file_path);
+
+    RuntimeProfile profile("new_parquet_reader_mutable_unknown_mtime");
+    auto reader = create_reader(0, -1, &profile);
+    TQueryOptions query_options;
+    query_options.__set_enable_parquet_file_page_cache(true);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    }
+
+    ASSERT_NE(profile.get_counter("PageReadCount"), nullptr);
+    ASSERT_NE(profile.get_counter("PageCacheWriteCount"), nullptr);
+    EXPECT_EQ(profile.get_counter("PageReadCount")->value(), 0);
+    EXPECT_EQ(profile.get_counter("PageCacheWriteCount")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, UnknownMtimeUsesPageCacheForImmutableFile) {
+    _file_path = (_test_dir / "unknown_mtime_page_cache.parquet").string();
+    write_parquet_file(_file_path);
+
     RuntimeProfile first_profile("new_parquet_reader_first_unknown_mtime");
     {
-        auto reader = create_reader(0, -1, &first_profile);
-        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        auto reader = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, true);
+        TQueryOptions query_options;
+        query_options.__set_enable_parquet_file_page_cache(true);
+        RuntimeState state {query_options, TQueryGlobals()};
         ASSERT_TRUE(reader->init(&state).ok());
 
         std::vector<format::ColumnDefinition> schema;
@@ -1443,15 +1564,14 @@ TEST_F(NewParquetReaderTest, RewriteSameLocalPathDoesNotReuseUnknownMtimePageCac
 
     ASSERT_NE(first_profile.get_counter("PageReadCount"), nullptr);
     ASSERT_NE(first_profile.get_counter("PageCacheWriteCount"), nullptr);
-    EXPECT_EQ(first_profile.get_counter("PageReadCount")->value(), 0);
-    EXPECT_EQ(first_profile.get_counter("PageCacheWriteCount")->value(), 0);
+    EXPECT_GT(first_profile.get_counter("PageReadCount")->value(), 0);
+    EXPECT_GT(first_profile.get_counter("PageCacheWriteCount")->value(), 0);
 
-    // LocalFileReader reports mtime as 0. Rewriting the same path must not reuse page-cache bytes
-    // from the previous physical file, even when the query option enables parquet file page cache.
-    write_int_pair_parquet_file(_file_path);
     RuntimeProfile second_profile("new_parquet_reader_second_unknown_mtime");
-    auto reader = create_reader(0, -1, &second_profile);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, true);
+    TQueryOptions query_options;
+    query_options.__set_enable_parquet_file_page_cache(true);
+    RuntimeState state {query_options, TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
     std::vector<format::ColumnDefinition> schema;
@@ -1461,7 +1581,7 @@ TEST_F(NewParquetReaderTest, RewriteSameLocalPathDoesNotReuseUnknownMtimePageCac
     ASSERT_TRUE(reader->open(request).ok());
 
     std::vector<int32_t> ids;
-    std::vector<int32_t> scores;
+    std::vector<std::string> values;
     bool eof = false;
     while (!eof) {
         Block block = build_file_block(schema);
@@ -1471,19 +1591,19 @@ TEST_F(NewParquetReaderTest, RewriteSameLocalPathDoesNotReuseUnknownMtimePageCac
             continue;
         }
         const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
-        const auto& score_column = nullable_nested_column<ColumnInt32>(block, 1);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
         for (size_t row = 0; row < rows; ++row) {
             ids.push_back(id_column.get_element(row));
-            scores.push_back(score_column.get_element(row));
+            values.push_back(value_column.get_data_at(row).to_string());
         }
     }
 
     EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4, 5}));
-    EXPECT_EQ(scores, std::vector<int32_t>({1, 2, 3, 4, 5}));
+    EXPECT_EQ(values, std::vector<std::string>({"one", "two", "three", "four", "five"}));
     ASSERT_NE(second_profile.get_counter("PageReadCount"), nullptr);
-    ASSERT_NE(second_profile.get_counter("PageCacheWriteCount"), nullptr);
-    EXPECT_EQ(second_profile.get_counter("PageReadCount")->value(), 0);
-    EXPECT_EQ(second_profile.get_counter("PageCacheWriteCount")->value(), 0);
+    ASSERT_NE(second_profile.get_counter("PageCacheHitCount"), nullptr);
+    EXPECT_GT(second_profile.get_counter("PageReadCount")->value(), 0);
+    EXPECT_GT(second_profile.get_counter("PageCacheHitCount")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
@@ -2254,7 +2374,7 @@ TEST_F(NewParquetReaderTest, ScanRangeFiltersRowGroupsBeforeDictionaryPruning) {
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 1);
     EXPECT_EQ(plan.row_groups[0].row_group_id, 2);
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 0);
     EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
@@ -2425,7 +2545,10 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateDoesNotNarrowRowRangesByPageIn
     EXPECT_EQ(plan.pruning_stats.selected_row_ranges, plan.row_groups[0].selected_ranges.size());
 }
 
-TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns) {
+// Scenario: the selected range starts after page-index-pruned rows. The scheduler defers that range
+// gap for the non-predicate payload reader, then flushes it exactly once before materialization. The
+// page skip plan advances the reader without calling Arrow SkipRecords or double-skipping row 64.
+TEST_F(NewParquetReaderTest, PageIndexFilteredGapFlushesPendingOutputSkipOnce) {
     write_page_index_filter_pair_parquet_file(_file_path);
     RuntimeProfile profile("new_parquet_reader_page_skip");
     auto reader = create_reader(0, -1, &profile);
@@ -2466,6 +2589,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
     ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
     ASSERT_NE(profile.get_counter("RangeGapSkippedRows"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ArrowSkipRecordsTime"), nullptr);
     ASSERT_NE(profile.get_counter("RowGroupFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexReadTime"), nullptr);
@@ -2475,6 +2599,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 64);
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
     EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 0);
+    EXPECT_EQ(profile.get_counter("ArrowSkipRecordsTime")->value(), 0);
     EXPECT_GT(profile.get_counter("RowGroupFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexReadTime")->value(), 0);

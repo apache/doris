@@ -119,6 +119,9 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DECLARE_Bool(enable_arrow_input_validation);
+
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
 
@@ -1260,6 +1263,7 @@ DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_mBool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit_segment_meta);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1391,6 +1395,10 @@ DECLARE_Bool(enable_feature_binlog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
+
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DECLARE_Bool(enable_row_store_compact_jsonb);
 
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
@@ -1609,6 +1617,7 @@ DECLARE_mInt64(s3_get_token_limit);
 DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
+DECLARE_mInt64(s3_rate_limiter_log_interval);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will
@@ -1750,6 +1759,9 @@ DECLARE_mInt32(check_score_rounds_num);
 
 // MB
 DECLARE_Int32(query_cache_size);
+// Max incremental merges on one query cache entry before forcing a full
+// recompute to compact the entry (see query_cache.h QueryCacheRuntime).
+DECLARE_mInt32(query_cache_max_incremental_merge_count);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 // Enable validation to check the correctness of table size.

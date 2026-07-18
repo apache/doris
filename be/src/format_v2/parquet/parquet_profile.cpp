@@ -71,6 +71,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                       parquet_profile, 1);
     arrow_read_records_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowReadRecordsTime", parquet_profile, 1);
+    arrow_skip_records_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowSkipRecordsTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
     lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByLazyRead",
@@ -198,6 +200,7 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .reader_skip_rows = reader_skip_rows,
             .reader_select_rows = reader_select_rows,
             .arrow_read_records_time = arrow_read_records_time,
+            .arrow_skip_records_time = arrow_skip_records_time,
             .materialization_time = materialization_time,
     };
 }

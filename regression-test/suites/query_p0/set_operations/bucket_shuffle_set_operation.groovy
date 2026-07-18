@@ -16,9 +16,6 @@
 // under the License.
 
 suite("bucket_shuffle_set_operation") {
-    // TODO: open comment when support `enable_local_shuffle_planner` and change to REQUIRE
-    return
-
     multi_sql """
         drop table if exists bucket_shuffle_set_operation1;
         create table bucket_shuffle_set_operation1(id int, value int) distributed by hash(id) buckets 10 properties('replication_num'='1');
@@ -37,6 +34,9 @@ suite("bucket_shuffle_set_operation") {
 
     // make bucket shuffle set operation stable
     sql "set parallel_pipeline_task_num=5"
+    // disable the bucket shuffle downgrade so the chosen shapes do not depend on the
+    // backend count / parallelism of the environment running this suite
+    sql "set bucket_shuffle_downgrade_ratio=0"
 
     def checkShapeAndResult = { String tag, String sqlStr ->
         quickTest(tag + "_shape", "explain shape plan " + sqlStr)
@@ -94,6 +94,315 @@ suite("bucket_shuffle_set_operation") {
         except
         select id from bucket_shuffle_set_operation2 where id=1
         """)
+
+    // The basic child of a bucket-shuffle set operation can be a join output instead of a
+    // direct scan. In that shape the local exchange planned for the basic side must still
+    // partition by the storage bucket function: an execution-hash local exchange would not
+    // align with the bucket-distributed side and the set operation would compute wrong results.
+    checkShapeAndResult("bucket_shuffle_join_as_basic_child", """
+        select a.id from bucket_shuffle_set_operation1 a
+        join bucket_shuffle_set_operation2 b on a.id = b.id
+        intersect
+        select id from bucket_shuffle_set_operation3""")
+
+    // a set operation child can itself be a set operation whose output claims a bucket
+    // distribution; the outer set operation must only treat its children as bucket-aligned
+    // when they share the same storage layout
+    checkShapeAndResult("bucket_shuffle_nested_set_operation", """
+        select id from bucket_shuffle_set_operation3
+        union all
+        (select a.id from bucket_shuffle_set_operation1 a
+        join bucket_shuffle_set_operation2 b on a.id = b.id
+        intersect
+        select id from bucket_shuffle_set_operation2)""")
+
+    // when local shuffle is disabled entirely, every pipeline runs a single task per
+    // instance so the bucket alignment holds naturally and bucket shuffle is still allowed
+    sql "set enable_local_shuffle=false"
+    checkShapeAndResult("bucket_shuffle_when_local_shuffle_off", """
+        select id from bucket_shuffle_set_operation1
+        intersect
+        select id from bucket_shuffle_set_operation2""")
+    sql "set enable_local_shuffle=true"
+
+    // A shuffle join above the union pushes a hash request into the union
+    // (createHashRequestAccordingToParent, the parent-hash request path). When the FE does not
+    // plan the local shuffle, that request must be downgraded so the union does not choose
+    // bucket shuffle, while the result stays correct.
+    def unionParentHashSql = """
+        select b.id from (
+            select id from bucket_shuffle_set_operation1
+            union all
+            select id from bucket_shuffle_set_operation2
+        ) u join[shuffle] bucket_shuffle_set_operation3 b on u.id = b.id
+        """
+    sql "set enable_local_shuffle_planner=false"
+    // Golden shape: the union must stay a plain PhysicalUnion whose two children are each a
+    // PhysicalDistribute[DistributionSpecHash]. That is the actual proof that the parent hash
+    // request was pushed down into the union (createHashRequestAccordingToParent) and downgraded
+    // to execution hash, not merely that the PhysicalUnion line lacks the [bucketShuffle] tag.
+    // If that path regressed, the optimizer could instead keep an unbucketed union and add a
+    // single PhysicalDistribute[DistributionSpecHash] above it for the shuffle join; the golden
+    // shape below (union children are distributes, not direct scans) would catch that.
+    qt_union_parent_hash_shape_when_local_shuffle_planner_off("explain shape plan " + unionParentHashSql)
+    explain {
+        sql "shape plan " + unionParentHashSql
+        check { String e ->
+            def unionIndex = e.indexOf("PhysicalUnion")
+            assertTrue(unionIndex >= 0)
+            // the union must not be a bucket shuffle union when the FE local shuffle planner is off
+            assertFalse(e.substring(unionIndex,
+                    Math.min(unionIndex + "PhysicalUnion".length() + 20, e.length())).contains("bucketShuffle"))
+            // and the parent hash request must have been pushed into the union: each union child
+            // arrives through a PhysicalDistribute[DistributionSpecHash], so no union child is a
+            // direct scan.
+            def afterUnion = e.substring(unionIndex)
+            def joinProbeIndex = afterUnion.indexOf("bucket_shuffle_set_operation3")
+            def unionSubtree = joinProbeIndex >= 0 ? afterUnion.substring(0, joinProbeIndex) : afterUnion
+            assertEquals(2, unionSubtree.split("PhysicalDistribute\\[DistributionSpecHash\\]", -1).length - 1)
+        }
+    }
+    order_qt_union_parent_hash_when_local_shuffle_planner_off unionParentHashSql
+    sql "set enable_local_shuffle_planner=true"
+
+    // A plain intersect/except without a parent hash request goes through
+    // visitPhysicalSetOperation directly (not the parent-hash request path); with the FE local
+    // shuffle planner disabled it must not choose bucket shuffle either, and the result stays
+    // correct.
+    sql "set enable_local_shuffle_planner=false"
+    explain {
+        sql "shape plan select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
+        check { String e ->
+            assertFalse(e.contains("bucketShuffle"))
+        }
+    }
+    order_qt_plain_intersect_when_local_shuffle_planner_off "select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
+    sql "set enable_local_shuffle_planner=true"
+
+    // Set operation bucket shuffle is gated on setOperationBucketShuffleAllowed() =
+    // enableLocalShufflePlanner && canUseNereidsDistributePlanner. The enable_local_shuffle_planner
+    // =false cases above only exercise the first conjunct; this block guards the second one. With
+    // local shuffle and the FE local-shuffle planner both enabled but the Nereids distribute planner
+    // disabled, the set operation must still downgrade (no [bucketShuffle]) and keep correct results.
+    sql "set enable_local_shuffle=true"
+    sql "set enable_local_shuffle_planner=true"
+    sql "set enable_nereids_distribute_planner=false"
+    // plain intersect goes through visitPhysicalSetOperation directly
+    explain {
+        sql "shape plan select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
+        check { String e ->
+            assertFalse(e.contains("bucketShuffle"))
+        }
+    }
+    order_qt_plain_intersect_when_nereids_distribute_planner_off "select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
+    // the parent-hash union path (createHashRequestAccordingToParent) must downgrade too
+    explain {
+        sql "shape plan " + unionParentHashSql
+        check { String e ->
+            def unionIndex = e.indexOf("PhysicalUnion")
+            assertTrue(unionIndex >= 0)
+            assertFalse(e.substring(unionIndex,
+                    Math.min(unionIndex + "PhysicalUnion".length() + 20, e.length())).contains("bucketShuffle"))
+        }
+    }
+    order_qt_union_parent_hash_when_nereids_distribute_planner_off unionParentHashSql
+    sql "set enable_nereids_distribute_planner=true"
+
+    // The right child can be selected as the bucket-shuffle basic child (larger row count). The
+    // set operation output must then advertise a non-specific distribution rather than a plain
+    // execution hash: otherwise two such set operations with different storage layouts are
+    // co-located under a join and fail bucket assignment ("Can not find tablet ... in the
+    // bucket"). r1 / r2 are larger than the small tables so they become the basic child on the
+    // right, and they are different tables so their bucket layouts differ.
+    sql "drop table if exists bucket_shuffle_set_operation_r1"
+    sql "create table bucket_shuffle_set_operation_r1(id int) distributed by hash(id) buckets 10 properties('replication_num'='1')"
+    sql "insert into bucket_shuffle_set_operation_r1 select number from numbers('number'='20')"
+    sql "drop table if exists bucket_shuffle_set_operation_r2"
+    sql "create table bucket_shuffle_set_operation_r2(id int) distributed by hash(id) buckets 10 properties('replication_num'='1')"
+    sql "insert into bucket_shuffle_set_operation_r2 select number from numbers('number'='20')"
+    sql "alter table bucket_shuffle_set_operation_r1 modify column id set stats ('row_count'='1000', 'ndv'='1000', 'min_value'='0', 'max_value'='19')"
+    sql "alter table bucket_shuffle_set_operation_r2 modify column id set stats ('row_count'='1000', 'ndv'='1000', 'min_value'='0', 'max_value'='19')"
+    def intersectRightBasicSql = """
+        select t.id from
+            (select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation_r1) t
+            join[shuffle]
+            (select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation_r2) s
+            on t.id = s.id"""
+    // Prove the shuffleToRight branch (distributeToChildIndex > 0) is actually covered, under a
+    // parent hash consumer. The join[shuffle] hint forces the parent to be a hash consumer of the
+    // two set-operation outputs. Each INTERSECT must keep the right table (r1 / r2, the larger row
+    // count) as the direct bucketed basic child while the left op1 is the enforced
+    // PhysicalDistribute[DistributionSpecHash] side. Because visitPhysicalSetOperation keeps the
+    // right basic child's specific storage layout, the two intersects carry different table ids
+    // (r1 vs r2), so the parent re-aligns them with a bucket-shuffle join instead of co-locating
+    // them (which, if the layout were erased to a layout-less execution hash, would fail bucket
+    // assignment with "Can not find tablet"). If the right side stopped being selected as basic, or
+    // the layout were dropped so the join co-located, these assertions fail even though the result
+    // stays 1, 2, 3.
+    explain {
+        sql "shape plan " + intersectRightBasicSql
+        check { String e ->
+            assertTrue(e.contains("PhysicalIntersect[bucketShuffle]"))
+            // the parent join re-aligns the two different-layout outputs (bucket-shuffle hash
+            // consumer) and does not co-locate them
+            assertTrue(e.contains("hashJoin[INNER_JOIN bucketShuffle]"),
+                    "parent must re-align the two different-layout outputs with a bucket-shuffle join")
+            assertFalse(e.contains("colocated"), "parent must not co-locate the two right-basic intersects")
+            def lines = e.split("\n").findAll { it =~ /Physical|hashJoin/ }
+            def depth = { String s -> (s =~ /^-*/)[0].length() }
+            def parentOf = { int idx ->
+                for (int k = idx - 1; k >= 0; k--) {
+                    if (depth(lines[k]) < depth(lines[idx])) {
+                        return lines[k]
+                    }
+                }
+                return ""
+            }
+            // each INTERSECT keeps r1 / r2 (the larger, right side) as its direct bucketed basic child
+            ["bucket_shuffle_set_operation_r1", "bucket_shuffle_set_operation_r2"].each { rt ->
+                int i = lines.findIndexOf { it.contains("PhysicalOlapScan[" + rt + "]") }
+                assertTrue(i >= 0, rt + " scan not found in shape")
+                assertTrue(parentOf(i).contains("PhysicalIntersect[bucketShuffle]"),
+                        rt + " must be the direct bucketed basic child of the intersect (right basic)")
+            }
+            // and each INTERSECT's other (left) child arrives through an enforced
+            // PhysicalDistribute[DistributionSpecHash] directly under the intersect
+            int enforcedLeftCount = 0
+            lines.eachWithIndex { String ln, int i ->
+                if (ln.contains("PhysicalDistribute[DistributionSpecHash]")
+                        && parentOf(i).contains("PhysicalIntersect[bucketShuffle]")) {
+                    enforcedLeftCount++
+                }
+            }
+            assertTrue(enforcedLeftCount >= 2,
+                    "each intersect must shuffle its left child through a PhysicalDistribute[DistributionSpecHash]")
+        }
+    }
+    order_qt_intersect_right_basic_parent_hash intersectRightBasicSql
+
+    // A non-intersect bucket-shuffle set operation (UNION ALL) whose basic / anchor child is a
+    // direct bucketed scan that is bucket-pruned by an IN predicate on the distribution key, so
+    // it only scans a subset of the buckets. The other child is shuffled onto the anchor's
+    // storage layout and has rows in the buckets the pruned anchor does not scan. Because the
+    // union is a non-intersect bucket-shuffle set operation, UnassignedScanBucketOlapTableJob
+    // must fill up receiver instances for those missing buckets; without the fill-up the other
+    // child's rows in the missing buckets would have no destination instance and be lost.
+    //
+    // The setup forces the pruned scan to be the anchor: fill_anchor has huge injected stats so
+    // the IN-filtered branch still wins the largest-row-count basic-child selection, while
+    // fill_spread has a mismatched bucket count (11 vs 10) so it cannot be the natural anchor and
+    // must be shuffled. The bucket-shuffle join above the union supplies the parent hash request
+    // that makes the union choose bucket shuffle, and the join probe fill_probe has yet another
+    // bucket count (7) so the join is a real shuffle in its own fragment and does not co-locate a
+    // full-bucket scan into the union fragment (which would otherwise cover the missing buckets
+    // and hide the fill-up).
+    sql "drop table if exists bucket_shuffle_set_operation_fill_anchor"
+    sql """create table bucket_shuffle_set_operation_fill_anchor(id int)
+            distributed by hash(id) buckets 10 properties('replication_num'='1')"""
+    sql "insert into bucket_shuffle_set_operation_fill_anchor select number from numbers('number'='20')"
+    sql "drop table if exists bucket_shuffle_set_operation_fill_spread"
+    sql """create table bucket_shuffle_set_operation_fill_spread(id int)
+            distributed by hash(id) buckets 11 properties('replication_num'='1')"""
+    sql "insert into bucket_shuffle_set_operation_fill_spread select number from numbers('number'='20')"
+    sql "drop table if exists bucket_shuffle_set_operation_fill_probe"
+    sql """create table bucket_shuffle_set_operation_fill_probe(id int)
+            distributed by hash(id) buckets 7 properties('replication_num'='1')"""
+    sql "insert into bucket_shuffle_set_operation_fill_probe select number from numbers('number'='20')"
+    sql """alter table bucket_shuffle_set_operation_fill_anchor modify column id
+            set stats ('row_count'='1000000', 'ndv'='20', 'min_value'='0', 'max_value'='19')"""
+    sql """alter table bucket_shuffle_set_operation_fill_spread modify column id
+            set stats ('row_count'='50', 'ndv'='20', 'min_value'='0', 'max_value'='19')"""
+    sql """alter table bucket_shuffle_set_operation_fill_probe modify column id
+            set stats ('row_count'='30', 'ndv'='20', 'min_value'='0', 'max_value'='19')"""
+    def bucketShuffleUnionFillUpSql = """
+        select t.id from (
+            select id from bucket_shuffle_set_operation_fill_anchor where id in (0, 2, 4, 6)
+            union all
+            select id from bucket_shuffle_set_operation_fill_spread
+        ) t join[shuffle] bucket_shuffle_set_operation_fill_probe c on t.id = c.id"""
+    explain {
+        sql "shape plan " + bucketShuffleUnionFillUpSql
+        check { String e ->
+            assertTrue(e.contains("PhysicalUnion[bucketShuffle]"))
+        }
+    }
+    order_qt_bucket_shuffle_union_fill_up bucketShuffleUnionFillUpSql
+
+    // Same missing-bucket fill-up contract, but the pruned basic child exposes its storage bucket
+    // key only through an equivalent slot: the union's basic child is a bucket-shuffle join output
+    // that projects the join key bucket_shuffle_set_operation2.id AS k, so the storage bucket column
+    // (fill_anchor.id) is hidden and only the equivalent k is visible in the set-operation output.
+    // The alignment proof must resolve the bucket key through its hash equivalence set (mirroring
+    // ChildrenPropertiesRegulator.canMapBucketKeysToRequire); a direct ExprId lookup would report
+    // the union as not bucket-aligned, drop the BUCKET_SHUFFLE marker, and skip
+    // UnassignedScanBucketOlapTableJob.fillUpInstances(), losing the shuffled side's rows in the
+    // buckets the pruned basic child does not scan.
+    def bucketShuffleEquivalentKeyFillUpSql = """
+        select t.k from (
+            select b.id as k from bucket_shuffle_set_operation_fill_anchor a
+                join[shuffle] bucket_shuffle_set_operation2 b on a.id = b.id
+                where a.id in (0, 2, 4, 6)
+            union all
+            select id from bucket_shuffle_set_operation_fill_spread
+        ) t join[shuffle] bucket_shuffle_set_operation_fill_probe c on t.k = c.id"""
+    explain {
+        sql "shape plan " + bucketShuffleEquivalentKeyFillUpSql
+        check { String e ->
+            assertTrue(e.contains("PhysicalUnion[bucketShuffle]"))
+        }
+    }
+    order_qt_bucket_shuffle_equivalent_key_fill_up bucketShuffleEquivalentKeyFillUpSql
+
+    // Same shape but the hidden bucket key has two visible equivalent set-output columns: the join
+    // chain a.id = b.id = c.id makes fill_anchor.id equivalent to both projected columns x (c.id)
+    // and y (b.id), and the parent hashes the union output on the later one (y). The bucket key
+    // alignment must resolve to the same output position across children (the enforced sibling is
+    // shuffled by y), which is why the proof intersects each child's candidate equivalent positions
+    // rather than letting the basic child pick its first visible equivalent (x) and disagree with
+    // the sibling on y.
+    def bucketShuffleTwoEquivalentKeysSql = """
+        select t.x, t.y from (
+            select c.id as x, b.id as y from bucket_shuffle_set_operation_fill_anchor a
+                join[shuffle] bucket_shuffle_set_operation2 b on a.id = b.id
+                join[shuffle] bucket_shuffle_set_operation3 c on a.id = c.id
+                where a.id in (0, 2, 4, 6)
+            union all
+            select id, id from bucket_shuffle_set_operation_fill_spread
+        ) t join[shuffle] bucket_shuffle_set_operation_fill_probe p on t.y = p.id"""
+    explain {
+        sql "shape plan " + bucketShuffleTwoEquivalentKeysSql
+        check { String e ->
+            assertTrue(e.contains("PhysicalUnion[bucketShuffle]"))
+        }
+    }
+    order_qt_bucket_shuffle_two_equivalent_keys bucketShuffleTwoEquivalentKeysSql
+
+    // The basic child candidate can be bucketed by MORE columns than the set operation distributes
+    // on: a table distributed by hash(k, v) feeding an INTERSECT on only k. The (k, v) bucket key is
+    // wider than the single-column requirement, so canMapBucketKeysToRequire() must reject it as the
+    // bucket-shuffle basic and the set operation falls back to execution-hash shuffle. Without that
+    // guard the planner hits a checkState in calAnotherSideRequiredShuffleIds and fails to plan. Two
+    // such tables (different bucket counts so neither is a natural colocate basic) force the fallback
+    // on both sides.
+    sql "drop table if exists bucket_shuffle_set_operation_kv"
+    sql """create table bucket_shuffle_set_operation_kv(k int, v int)
+            distributed by hash(k, v) buckets 10 properties('replication_num'='1')"""
+    sql "insert into bucket_shuffle_set_operation_kv values (1, 1), (2, 2), (3, 3)"
+    sql "drop table if exists bucket_shuffle_set_operation_kv2"
+    sql """create table bucket_shuffle_set_operation_kv2(k int, v int)
+            distributed by hash(k, v) buckets 11 properties('replication_num'='1')"""
+    sql "insert into bucket_shuffle_set_operation_kv2 values (1, 1), (2, 2), (3, 3)"
+    def multiColumnBucketKeyIntersectSql = """
+        select k from bucket_shuffle_set_operation_kv
+        intersect
+        select k from bucket_shuffle_set_operation_kv2"""
+    explain {
+        sql "shape plan " + multiColumnBucketKeyIntersectSql
+        check { String e ->
+            assertFalse(e.contains("bucketShuffle"))
+        }
+    }
+    order_qt_multi_column_bucket_key_intersect multiColumnBucketKeyIntersectSql
 
     explain {
         sql """

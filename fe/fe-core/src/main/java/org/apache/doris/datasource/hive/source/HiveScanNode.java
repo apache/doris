@@ -613,7 +613,7 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setNullFormat("");
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
-            if (textParams.isSetEnclose()) {
+            if (shouldTrimDoubleQuotes(textParams)) {
                 fileAttributes.setTrimDoubleQuotes(true);
             }
             fileAttributes.setEnableTextValidateUtf8(
@@ -668,6 +668,10 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         return fileAttributes;
+    }
+
+    static boolean shouldTrimDoubleQuotes(TFileTextScanRangeParams textParams) {
+        return textParams.isSetEnclose() && textParams.getEnclose() == (byte) '"';
     }
 
     @Override

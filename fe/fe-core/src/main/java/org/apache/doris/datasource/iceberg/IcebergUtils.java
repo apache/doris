@@ -108,6 +108,7 @@ import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -135,6 +136,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -1182,10 +1184,14 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
+            String initialDefault = null;
+            if (field.initialDefault() != null) {
+                initialDefault = serializeInitialDefault(field.type(), field.initialDefault(),
+                        enableMappingTimestampTz);
+            }
             Column column = new Column(field.name(),
                     IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
-                    true, null,
-                    true, field.doc(), true, -1);
+                    true, null, true, initialDefault, field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
             if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
                 Types.TimestampType timestampType = (Types.TimestampType) field.type();
@@ -1196,6 +1202,62 @@ public class IcebergUtils {
             resSchema.add(column);
         }
         return resSchema;
+    }
+
+    private static String serializeInitialDefault(org.apache.iceberg.types.Type type, Object value,
+            boolean enableMappingTimestampTz) {
+        String humanValue = Transforms.identity(type).toHumanString(type, value);
+        if (type.typeId() == TypeID.TIMESTAMP) {
+            // Iceberg formats timestamps as ISO-8601 (for example 2024-01-01T00:00:00), while
+            // Doris' DATETIMEV2 default parser requires a space between the date and time.
+            String dorisValue = humanValue.replace('T', ' ');
+            Types.TimestampType timestampType = (Types.TimestampType) type;
+            if (timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz) {
+                // Iceberg timestamptz human values carry a trailing offset. DATETIMEV2 has no
+                // offset carrier, so retain the displayed UTC wall time and remove the suffix.
+                return dorisValue.replaceFirst("(Z|[+-]\\d{2}:\\d{2})$", "");
+            }
+            return dorisValue;
+        }
+        if (isBinaryLike(type)) {
+            // Always use the lossless Base64 carrier. Binary-like Iceberg fields may map to either
+            // VARBINARY or STRING/CHAR, and the scan schema marker tells BE to decode both forms
+            // back to the raw bytes stored in equality-delete files.
+            return serializeBinaryInitialDefault(type, value);
+        }
+        return humanValue;
+    }
+
+    /**
+     * Return binary-like initial defaults in a lossless transport representation. These defaults
+     * cannot be carried as raw Java strings and their Doris type is insufficient to identify them
+     * when varbinary mapping is disabled, because UUID/BINARY/FIXED then map to STRING/CHAR.
+     */
+    public static Map<Integer, String> getBase64EncodedInitialDefaults(Schema schema) {
+        Map<Integer, String> result = Maps.newHashMap();
+        for (Types.NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
+            if (field.initialDefault() == null || !isBinaryLike(field.type())) {
+                continue;
+            }
+            result.put(field.fieldId(), serializeBinaryInitialDefault(field.type(), field.initialDefault()));
+        }
+        return result;
+    }
+
+    private static boolean isBinaryLike(org.apache.iceberg.types.Type type) {
+        return type.typeId() == TypeID.UUID || type.typeId() == TypeID.BINARY
+                || type.typeId() == TypeID.FIXED;
+    }
+
+    private static String serializeBinaryInitialDefault(org.apache.iceberg.types.Type type, Object value) {
+        if (type.typeId() != TypeID.UUID) {
+            return Transforms.identity(type).toHumanString(type, value);
+        }
+        UUID uuid = (UUID) value;
+        ByteBuffer bytes = ByteBuffer.allocate(16);
+        bytes.putLong(uuid.getMostSignificantBits());
+        bytes.putLong(uuid.getLeastSignificantBits());
+        return Base64.getEncoder().encodeToString(bytes.array());
     }
 
     /**

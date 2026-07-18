@@ -29,15 +29,20 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <orc/OrcFile.hh>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -69,14 +74,35 @@
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/buffered_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 namespace {
+
+class ScopedDebugPoint {
+public:
+    ScopedDebugPoint(std::string name, std::function<void()> callback)
+            : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback(_name, std::move(callback));
+    }
+
+    ~ScopedDebugPoint() {
+        DebugPoints::instance()->remove(_name);
+        config::enable_debug_points = _enable_debug_points;
+    }
+
+private:
+    std::string _name;
+    bool _enable_debug_points;
+};
 
 std::filesystem::path unique_test_dir(std::string_view prefix) {
     static std::atomic<uint64_t> next_dir_id {0};
@@ -131,6 +157,24 @@ DateV2Value<DateTimeV2ValueType> make_datetime_v2(uint16_t year, uint8_t month, 
     DateV2Value<DateTimeV2ValueType> value;
     value.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
     return value;
+}
+
+TEST(OrcStatisticsBoundsTest, RejectsInvertedAndNanDecodedBounds) {
+    EXPECT_TRUE(format::orc::detail::valid_statistics_bounds(Field::create_field<TYPE_INT>(1),
+                                                             Field::create_field<TYPE_INT>(10)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(Field::create_field<TYPE_INT>(10),
+                                                              Field::create_field<TYPE_INT>(1)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()),
+            Field::create_field<TYPE_DOUBLE>(10)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_STRING>("z"), Field::create_field<TYPE_STRING>("a")));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DATEV2>(make_date_v2(2026, 7, 13)),
+            Field::create_field<TYPE_DATEV2>(make_date_v2(2026, 7, 12))));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(10)),
+            Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1))));
 }
 
 class TableLiteral : public VLiteral {
@@ -235,6 +279,7 @@ constexpr int64_t COMPLEX_ROW_COUNT = 3;
 constexpr int64_t DEEP_NESTED_ROW_COUNT = 4;
 constexpr int64_t DEEP_NESTED_BATCH_CAPACITY = 16;
 constexpr int64_t NULL_ROW = 1;
+constexpr int64_t PREFETCH_ROW_COUNT = 256;
 
 VExprSPtr function_expr(const std::string& function_name, const DataTypePtr& return_type,
                         const std::vector<DataTypePtr>& arg_types,
@@ -559,9 +604,7 @@ private:
 class CompoundPredicateExpr final : public VExpr {
 public:
     CompoundPredicateExpr(TExprOpcode::type opcode, VExprSPtrs children)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false),
-              _expr_name(opcode == TExprOpcode::COMPOUND_OR ? "CompoundOrPredicateExpr"
-                                                            : "CompoundNotPredicateExpr") {
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _expr_name("CompoundPredicateExpr") {
         _node_type = TExprNodeType::COMPOUND_PRED;
         _opcode = opcode;
         set_children(std::move(children));
@@ -584,7 +627,7 @@ public:
             return Status::OK();
         }
 
-        DORIS_CHECK(_opcode == TExprOpcode::COMPOUND_OR);
+        DORIS_CHECK(_opcode == TExprOpcode::COMPOUND_AND || _opcode == TExprOpcode::COMPOUND_OR);
         DORIS_CHECK(!_children.empty());
         std::vector<ColumnPtr> child_columns;
         child_columns.reserve(_children.size());
@@ -594,10 +637,15 @@ public:
             child_columns.push_back(std::move(child_column));
         }
         for (size_t row = 0; row < count; ++row) {
-            result_data[row] = 0;
+            result_data[row] = _opcode == TExprOpcode::COMPOUND_AND;
             for (const auto& child_column : child_columns) {
-                if (bool_value(*child_column, row)) {
+                const auto child_value = bool_value(*child_column, row);
+                if (_opcode == TExprOpcode::COMPOUND_OR && child_value) {
                     result_data[row] = 1;
+                    break;
+                }
+                if (_opcode == TExprOpcode::COMPOUND_AND && !child_value) {
+                    result_data[row] = 0;
                     break;
                 }
             }
@@ -649,6 +697,22 @@ public:
 private:
     VExprSPtr _impl;
     const std::string _expr_name;
+};
+
+class CountingIntHybridSet final : public HybridSet<TYPE_INT> {
+public:
+    using HybridSet<TYPE_INT>::HybridSet;
+
+    HybridSetBase::IteratorBase* begin() override {
+        ++_begin_calls;
+        return HybridSet<TYPE_INT>::begin();
+    }
+
+    void reset_begin_calls() { _begin_calls = 0; }
+    size_t begin_calls() const { return _begin_calls; }
+
+private:
+    size_t _begin_calls = 0;
 };
 
 class NullableInt32CastToInt64GreaterThanExpr final : public VExpr {
@@ -2456,6 +2520,49 @@ private:
 };
 
 template <PrimitiveType Primitive>
+class NullableEqualsExpr final : public VExpr {
+public:
+    using ColumnType = typename PrimitiveTypeTraits<Primitive>::ColumnType;
+    using ValueType = typename PrimitiveTypeTraits<Primitive>::CppType;
+
+    NullableEqualsExpr(int column_id, DataTypePtr type, const Field& value, std::string column_name)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value.get<Primitive>()),
+              _expr_name("NullableEqualsExpr") {
+        _node_type = TExprNodeType::BINARY_PRED;
+        _opcode = TExprOpcode::EQ;
+        add_child(TableSlotRef::create_shared(column_id, column_id, -1, make_nullable(type),
+                                              std::move(column_name)));
+        add_child(TableLiteral::create_shared(std::move(type), value));
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& nullable_column =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
+        const auto& input = assert_cast<const ColumnType&>(nullable_column.get_nested_column());
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = !nullable_column.is_null_at(input_row) &&
+                               input.get_element(input_row) == _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const ValueType _value;
+    const std::string _expr_name;
+};
+
+template <PrimitiveType Primitive>
 class NullableInExpr final : public VExpr {
 public:
     using ColumnType = typename PrimitiveTypeTraits<Primitive>::ColumnType;
@@ -2767,6 +2874,94 @@ void write_orc_file(const std::string& file_path) {
 
     std::ofstream out(file_path, std::ios::binary);
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
+void write_orc_prefetch_file(const std::string& file_path) {
+    auto type = std::unique_ptr<::orc::Type>(
+            ::orc::Type::buildTypeFromString("struct<a:int,b:int,c:int,payload:string>"));
+
+    MemoryOutputStream memory_stream(4 * 1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    options.setDictionaryKeySizeThreshold(0);
+    options.setStripeSize(64 * 1024 * 1024);
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    auto batch = writer->createRowBatch(PREFETCH_ROW_COUNT);
+    auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& a_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
+    auto& b_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[1]);
+    auto& c_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[2]);
+    auto& payload_batch = dynamic_cast<::orc::StringVectorBatch&>(*struct_batch.fields[3]);
+
+    std::vector<std::string> payloads;
+    payloads.reserve(PREFETCH_ROW_COUNT);
+    for (int64_t row = 0; row < PREFETCH_ROW_COUNT; ++row) {
+        a_batch.data[row] = row;
+        b_batch.data[row] = row * 2;
+        c_batch.data[row] = row * 3;
+        payloads.push_back("payload-" + std::to_string(row));
+        set_string_value(payload_batch, row, payloads.back());
+    }
+    struct_batch.numElements = PREFETCH_ROW_COUNT;
+    a_batch.numElements = PREFETCH_ROW_COUNT;
+    b_batch.numElements = PREFETCH_ROW_COUNT;
+    c_batch.numElements = PREFETCH_ROW_COUNT;
+    payload_batch.numElements = PREFETCH_ROW_COUNT;
+
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
+bool has_mergeable_orc_stream_cluster(const std::string& file_path,
+                                      int64_t max_merge_distance_bytes,
+                                      int64_t once_max_read_bytes) {
+    std::ifstream in(file_path, std::ios::binary | std::ios::ate);
+    const auto file_size = in.tellg();
+    in.seekg(0);
+    std::vector<char> data(static_cast<size_t>(file_size));
+    in.read(data.data(), file_size);
+
+    ::orc::ReaderOptions options;
+    options.setMemoryPool(*::orc::getDefaultPool());
+    auto input_stream = std::make_unique<MemoryInputStream>(data.data(), data.size());
+    auto reader = ::orc::createReader(std::move(input_stream), options);
+    if (reader->getNumberOfStripes() != 1) {
+        return false;
+    }
+
+    auto stripe = reader->getStripe(0);
+    std::vector<io::PrefetchRange> small_ranges;
+    for (uint64_t stream_id = 0; stream_id < stripe->getNumberOfStreams(); ++stream_id) {
+        const auto stream = stripe->getStreamInformation(stream_id);
+        if (stream->getLength() > 0 &&
+            stream->getLength() <= static_cast<uint64_t>(once_max_read_bytes)) {
+            small_ranges.emplace_back(stream->getOffset(),
+                                      stream->getOffset() + stream->getLength());
+        }
+    }
+    if (small_ranges.size() < 2) {
+        return false;
+    }
+
+    const auto merged_ranges = io::PrefetchRange::merge_adjacent_seq_ranges(
+            small_ranges, max_merge_distance_bytes, once_max_read_bytes);
+    for (const auto& merged_range : merged_ranges) {
+        size_t member_count = 0;
+        for (const auto& range : small_ranges) {
+            if (range.start_offset >= merged_range.start_offset &&
+                range.end_offset <= merged_range.end_offset) {
+                ++member_count;
+            }
+        }
+        if (member_count > 1) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void write_primitive_orc_file(const std::string& file_path) {
@@ -3419,7 +3614,8 @@ void write_multi_stripe_orc_int_file(const std::string& file_path,
 }
 
 void write_multi_stripe_orc_int_only_file(const std::string& file_path,
-                                          const std::vector<int64_t>& first_values) {
+                                          const std::vector<int64_t>& first_values,
+                                          int64_t rows_per_stripe = 200) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString("struct<id:int>"));
 
     MemoryOutputStream memory_stream(1024 * 1024);
@@ -3430,15 +3626,14 @@ void write_multi_stripe_orc_int_only_file(const std::string& file_path,
     auto writer = ::orc::createWriter(*type, &memory_stream, options);
 
     auto add_batch = [&](int64_t first_value) {
-        constexpr int64_t ROWS_PER_STRIPE = 200;
-        auto batch = writer->createRowBatch(ROWS_PER_STRIPE);
+        auto batch = writer->createRowBatch(rows_per_stripe);
         auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
         auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
-        for (int64_t row = 0; row < ROWS_PER_STRIPE; ++row) {
+        for (int64_t row = 0; row < rows_per_stripe; ++row) {
             id_batch.data[row] = first_value + row;
         }
-        struct_batch.numElements = ROWS_PER_STRIPE;
-        id_batch.numElements = ROWS_PER_STRIPE;
+        struct_batch.numElements = rows_per_stripe;
+        id_batch.numElements = rows_per_stripe;
         writer->add(*batch);
     };
 
@@ -4036,7 +4231,9 @@ void write_multi_stripe_orc_sarg_types_file(const std::string& file_path) {
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
-void write_multi_stripe_orc_timestamp_instant_sarg_file(const std::string& file_path) {
+void write_multi_stripe_orc_timestamp_instant_sarg_file(
+        const std::string& file_path, int64_t first_timestamp_second = 0,
+        int64_t second_timestamp_second = 1609459200) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             "struct<timestamp_instant_col:timestamp with local time zone,payload:string>"));
 
@@ -4068,8 +4265,8 @@ void write_multi_stripe_orc_timestamp_instant_sarg_file(const std::string& file_
         writer->add(*batch);
     };
 
-    add_batch(0);
-    add_batch(1609459200);
+    add_batch(first_timestamp_second);
+    add_batch(second_timestamp_second);
     writer->close();
 
     std::ofstream out(file_path, std::ios::binary);
@@ -4118,7 +4315,8 @@ void write_two_stripe_constant_date_file(const std::string& file_path, int64_t f
 
 void write_two_stripe_constant_timestamp_file(const std::string& file_path,
                                               int64_t first_timestamp_second,
-                                              int64_t second_timestamp_second) {
+                                              int64_t second_timestamp_second,
+                                              std::string_view writer_timezone = "GMT") {
     auto type = std::unique_ptr<::orc::Type>(
             ::orc::Type::buildTypeFromString("struct<timestamp_col:timestamp,payload:string>"));
 
@@ -4126,6 +4324,7 @@ void write_two_stripe_constant_timestamp_file(const std::string& file_path,
     ::orc::WriterOptions options;
     options.setCompression(::orc::CompressionKind_NONE);
     options.setMemoryPool(::orc::getDefaultPool());
+    options.setTimezoneName(std::string(writer_timezone));
     options.setStripeSize(1);
     options.setDictionaryKeySizeThreshold(0);
     auto writer = ::orc::createWriter(*type, &memory_stream, options);
@@ -4202,6 +4401,40 @@ std::vector<OrcStripeLayout> get_orc_stripe_layout(const std::string& file_path)
     return layout;
 }
 
+bool corrupt_orc_stripe_statistics(const std::string& file_path) {
+    std::ifstream in(file_path, std::ios::binary | std::ios::ate);
+    const auto file_size = in.tellg();
+    if (file_size <= 0) {
+        return false;
+    }
+    in.seekg(0);
+    std::vector<char> data(static_cast<size_t>(file_size));
+    in.read(data.data(), static_cast<std::streamsize>(data.size()));
+    if (!in.good()) {
+        return false;
+    }
+
+    ::orc::ReaderOptions options;
+    options.setMemoryPool(*::orc::getDefaultPool());
+    auto input_stream = std::make_unique<MemoryInputStream>(data.data(), data.size());
+    auto reader = ::orc::createReader(std::move(input_stream), options);
+    const auto metadata_length = reader->getStripeStatisticsLength();
+    const auto footer_length = reader->getFileFooterLength();
+    const auto postscript_length = reader->getFilePostscriptLength();
+    const auto orc_file_length = reader->getFileLength();
+    const auto trailing_length = metadata_length + footer_length + postscript_length + 1;
+    if (metadata_length == 0 || orc_file_length != data.size() ||
+        trailing_length > orc_file_length) {
+        return false;
+    }
+
+    const auto metadata_offset = orc_file_length - trailing_length;
+    std::fill_n(data.data() + metadata_offset, metadata_length, static_cast<char>(0xff));
+    std::ofstream out(file_path, std::ios::binary | std::ios::trunc);
+    out.write(data.data(), static_cast<std::streamsize>(data.size()));
+    return out.good();
+}
+
 Block build_file_block(const std::vector<format::ColumnDefinition>& schema) {
     Block block;
     for (const auto& field : schema) {
@@ -4237,6 +4470,21 @@ format::LocalColumnIndex struct_child_projection(int32_t root_field_id, int32_t 
 
 class NewOrcReaderTest : public testing::Test {
 protected:
+    enum class DirectInPredicateShape {
+        ROOT,
+        AND,
+        OR,
+        OR_WITH_NULL_SAFE_EQUAL,
+    };
+
+    struct DirectInScanResult {
+        std::vector<int32_t> ids;
+        size_t materialize_calls = 0;
+        size_t prepare_literals_calls = 0;
+        int64_t filtered_row_groups = 0;
+        int64_t filtered_row_groups_by_min_max = 0;
+    };
+
     void SetUp() override {
         _test_dir = unique_test_dir("doris_new_orc_reader_test");
         std::filesystem::remove_all(_test_dir);
@@ -4289,6 +4537,88 @@ protected:
         file_description->range_size = range_size;
         return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
                                                         nullptr, profile, std::nullopt);
+    }
+
+    Status scan_direct_in_filter(const std::string& file_path, int32_t in_list_size,
+                                 bool enable_sarg, int max_pushdown_conditions_per_column,
+                                 DirectInPredicateShape shape, DirectInScanResult* result) const {
+        DORIS_CHECK(result != nullptr);
+        *result = {};
+
+        auto reader = create_reader_for_path(file_path);
+        TQueryOptions query_options;
+        query_options.__set_enable_orc_filter_by_min_max(enable_sarg);
+        query_options.__set_max_pushdown_conditions_per_column(max_pushdown_conditions_per_column);
+        RuntimeState state {query_options, TQueryGlobals()};
+        RETURN_IF_ERROR(reader->init(&state));
+
+        std::vector<format::ColumnDefinition> schema;
+        RETURN_IF_ERROR(reader->get_schema(&schema));
+        DORIS_CHECK(schema.size() == 2);
+
+        constexpr int32_t in_list_start = 1000;
+        auto filter = std::make_shared<CountingIntHybridSet>(false);
+        for (int32_t value = in_list_start; value < in_list_start + in_list_size; ++value) {
+            filter->insert(&value);
+        }
+
+        auto node = make_filter_in_node(TExprNodeType::IN_PRED);
+        auto direct_in = VDirectInPredicate::create_shared(node, filter, true);
+        direct_in->add_child(TableSlotRef::create_shared(0, 0, -1, schema[0].type, "id"));
+        VExprSPtr predicate = RuntimeFilterExpr::create_shared(node, direct_in, 0.0, false, 7);
+        if (shape == DirectInPredicateShape::AND) {
+            predicate = std::make_shared<CompoundPredicateExpr>(
+                    TExprOpcode::COMPOUND_AND,
+                    VExprSPtrs {std::move(predicate),
+                                std::make_shared<NullableInt32GreaterThanExpr>(0, 500)});
+        } else if (shape == DirectInPredicateShape::OR) {
+            predicate = std::make_shared<CompoundPredicateExpr>(
+                    TExprOpcode::COMPOUND_OR,
+                    VExprSPtrs {std::move(predicate),
+                                std::make_shared<NullableInt32LessThanExpr>(0, 0)});
+        } else if (shape == DirectInPredicateShape::OR_WITH_NULL_SAFE_EQUAL) {
+            predicate = std::make_shared<CompoundPredicateExpr>(
+                    TExprOpcode::COMPOUND_OR,
+                    VExprSPtrs {std::move(predicate),
+                                std::make_shared<NullableInt32NullSafeEqualsLiteralExpr>(0, -1,
+                                                                                         false)});
+        } else {
+            DORIS_CHECK(shape == DirectInPredicateShape::ROOT);
+        }
+        auto context = VExprContext::create_shared(std::move(predicate));
+        RETURN_IF_ERROR(context->prepare(&state, RowDescriptor()));
+        RETURN_IF_ERROR(context->open(&state));
+
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->conjuncts.push_back(std::move(context));
+
+        ScopedDebugPoint debug_point("OrcSearchArgument.make_in_literals_for_sarg",
+                                     [&]() { ++result->prepare_literals_calls; });
+        filter->reset_begin_calls();
+        RETURN_IF_ERROR(reader->open(request));
+
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block({schema[0]});
+            size_t rows = 0;
+            RETURN_IF_ERROR(reader->get_block(&block, &rows, &eof));
+            if (rows == 0) {
+                continue;
+            }
+            const auto& ids_nullable =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+            const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+            for (size_t row = 0; row < rows; ++row) {
+                result->ids.push_back(ids.get_element(row));
+            }
+        }
+
+        result->materialize_calls = filter->begin_calls();
+        result->filtered_row_groups = reader->reader_statistics().filtered_row_groups;
+        result->filtered_row_groups_by_min_max =
+                reader->reader_statistics().filtered_row_groups_by_min_max;
+        return Status::OK();
     }
 
     std::filesystem::path _test_dir;
@@ -4485,13 +4815,48 @@ TEST_F(NewOrcReaderTest, AggregatePushdownUsesPrunedStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
 }
 
-TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxUsesSessionTimezone) {
+TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesScanInSessionTimezone) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_timezone.orc").string();
-    write_two_stripe_constant_timestamp_file(multi_stripe_file_path, 0, 3600);
+    write_two_stripe_constant_timestamp_file(multi_stripe_file_path, 1609430400, 1609434000,
+                                             "Asia/Shanghai");
 
-    auto reader = create_reader_for_path(multi_stripe_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("Asia/Shanghai");
+
+    auto scan_reader = create_reader_for_path(multi_stripe_file_path);
+    ASSERT_TRUE(scan_reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(scan_reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    auto scan_request = std::make_shared<format::FileScanRequest>();
+    scan_request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(scan_reader->open(scan_request).ok());
+
+    std::optional<DateV2Value<DateTimeV2ValueType>> scan_min;
+    std::optional<DateV2Value<DateTimeV2ValueType>> scan_max;
+    size_t scan_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(scan_reader->get_block(&block, &rows, &eof).ok());
+        scan_rows += rows;
+        const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& values = assert_cast<const ColumnDateTimeV2&>(nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            ASSERT_FALSE(nullable.is_null_at(row));
+            const auto value = values.get_element(row);
+            scan_min = !scan_min.has_value() || value < *scan_min ? value : *scan_min;
+            scan_max = !scan_max.has_value() || *scan_max < value ? value : *scan_max;
+        }
+    }
+    ASSERT_EQ(scan_rows, 400);
+    ASSERT_TRUE(scan_min.has_value());
+    ASSERT_TRUE(scan_max.has_value());
+    EXPECT_EQ(*scan_min, make_datetime_v2(2021, 1, 1, 0, 0, 0, 123000));
+    EXPECT_EQ(*scan_max, make_datetime_v2(2021, 1, 1, 1, 0, 0, 123000));
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
     ASSERT_TRUE(reader->init(&state).ok());
 
     auto request = std::make_shared<format::FileScanRequest>();
@@ -4509,10 +4874,87 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxUsesSessionTimezone) {
     EXPECT_EQ(aggregate_result.count, 400);
     EXPECT_TRUE(aggregate_result.columns[0].has_min);
     EXPECT_TRUE(aggregate_result.columns[0].has_max);
-    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATETIMEV2>(),
-              make_datetime_v2(1970, 1, 1, 8, 0, 0, 123000));
-    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(),
-              make_datetime_v2(1970, 1, 1, 9, 0, 0, 123000));
+    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATETIMEV2>(), *scan_min);
+    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(), *scan_max);
+}
+
+TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxFallsBackForPreOrc135Writer) {
+    const auto file_path = find_repo_file(
+            "contrib/apache-orc/java/core/src/test/resources/orc-file-no-timezone.orc");
+    ASSERT_TRUE(std::filesystem::exists(file_path)) << file_path;
+
+    std::ifstream in(file_path, std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(in.good());
+    const auto file_size = in.tellg();
+    ASSERT_GT(file_size, 0);
+    in.seekg(0);
+    std::vector<char> data(static_cast<size_t>(file_size));
+    in.read(data.data(), static_cast<std::streamsize>(data.size()));
+    ASSERT_TRUE(in.good());
+
+    ::orc::ReaderOptions options;
+    options.setMemoryPool(*::orc::getDefaultPool());
+    auto input_stream = std::make_unique<MemoryInputStream>(data.data(), data.size());
+    auto metadata_reader = ::orc::createReader(std::move(input_stream), options);
+    ASSERT_EQ(metadata_reader->getWriterVersion(), ::orc::WriterVersion_HIVE_8732);
+    auto stripe_statistics = metadata_reader->getStripeStatistics(0);
+    ASSERT_NE(stripe_statistics, nullptr);
+    const auto* timestamp_statistics = dynamic_cast<const ::orc::TimestampColumnStatistics*>(
+            stripe_statistics->getColumnStatistics(1));
+    ASSERT_NE(timestamp_statistics, nullptr);
+    ASSERT_TRUE(timestamp_statistics->hasMinimum());
+    ASSERT_TRUE(timestamp_statistics->hasMaximum());
+
+    auto reader = create_reader_for_path(file_path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("UTC");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
+    format::FileAggregateResult aggregate_result;
+    const auto aggregate_status =
+            reader->get_aggregate_result(aggregate_request, &aggregate_result);
+    ASSERT_TRUE(aggregate_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << aggregate_status;
+
+    const auto read_values = [&](format::orc::OrcReader* scan_reader,
+                                 std::vector<std::string>* values) -> Status {
+        DORIS_CHECK(scan_reader != nullptr);
+        DORIS_CHECK(values != nullptr);
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            RETURN_IF_ERROR(scan_reader->get_block(&block, &rows, &eof));
+            for (size_t row = 0; row < rows; ++row) {
+                values->push_back(schema[0].type->to_string(*block.get_by_position(0).column, row));
+            }
+        }
+        return Status::OK();
+    };
+
+    std::vector<std::string> fallback_values;
+    ASSERT_TRUE(read_values(reader.get(), &fallback_values).ok());
+
+    auto baseline_reader = create_reader_for_path(file_path.string());
+    ASSERT_TRUE(baseline_reader->init(&state).ok());
+    auto baseline_request = std::make_shared<format::FileScanRequest>();
+    baseline_request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(baseline_reader->open(baseline_request).ok());
+
+    std::vector<std::string> baseline_values;
+    ASSERT_TRUE(read_values(baseline_reader.get(), &baseline_values).ok());
+    ASSERT_EQ(baseline_values.size(), 2);
+    EXPECT_EQ(fallback_values, baseline_values);
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampInstantMinMaxUsesTimestampTzWhenMapped) {
@@ -4743,6 +5185,158 @@ TEST_F(NewOrcReaderTest, ReadFileLocalColumnsThenEof) {
     EXPECT_TRUE(eof);
     EXPECT_EQ(rows, 0);
     EXPECT_EQ(block.rows(), 0);
+}
+
+TEST_F(NewOrcReaderTest, StripePrefetchPublishesMergedReadProfile) {
+    static constexpr int64_t MAX_MERGE_DISTANCE_BYTES = 1L * 1024L * 1024L;
+    static constexpr int64_t ONCE_MAX_READ_BYTES = 8L * 1024L * 1024L;
+    const auto file_path = (_test_dir / "stripe_prefetch.orc").string();
+    write_orc_prefetch_file(file_path);
+    ASSERT_TRUE(has_mergeable_orc_stream_cluster(file_path, MAX_MERGE_DISTANCE_BYTES,
+                                                 ONCE_MAX_READ_BYTES));
+
+    RuntimeProfile profile("orc_v2_stripe_prefetch");
+    io::FileReaderStats file_reader_stats;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = &file_reader_stats;
+    auto reader = create_reader_for_path(file_path, &profile, io_ctx);
+
+    TQueryOptions query_options;
+    query_options.__set_orc_once_max_read_bytes(ONCE_MAX_READ_BYTES);
+    query_options.__set_orc_max_merge_distance_bytes(MAX_MERGE_DISTANCE_BYTES);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 4);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    for (const auto& field : schema) {
+        request->non_predicate_columns.push_back(make_projection(field));
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t result_rows = 0;
+    std::vector<int32_t> first_values;
+    std::vector<int32_t> second_values;
+    std::vector<int32_t> third_values;
+    std::vector<std::string> payload_values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows > 0) {
+            const auto& first_column = assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                            .get_nested_column());
+            const auto& second_column = assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                            .get_nested_column());
+            const auto& third_column = assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(2).column)
+                            .get_nested_column());
+            const auto& payload_column = assert_cast<const ColumnString&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(3).column)
+                            .get_nested_column());
+            for (size_t row = 0; row < rows; ++row) {
+                first_values.push_back(first_column.get_element(row));
+                second_values.push_back(second_column.get_element(row));
+                third_values.push_back(third_column.get_element(row));
+                payload_values.push_back(payload_column.get_data_at(row).to_string());
+            }
+        }
+        result_rows += rows;
+    }
+    EXPECT_EQ(result_rows, PREFETCH_ROW_COUNT);
+    ASSERT_EQ(first_values.size(), PREFETCH_ROW_COUNT);
+    ASSERT_EQ(second_values.size(), PREFETCH_ROW_COUNT);
+    ASSERT_EQ(third_values.size(), PREFETCH_ROW_COUNT);
+    ASSERT_EQ(payload_values.size(), PREFETCH_ROW_COUNT);
+    for (size_t row : std::array<size_t, 3> {0, PREFETCH_ROW_COUNT / 2, PREFETCH_ROW_COUNT - 1}) {
+        EXPECT_EQ(first_values[row], row);
+        EXPECT_EQ(second_values[row], row * 2);
+        EXPECT_EQ(third_values[row], row * 3);
+        EXPECT_EQ(payload_values[row], "payload-" + std::to_string(row));
+    }
+    ASSERT_TRUE(reader->close().ok());
+
+    ASSERT_NE(profile.get_counter("RequestIO"), nullptr);
+    ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
+    ASSERT_NE(profile.get_counter("ApplyBytes"), nullptr);
+    ASSERT_NE(profile.get_counter("ClusterNum"), nullptr);
+    ASSERT_NE(profile.get_counter("OverReadBytes"), nullptr);
+    EXPECT_GT(profile.get_counter("RequestIO")->value(), profile.get_counter("MergedIO")->value());
+    EXPECT_GT(profile.get_counter("MergedIO")->value(), 0);
+    EXPECT_GT(profile.get_counter("ApplyBytes")->value(), 0);
+    EXPECT_GT(profile.get_counter("ClusterNum")->value(), 0);
+    EXPECT_GE(profile.get_counter("OverReadBytes")->value(), 0);
+}
+
+TEST_F(NewOrcReaderTest, StripePrefetchCanBeDisabledByZeroOnceMaxReadBytes) {
+    static constexpr int64_t MAX_MERGE_DISTANCE_BYTES = 1L * 1024L * 1024L;
+    const auto file_path = (_test_dir / "stripe_prefetch_disabled.orc").string();
+    write_orc_prefetch_file(file_path);
+
+    RuntimeProfile profile("orc_v2_stripe_prefetch_disabled");
+    auto reader = create_reader_for_path(file_path, &profile);
+
+    TQueryOptions query_options;
+    query_options.__set_orc_once_max_read_bytes(0);
+    query_options.__set_orc_max_merge_distance_bytes(MAX_MERGE_DISTANCE_BYTES);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 4);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {make_projection(schema[0]), make_projection(schema[3])};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block({schema[0], schema[3]});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_GT(rows, 0);
+
+    const auto& first_column = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                    .get_nested_column());
+    const auto& payload_column = assert_cast<const ColumnString&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                    .get_nested_column());
+    EXPECT_EQ(first_column.get_element(0), 0);
+    EXPECT_EQ(payload_column.get_data_at(0).to_string(), "payload-0");
+    EXPECT_EQ(first_column.get_element(rows - 1), rows - 1);
+    EXPECT_EQ(payload_column.get_data_at(rows - 1).to_string(),
+              "payload-" + std::to_string(rows - 1));
+
+    size_t result_rows = rows;
+    while (!eof) {
+        Block next_block = build_file_block({schema[0], schema[3]});
+        rows = 0;
+        ASSERT_TRUE(reader->get_block(&next_block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+    EXPECT_EQ(result_rows, PREFETCH_ROW_COUNT);
+    ASSERT_TRUE(reader->close().ok());
+
+    EXPECT_EQ(profile.get_counter("MergedIO"), nullptr);
+}
+
+TEST_F(NewOrcReaderTest, RejectsInvalidNaturalReadSizeConfig) {
+    const auto old_natural_read_size_mb = config::orc_natural_read_size_mb;
+    config::orc_natural_read_size_mb = 0;
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto status = reader->init(&state);
+    config::orc_natural_read_size_mb = old_natural_read_size_mb;
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("orc_natural_read_size_mb"), std::string::npos);
 }
 
 TEST_F(NewOrcReaderTest, GetBlockStopsWhenIoContextShouldStop) {
@@ -5455,6 +6049,7 @@ TEST_F(NewOrcReaderTest, ConditionCacheHitUsesSplitBaseGranule) {
     auto ctx = std::make_shared<ConditionCacheContext>();
     ctx->is_hit = true;
     const auto base_granule = stripe_first_row / ConditionCacheContext::GRANULE_SIZE;
+    ctx->base_granule = static_cast<int64_t>(base_granule);
     const auto last_granule = (stripe_first_row + layout[stripe_index].rows - 1) /
                               ConditionCacheContext::GRANULE_SIZE;
     ctx->filter_result = std::make_shared<std::vector<bool>>(last_granule - base_granule + 1, true);
@@ -6323,6 +6918,99 @@ TEST_F(NewOrcReaderTest, SargRuntimeFilterWrapperConjunctPrunesStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
+TEST_F(NewOrcReaderTest, SargDirectInCompoundMaterializesLiteralsOnce) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_direct_in_prepared_once.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    constexpr int32_t in_list_size = 1024;
+    for (const auto shape : {DirectInPredicateShape::AND, DirectInPredicateShape::OR}) {
+        SCOPED_TRACE(shape == DirectInPredicateShape::AND ? "AND" : "OR");
+        DirectInScanResult enabled;
+        DirectInScanResult disabled;
+        ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, true, in_list_size,
+                                          shape, &enabled)
+                            .ok());
+        ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, false, in_list_size,
+                                          shape, &disabled)
+                            .ok());
+
+        EXPECT_EQ(enabled.materialize_calls, 1);
+        EXPECT_EQ(enabled.prepare_literals_calls, 1);
+        EXPECT_EQ(enabled.filtered_row_groups, 1);
+        EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 1);
+        EXPECT_EQ(disabled.materialize_calls, 0);
+        EXPECT_EQ(disabled.prepare_literals_calls, 0);
+        EXPECT_EQ(disabled.filtered_row_groups, 0);
+        EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
+        ASSERT_EQ(enabled.ids, disabled.ids);
+        ASSERT_EQ(enabled.ids.size(), 200);
+        EXPECT_EQ(enabled.ids.front(), 1000);
+        EXPECT_EQ(enabled.ids.back(), 1199);
+    }
+}
+
+TEST_F(NewOrcReaderTest, SargDirectInNullSafeOrFallsBackBeforeLiteralConversion) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_direct_in_null_safe_or.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    constexpr int32_t in_list_size = 1024;
+    DirectInScanResult enabled;
+    DirectInScanResult disabled;
+    ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, true, in_list_size,
+                                      DirectInPredicateShape::OR_WITH_NULL_SAFE_EQUAL, &enabled)
+                        .ok());
+    ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, false, in_list_size,
+                                      DirectInPredicateShape::OR_WITH_NULL_SAFE_EQUAL, &disabled)
+                        .ok());
+
+    EXPECT_EQ(enabled.materialize_calls, 1);
+    EXPECT_EQ(enabled.prepare_literals_calls, 0);
+    EXPECT_EQ(enabled.filtered_row_groups, 0);
+    EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(disabled.materialize_calls, 0);
+    EXPECT_EQ(disabled.prepare_literals_calls, 0);
+    EXPECT_EQ(disabled.filtered_row_groups, 0);
+    EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
+    ASSERT_EQ(enabled.ids, disabled.ids);
+    ASSERT_EQ(enabled.ids.size(), 200);
+    EXPECT_EQ(enabled.ids.front(), 1000);
+    EXPECT_EQ(enabled.ids.back(), 1199);
+}
+
+TEST_F(NewOrcReaderTest, SargDirectInOverLimitFallsBackBeforeMaterialization) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_direct_in_over_limit.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    constexpr int32_t max_pushdown_conditions_per_column = 1024;
+    constexpr int32_t in_list_size = max_pushdown_conditions_per_column + 1;
+    DirectInScanResult enabled;
+    DirectInScanResult disabled;
+    ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, true,
+                                      max_pushdown_conditions_per_column,
+                                      DirectInPredicateShape::ROOT, &enabled)
+                        .ok());
+    ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, false,
+                                      max_pushdown_conditions_per_column,
+                                      DirectInPredicateShape::ROOT, &disabled)
+                        .ok());
+
+    EXPECT_EQ(enabled.materialize_calls, 0);
+    EXPECT_EQ(enabled.prepare_literals_calls, 0);
+    EXPECT_EQ(enabled.filtered_row_groups, 0);
+    EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(disabled.materialize_calls, 0);
+    EXPECT_EQ(disabled.prepare_literals_calls, 0);
+    EXPECT_EQ(disabled.filtered_row_groups, 0);
+    EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
+    ASSERT_EQ(enabled.ids, disabled.ids);
+    ASSERT_EQ(enabled.ids.size(), 200);
+    EXPECT_EQ(enabled.ids.front(), 1000);
+    EXPECT_EQ(enabled.ids.back(), 1199);
+}
+
 TEST_F(NewOrcReaderTest, SargNullAwareRuntimeFilterDoesNotPruneNullStripe) {
     const auto multi_stripe_file_path = (_test_dir / "sarg_null_aware_runtime_filter.orc").string();
     write_two_stripe_orc_nullable_int_file(multi_stripe_file_path);
@@ -6627,6 +7315,113 @@ TEST_F(NewOrcReaderTest, SargSlotToSlotNullSafeEqualDoesNotPruneStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
 }
 
+TEST_F(NewOrcReaderTest, SargPartialAndRespectsNegationContext) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_partial_and_not.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    auto partial_and = []() -> VExprSPtr {
+        return std::make_shared<CompoundPredicateExpr>(
+                TExprOpcode::COMPOUND_AND,
+                VExprSPtrs {std::make_shared<NullableInt32GreaterThanExpr>(0, 500),
+                            std::make_shared<NullableInt32CastToFloatGreaterThanExpr>(0, 1100.5F)});
+    };
+    auto verify = [&](const auto& conjunct_factory, const std::vector<int32_t>& expected_ids,
+                      int64_t expected_filtered_row_groups) {
+        std::array<std::vector<int32_t>, 2> result_ids;
+        for (size_t run = 0; run < result_ids.size(); ++run) {
+            const bool enable_filter_by_min_max = run == 0;
+            auto reader = create_reader_for_path(multi_stripe_file_path);
+            TQueryOptions query_options;
+            query_options.__set_enable_orc_filter_by_min_max(enable_filter_by_min_max);
+            RuntimeState state {query_options, TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            ASSERT_EQ(schema.size(), 2);
+
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->predicate_columns = {field_projection(0)};
+            request->conjuncts.push_back(VExprContext::create_shared(conjunct_factory()));
+            ASSERT_TRUE(reader->open(request).ok());
+
+            bool eof = false;
+            while (!eof) {
+                Block block = build_file_block({schema[0]});
+                size_t rows = 0;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                if (eof || rows == 0) {
+                    continue;
+                }
+                const auto& ids_nullable =
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+                const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+                for (size_t row = 0; row < rows; ++row) {
+                    ASSERT_FALSE(ids_nullable.is_null_at(row));
+                    result_ids[run].push_back(ids.get_element(row));
+                }
+            }
+
+            const auto filtered_row_groups =
+                    enable_filter_by_min_max ? expected_filtered_row_groups : 0;
+            EXPECT_EQ(reader->reader_statistics().filtered_row_groups, filtered_row_groups);
+            EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max,
+                      filtered_row_groups);
+            EXPECT_EQ(reader->reader_statistics().filtered_group_rows, filtered_row_groups * 200);
+        }
+
+        EXPECT_EQ(result_ids[0], expected_ids);
+        EXPECT_EQ(result_ids[0], result_ids[1]);
+    };
+
+    std::vector<int32_t> expected_not_ids;
+    for (int32_t id = 1; id <= 200; ++id) {
+        expected_not_ids.push_back(id);
+    }
+    for (int32_t id = 1000; id <= 1100; ++id) {
+        expected_not_ids.push_back(id);
+    }
+    verify(
+            [&]() -> VExprSPtr {
+                return std::make_shared<CompoundPredicateExpr>(TExprOpcode::COMPOUND_NOT,
+                                                               VExprSPtrs {partial_and()});
+            },
+            expected_not_ids, 0);
+
+    std::vector<int32_t> expected_and_ids;
+    for (int32_t id = 1101; id <= 1199; ++id) {
+        expected_and_ids.push_back(id);
+    }
+    verify(partial_and, expected_and_ids, 1);
+    verify(
+            [&]() -> VExprSPtr {
+                auto inner_not = std::make_shared<CompoundPredicateExpr>(
+                        TExprOpcode::COMPOUND_NOT, VExprSPtrs {partial_and()});
+                return std::make_shared<CompoundPredicateExpr>(TExprOpcode::COMPOUND_NOT,
+                                                               VExprSPtrs {std::move(inner_not)});
+            },
+            expected_and_ids, 1);
+
+    std::vector<int32_t> expected_nested_ids;
+    expected_nested_ids.insert(expected_nested_ids.end(), expected_not_ids.begin(),
+                               expected_not_ids.begin() + 200);
+    expected_nested_ids.insert(expected_nested_ids.end(), expected_and_ids.begin(),
+                               expected_and_ids.end());
+    verify(
+            [&]() -> VExprSPtr {
+                auto inner_not = std::make_shared<CompoundPredicateExpr>(
+                        TExprOpcode::COMPOUND_NOT, VExprSPtrs {partial_and()});
+                auto outer_and = std::make_shared<CompoundPredicateExpr>(
+                        TExprOpcode::COMPOUND_AND,
+                        VExprSPtrs {std::move(inner_not),
+                                    std::make_shared<NullableInt32GreaterThanExpr>(0, 500)});
+                return std::make_shared<CompoundPredicateExpr>(TExprOpcode::COMPOUND_NOT,
+                                                               VExprSPtrs {std::move(outer_and)});
+            },
+            expected_nested_ids, 0);
+}
+
 TEST_F(NewOrcReaderTest, SargNullSafeEqualInsideOrDoesNotPruneStripes) {
     const auto multi_stripe_file_path = (_test_dir / "sarg_null_safe_equal_inside_or.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
@@ -6844,6 +7639,138 @@ TEST_F(NewOrcReaderTest, SargBinaryVarbinaryLiteralConjunctPrunesRowGroups) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
+}
+
+TEST_F(NewOrcReaderTest, SargExceptionsFallBackToResidualScan) {
+    const auto valid_file_path = (_test_dir / "sarg_build_exception.orc").string();
+    const auto corrupt_statistics_file_path = (_test_dir / "sarg_corrupt_statistics.orc").string();
+    write_multi_stripe_orc_binary_file(valid_file_path);
+    write_multi_stripe_orc_binary_file(corrupt_statistics_file_path);
+    const auto valid_stripe_layout = get_orc_stripe_layout(valid_file_path);
+    const auto corrupt_statistics_stripe_layout =
+            get_orc_stripe_layout(corrupt_statistics_file_path);
+    ASSERT_EQ(valid_stripe_layout.size(), 2);
+    ASSERT_EQ(corrupt_statistics_stripe_layout.size(), 2);
+    ASSERT_TRUE(corrupt_orc_stripe_statistics(corrupt_statistics_file_path));
+
+    auto scan_first_stripe = [&](const std::string& file_path, const OrcStripeLayout& stripe,
+                                 bool enable_filter_by_min_max, bool add_real_residual_filter,
+                                 std::vector<std::string>* result_values, Status* open_status) {
+        auto reader = create_reader_with_range(file_path, static_cast<int64_t>(stripe.offset),
+                                               static_cast<int64_t>(stripe.length));
+        TQueryOptions query_options;
+        query_options.__set_enable_orc_filter_by_min_max(enable_filter_by_min_max);
+        RuntimeState state {query_options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        ASSERT_EQ(schema.size(), 2);
+
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->conjuncts.push_back(VExprContext::create_shared(
+                std::make_shared<SargOnlyStringEqualsVarbinaryLiteralExpr>(
+                        0, std::make_shared<DataTypeVarbinary>(), "zzz_1000", "value")));
+        if (add_real_residual_filter) {
+            request->conjuncts.push_back(
+                    VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                            0, std::make_shared<DataTypeString>(), "aaa_1050", "value")));
+        }
+        *open_status = reader->open(request);
+        if (!open_status->ok()) {
+            return;
+        }
+
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block({schema[0]});
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            if (eof || rows == 0) {
+                continue;
+            }
+            const auto& values_nullable =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+            const auto& values =
+                    assert_cast<const ColumnString&>(values_nullable.get_nested_column());
+            for (size_t row = 0; row < rows; ++row) {
+                ASSERT_FALSE(values_nullable.is_null_at(row));
+                result_values->push_back(values.get_data_at(row).to_string());
+            }
+        }
+
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
+        EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
+        ASSERT_TRUE(reader->close().ok());
+    };
+
+    std::vector<std::string> without_sarg;
+    Status without_sarg_open_status;
+    scan_first_stripe(corrupt_statistics_file_path, corrupt_statistics_stripe_layout[0], false,
+                      false, &without_sarg, &without_sarg_open_status);
+    ASSERT_TRUE(without_sarg_open_status.ok()) << without_sarg_open_status;
+    ASSERT_EQ(without_sarg.size(), 200);
+    EXPECT_EQ(without_sarg.front(), "aaa_1000");
+    EXPECT_EQ(without_sarg.back(), "aaa_1199");
+
+    int injection_count = 0;
+    std::vector<std::string> after_build_failure;
+    Status build_failure_open_status;
+    {
+        ScopedDebugPoint debug_point(
+                "OrcReader._init_search_argument_from_local_filters.inject_failure", [&]() {
+                    ++injection_count;
+                    throw std::runtime_error("injected ORC SARG build failure");
+                });
+        scan_first_stripe(valid_file_path, valid_stripe_layout[0], true, false,
+                          &after_build_failure, &build_failure_open_status);
+    }
+    EXPECT_EQ(injection_count, 1);
+    ASSERT_TRUE(build_failure_open_status.ok()) << build_failure_open_status;
+    EXPECT_EQ(after_build_failure, without_sarg);
+
+    std::vector<std::string> after_evaluation_failure;
+    Status evaluation_failure_open_status;
+    scan_first_stripe(corrupt_statistics_file_path, corrupt_statistics_stripe_layout[0], true,
+                      false, &after_evaluation_failure, &evaluation_failure_open_status);
+    ASSERT_TRUE(evaluation_failure_open_status.ok()) << evaluation_failure_open_status;
+    EXPECT_EQ(after_evaluation_failure, without_sarg);
+
+    std::vector<std::string> residual_without_sarg;
+    Status residual_without_sarg_open_status;
+    scan_first_stripe(corrupt_statistics_file_path, corrupt_statistics_stripe_layout[0], false,
+                      true, &residual_without_sarg, &residual_without_sarg_open_status);
+    ASSERT_TRUE(residual_without_sarg_open_status.ok()) << residual_without_sarg_open_status;
+    const std::vector<std::string> expected_residual_values = {"aaa_1050"};
+    EXPECT_EQ(residual_without_sarg, expected_residual_values);
+
+    std::vector<std::string> residual_after_evaluation_failure;
+    Status residual_evaluation_failure_open_status;
+    scan_first_stripe(corrupt_statistics_file_path, corrupt_statistics_stripe_layout[0], true, true,
+                      &residual_after_evaluation_failure, &residual_evaluation_failure_open_status);
+    ASSERT_TRUE(residual_evaluation_failure_open_status.ok())
+            << residual_evaluation_failure_open_status;
+    EXPECT_EQ(residual_after_evaluation_failure, expected_residual_values);
+
+    int memory_failure_injection_count = 0;
+    std::vector<std::string> after_memory_failure;
+    Status memory_failure_open_status;
+    {
+        ScopedDebugPoint debug_point(
+                "OrcReader._init_search_argument_from_local_filters.inject_failure", [&]() {
+                    ++memory_failure_injection_count;
+                    throw Exception(ErrorCode::MEM_ALLOC_FAILED,
+                                    "injected ORC SARG allocation failure");
+                });
+        scan_first_stripe(valid_file_path, valid_stripe_layout[0], true, false,
+                          &after_memory_failure, &memory_failure_open_status);
+    }
+    EXPECT_EQ(memory_failure_injection_count, 1);
+    EXPECT_TRUE(memory_failure_open_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+            << memory_failure_open_status;
+    EXPECT_TRUE(after_memory_failure.empty());
 }
 
 TEST_F(NewOrcReaderTest, SargBinaryCastFromVarbinaryToStringConjunctPrunesRowGroups) {
@@ -8327,6 +9254,49 @@ TEST_F(NewOrcReaderTest, SargTimestampInstantConjunctUsesSessionTimezone) {
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
+TEST_F(NewOrcReaderTest, SargTimestampInstantRepeatedCivilTimeDoesNotPruneStripes) {
+    const auto multi_stripe_file_path =
+            (_test_dir / "sarg_timestamp_instant_dst_rollback.orc").string();
+    // These UTC instants both decode to 2021-11-07 01:30:00.123 in America/New_York,
+    // once before and once after the UTC-04:00 to UTC-05:00 rollback.
+    write_multi_stripe_orc_timestamp_instant_sarg_file(multi_stripe_file_path, 1636263000,
+                                                       1636266600);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TimezoneUtils::load_timezones_to_cache();
+    state.set_timezone("America/New_York");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    const auto literal =
+            Field::create_field<TYPE_DATETIMEV2>(make_datetime_v2(2021, 11, 7, 1, 30, 0, 123000));
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableEqualsExpr<TYPE_DATETIMEV2>>(
+                    0, remove_nullable(schema[0].type), literal, "timestamp_instant_col")));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+
+    EXPECT_EQ(result_rows, 2);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
+}
+
 TEST_F(NewOrcReaderTest, SargTimestampLowerPrecisionCastDoesNotPruneStripes) {
     const auto multi_stripe_file_path =
             (_test_dir / "sarg_timestamp_lower_precision_cast.orc").string();
@@ -8724,6 +9694,59 @@ TEST_F(NewOrcReaderTest, SargConjunctReadsNonAdjacentStripeRangesAfterPruning) {
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
+TEST_F(NewOrcReaderTest, ConditionCacheMissExtendsAcrossNonAdjacentStripeRanges) {
+    constexpr int64_t ROWS_PER_STRIPE = 2500;
+    const auto multi_stripe_file_path =
+            (_test_dir / "condition_cache_non_adjacent_stripes.orc").string();
+    write_multi_stripe_orc_int_only_file(multi_stripe_file_path, {1, 10000, 3000}, ROWS_PER_STRIPE);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 3);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32LessThanExpr>(0, 5000)));
+    ASSERT_TRUE(reader->open(request).ok());
+    EXPECT_EQ(reader->get_total_rows(), ROWS_PER_STRIPE);
+
+    auto cache_ctx = std::make_shared<ConditionCacheContext>();
+    cache_ctx->filter_result = std::make_shared<std::vector<bool>>(
+            (reader->get_total_rows() + ConditionCacheContext::GRANULE_SIZE - 1) /
+                            ConditionCacheContext::GRANULE_SIZE +
+                    1,
+            false);
+    reader->set_condition_cache_context(cache_ctx);
+    EXPECT_EQ(cache_ctx->base_granule, 0);
+    EXPECT_EQ(cache_ctx->num_granules, 2);
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+
+    EXPECT_EQ(result_rows, 4500);
+    ASSERT_NE(cache_ctx->filter_result, nullptr);
+    EXPECT_EQ(cache_ctx->num_granules, 4);
+    ASSERT_EQ(cache_ctx->filter_result->size(), 4);
+    EXPECT_TRUE((*cache_ctx->filter_result)[0]);
+    EXPECT_TRUE((*cache_ctx->filter_result)[1]);
+    EXPECT_TRUE((*cache_ctx->filter_result)[2]);
+    EXPECT_TRUE((*cache_ctx->filter_result)[3]);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, ROWS_PER_STRIPE);
+}
+
 TEST_F(NewOrcReaderTest, SargConjunctReturnsEofWhenAllStripesArePruned) {
     const auto multi_stripe_file_path = (_test_dir / "all_pruned_stripes.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
@@ -8742,6 +9765,9 @@ TEST_F(NewOrcReaderTest, SargConjunctReturnsEofWhenAllStripesArePruned) {
     request->conjuncts.push_back(
             VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 5000)));
     ASSERT_TRUE(reader->open(request).ok());
+    // TableReader uses this value to decide whether a condition-cache MISS bitmap should be
+    // created. When SARG pruning removes every stripe, there is no row-reader range to cache.
+    EXPECT_EQ(reader->get_total_rows(), 0);
 
     Block block = build_file_block(schema);
     size_t rows = 0;

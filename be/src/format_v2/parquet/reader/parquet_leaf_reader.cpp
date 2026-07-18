@@ -340,10 +340,22 @@ Status ParquetLeafReader::collect_levels_batch(::parquet::internal::RecordReader
     }
     batch->_read_dense_for_nullable = record_reader.read_dense_for_nullable();
 
-    // Deliberately ignore values_written(), values() and BinaryRecordReader::GetBuilderChunks().
-    // COUNT(col) only needs top-level shape. Pulling binary chunks transfers Arrow builder
-    // ownership into Doris arrays and later into ColumnString, which is exactly the OOM-prone
-    // materialization path for huge MAP/ARRAY/STRUCT string payloads.
+    // Arrow's RecordReader::Reset() does not reset ByteArray/FLBA builders. GetBuilderChunks()
+    // (or DictionaryRecordReader::GetResult()) is the documented reset operation and must be
+    // called before the next ReadRecords(). Otherwise a levels-only skip followed by a normal read
+    // observes values from both batches; for example, skipping ARRAY<STRING> ["a", "b"] and then
+    // reading ["c"] would report one current level but three values. Release the chunks here and
+    // let the temporary vector destroy them immediately. We deliberately do not inspect or copy
+    // their payload into a Doris Column, so the levels-only contract still avoids Doris-side value
+    // materialization.
+    if (batch->is_binary_value()) {
+        std::vector<std::shared_ptr<::arrow::Array>> discarded_chunks;
+        RETURN_IF_ERROR(get_binary_chunks(_name, record_reader, &discarded_chunks));
+    }
+
+    // COUNT(col) and nested skip only need top-level shape. Fixed-width values remain owned by the
+    // RecordReader and are cleared by Reset(); binary values were released above solely to reset
+    // the Arrow builder.
     batch->_values_written = 0;
     return Status::OK();
 }

@@ -154,38 +154,30 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
     if (UNLIKELY(wg_info.id != _id)) {
         return;
     }
-    {
-        std::shared_lock<std::shared_mutex> rl {_mutex};
-        if (LIKELY(wg_info.version <= _version)) {
-            return;
-        }
-    }
-    {
-        std::lock_guard<std::shared_mutex> wl {_mutex};
-        if (wg_info.version > _version) {
-            _name = wg_info.name;
-            _version = wg_info.version;
-            _min_cpu_percent = wg_info.min_cpu_percent;
-            _max_cpu_percent = wg_info.max_cpu_percent;
-            _memory_limit = wg_info.memory_limit;
-            _min_memory_percent = wg_info.min_memory_percent;
-            _max_memory_percent = wg_info.max_memory_percent;
-            _scan_thread_num = wg_info.scan_thread_num;
-            _max_remote_scan_thread_num = wg_info.max_remote_scan_thread_num;
-            _min_remote_scan_thread_num = wg_info.min_remote_scan_thread_num;
-            _memory_low_watermark = wg_info.memory_low_watermark;
-            _memory_high_watermark = wg_info.memory_high_watermark;
-            _scan_bytes_per_second = wg_info.read_bytes_per_second;
-            _remote_scan_bytes_per_second = wg_info.remote_read_bytes_per_second;
-            _total_query_slot_count = wg_info.total_query_slot_count;
-            _slot_mem_policy = wg_info.slot_mem_policy;
-            if (_max_memory_percent > 0) {
-                _min_memory_limit = static_cast<int64_t>(
-                        static_cast<double>(_memory_limit * _min_memory_percent) /
-                        _max_memory_percent);
-            }
-        } else {
-            return;
+    std::lock_guard<std::shared_mutex> wl {_mutex};
+    // In serverless mode, user may modify cgroup's memory limit directly and workload group's config
+    // is not changed. So that we should update workload group's config ignore version.
+    if (wg_info.version > _version ||
+        (wg_info.version == _version && _memory_limit != wg_info.memory_limit)) {
+        _name = wg_info.name;
+        _version = wg_info.version;
+        _min_cpu_percent = wg_info.min_cpu_percent;
+        _max_cpu_percent = wg_info.max_cpu_percent;
+        _memory_limit = wg_info.memory_limit;
+        _min_memory_percent = wg_info.min_memory_percent;
+        _max_memory_percent = wg_info.max_memory_percent;
+        _scan_thread_num = wg_info.scan_thread_num;
+        _max_remote_scan_thread_num = wg_info.max_remote_scan_thread_num;
+        _min_remote_scan_thread_num = wg_info.min_remote_scan_thread_num;
+        _memory_low_watermark = wg_info.memory_low_watermark;
+        _memory_high_watermark = wg_info.memory_high_watermark;
+        _scan_bytes_per_second = wg_info.read_bytes_per_second;
+        _remote_scan_bytes_per_second = wg_info.remote_read_bytes_per_second;
+        _total_query_slot_count = wg_info.total_query_slot_count;
+        _slot_mem_policy = wg_info.slot_mem_policy;
+        if (_max_memory_percent > 0) {
+            _min_memory_limit = static_cast<int64_t>(
+                    static_cast<double>(_memory_limit * _min_memory_percent) / _max_memory_percent);
         }
     }
 }

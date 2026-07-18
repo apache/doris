@@ -23,6 +23,8 @@ import org.junit.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 
 public class ConfigTest {
     @BeforeClass
@@ -32,6 +34,62 @@ public class ConfigTest {
         Path tempFile = Files.createTempFile("fe_ut_", ".conf");
         tempFile.toFile().deleteOnExit();
         config.init(tempFile.toAbsolutePath().toString());
+    }
+
+    // A sensitive config (fe_meta_auth_token) must never be dumped in plaintext by any config
+    // API: both Config.dump() and ConfigBase.getConfigInfo() return the mask instead of the value.
+    @Test
+    public void testSensitiveConfigIsMaskedWhenSet() {
+        String old = Config.fe_meta_auth_token;
+        try {
+            Config.fe_meta_auth_token = "super-secret-token";
+
+            Map<String, String> dumped = ConfigBase.dump();
+            Assert.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, dumped.get("fe_meta_auth_token"));
+
+            String value = configInfoValue("fe_meta_auth_token");
+            Assert.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, value);
+        } finally {
+            Config.fe_meta_auth_token = old;
+        }
+    }
+
+    // The legacy cluster secret auth_token is also marked sensitive, so it is masked by every
+    // config dump API too (it leaks through /rest/v1/config/fe otherwise).
+    @Test
+    public void testAuthTokenIsMaskedWhenSet() {
+        String old = Config.auth_token;
+        try {
+            Config.auth_token = "super-secret-auth-token";
+
+            Assert.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, ConfigBase.dump().get("auth_token"));
+            Assert.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue("auth_token"));
+        } finally {
+            Config.auth_token = old;
+        }
+    }
+
+    // An empty sensitive config is left as-is (no secret to hide), so "unset" stays visible.
+    @Test
+    public void testEmptySensitiveConfigIsNotMasked() {
+        String old = Config.fe_meta_auth_token;
+        try {
+            Config.fe_meta_auth_token = "";
+
+            Assert.assertEquals("", ConfigBase.dump().get("fe_meta_auth_token"));
+            Assert.assertEquals("", configInfoValue("fe_meta_auth_token"));
+        } finally {
+            Config.fe_meta_auth_token = old;
+        }
+    }
+
+    private static String configInfoValue(String key) {
+        for (List<String> row : ConfigBase.getConfigInfo(null)) {
+            if (row.get(0).equals(key)) {
+                return row.get(1);
+            }
+        }
+        throw new IllegalStateException("config not found: " + key);
     }
 
     @Test

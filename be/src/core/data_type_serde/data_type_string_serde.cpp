@@ -20,8 +20,10 @@
 #include <array>
 #include <cstring>
 
+#include "common/config.h"
 #include "core/column/column_string.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
@@ -406,7 +408,12 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_binary_offsets_buffer(*concrete_array);
+        }
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const size_t buffer_size = buffer ? static_cast<size_t>(buffer->size()) : 0;
         const uint8_t* offsets_data = concrete_array->value_offsets()->data();
         const size_t offset_size = sizeof(int32_t);
 
@@ -417,16 +424,23 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
                         unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 int32_t length = end_offset - start_offset;
-                const auto* raw_data = buffer->data() + start_offset;
-
-                assert_cast<ColumnType&>(column).insert_data(
-                        reinterpret_cast<const char*>(raw_data), length);
+                if (config::enable_arrow_input_validation) {
+                    check_arrow_value_range(*concrete_array, start_offset, length, buffer_size);
+                }
+                // insert_data() does not read the input pointer when length is zero.
+                const auto* raw_data = reinterpret_cast<const char*>(buffer->data() + start_offset);
+                assert_cast<ColumnType&>(column).insert_data(raw_data, length);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
             }
         }
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_fixed_width_buffer(*concrete_array,
+                                           static_cast<size_t>(concrete_array->byte_width()));
+        }
         uint32_t width = concrete_array->byte_width();
 
         for (auto offset_i = start; offset_i < end; ++offset_i) {
@@ -440,13 +454,24 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
     } else if (arrow_array->type_id() == arrow::Type::LARGE_STRING ||
                arrow_array->type_id() == arrow::Type::LARGE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::LargeBinaryArray*>(arrow_array);
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_binary_offsets_buffer(*concrete_array);
+        }
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const size_t buffer_size = buffer ? static_cast<size_t>(buffer->size()) : 0;
 
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
-                assert_cast<ColumnType&>(column).insert_data(
-                        (char*)raw_data, concrete_array->value_length(offset_i));
+                const auto value_offset = concrete_array->value_offset(offset_i);
+                const auto value_length = concrete_array->value_length(offset_i);
+                if (config::enable_arrow_input_validation) {
+                    check_arrow_value_range(*concrete_array, value_offset, value_length,
+                                            buffer_size);
+                }
+                // insert_data() does not read the input pointer when length is zero.
+                const auto* raw_data = reinterpret_cast<const char*>(buffer->data() + value_offset);
+                assert_cast<ColumnType&>(column).insert_data(raw_data, value_length);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
             }

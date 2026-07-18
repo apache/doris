@@ -212,7 +212,8 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     
     # Then package with retry
     echo "Building package..."
-    execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
+    # Keep framework unit tests in the standard compile path so pipeline builds enforce framework regressions.
+    execute_maven_with_retry "${MVN_CMD} clean package -B -Dmaven.javadoc.skip=true" || {
         echo "Failed to build package"
         exit 1
     }

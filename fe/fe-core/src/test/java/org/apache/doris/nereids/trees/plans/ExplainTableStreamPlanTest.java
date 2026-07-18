@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -473,12 +474,61 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testAppendOnlyAliasedStreamSnapshotCanBePlanned() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        ctx.getSessionVariable().showHiddenColumns = true;
+
+        assertStreamScanCanBePlanned(ctx, "explain select s.* from test_stream.s_dup@snapshot() as s");
+    }
+
+    @Test
     public void testAppendOnlyStreamResetCanBePlanned() throws Exception {
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
         ctx.getSessionVariable().showHiddenColumns = true;
 
         assertStreamScanCanBePlanned(ctx, "explain select * from test_stream.s_dup@reset()");
+    }
+
+    @Test
+    public void testAppendOnlyAliasedStreamResetCanBePlanned() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        ctx.getSessionVariable().showHiddenColumns = true;
+
+        assertStreamScanCanBePlanned(ctx, "explain select s.* from test_stream.s_dup@reset() as s");
+    }
+
+    @Test
+    public void testRecordPlanForMvPreRewriteNormalizesStreamScanInsideCte() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        ctx.getSessionVariable().showHiddenColumns = true;
+        ctx.getSessionVariable().enableMaterializedViewRewrite = true;
+
+        String sql = "explain with cte as ("
+                + "select k1, __DORIS_STREAM_CHANGE_TYPE_COL__ as change_type from test_stream.s2"
+                + ") "
+                + "select t1.k1 "
+                + "from (select k1, change_type from cte where change_type in ('APPEND', 'UPDATE_AFTER')) t1 "
+                + "join (select k1, change_type from cte where change_type in ('DELETE', 'UPDATE_BEFORE')) t2 "
+                + "on t1.k1 = t2.k1";
+
+        StatementScopeIdGenerator.clear();
+        StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
+        statementContext.setForceRecordTmpPlan(true);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(ctx);
+        planner.planWithLock(logicalPlan, PhysicalProperties.ANY);
+
+        List<Plan> tmpPlans = planner.getCascadesContext().getStatementContext().getTmpPlanForMvRewrite();
+        Assertions.assertFalse(tmpPlans.isEmpty());
+        for (Plan tmpPlan : tmpPlans) {
+            Assertions.assertFalse(containsLogicalStreamScan(tmpPlan),
+                    "tmp plan for mv pre rewrite should have normalized stream scans inside cte children");
+        }
     }
 
     @Test
@@ -525,6 +575,18 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             }
         }
         return null;
+    }
+
+    private boolean containsLogicalStreamScan(Plan plan) {
+        if (plan instanceof LogicalOlapTableStreamScan) {
+            return true;
+        }
+        for (Plan child : plan.children()) {
+            if (containsLogicalStreamScan(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void assertStreamScanCanBePlanned(ConnectContext ctx, String sql) {
