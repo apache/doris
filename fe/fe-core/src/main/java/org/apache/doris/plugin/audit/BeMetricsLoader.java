@@ -143,7 +143,7 @@ public class BeMetricsLoader extends Plugin implements AuditPlugin {
             ++discardRowNum;
             if (LOG.isDebugEnabled()) {
                 LOG.debug("encounter exception when putting be metrics event,"
-                    + " total discard: {}", discardRowNum, e);
+                        + " total discard: {}", discardRowNum, e);
             }
         }
     }
@@ -167,14 +167,14 @@ public class BeMetricsLoader extends Plugin implements AuditPlugin {
             buffer.append(event.queryId).append(BE_METRICS_COL_SEPARATOR);
             buffer.append(beId).append(BE_METRICS_COL_SEPARATOR);
             buffer.append(timeStr).append(BE_METRICS_COL_SEPARATOR);
-            buffer.append(m.scan_rows).append(BE_METRICS_COL_SEPARATOR);
-            buffer.append(m.scan_bytes).append(BE_METRICS_COL_SEPARATOR);
-            buffer.append(m.cpu_ms).append(BE_METRICS_COL_SEPARATOR);
-            buffer.append(m.max_peak_memory_bytes).append(BE_METRICS_COL_SEPARATOR);
-            buffer.append(m.shuffle_send_rows).append(BE_METRICS_COL_SEPARATOR);
-            buffer.append(m.shuffle_send_bytes).append(BE_METRICS_COL_SEPARATOR);
-            buffer.append(m.scan_bytes_from_local_storage).append(BE_METRICS_COL_SEPARATOR);
-            buffer.append(m.scan_bytes_from_remote_storage).append(BE_METRICS_LINE_DELIMITER);
+            buffer.append(m.scanRows).append(BE_METRICS_COL_SEPARATOR);
+            buffer.append(m.scanBytes).append(BE_METRICS_COL_SEPARATOR);
+            buffer.append(m.cpuMs).append(BE_METRICS_COL_SEPARATOR);
+            buffer.append(m.maxPeakMemoryBytes).append(BE_METRICS_COL_SEPARATOR);
+            buffer.append(m.shuffleSendRows).append(BE_METRICS_COL_SEPARATOR);
+            buffer.append(m.shuffleSendBytes).append(BE_METRICS_COL_SEPARATOR);
+            buffer.append(m.scanBytesFromLocalStorage).append(BE_METRICS_COL_SEPARATOR);
+            buffer.append(m.scanBytesFromRemoteStorage).append(BE_METRICS_LINE_DELIMITER);
             ++bufferedRowCount;
         }
     }
@@ -182,9 +182,9 @@ public class BeMetricsLoader extends Plugin implements AuditPlugin {
     public synchronized void loadIfNecessary(boolean force) {
         long currentTime = System.currentTimeMillis();
         if (buffer.length() != 0 && (force
-            || buffer.length() >= GlobalVariable.beMetricsPluginMaxBatchBytes
-            || currentTime - lastLoadTime
-            >= GlobalVariable.beMetricsPluginMaxBatchInternalSec * 1000)) {
+                || buffer.length() >= GlobalVariable.beMetricsPluginMaxBatchBytes
+                || currentTime - lastLoadTime
+                >= GlobalVariable.beMetricsPluginMaxBatchInternalSec * 1000)) {
             try {
                 String token = "";
                 try {
@@ -201,7 +201,7 @@ public class BeMetricsLoader extends Plugin implements AuditPlugin {
             } catch (Exception e) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("encounter exception when loading be metrics batch,"
-                        + " discard current batch", e);
+                            + " discard current batch", e);
                 }
                 discardRowNum += bufferedRowCount;
             } finally {

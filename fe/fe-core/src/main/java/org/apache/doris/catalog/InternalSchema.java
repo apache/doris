@@ -175,27 +175,27 @@ public class InternalSchema {
         // query_be_metrics table: per-BE resource consumption breakdown for each query
         QUERY_BE_METRICS_SCHEMA = new ArrayList<>();
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("query_id", TypeDef.createVarchar(48),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("be_id", TypeDef.create(PrimitiveType.BIGINT),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("time", TypeDef.createDatetimeV2(3),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("scan_rows", TypeDef.create(PrimitiveType.BIGINT),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("scan_bytes", TypeDef.create(PrimitiveType.BIGINT),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("cpu_ms", TypeDef.create(PrimitiveType.BIGINT),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("peak_memory_bytes", TypeDef.create(PrimitiveType.BIGINT),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("shuffle_send_rows", TypeDef.create(PrimitiveType.BIGINT),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("shuffle_send_bytes", TypeDef.create(PrimitiveType.BIGINT),
-            ColumnNullableType.NULLABLE));
+                ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("scan_bytes_from_local_storage",
-            TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("scan_bytes_from_remote_storage",
-            TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
     }
 
     // Get copied schema for statistic table

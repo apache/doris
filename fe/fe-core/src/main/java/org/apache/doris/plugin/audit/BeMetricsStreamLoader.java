@@ -60,7 +60,7 @@ public class BeMetricsStreamLoader {
     }
 
     private HttpURLConnection getConnection(String urlStr, String label, String clusterToken)
-        throws IOException {
+            throws IOException {
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
@@ -73,17 +73,17 @@ public class BeMetricsStreamLoader {
         conn.setConnectTimeout(HTTP_TIMEOUT_MS);
         conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setRequestProperty("timeout",
-            String.valueOf(GlobalVariable.beMetricsPluginLoadTimeoutS));
+                String.valueOf(GlobalVariable.beMetricsPluginLoadTimeoutS));
         conn.addRequestProperty("max_filter_ratio", "1.0");
         conn.addRequestProperty("columns",
-            InternalSchema.QUERY_BE_METRICS_SCHEMA.stream()
+                InternalSchema.QUERY_BE_METRICS_SCHEMA.stream()
                 .map(c -> c.getName())
                 .collect(Collectors.joining(",")));
         conn.addRequestProperty("redirect-policy", "random-be");
         conn.addRequestProperty("column_separator",
-            BeMetricsLoader.BE_METRICS_COL_SEPARATOR_STR);
+                BeMetricsLoader.BE_METRICS_COL_SEPARATOR_STR);
         conn.addRequestProperty("line_delimiter",
-            BeMetricsLoader.BE_METRICS_LINE_DELIMITER_STR);
+                BeMetricsLoader.BE_METRICS_LINE_DELIMITER_STR);
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;
@@ -118,7 +118,7 @@ public class BeMetricsStreamLoader {
             int status = feConn.getResponseCode();
             if (status != 307) {
                 throw new Exception("status is not TEMPORARY_REDIRECT 307, status: "
-                    + status + ", response: " + getContent(feConn));
+                        + status + ", response: " + getContent(feConn));
             }
             String location = feConn.getHeaderField("Location");
             if (location == null) {
@@ -132,11 +132,11 @@ public class BeMetricsStreamLoader {
             String respMsg = beConn.getResponseMessage();
             String response = getContent(beConn);
             LOG.info("BeMetricsLoader plugin load with label: {}, response code: {},"
-                + " msg: {}, content: {}", label, status, respMsg, response);
+                    + " msg: {}, content: {}", label, status, respMsg, response);
             return new LoadResponse(status, respMsg, response);
         } catch (Exception e) {
             String err = "failed to load be metrics via BeMetricsLoader plugin with label: "
-                + label;
+                    + label;
             LOG.warn(err, e);
             return new LoadResponse(-1, e.getMessage(), err);
         } finally {

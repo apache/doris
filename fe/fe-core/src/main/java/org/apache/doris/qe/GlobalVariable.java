@@ -67,11 +67,11 @@ public final class GlobalVariable {
     public static final String AUDIT_PLUGIN_LOAD_TIMEOUT = "audit_plugin_load_timeout";
     public static final String ENABLE_BE_METRICS_PLUGIN = "enable_be_metrics_plugin";
     public static final String BE_METRICS_PLUGIN_MAX_BATCH_BYTES =
-        "be_metrics_plugin_max_batch_bytes";
+            "be_metrics_plugin_max_batch_bytes";
     public static final String BE_METRICS_PLUGIN_MAX_BATCH_INTERVAL_SEC =
-        "be_metrics_plugin_max_batch_interval_sec";
+            "be_metrics_plugin_max_batch_interval_sec";
     public static final String BE_METRICS_PLUGIN_LOAD_TIMEOUT =
-        "be_metrics_plugin_load_timeout";
+            "be_metrics_plugin_load_timeout";
 
     public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
     public static final String READ_ONLY = "read_only";

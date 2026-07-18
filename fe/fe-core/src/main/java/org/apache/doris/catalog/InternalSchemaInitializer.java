@@ -433,7 +433,7 @@ public class InternalSchemaInitializer extends Thread {
 
         if (LOG.isDebugEnabled()) {
             LOG.info("Audit table schema needs update. Current columns ({}): {}",
-                currentColumnNames.size(), currentColumnNames);
+                    currentColumnNames.size(), currentColumnNames);
             LOG.info("Expected columns ({}): {}", expectedColumnNames.size(), expectedColumnNames);
         }
 

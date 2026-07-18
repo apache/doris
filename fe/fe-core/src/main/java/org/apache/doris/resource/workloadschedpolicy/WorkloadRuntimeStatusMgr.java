@@ -63,25 +63,25 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     }
 
     public static class BeMetrics {
-        public long scan_rows = 0;
-        public long scan_bytes = 0;
-        public long cpu_ms = 0;
-        public long max_peak_memory_bytes = 0;
-        public long shuffle_send_rows = 0;
-        public long shuffle_send_bytes = 0;
-        public long scan_bytes_from_local_storage = 0;
-        public long scan_bytes_from_remote_storage = 0;
+        public long scanRows = 0;
+        public long scanBytes = 0;
+        public long cpuMs = 0;
+        public long maxPeakMemoryBytes = 0;
+        public long shuffleSendRows = 0;
+        public long shuffleSendBytes = 0;
+        public long scanBytesFromLocalStorage = 0;
+        public long scanBytesFromRemoteStorage = 0;
 
         public static BeMetrics from(TQueryStatistics src) {
             BeMetrics m = new BeMetrics();
-            m.scan_rows = src.scan_rows;
-            m.scan_bytes = src.scan_bytes;
-            m.cpu_ms = src.cpu_ms;
-            m.max_peak_memory_bytes = src.max_peak_memory_bytes;
-            m.shuffle_send_rows = src.shuffle_send_rows;
-            m.shuffle_send_bytes = src.shuffle_send_bytes;
-            m.scan_bytes_from_local_storage = src.scan_bytes_from_local_storage;
-            m.scan_bytes_from_remote_storage = src.scan_bytes_from_remote_storage;
+            m.scanRows = src.scan_rows;
+            m.scanBytes = src.scan_bytes;
+            m.cpuMs = src.cpu_ms;
+            m.maxPeakMemoryBytes = src.max_peak_memory_bytes;
+            m.shuffleSendRows = src.shuffle_send_rows;
+            m.shuffleSendBytes = src.shuffle_send_bytes;
+            m.scanBytesFromLocalStorage = src.scan_bytes_from_local_storage;
+            m.scanBytesFromRemoteStorage = src.scan_bytes_from_remote_storage;
             return m;
         }
     }
@@ -94,7 +94,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     protected void runAfterCatalogReady() {
         // 1 merge be query statistics
         Map<String, Pair<TQueryStatistics, Map<Long, BeMetrics>>> queryStatisticsMap
-            = getQueryStatisticsMap();
+                = getQueryStatisticsMap();
 
         // 2 log query audit
         try {
@@ -103,7 +103,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             int succLogCount = 0;
             for (AuditEvent auditEvent : auditEventList) {
                 Pair<TQueryStatistics, Map<Long, BeMetrics>> queryStatsPair
-                    = queryStatisticsMap.get(auditEvent.queryId);
+                        = queryStatisticsMap.get(auditEvent.queryId);
                 if (queryStatsPair != null) {
                     TQueryStatistics queryStats = queryStatsPair.first;
                     auditEvent.scanRows = queryStats.scan_rows;
@@ -145,7 +145,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                 LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
                         + "you can check whether qps is too high "
                         + "or reset audit_event_log_queue_size. query id: {}",
-                    queryAuditEventList.size(), event.queryId);
+                        queryAuditEventList.size(), event.queryId);
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event);
                 return;
             }
