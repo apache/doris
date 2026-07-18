@@ -99,3 +99,20 @@
 - **结果**：iceberg 全模块 **974 pass / 0 fail / 1 skip**（+1 守门）；fe-core `DefaultConnectorContextNormalizeUriTest` **9→13 绿**；两处 BUILD SUCCESS + checkstyle 0 违规，0 回归。summary 见 `designs/FIX-PERF-06-*-summary.md`。
 - **新判据（可复用）**：**「作用域即安全边界」**——同一份"含凭证派生"的缓存，跨查询（catalog 级对象）做=撞凭证/授权 gate；**scan 级**做=天然安全（token 恒定、无跨用户、结束即回收）。PERF-05 的 gate 是"跨查询缓存必须判授权"，PERF-06 是"把作用域收回 scan 就不必判"——两面。
 - **下一步**：见 HANDOFF —— PERF-07（C20 写路径一条 DML 3~5 次 load 同表）。
+
+---
+
+## 2026-07-18 — session 5：PERF-07 实现（完整统一版）+ 全绿（commit `97bdcd6bdbe` fe-core + `ea7fd1f6e7a` iceberg）
+
+- **开场校验（6 路侦察 workflow）**：把权威设计每处 `文件:行号` 锚点跟 HEAD 逐一核对——**几乎零漂移**（仅 `getTableSchema` @Override 签名上移 10 行、方法体 419-440 不变）；**定论唯一开放问题**——预编译 EXECUTE 复用同一 `StatementContext`，重置钩子应挂 `ExecuteCommand:90-91`（那两行既有 per-execution 重置旁），**不**挂通用 setter（`setConnectContext` 11 caller 无一在语句中途、但过宽）；作用域 key 含 queryId 为第二道防线。另修正设计两处笔误（`ConnectorSession` 实现实为 21 非 14，仅生产 `ConnectorSessionImpl` 改；删除面比设计列的多——扫描 4 + 写 2 个 ctor、两测试类调用点、两处 `{@link}` 悬空）。
+- **用户拍板**：写路径口径矛盾（任务清单旧写"beginWrite 保持新载" vs 权威设计"取共享表"），上交 AskUserQuestion → **选完整统一版**（读写共享一次加载 + 拆胖句柄 + stash 下沉）。
+- **实现（两个 `[perf]` commit）**：
+  - **fe-core 基础**（`97bdcd6bdbe`）：`fe-connector-api` 加 `ConnectorStatementScope`(接口+NONE)+ `ConnectorSession.getStatementScope()` 默认；`fe-core` 加 `ConnectorStatementScopeImpl`(CHM) + `StatementContext` 懒建字段/同步访问器/`resetConnectorStatementScope`(不在 close/release 清、随 GC，镜像 snapshots) + `ConnectorSessionImpl/Builder` **构造期捕获**(from(ctx) 优先、回退 ConnectContext.get()、两级 null→NONE) + `ExecuteCommand` 一行重置。
+  - **iceberg**（`ea7fd1f6e7a`）：`IcebergStatementScope` helper(`sharedTable` 键 catalogId:db:tbl:queryId + `rewritableDeleteSupply` 键 catalogId:queryId、null-session 兜底)；读 `resolveTableForRead`(+session)/扫描 `resolveTable`/写 `resolveTable`/`beginWrite` 四处走它；**拆 L0**(删 `resolvedTable` 字段/访问器/三 with* 携带 + 两 seam 读写)；`beginWrite` 取共享表(保留 openTransaction refresh)；扫描 accumulate + 写 drain 经作用域同键 map，**整删** `IcebergRewritableDeleteStash`(141 行)+ 测试(204 行)+ 六 ctor 参数；写侧 v3 DELETE/UPDATE/MERGE + NONE **fail-loud**。
+- **关键取舍**：`beginWrite` 保留 refresh（`Transactions.newTransaction` 本就 refresh；保留更安全=新鲜 OCC 基底 + 消解「共享表比 pin 旧」跨缓存错位；读扫描显式钉快照读不可变数据、不受共享对象被 refresh 到 latest 影响）；写侧性能收益≈0，真交付=架构连贯 + 删单例/类。
+- **测试**：iceberg 重写 3 个扫描 stash 测试 + 5 个写 stash 测试为作用域版 + 新增 fail-loud/度量守门/`IcebergStatementScopeTest`(键隔离)/`TestStatementScope` 助手；删 2 个 L0 handle 测试 + `IcebergRewritableDeleteStashTest`。fe-core 新增 `ConnectorStatementScopeTest`(NONE 不 memo/impl memo+隔离/StatementContext 懒建+reset)。
+- **踩坑**：`planScan(null,...)` 空 session 测试 → `sharedTable`/`rewritableDeleteSupply` 加 null 兜底(等价 NONE)；删 L0 测试后 `IcebergTableHandleTest` 5 个 import 悬空(checkstyle 挂 test 源)→ 清理。
+- **对抗复审**：6 视角多 agent(读路径/凭证隔离/快照OCC/删除供给/SPI捕获/L0删除)+ 逐条对抗核实 → **0 确认发现**（3 lens 首轮 stream timeout，单独重跑亦全 clean）。凭证隔离核实：读/扫描/写均 `newCatalogBackedOps(session)` 同用户 + 作用域每语句(不同 ConnectContext→不同 StatementContext→不同 map)；删除供给核实：扫描/写同 StatementContext scope 同 key、parity 逐字、fail-loud 恰覆盖消费 rewritableDeletes 的三 op。
+- **结果**：iceberg **968 pass / 0 fail / 1 skip**；fe-core 两段验 `ConnectorStatementScopeTest` 3 + `ConnectorSessionImplTest` 17 绿；两处 BUILD SUCCESS + checkstyle 0 违规，0 回归。summary 见 `designs/FIX-PERF-07-unified-per-statement-table-owner-summary.md`。
+- **新判据（可复用）**：**「唯一贯穿语句的对象是 `StatementContext`」**——连接器 session 一语句被重建 ~26 次、缓存挂它即死；跨读写共享须向上够到 StatementContext(经中性 SPI `getStatementScope()`)，**构造期捕获**(非实时读)才能让 off-thread 扫描泵够到(它们复用请求线程建的同一 session、无 ConnectContext thread-local)。
+- **下一步**：见 HANDOFF —— PERF-08（C19/C21 维护路径逐单位重扫/无去重；改动小可先行）。

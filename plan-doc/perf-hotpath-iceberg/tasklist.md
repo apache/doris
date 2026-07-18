@@ -21,7 +21,7 @@
 | PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 抽惰性 `cacheBackedFileScanTasks`(delete 索引 eager + data manifest 惰性扁平映射)三处复用;缓存与不 OOM 兼得(否决审计"退回物化"因重引 OOM) | — | ✅ 完成 | `2e5f393779c` |
 | PERF-05 | P1 | C9 | information_schema.tables 每表 loadTable 取 comment → 复核缩小(普通目录 PERF-01 已覆盖);补**无 gate** `IcebergCommentCache` **仅 vended 非 session=user**(红队:session=user 缓存绕过 per-user 授权=泄漏) | — | ✅ 完成 | `aea3ebdd40e` |
 | PERF-06 | P1 | C3 | REST vended-cred 每 data/delete file 重建 StorageProperties+Configuration → scan 级「准备一次、逐文件套用」normalizer(SPI seam+fe-core override,连接器侧 hoist);~~fe-core 框架 memo~~否决(per-catalog 跨查询共享→并发冲刷退化+凭证保留贴红线) | — | ✅ 完成 | `6294edf2833` |
-| PERF-07 | P1 | C20 | 一条 DML 3~5 次 load 同表 → 语句级 resolve 一次传递 | — | ⏳ | |
+| PERF-07 | P1 | C20 | 一条 DML 重复 load 同表 → 每语句「表加载归属者」(`ConnectorStatementScope` 挂 StatementContext) 读写共享一次加载；拆胖句柄；delete stash 下沉到每语句作用域(删单例+类)；beginWrite 取共享表 | — | ✅ 完成 | `97bdcd6bdbe`+`ea7fd1f6e7a` |
 | PERF-08 | P2 | C19 C21 | 维护路径逐单位重扫 / 无去重（rewrite_data_files 每 group planFiles；expire_snapshots S×M）→ union 一次注册 / 按 path 去重 | 改动小可先行 | ⏳ | |
 | PERF-09 | P2 | C5 | **（fe-core 框架层）** streaming pump 逐 split 重建 backend 候选集 + 锁往返 → 微批 | ⚠ 跨连接器，见约束 | ⏳ | |
 | PERF-10 | P2 | C8 | 同组 WHERE conjunct 被转换 5~6 次/查询 → node 字段 memo（与 01 同点失效） | 与 01 同源 | ⏳ | |
@@ -71,9 +71,13 @@
 - **落地**：三处 scan-start（同步/流式/position_deletes）构造一次 normalizer 往下传，六个 per-file seam 参数由 token 换成 normalizer；`TcclPinning` 透传拿到提升；写路径 `getBackendFileType`（O(1)/写）不动。惰性 memo 对齐原逐文件版空URI短路/vended覆盖/坏路径 fail-loud/异常时机。
 - **收益/守门**：一次 vended scan 内 `buildVendedStorageMap`/`createAll` 从 O(N_files+N_deletes)→1。连接器守门测试断言 3 文件 scan `newNormalizerCount==1` 且 `normalizeCount==3`；fe-core parity 测试断言逐字等价。iceberg 974 UT 绿 + fe-core NormalizeUriTest 13 绿。
 
-### [ ] PERF-07 — C20：写路径 3~5 次 load 同表
-- **病灶**：`PhysicalIcebergMergeSink.getRequirePhysicalProperties:161→198`、`PhysicalPlanTranslator.visitPhysicalConnectorTableSink:675,703`、`PluginDrivenTableSink.bindDataSink:175 → IcebergWritePlanProvider.resolveTable:689-702 / beginWrite`（内含 tableExists×2 + 无条件 refresh）。每条 DML +3~5 次串行远程往返。
-- **修复方向**：语句级 resolve 一次传递；exists 从 load 结果推导。
+### [x] PERF-07 — C20：一条 DML 重复 load 同表 · ✅ `97bdcd6bdbe`(fe-core)+`ea7fd1f6e7a`(iceberg)
+- **权威设计/小结**：[`designs/FIX-PERF-07-unified-per-statement-table-owner-design.md`](./designs/FIX-PERF-07-unified-per-statement-table-owner-design.md) + [`-summary.md`](./designs/FIX-PERF-07-unified-per-statement-table-owner-summary.md)；架构结论落 memory `iceberg-table-resolution-cache-scoping`。
+- **病灶**：读元数据/扫描/写成形/`beginWrite` 各自 loadTable 同表（最糟一条 DML 3~5 次）；旧两层缓存（胖句柄 + 跨查询 `IcebergTableCache`）只覆盖读扫描一段，写臂全绕。
+- **方案（用户 2026-07-18 拍板「完整统一版」，取代旧窄设计与审计原方向）**：新增中性 `ConnectorStatementScope`（挂 `StatementContext`、经 `ConnectorSession.getStatementScope()` 够到、构造期捕获以跨 off-thread）作**读写共享**的每语句表加载归属者；读/扫描/写/`beginWrite` 四处全走它，整条语句一张表**只加载一次**；**拆胖句柄**（句柄回归纯坐标）；**delete stash 下沉到每语句作用域**（整删 `IcebergRewritableDeleteStash` ~140 行 + 测试 + 两 provider 六个 ctor 参数）；v3 行级 DML + NONE 作用域**响亮失败**（杜绝静默复活）。`beginWrite` **取共享表**（保留 openTransaction 的 refresh 兜新鲜 OCC 基底）。
+- **⚠ 铁律**：净增 fe-core SPI（碰铁律 A，用户已签字）；prepared-stmt 复用 StatementContext→scope 每执行重置（`ExecuteCommand`）。
+- **验证**：iceberg 968 pass / 0 fail / 1 skip；fe-core 两段验（`ConnectorStatementScopeTest` 3 + `ConnectorSessionImplTest` 17 绿）；6 视角多 agent 对抗复审 0 确认发现。e2e 留 P6.6 切换阶段补。
+- **审计原「exists 从 load 推导 / resolve 一次跨层传递 / beginWrite 保持新载」均已作废**。
 
 ---
 
