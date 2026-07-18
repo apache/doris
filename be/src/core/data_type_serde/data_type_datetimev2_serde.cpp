@@ -497,6 +497,11 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
         const auto* concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
         const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
+        // Mirror write_column_to_arrow: a timezone-naive Arrow timestamp (empty timezone)
+        // stores its value as an as-if-UTC epoch, so it must be read back with UTC.
+        // Interpreting it with the session timezone would shift the wall-clock value for
+        // cross-cluster (type=doris) reads. See apache/doris#65741.
+        const cctz::time_zone& real_ctz = type->timezone().empty() ? cctz::utc_time_zone() : ctz;
         switch (type->unit()) {
         case arrow::TimeUnit::type::SECOND: {
             divisor = DIVISOR_FOR_SECOND;
@@ -529,7 +534,7 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
 
             DateV2Value<DateTimeV2ValueType> v;
             // convert second
-            v.from_unixtime(utc_epoch / divisor, ctz);
+            v.from_unixtime(utc_epoch / divisor, real_ctz);
             // get rest time
             // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
             // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
