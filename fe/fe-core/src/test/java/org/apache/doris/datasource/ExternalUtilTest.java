@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.schema.external.TArrayField;
 import org.apache.doris.thrift.schema.external.TField;
+import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TNestedField;
 import org.apache.doris.thrift.schema.external.TSchema;
 import org.apache.doris.thrift.schema.external.TStructField;
@@ -264,5 +265,24 @@ public class ExternalUtilTest {
         Assert.assertEquals(Arrays.asList("m_c2_a", "m_c2_b"), field2.getNameMapping());
         Assert.assertEquals("AAEC/w==", field2.getInitialDefaultValue());
         Assert.assertTrue(field2.isInitialDefaultValueIsBase64());
+    }
+
+    @Test
+    public void testInitSchemaInfoForAllColumnPreservesPartialNameMapping() {
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        Column mappedColumn = new Column("a", Type.INT, true);
+        mappedColumn.setUniqueId(1);
+        Column unmappedColumn = new Column("b", Type.INT, true);
+        unmappedColumn.setUniqueId(2);
+
+        Map<Integer, List<String>> nameMapping = new HashMap<>();
+        nameMapping.put(mappedColumn.getUniqueId(), Collections.singletonList("a"));
+        ExternalUtil.initSchemaInfoForAllColumn(
+                params, 600L, Arrays.asList(mappedColumn, unmappedColumn), nameMapping);
+
+        List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
+        Assert.assertEquals(Collections.singletonList("a"), fields.get(0).getFieldPtr().getNameMapping());
+        Assert.assertTrue(fields.get(1).getFieldPtr().isSetNameMapping());
+        Assert.assertTrue(fields.get(1).getFieldPtr().getNameMapping().isEmpty());
     }
 }

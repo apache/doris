@@ -189,6 +189,7 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
                     field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
+            .has_name_mapping = field.__isset.name_mapping,
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
@@ -488,6 +489,7 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
+    column->has_name_mapping = context->schema_column->has_name_mapping;
     return Status::OK();
 }
 

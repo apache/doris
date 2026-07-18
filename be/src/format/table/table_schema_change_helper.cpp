@@ -73,6 +73,9 @@ bool find_file_field_idx_by_name_mapping(
                 return true;
             }
         }
+        // An explicit empty or unmatched Iceberg mapping means the legacy field is absent;
+        // falling back to its current name would bind an unrelated physical column.
+        return false;
     }
 
     return table_field.__isset.name && try_match(table_field.name);

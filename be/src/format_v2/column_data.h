@@ -248,6 +248,9 @@ struct ColumnDefinition {
     // Historical or external names for the same logical field. Table formats such as Iceberg can
     // use this to resolve partition path keys after column rename.
     std::vector<std::string> name_mapping {};
+    // Distinguishes no table-level mapping from an explicit empty field mapping. The latter must
+    // not fall back to the current name when matching fields in legacy files.
+    bool has_name_mapping = false;
     DataTypePtr type;
     // Semantic nested children for this schema node.
     //

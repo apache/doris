@@ -82,12 +82,16 @@ bool column_has_name(const ColumnDefinition& column, const std::string& name) {
 }
 
 bool column_names_match(const ColumnDefinition& lhs, const ColumnDefinition& rhs) {
-    if (column_has_name(rhs, lhs.name)) {
-        return true;
+    if (!lhs.has_name_mapping) {
+        if (column_has_name(rhs, lhs.name)) {
+            return true;
+        }
+        if (lhs.has_identifier_name() && column_has_name(rhs, lhs.get_identifier_name())) {
+            return true;
+        }
     }
-    if (lhs.has_identifier_name() && column_has_name(rhs, lhs.get_identifier_name())) {
-        return true;
-    }
+    // Explicit Iceberg name mapping is authoritative: an empty alias list represents a field that
+    // did not exist in the imported file, so only transported aliases may match.
     return std::ranges::any_of(lhs.name_mapping, [&](const std::string& alias) {
         return column_has_name(rhs, alias);
     });
@@ -332,7 +336,8 @@ std::string ColumnDefinition::debug_string() const {
     out << "ColumnDefinition{name=" << name << ", identifier=" << field_debug_string(identifier)
         << ", name_mapping="
         << join_debug_strings(name_mapping, [](const std::string& name) { return name; })
-        << ", local_id=" << local_id << ", type=" << data_type_debug_string(type) << ", children="
+        << ", has_name_mapping=" << has_name_mapping << ", local_id=" << local_id
+        << ", type=" << data_type_debug_string(type) << ", children="
         << join_debug_strings(children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", has_default_expr=" << (default_expr != nullptr)

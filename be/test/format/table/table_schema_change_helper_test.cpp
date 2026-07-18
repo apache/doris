@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -34,6 +35,30 @@
 
 namespace doris {
 class MockTableSchemaChangeHelper : public TableSchemaChangeHelper {};
+
+namespace {
+
+schema::external::TStructField partial_name_mapping_root_field() {
+    TColumnType int_type;
+    int_type.type = TPrimitiveType::INT;
+
+    schema::external::TStructField root_field;
+    for (const auto& [name, id, aliases] :
+         std::vector<std::tuple<std::string, int32_t, std::vector<std::string>>> {{"a", 1, {"a"}},
+                                                                                  {"b", 2, {}}}) {
+        auto field = std::make_shared<schema::external::TField>();
+        field->__set_name(name);
+        field->__set_id(id);
+        field->__set_type(int_type);
+        field->__set_name_mapping(aliases);
+        schema::external::TFieldPtr field_ptr;
+        field_ptr.__set_field_ptr(field);
+        root_field.fields.emplace_back(std::move(field_ptr));
+    }
+    return root_field;
+}
+
+} // namespace
 
 TEST(PartitionColumnFillerTest, FillNullableStringPartitionValue) {
     SlotDescriptor slot;
@@ -425,6 +450,30 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetNameMappingFallback) {
               "    ScalarNode\n");
 }
 
+TEST(MockTableSchemaChangeHelper, IcebergParquetPartialNameMappingIsStrict) {
+    auto root_field = partial_name_mapping_root_field();
+
+    FieldDescriptor parquet_field;
+    for (const auto& name : {"a", "b"}) {
+        FieldSchema file_field;
+        file_field.name = name;
+        file_field.field_id = -1;
+        file_field.data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+        parquet_field._fields.emplace_back(std::move(file_field));
+    }
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+                        root_field, parquet_field, ans_node)
+                        .ok());
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  a (file: a)\n"
+              "    ScalarNode\n"
+              "  b (not exists)\n");
+}
+
 TEST(MockTableSchemaChangeHelper, IcebergOrcSchemaChange) {
     schema::external::TField test_field;
     TColumnType struct_type;
@@ -534,6 +583,22 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcNameMappingFallback) {
               "StructNode\n"
               "  col1_new (file: col1_old)\n"
               "    ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, IcebergOrcPartialNameMappingIsStrict) {
+    auto root_field = partial_name_mapping_root_field();
+
+    std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString("struct<a:int,b:int>"));
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
+    ASSERT_TRUE(
+            TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+                    root_field, orc_type.get(), IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE, ans_node)
+                    .ok());
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  a (file: a)\n"
+              "    ScalarNode\n"
+              "  b (not exists)\n");
 }
 
 TEST(MockTableSchemaChangeHelper, NestedMapArrayStruct) {

@@ -1942,6 +1942,29 @@ TEST(TableReaderTest, AnnotateProjectedColumnUsesCurrentHistorySchemaForNestedTy
     EXPECT_EQ(context.schema_column->children[1].children[1].get_identifier_field_id(), 25);
 }
 
+TEST(TableReaderTest, ExplicitEmptyNameMappingDoesNotMatchCurrentFileName) {
+    auto unmapped_field = external_schema_field("b", 2);
+    unmapped_field.field_ptr->__set_name_mapping({});
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(1);
+    scan_params.__set_history_schema_info({external_schema(1, {unmapped_field})});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    ColumnDefinition table_column = make_table_column(-1, "b", int_type);
+    ProjectedColumnBuildContext context;
+    context.scan_params = &scan_params;
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &table_column).ok());
+    ASSERT_TRUE(table_column.has_name_mapping);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(
+            mapper.create_mapping({table_column}, {}, {make_file_column(0, "b", int_type)}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
+}
+
 TEST(TableReaderTest, ComplexRematerializeCastsScalarChildToTableType) {
     const auto string_type = std::make_shared<DataTypeString>();
     const auto nullable_string_type = make_nullable(string_type);
