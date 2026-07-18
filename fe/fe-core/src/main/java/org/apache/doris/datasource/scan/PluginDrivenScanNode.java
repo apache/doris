@@ -177,6 +177,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Maps filtered conjunct indices (after CAST removal) back to original conjunct indices
     private List<Integer> filteredToOriginalIndex;
 
+    // Memoized resolveScanProvider() result, keyed on currentHandle identity. See resolveScanProvider().
+    // Volatile so the concurrent partition-batch appendBatch threads read a self-consistent (handle, provider).
+    private volatile ResolvedScanProvider resolvedScanProvider;
+
     public PluginDrivenScanNode(PlanNodeId id, TupleDescriptor desc,
             boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext, Connector connector,
@@ -221,7 +225,35 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * {@code null} for connectors without scan capability.
      */
     private ConnectorScanPlanProvider resolveScanProvider() {
-        return connector.getScanPlanProvider(currentHandle);
+        // Memoized per currentHandle IDENTITY. The provider is a pure function of currentHandle (SPI contract:
+        // providers are built fresh/stateless per call and the selected provider does not change across a scan),
+        // so the per-split getFileCompressType / getDeleteFiles hot path reuses one instance instead of
+        // re-allocating + TCCL-swapping a provider per split. currentHandle is only refined (a new object) during
+        // early pushdown/pin, before split enumeration; an identity miss re-resolves — making this byte-identical
+        // to calling connector.getScanPlanProvider(currentHandle) every time. The immutable holder is published via
+        // one volatile write so the concurrent partition-batch appendBatch threads always read a self-consistent
+        // (handle, provider) pair; a null provider (no scan capability) is cached and returned correctly.
+        ResolvedScanProvider cached = resolvedScanProvider;
+        if (cached == null || cached.handle != currentHandle) {
+            cached = new ResolvedScanProvider(currentHandle, connector.getScanPlanProvider(currentHandle));
+            resolvedScanProvider = cached;
+        }
+        return cached.provider;
+    }
+
+    /**
+     * Immutable (handle, provider) pair for {@link #resolveScanProvider()}'s memo. Both fields final so a single
+     * volatile write of the holder safely publishes the pair to concurrent readers (no torn new-key/old-provider
+     * view). {@code provider} may be {@code null} for a connector without scan capability.
+     */
+    private static final class ResolvedScanProvider {
+        private final ConnectorTableHandle handle;
+        private final ConnectorScanPlanProvider provider;
+
+        ResolvedScanProvider(ConnectorTableHandle handle, ConnectorScanPlanProvider provider) {
+            this.handle = handle;
+            this.provider = provider;
+        }
     }
 
     /**
