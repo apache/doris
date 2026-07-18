@@ -6,39 +6,32 @@
 
 ---
 
-# ✅ 已完成（PERF-01 ~ 08）
+# ✅ 已完成（PERF-01 ~ 08 全，PERF-11 部分）
 
 - **PERF-01~07**：见 `progress.md` + `tasklist.md`（胖 handle + 跨查询 `IcebergTableCache`；分区视图缓存；`file_format_type` 兜底 memoize；manifest cache 两旁路接回；information_schema comment 缓存；vended-cred 每文件 normalizer；每语句 `ConnectorStatementScope` 读写共享一次加载）。
-- **PERF-08（`89cc39c8d88` C19 fe-core + `be0035eff62` C21 iceberg）**：两条维护命令的「逐单位重扫/无去重」。
-  - C19 `rewrite_data_files`：`ConnectorRewriteDriver` STEP3 逐组 `registerRewriteSourceFiles`（每次一遍全表 `planFiles()`）→ `unionSourceFilePaths(groups)` 并集**一次**登记；整表扫描 G+1→1。行为不变靠同一固定快照 + 组互斥 + 连接器按 path 去重。
-  - C21 `expire_snapshots`：`buildDeleteFileContentMap` 加方法作用域 visited set 按 `manifest.path()` 去重；远程读 O(S×M)→O(distinct M)、结果 map 逐字节不变。
-  - 2 独立对抗 agent 均判 parity 保持、0 破坏性发现。`ConnectorRewriteDriverTest` 5/5 + `IcebergExpireSnapshotsActionTest` 9/9，两处 BUILD SUCCESS + 0 checkstyle。权威设计/小结/红队见 `designs/FIX-PERF-08-maintenance-path-rescan-*`。
+- **PERF-08（`89cc39c8d88` C19 fe-core + `be0035eff62` C21 iceberg）**：维护命令「逐单位重扫/无去重」——`rewrite_data_files` union 一次登记（全表扫 G+1→1）；`expire_snapshots` 按 `manifest.path()` 去重（O(S×M)→O(distinct M)）。
+- **PERF-10（C8，WHERE conjunct 转换）= 🔬 暂缓**：复核判**低价值**（纯 CPU 微秒、贵的 loadTable 已被 01/07 修掉）且干净不了（大头在 fe-core 通用节点 + 带副作用；连接器侧 EXPLAIN-only 切片因 `ConnectorSession` 无 explain 信号做不干净）。**用户拍板跳过**。详见 tasklist 该条。
+- **PERF-11 部分（`10b7d29423f`，iceberg）= C12 + C15(a) + C13(plan)**：`buildRange` 穿 1 条目 `PerFileScratch`（键 `task.file()`），partition JSON/identity/delete 载体 per-slice→per-file + 同文件 k range 共享不可变实例 + v3 supply put per-file。3 视角对抗 byte-parity 0 破坏；全模块 1064 pass/1 skip。设计/小结/红队见 `designs/FIX-PERF-11-*`。
 
 ---
 
-# 🆕 下一个 session = **P2 剩余（PERF-09 / PERF-10 / PERF-11 三选一）**
+# 🆕 下一个 session = **P2 剩余（PERF-09 框架层 / PERF-11 remainder 二选一）**
 
-> 剩三项，均 P2（CPU/payload/框架层，触发门槛较高但模式典型）。**开场先按 README 流程 step 4 向用户复述并让其定下一个做哪个**（下面给推荐 + 各自要点；**行号信 grep**，PERF-07/08 后可能又漂）。
-
-## 推荐先做：PERF-10（C8）——WHERE conjunct 每查询转换 5~6 次
-- **轻活、iceberg-local、与已完成的 PERF-01 同一失效点**（node 字段 memo，宜顺手）。
-- **病灶**：同组 conjunct 在 `buildRemainingFilter`(×3) + `buildScan` + `getScanNodeProperties`（EXPLAIN 专用序列化，非 EXPLAIN 也跑）被 `convertPredicate` 转换 5~6 次/查询。单次微秒~毫秒，与簇1 同源叠加。
-- **修复方向**：node 字段 memo，与 `cachedPropertiesResult` **同点失效**（复用 PERF-01 立住的失效收窄模式）。
-- **⚠ 落地前 grep**：`IcebergScanPlanProvider` 里 `convertPredicate` 的 5~6 个调用点真实位置 + 各自输入是否恒等（同一 conjunct 列表）→ 确认可安全 memo（同输入同输出、谓词不变量）。
+> 剩两块。**开场先按 README 流程 step 4 向用户复述并让其定做哪个**（下面给要点；**行号信 grep**，PERF-08/11 后必漂）。PERF-10 已暂缓、不再是候选。
 
 ## PERF-09（C5）——streaming pump 逐 split 重建 backend 候选集（**fe-core 框架层**）
-- **⚠ 改的是 fe-core 通用框架**（惠及所有连接器、非 source-specific，**允许改**）；但属共享热路径，须证 **byte + cost 对所有连接器双不变**（对齐「共享框架须双不变」纪律 + 保持 connector-agnostic）。
+- **⚠ 改的是 fe-core 通用框架**（惠及所有连接器、非 source-specific，**允许改**）；但属共享热路径，须证 **byte + cost 对所有连接器双不变**（对齐「共享框架须双不变」纪律 + 保持 connector-agnostic）。**需两段验**（碰 fe-core）。
 - **病灶**：`startStreamingSplit:~1638` 逐 split `addToQueue` → `SplitAssignment` 每 split 重建 backend 候选集（`FederationBackendPolicy.computeScanRangeAssignment` 全量 backend 拷贝 + shuffle + multimap）+ `synchronized` 往返。10⁵~10⁶ split × ~100 BE ≈ 10⁷~10⁸ 冗余。
 - **修复方向**：pump 侧微批（64~256/批）。**先 grep** 该泵 + `SplitAssignment` 现结构，确认微批不改分配语义（同一 split 集合的 backend 分配结果不变）。
 
-## PERF-11（簇5，C12 C13 C14 C15）——per-split 不变量 + payload 放大（**批量、可拆多 commit**）
-- 同一 `buildRange`/`populateRangeParams` 区域：C12 每 byte-slice 重算 partition JSON/identity map/delete 转换 →(specId,PartitionData) memo；C13 v3 delete 双重 thrift 转换 → 转一次 per-file 复用；C14 通用节点 per-split `LocationPath.of`/造完即弃的 columns-from-path/`getFileCompressType` → hoist（**⚠ 涉 fe-core 通用节点，保持 connector-agnostic**）；C15 delete 列表+partition JSON 逐 slice 复制进 `TFileRangeDesc` → per-file 共享引用。
-- **先 grep** `buildRange` / `populateRangeParams` / `IcebergScanRange` 真实结构再逐条立项。
+## PERF-11 remainder（C15b 线路字节 / C13-wire / C14）——**已部分完成，剩下三块各有前置**
+- **C15(b) 线路字节 + C13(wire)**：`IcebergScanRange.populateRangeParams`（现 `:330`，行号信 grep）逐 range 把完整 delete 列表 `delete.toThrift()` + partition JSON 塞进每个 `TFileRangeDesc`。真正减线路字节须 **thrift params 级 delete-file 字典 + per-range 索引 + BE reader 改** = **协议演进（FE+BE 双向 + 兼容性），非回归修复**（审计 C15 自述）——**立项前须与用户确认是否要做这个大改**。
+- **C14 fe-core 通用节点 per-split hoist**：`FileQueryScanNode`/`PluginDrivenScanNode` 逐 split `LocationPath.of`（URLEncoder+URI.create）、每 split 新建 provider（`getFileCompressType`）、造完即弃的 columns-from-path（被 `IcebergScanRange.populateRangeParams` unset）。**⚠ 框架层**、量级较小（~几百 ms@10 万 split）、须证 byte+cost 双不变。与 PERF-09 同属框架层，可一并评估。
 
 ## 铁律提醒
-- PERF-10/11(iceberg 部分) 修复放**连接器侧** node 字段/memo，不碰 fe-core（对齐 PERF-01 模式）。
-- PERF-09 与 PERF-11 的 C14 碰 **fe-core 通用节点/框架**：允许改（跨连接器普惠）但**禁按源名分支** + 须证 byte+cost 双不变。
-- 立项先读审计报告 §2/§5 对应簇原始证据（findings.json 有完整调用链），再对照 HEAD 真实代码 review（HANDOFF 行号/方案可能过时）。
+- PERF-11 remainder 的 C15b 碰 **BE + thrift 协议**：立项前必与用户确认（大改、非回归修复）。
+- PERF-09 与 PERF-11 的 C14 碰 **fe-core 通用节点/框架**：允许改（跨连接器普惠）但**禁按源名分支** + 须证 byte+cost 双不变 + **两段验**。
+- 立项先读审计报告 §2/§5 对应簇原始证据（findings.json 有完整调用链），再对照 HEAD 真实代码 review（HANDOFF 行号/方案可能过时）。PERF-11 已实证：C13 原证据（`IcebergRewritableDeleteStash`）PERF-07 已删——**动前必 grep 核实证据未 stale**。
 
 ---
 

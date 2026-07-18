@@ -130,3 +130,16 @@
 - **踩坑**：`ActionTestTables` 起初误加未命名的 `DeleteFile` import（builder 内联进 `addDeletes` 不具名）→ checkstyle UnusedImports；删 import + 删一个凑数的 anchor 方法（违简单律）。
 - **结果**：fe-core BUILD SUCCESS + `ConnectorRewriteDriverTest` 5/5 + 0 checkstyle；iceberg BUILD SUCCESS + `IcebergExpireSnapshotsActionTest` 9/9 + 0 checkstyle。度量：C19 整表 `planFiles()` G+1→1；C21 delete manifest 远程读 O(S×M)→O(distinct M)。
 - **下一步**：见 HANDOFF —— P2 剩余（PERF-09 fe-core streaming pump 微批 / PERF-10 WHERE conjunct memo / PERF-11 簇5 per-split 不变量+payload）。
+
+---
+
+## 2026-07-18 — session 3（续）：PERF-10 复核判低价值暂缓 + PERF-11 部分完成（commit `10b7d29423f`）
+
+- **PERF-10（C8，WHERE conjunct 转换）复核后暂缓（🔬）**：按 findings.json #7 权威口径 + HEAD 核对——两个独立 verifier 均判 **Low**（纯 planning CPU 微秒~低毫秒、无远程 IO），且当初「每次转换旁跟一次昂贵 loadTable」已被 PERF-01/07 修掉，单独价值极低；干净不了（k≈7 中 4 次在 fe-core 通用节点 `buildRemainingFilter`、**带副作用** `filteredToOriginalIndex`，须双不变 + 缓存副作用）；连接器侧「安全小切片」（去 `getScanNodeProperties` 的 EXPLAIN-only `PUSHDOWN_PREDICATES_PROP` 白干）也做不干净——`ConnectorSession` 无 explain 信号（加=碰框架 SPI，用户不碰）、复用 `buildScan` 转换又因 `getScanNodeProperties` 早于 `buildScan` 顺序反了。**用户 2026-07-18 拍板跳过、改做高价值 PERF-11**。tasklist 标 🔬 记录复活条件（愿加中性 explain 信号则连接器侧可复活）。
+- **PERF-11 部分完成（`10b7d29423f`，连接器侧一个 commit）= C12 + C15(a) + C13(plan)**：
+  - **调研**：读 `buildRange`/`buildRangeForTask`(共用 choke point，eager+流式)/`IcebergScanRange.populateRangeParams`(全 immutable、只读)/`IcebergStreamingSplitSource`(单线程、每 source=每 scan)；确认 per-file 不变量 = partition JSON/identity/ordered 值/delete 载体/format/row-lineage/normalized path，per-slice = start/length/`selfSplitWeight`(=length 项 per-slice)。**C13 原证据 stale**（`IcebergRewritableDeleteStash` PERF-07 已删；现供给走 `IcebergStatementScope.rewritableDeleteSupply` 每语句 map，per-slice 幂等 put）。
+  - **设计红队（3 视角 byte-parity 专攻）**：均 `parity_preserved=true`、0 破坏。关键确认：不同逻辑文件永不共享 `DataFile` 实例（SDK `ContentFileUtil.copy`+缓存 `dataFile.copy()` 逐条拷贝，后者带防复用注释）→ 身份键不 stale；`splitFiles`(`transformAndConcat`) 连续吐同文件 slice → 1 条目缓存 100% 命中、即便非连续也只降 perf；immutable+只读+换引用 → 共享/流式 look-ahead 安全。**3 落地纪律**：selfSplitWeight/start/length 必 per-slice；put 在文件首 slice(miss) 用新文件路径(覆盖末文件、防 v3 复活)；scratch 每 scan 新建非 provider/static。
+  - **落地**：`PerFileScratch`(10 字段)+`computePerFileInvariants`(原逐 slice 逐字不变、末尾写 scratch)；`buildRange` 复用/compute + per-slice 组装、range 引用 scratch 不可变 `partitionValues`/`deleteCarriers` 实例；`buildRangeForTask` 动 buildRange 前捕获 `firstSliceOfFile`、put 仅首 slice；eager 局部 scratch、流式实例字段 scratch；count-pushdown 传 null；`@VisibleForTesting perFileInvariantComputeCount` 守门 + 2 测试(切分文件算 1 次/两文件算 2 次无跨文件串味)。
+  - **明确不做**（tasklist 记）：**C15(b) 线路字节**（`populateRangeParams` 逐 range `toThrift()`+partition JSON 塞每个 `TFileRangeDesc`，减字节须 thrift 字典+BE reader 改=协议演进非回归修复）、**C13(wire) 二次转换**（同处线路侧、随 C15b）、**C14 fe-core 通用节点 hoist**（框架层、须双不变）。
+  - **结果**：`IcebergScanPlanProviderTest` 105/105（+2）、`IcebergConnectorTransactionTest` 66/66、**全模块 1064 pass/1 skip/0 fail**、BUILD SUCCESS + 0 checkstyle。
+- **下一步**：见 HANDOFF —— PERF-09（fe-core streaming pump 微批）或 PERF-11 remainder（C15b/C13-wire/C14）。

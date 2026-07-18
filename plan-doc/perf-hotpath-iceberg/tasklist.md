@@ -24,8 +24,8 @@
 | PERF-07 | P1 | C20 | 一条 DML 重复 load 同表 → 每语句「表加载归属者」(`ConnectorStatementScope` 挂 StatementContext) 读写共享一次加载；拆胖句柄；delete stash 下沉到每语句作用域(删单例+类)；beginWrite 取共享表 | — | ✅ 完成 | `97bdcd6bdbe`+`ea7fd1f6e7a` |
 | PERF-08 | P2 | C19 C21 | 维护路径逐单位重扫 / 无去重（rewrite_data_files 每 group planFiles；expire_snapshots S×M）→ union 一次注册 / 按 path 去重 | 改动小可先行 | ✅ 完成 | `89cc39c8d88`(C19)+`be0035eff62`(C21) |
 | PERF-09 | P2 | C5 | **（fe-core 框架层）** streaming pump 逐 split 重建 backend 候选集 + 锁往返 → 微批 | ⚠ 跨连接器，见约束 | ⏳ | |
-| PERF-10 | P2 | C8 | 同组 WHERE conjunct 被转换 5~6 次/查询 → node 字段 memo（与 01 同点失效） | 与 01 同源 | ⏳ | |
-| PERF-11 | P2 | C12 C13 C14 C15 | per-split 不变量重算 + payload 逐 slice 复制 → hoist / (specId,PartitionData) memo / per-file 共享 | 同区域批量 · ⚠ 含 fe-core 通用节点 | ⏳ | |
+| PERF-10 | P2 | C8 | 同组 WHERE conjunct 被转换 5~6 次/查询 → node 字段 memo（与 01 同点失效） | 与 01 同源 | 🔬 暂缓（复核判低价值） | |
+| PERF-11 | P2 | C12 C13 C14 C15 | per-split 不变量重算 + payload 逐 slice 复制 → hoist / (specId,PartitionData) memo / per-file 共享 | 同区域批量 · ⚠ 含 fe-core 通用节点 | 🚧 部分完成（C12+C15a+C13-plan） | `10b7d29423f` |
 
 ---
 
@@ -94,13 +94,23 @@
 - **修复方向**：pump 侧微批（64~256 个/批）。
 - **约束**：⚠ 改的是 **fe-core 通用框架**（惠及所有连接器，非 source-specific，允许改）；但属共享热路径，须证 **byte + cost 对所有连接器双不变**（对齐现有"共享 MVCC 方法须双不变"纪律）。
 
-### [ ] PERF-10 — C8：WHERE conjunct 转换 5~6 次/查询
+### [🔬] PERF-10 — C8：WHERE conjunct 转换 5~6 次/查询 · 暂缓（2026-07-18 复核判低价值，用户拍板跳过）
 - **病灶**：同组 conjunct 在 `buildRemainingFilter`（×3 处）+ `buildScan:974` + `getScanNodeProperties:1428`（EXPLAIN 专用序列化，**非 EXPLAIN 也跑**）被转换 5~6 次。单次微秒~毫秒级，但与簇1 同源叠加。
-- **修复方向**：node 字段 memo，与 `cachedPropertiesResult` 同点失效。
+- **修复方向（原）**：node 字段 memo，与 `cachedPropertiesResult` 同点失效。
+- **🔬 复核结论（暂缓，findings.json #7 权威口径 + HEAD 核对）**：
+  - **价值现已很低**：两个独立 verifier 均判 **Low**——纯 planning 线程 CPU 微秒~低毫秒、**无远程 IO**；当初记它是因「每次转换旁各跟一次昂贵远程 loadTable」，而那些 loadTable 已被 **PERF-01/07 全部修掉**，单独看只剩微秒级 CPU。
+  - **且干净不了**：k≈7 中 **4 次在 fe-core 通用节点**（`PluginDrivenScanNode.buildRemainingFilter:1888`，且**带副作用** `filteredToOriginalIndex`，`pruneConjunctsFromNodeProperties`/`getSplits` 会读）——memo 须连副作用一起缓存 + 证「对所有连接器字节+成本双不变」，为微秒收益动共用热路径不划算。
+  - **连接器侧「安全小切片」也做不干净**：`getScanNodeProperties:1518-1531` 的 `PUSHDOWN_PREDICATES_PROP` 转换+拼串是 **EXPLAIN 专用**（唯一消费者 `appendExplainInfo:1633`），普通查询每次白干；但要 explain-gate，连接器需知「是否 EXPLAIN」而 `ConnectorSession` **无此信号**（加 = 碰框架 SPI，用户明确不碰）；复用 `buildScan` 转换又因 `getScanNodeProperties`（节点初始化期）**早于** `buildScan`（规划期）而顺序反了、不可行。
+  - **处置**：用户 2026-07-18 拍板**跳过**，改做高价值 PERF-11。若将来愿加一个中性 `ConnectorSession` explain 信号，连接器侧 explain-gate 可复活（收益仍微秒级）。
 - **依赖**：与 PERF-01 同源，宜在 01 之后顺手。
 
-### [ ] PERF-11 — 簇5：per-split 不变量 + payload 放大（C12 C13 C14 C15）
-> 同一 `buildRange`/`populateRangeParams` 区域的 per-split 重复计算与 payload 放大，作为一个任务批量处理（可拆多个 commit）。
+### [🚧] PERF-11 — 簇5：per-split 不变量 + payload 放大（C12 C13 C14 C15） · 部分完成 `10b7d29423f`
+> 同一 `buildRange`/`populateRangeParams` 区域的 per-split 重复计算与 payload 放大，拆多 commit。权威设计/小结/红队见 [`designs/FIX-PERF-11-per-file-invariant-memo-*`](./designs/FIX-PERF-11-per-file-invariant-memo-design.md)。
+> **已完成（`10b7d29423f`，连接器侧）= C12 + C15(a) + C13(plan 侧)**：`buildRange` 穿 1 条目 `PerFileScratch`（键 `task.file()` 身份），partition JSON/identity/ordered 值/delete 载体 per-slice→per-file；同文件 k range 共享不可变实例（省 FE heap）；v3 `rewritableDeleteSupply.put` per-slice→per-file（文件首 slice、覆盖末文件）。eager+流式共用 `buildRangeForTask` choke point，流式 scratch O(1) 不破 OOM。3 视角对抗 byte-parity 0 破坏；全模块 1064 pass/1 skip。
+> **仍未做（deferred，另立 commit/任务）**：
+> - **C15(b) 线路字节**：`populateRangeParams` 逐 range 把完整 delete 列表 `toThrift()` + partition JSON 塞进每个 `TFileRangeDesc` —— 真正减线路字节须 thrift params 级 delete-file 字典 + per-range 索引 + **BE reader 改**，是**协议演进非回归修复**（审计 C15 自述）。
+> - **C13(wire) 二次转换**：上面的 `populateRangeParams` per-range `delete.toThrift()` 亦是 C13 的「第二次转换」——与 C15b 同一处线路侧，随 C15b 一并处理或单独 hoist（缓存 per-file 已转换 descs，牵扯持有 thrift 对象的内存权衡）。
+> - **C14 fe-core 通用节点 hoist**：见下（框架层，须双不变，另议）。
 - **C12**：一个 data file 被 `TableScanUtil.splitFiles` 切成 k 个 byte-slice 后，`buildRange:1045` 对每个 slice 重算 partition JSON（Jackson 序列化 + 时区格式化）、identity map、delete 转换 —— (specId, PartitionData) 级不变量。100k split ≈ 0.5~2s CPU。修：按 (specId, PartitionData) memo。
 - **C13**：v3 rewritable-delete stash：同一 delete 列表 plan 期 `rewritableDeleteDescs:302-313` 转一次 thrift，`populateRangeParams` 再转一次；每 slice 重复 put 相同 supply。修：转一次复用、per-file 而非 per-slice。
 - **C14**：通用节点 per-split 重复 `LocationPath.of`（URLEncoder+URI.create）、重建 columns-from-path 却被 `IcebergScanRange.populateRangeParams:435-437` unset 丢弃；`resolveScanProvider` 每 split 经 `getFileCompressType` 反复解析。修：hoist 不变量 / 删造完即弃分支。⚠ 涉 **fe-core 通用节点**——保持 connector-agnostic，勿加 source-specific 分支。
