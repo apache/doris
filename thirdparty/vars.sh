@@ -579,6 +579,51 @@ LANCE_C_NAME="lance-c-v0.1.2.tar.gz"
 LANCE_C_SOURCE="lance-c-0.1.2"
 LANCE_C_MD5SUM="eb6ec9bc63fa5245864282f24b521d0b"
 
+# Alibaba Cloud OSS C++ SDK stack
+# Required for native OSS data-plane access in BE (enable with USE_OSS=ON, disable with DISABLE_BUILD_OSS=ON)
+
+# APR — required by aliyun-oss-cpp-sdk
+APR_DOWNLOAD="https://dlcdn.apache.org//apr/apr-1.7.6.tar.gz"
+APR_NAME="apr-1.7.6.tar.gz"
+APR_SOURCE="apr-1.7.6"
+APR_MD5SUM="44f27088e423da7cefc1a9717b910d85"
+
+# APR-Util — required by aliyun-oss-cpp-sdk
+APR_UTIL_DOWNLOAD="https://dlcdn.apache.org//apr/apr-util-1.6.3.tar.gz"
+APR_UTIL_NAME="apr-util-1.6.3.tar.gz"
+APR_UTIL_SOURCE="apr-util-1.6.3"
+APR_UTIL_MD5SUM="b2b6fb440548869dc228535e339f619b"
+
+# tea-cpp — Alibaba darabonba transport core (MIT)
+TEA_CPP_DOWNLOAD="https://github.com/aliyun/tea-cpp/archive/b063160af903fe8385f98a95b77a4a8804e09816.tar.gz"
+TEA_CPP_NAME="tea-cpp-b063160.tar.gz"
+TEA_CPP_SOURCE="tea-cpp-b063160af903fe8385f98a95b77a4a8804e09816"
+TEA_CPP_MD5SUM="aeccc8ef5766f0001f81c6cee659776c"
+
+# credentials-cpp — Alibaba Cloud credential providers (Apache 2.0)
+CREDENTIALS_CPP_DOWNLOAD="https://github.com/aliyun/credentials-cpp/archive/f7584e1827b4672d237448f6c8fe348602edf1ae.tar.gz"
+CREDENTIALS_CPP_NAME="credentials-cpp-f7584e1.tar.gz"
+CREDENTIALS_CPP_SOURCE="credentials-cpp-f7584e1827b4672d237448f6c8fe348602edf1ae"
+CREDENTIALS_CPP_MD5SUM="9ece163713695d54aebabc73f388aef4"
+
+# alibabacloud-open-api-v2 — Alibaba Cloud SDK v2 core (Apache 2.0)
+OPENAPI_V2_DOWNLOAD="https://github.com/alibabacloud-sdk-cpp/alibabacloud-open-api-v2/archive/b915b2f8673e4c20aa88c3099f28c654128ee20d.tar.gz"
+OPENAPI_V2_NAME="alibabacloud-open-api-v2-b915b2f.tar.gz"
+OPENAPI_V2_SOURCE="alibabacloud-open-api-v2-b915b2f8673e4c20aa88c3099f28c654128ee20d"
+OPENAPI_V2_MD5SUM="7a1e3307f4b33c6e61810f2c06f74d11"
+
+# sts-20150401 — STS AssumeRole SDK (Apache 2.0)
+STS_20150401_DOWNLOAD="https://github.com/alibabacloud-sdk-cpp/sts-20150401/archive/refs/tags/1.0.9.tar.gz"
+STS_20150401_NAME="sts-20150401-1.0.9.tar.gz"
+STS_20150401_SOURCE="sts-20150401-1.0.9"
+STS_20150401_MD5SUM="ff8a75c6a8f83b8dd694cfa29171ffc7"
+
+# aliyun-oss-cpp-sdk — Alibaba Cloud OSS C++ SDK (Apache 2.0)
+OSS_CPP_DOWNLOAD="https://github.com/aliyun/aliyun-oss-cpp-sdk/archive/refs/tags/1.10.1.tar.gz"
+OSS_CPP_NAME="aliyun-oss-cpp-sdk-1.10.1.tar.gz"
+OSS_CPP_SOURCE="aliyun-oss-cpp-sdk-1.10.1"
+OSS_CPP_MD5SUM="7b1628a678a47148e6c25c88ecf2b5f6"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -666,6 +711,12 @@ export TP_ARCHIVES=(
     'PAIMON_CPP'
     'LANCE_C'
 )
+
+# OSS C++ SDK stack — added only when OSS native SDK build is enabled
+if [[ "$(echo "${DISABLE_BUILD_OSS}" | tr '[:lower:]' '[:upper:]')" != "ON" ]]; then
+    read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} APR APR_UTIL TEA_CPP CREDENTIALS_CPP OPENAPI_V2 STS_20150401 OSS_CPP"
+    export TP_ARCHIVES
+fi
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     #binutils
