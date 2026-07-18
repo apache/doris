@@ -459,8 +459,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 pathPartitionKeys, partitionValues.getIsNull());
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
-        // set file format type, and the type might fall back to native format in setScanParams
-        rangeDesc.setFormatType(getFileFormatType());
+        // Seed connector-specific setup with the scan-level default. A connector may then
+        // override it with the actual format carried by an individual split.
+        rangeDesc.setFormatType(params.getFormatType());
         setScanParams(rangeDesc, fileSplit);
         rangeDesc.setFileCacheAdmission(admissionResult);
 
