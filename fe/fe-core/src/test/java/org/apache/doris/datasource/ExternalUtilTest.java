@@ -285,4 +285,25 @@ public class ExternalUtilTest {
         Assert.assertTrue(fields.get(1).getFieldPtr().isSetNameMapping());
         Assert.assertTrue(fields.get(1).getFieldPtr().getNameMapping().isEmpty());
     }
+
+    @Test
+    public void testInitSchemaInfoForAllColumnDistinguishesAbsentAndEmptyNameMapping() {
+        Column column = new Column("a", Type.INT, true);
+        column.setUniqueId(1);
+
+        TFileScanRangeParams absentParams = new TFileScanRangeParams();
+        ExternalUtil.initSchemaInfoForAllColumn(
+                absentParams, 700L, Collections.singletonList(column), Collections.emptyMap());
+        TField absentField = absentParams.getHistorySchemaInfo().get(0)
+                .getRootField().getFields().get(0).getFieldPtr();
+        Assert.assertFalse(absentField.isSetNameMapping());
+
+        TFileScanRangeParams emptyParams = new TFileScanRangeParams();
+        ExternalUtil.initSchemaInfoForAllColumn(emptyParams, 701L,
+                Collections.singletonList(column), Collections.emptyMap(), true, Collections.emptyMap());
+        TField emptyField = emptyParams.getHistorySchemaInfo().get(0)
+                .getRootField().getFields().get(0).getFieldPtr();
+        Assert.assertTrue(emptyField.isSetNameMapping());
+        Assert.assertTrue(emptyField.getNameMapping().isEmpty());
+    }
 }

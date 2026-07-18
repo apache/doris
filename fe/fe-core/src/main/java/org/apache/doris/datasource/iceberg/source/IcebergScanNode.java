@@ -270,25 +270,27 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     /**
      * Extract name mapping from Iceberg table properties.
-     * Returns a map from field ID to list of mapped names.
+     * Returns a present map, possibly empty, only when the property parsed successfully.
      */
-    private Map<Integer, List<String>> extractNameMapping() {
+    private Optional<Map<Integer, List<String>>> extractNameMapping() {
         Map<Integer, List<String>> result = new HashMap<>();
+        String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
+        if (nameMappingJson == null || nameMappingJson.isEmpty()) {
+            return Optional.empty();
+        }
         try {
-            String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
-            if (nameMappingJson != null && !nameMappingJson.isEmpty()) {
-                NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
-                if (mapping != null) {
-                    // Extract mappings from NameMapping
-                    // NameMapping contains field mappings, we need to convert them to our format
-                    extractMappingsFromNameMapping(mapping.asMappedFields(), result);
-                }
+            NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
+            if (mapping == null) {
+                return Optional.empty();
             }
+            // Optional presence is semantic here: a valid [] still disables current-name fallback.
+            extractMappingsFromNameMapping(mapping.asMappedFields(), result);
+            return Optional.of(result);
         } catch (Exception e) {
             // If name mapping parsing fails, continue without it
             LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
+            return Optional.empty();
         }
-        return result;
     }
 
     private void extractMappingsFromNameMapping(MappedFields mappingFields, Map<Integer, List<String>> result) {
@@ -532,13 +534,14 @@ public class IcebergScanNode extends FileQueryScanNode {
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
         // Extract name mapping from Iceberg table properties
-        Map<Integer, List<String>> nameMapping = extractNameMapping();
+        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
 
         // Equality-delete keys are hidden scan dependencies and need not appear in the query
         // projection. Both scanners need the complete current schema to resolve field ids,
         // historical names, types, and initial defaults when an old data file lacks such a key.
         ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
-                nameMapping, getBase64EncodedInitialDefaultsForScan());
+                nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
+                getBase64EncodedInitialDefaultsForScan());
     }
 
     @VisibleForTesting

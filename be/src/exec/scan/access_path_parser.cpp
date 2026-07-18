@@ -87,6 +87,9 @@ void inherit_schema_metadata(format::ColumnDefinition* column,
         return;
     }
     column->name_mapping = schema_column->name_mapping;
+    // The presence bit is part of the mapping contract: an explicit empty mapping must remain
+    // authoritative after access-path pruning instead of enabling current-name fallback.
+    column->has_name_mapping = schema_column->has_name_mapping;
 }
 
 const format::ColumnDefinition* find_schema_child_by_path(

@@ -42,6 +42,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -59,10 +60,19 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class IcebergScanNodeTest {
     private static final long MB = 1024L * 1024L;
+
+    @SuppressWarnings("unchecked")
+    private static Optional<Map<Integer, List<String>>> extractNameMapping(
+            IcebergScanNode node) throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod("extractNameMapping");
+        method.setAccessible(true);
+        return (Optional<Map<Integer, List<String>>>) method.invoke(node);
+    }
 
     private static class TestIcebergScanNode extends IcebergScanNode {
         private final boolean enableMappingVarbinary;
@@ -106,6 +116,22 @@ public class IcebergScanNodeTest {
             slot.setColumn(column);
             desc.addSlot(slot);
         }
+    }
+
+    @Test
+    public void testExtractNameMappingDistinguishesAbsentAndEmpty() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Table table = Mockito.mock(Table.class);
+        setIcebergTable(node, table);
+
+        Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
+        Assert.assertFalse(extractNameMapping(node).isPresent());
+
+        Mockito.when(table.properties()).thenReturn(
+                Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, "[]"));
+        Optional<Map<Integer, List<String>>> emptyMapping = extractNameMapping(node);
+        Assert.assertTrue(emptyMapping.isPresent());
+        Assert.assertTrue(emptyMapping.get().isEmpty());
     }
 
     @Test
