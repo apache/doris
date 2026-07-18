@@ -184,6 +184,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
 
         // Replay-by-ID must stay cache-only even before the database finishes initialization.
         Assertions.assertTrue(db.getTableForReplay(9999L).isEmpty());
+        Assertions.assertTrue(db.getTableNameForReplay(9999L).isEmpty());
         Assertions.assertEquals(0, db.getBuildTableCallCount());
     }
 
@@ -206,6 +207,23 @@ public class ExternalDatabaseTest extends TestWithFeService {
 
         db.addTableForTest(table);
         Assertions.assertSame(table, db.getTableForReplay(304L).orElse(null));
+        Assertions.assertEquals(0, db.getBuildTableCallCount());
+    }
+
+    @Test
+    public void testReplayRetainedNameSurvivesObjectCacheEviction() {
+        InspectableCatalog catalog = new InspectableCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 305L, "db1", "db1");
+        db.setInitializedForTest(true);
+        TestExternalTable table = new TestExternalTable(306L, "tbl_evicted", "tbl_evicted", catalog, db);
+        db.addTableForTest(table);
+
+        db.evictTableObjectForTest("tbl_evicted");
+
+        Assertions.assertNull(db.getCachedTableForTest("tbl_evicted"));
+        Assertions.assertEquals("tbl_evicted", db.getTableNameForReplay(306L).orElse(null));
+        Assertions.assertTrue(db.getTableForReplay(306L).isEmpty());
+        Assertions.assertTrue(db.getTableForReplay("tbl_evicted").isEmpty());
         Assertions.assertEquals(0, db.getBuildTableCallCount());
     }
 

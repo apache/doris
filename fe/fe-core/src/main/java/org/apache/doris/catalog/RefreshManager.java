@@ -177,40 +177,66 @@ public class RefreshManager {
             LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
-        Optional<? extends ExternalTable> table;
-        if (!Strings.isNullOrEmpty(log.getTableName())) {
-            table = db.get().getTableForReplay(log.getTableName());
+        String localTableName;
+        String tableNameSource;
+        boolean hasTableName = !Strings.isNullOrEmpty(log.getTableName());
+        if (hasTableName) {
+            localTableName = log.getTableName();
+            tableNameSource = "edit log";
         } else {
-            table = db.get().getTableForReplay(log.getTableId());
+            localTableName = db.get().getTableNameForReplay(log.getTableId()).orElse(null);
+            tableNameSource = "retained ID mapping";
         }
-        if (!table.isPresent()) {
-            LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
-            return;
-        }
+        Optional<? extends ExternalTable> table = hasTableName
+                ? db.get().getTableForReplay(log.getTableName())
+                : db.get().getTableForReplay(log.getTableId());
         if (!Strings.isNullOrEmpty(log.getNewTableName())) {
-            // this is a rename table op
-            // R4: propagate the coordinator renameTable's connector-cache invalidation (source + target) to
-            // followers/observers — the base replay below only fixes the FE name cache, so a follower kept the
-            // source name's snapshot pin (and paimon's schema memo) to the TTL after an atomic table swap.
-            // Resolve the source's REMOTE names from the still-cached table BEFORE unregister; the target keeps
-            // the new name (parity with the coordinator). getConnector() does not force-init here: this branch
-            // is reached only for an already-initialized catalog (db + table were resolved from the replay
-            // cache above), mirroring the else branch's refreshTableInternal -> getConnector() hook.
+            if (localTableName == null) {
+                LOG.warn("failed to resolve local table name when replaying rename table, skip rename: {}",
+                        log.debugForRefreshTable());
+                return;
+            }
+            // Keep connector caches aligned with the FE rename replay. A hot object provides the precise remote
+            // source key; if the object is cold, invalidate the connector's database cache because the retained
+            // FE ID mapping contains only the local table name.
             if (catalog instanceof PluginDrivenExternalCatalog) {
                 Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-                String remoteDb = db.get().getRemoteName();
-                connector.invalidateTable(remoteDb, table.get().getRemoteName());
-                connector.invalidateTable(remoteDb, log.getNewTableName());
+                String remoteDbName = db.get().getRemoteName();
+                if (table.isPresent()) {
+                    connector.invalidateTable(remoteDbName, table.get().getRemoteName());
+                } else {
+                    connector.invalidateDb(remoteDbName);
+                }
+                connector.invalidateTable(remoteDbName, log.getNewTableName());
             }
-            db.get().unregisterTable(log.getTableName());
+            db.get().unregisterTable(localTableName);
             db.get().resetMetaCacheNames();
             Env.getCurrentEnv().getConstraintManager().renameTable(
-                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getTableName()),
-                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getNewTableName()));
-        } else {
-            // Full table cache invalidation
-            refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+                    new TableNameInfo(catalog.getName(), db.get().getFullName(), localTableName),
+                    new TableNameInfo(catalog.getName(), db.get().getFullName(), log.getNewTableName()));
+            return;
         }
+        if (!table.isPresent()) {
+            if (localTableName == null) {
+                LOG.warn("failed to resolve local table name when replaying refresh table, skip refresh: {}",
+                        log.debugForRefreshTable());
+                return;
+            }
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTable(catalog.getId(), db.get().getFullName(), localTableName);
+            if (catalog instanceof PluginDrivenExternalCatalog) {
+                // The retained ID mapping cannot recover a mapped remote table name without loading metadata.
+                // Invalidate the connector's database cache to preserve replay correctness without remote I/O.
+                ((PluginDrivenExternalCatalog) catalog).getConnector().invalidateDb(db.get().getRemoteName());
+            }
+            LOG.info("table object cache is cold when replaying refresh table; "
+                            + "invalidated engine caches by local name {} from {}: {}",
+                    localTableName, tableNameSource, log.debugForRefreshTable());
+            return;
+        }
+        // Legacy partition-bearing refresh logs are conservatively replayed as a full table invalidation now that
+        // connector plugins own their partition caches.
+        refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
     }
 
     public void refreshExternalTableFromEvent(String catalogName, String dbName, String tableName,
