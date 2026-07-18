@@ -143,6 +143,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     static void checkColumnOperationsSupported(TableIf table, List<AlterTableOp> alterTableOps)
             throws AnalysisException {
         if (table instanceof IcebergExternalTable) {
+            checkIcebergCompoundColumnOperations(alterTableOps);
             for (AlterTableOp alterTableOp : alterTableOps) {
                 ColumnDefinition columnDefinition = getColumnDefinition(alterTableOp);
                 ColumnPath nestedColumnPath = getNestedColumnPath(alterTableOp);
@@ -163,10 +164,10 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 if (properties != null && !properties.isEmpty()) {
                     throw new AnalysisException("PROPERTIES are not supported for Iceberg column operations");
                 }
-                checkIcebergColumnDefinition(columnDefinition);
+                checkIcebergColumnDefinition(alterTableOp, columnDefinition);
                 if (alterTableOp instanceof AddColumnsOp) {
                     for (ColumnDefinition definition : ((AddColumnsOp) alterTableOp).getColumnDefinitions()) {
-                        checkIcebergColumnDefinition(definition);
+                        checkIcebergColumnDefinition(alterTableOp, definition);
                     }
                 }
             }
@@ -177,6 +178,20 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             if (columnPath != null) {
                 throw new AnalysisException("Nested column path is only supported for Iceberg tables: "
                         + columnPath.getFullPath());
+            }
+        }
+    }
+
+    private static void checkIcebergCompoundColumnOperations(List<AlterTableOp> alterTableOps)
+            throws AnalysisException {
+        if (alterTableOps.size() <= 1) {
+            return;
+        }
+        for (AlterTableOp alterTableOp : alterTableOps) {
+            if (getNestedColumnPath(alterTableOp) != null
+                    || alterTableOp instanceof ModifyColumnCommentOp) {
+                throw new AnalysisException("Multiple Iceberg column operations are not supported when a statement "
+                        + "contains a nested column path or MODIFY COLUMN COMMENT");
             }
         }
     }
@@ -215,7 +230,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 || alterTableOp instanceof ReorderColumnsOp;
     }
 
-    private static void checkIcebergColumnDefinition(ColumnDefinition columnDefinition)
+    private static void checkIcebergColumnDefinition(AlterTableOp alterTableOp, ColumnDefinition columnDefinition)
             throws AnalysisException {
         if (columnDefinition == null) {
             return;
@@ -225,6 +240,16 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         }
         if (columnDefinition.getGeneratedColumnDesc().isPresent()) {
             throw new AnalysisException("Generated columns are not supported for Iceberg ADD/MODIFY COLUMN");
+        }
+        if (alterTableOp instanceof ModifyColumnOp
+                && (columnDefinition.hasDefaultValue() || columnDefinition.hasOnUpdateDefaultValue())) {
+            throw new AnalysisException("Modifying default values is not supported for Iceberg columns: "
+                    + ((ModifyColumnOp) alterTableOp).getColumnPath().getFullPath());
+        }
+        if ((alterTableOp instanceof AddColumnOp || alterTableOp instanceof AddColumnsOp)
+                && columnDefinition.hasOnUpdateDefaultValue()) {
+            throw new AnalysisException("ON UPDATE is not supported for Iceberg ADD COLUMN: "
+                    + columnDefinition.getName());
         }
     }
 

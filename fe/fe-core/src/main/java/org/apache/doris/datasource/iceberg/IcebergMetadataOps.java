@@ -82,6 +82,7 @@ import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.logging.log4j.LogManager;
@@ -877,7 +878,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
-        validateCommonColumnInfo(column, true);
+        validateAddColumnMetadata(column, true);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         Schema schema = icebergTable.schema();
@@ -939,7 +940,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void addColumns(ExternalTable dorisTable, List<Column> columns, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         for (Column column : columns) {
-            validateCommonColumnInfo(column, true);
+            validateAddColumnMetadata(column, true);
             validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         }
         validateNoCaseInsensitiveTopLevelCollisions(icebergTable.schema(), columns);
@@ -1055,7 +1056,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         ResolvedColumnPath columnPath = new ResolvedColumnPath(ColumnPath.of(currentCol.name()),
                 currentCol.type(), currentCol);
 
-        validateCommonColumnMetadata(column, !legacyMode);
+        validateModifyColumnMetadata(column, columnPath.getFullPath(), !legacyMode);
         org.apache.iceberg.types.Type targetType;
         if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol);
@@ -1177,7 +1178,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (isSameMappedDorisType(mappedDorisType(currentIcebergType), requestedDorisType)) {
             return currentIcebergType.asPrimitiveType();
         }
-        return toIcebergTypeForSchemaChange(requestedDorisType, columnPath).asPrimitiveType();
+        org.apache.iceberg.types.Type.PrimitiveType currentType = currentIcebergType.asPrimitiveType();
+        org.apache.iceberg.types.Type.PrimitiveType targetType =
+                toIcebergTypeForSchemaChange(requestedDorisType, columnPath).asPrimitiveType();
+        if (!currentType.equals(targetType) && !TypeUtil.isPromotionAllowed(currentType, targetType)) {
+            throw new UserException("Cannot change Iceberg column " + columnPath + " type from "
+                    + currentType + " to " + targetType);
+        }
+        return targetType;
     }
 
     private void applyPrimitiveColumnChange(UpdateSchema updateSchema, String columnPath,
@@ -1199,6 +1207,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         // check complex type
         if (column.getType().isComplexType()) {
             throw new UserException("Modify column type to non-primitive type is not supported: " + column.getType());
+        }
+        if (!currentCol.type().isPrimitiveType()) {
+            throw new UserException("Modify column type from complex to primitive is not supported: " + columnPath);
         }
         // check nullable
         if (currentCol.isOptional() && !column.isAllowNull()) {
@@ -1646,7 +1657,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private void validateNestedModifyColumnMetadata(Column column, String columnPath) throws UserException {
-        validateCommonColumnMetadata(column, true);
+        validateModifyColumnMetadata(column, columnPath, true);
+    }
+
+    private void validateAddColumnMetadata(Column column, boolean rejectKey) throws UserException {
+        validateCommonColumnInfo(column, rejectKey);
+        if (column.hasOnUpdateDefaultValue()) {
+            throw new UserException("ON UPDATE is not supported for Iceberg ADD COLUMN: " + column.getName());
+        }
+    }
+
+    private void validateModifyColumnMetadata(Column column, String columnPath, boolean rejectKey)
+            throws UserException {
+        validateCommonColumnMetadata(column, rejectKey);
         if (column.hasDefaultValue() || column.hasOnUpdateDefaultValue()) {
             throw new UserException("Modifying default values is not supported for Iceberg columns: " + columnPath);
         }

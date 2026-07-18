@@ -100,6 +100,15 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testValidateForModifyColumnRejectsComplexToPrimitive() {
+        Column column = new Column("struct_col", Type.INT, true);
+        NestedField currentCol = Types.NestedField.required(1, "struct_col", Types.StructType.of(
+                Types.NestedField.required(2, "value", Types.IntegerType.get())));
+        assertUserException(() -> invokeValidateForModifyColumn(column, currentCol),
+                "Modify column type from complex to primitive is not supported: struct_col");
+    }
+
+    @Test
     public void testValidateForModifyComplexColumnRejectsPrimitiveType() {
         Column column = new Column("arr_i", Type.INT, true);
         NestedField currentCol = Types.NestedField.required(1, "arr_i",
@@ -556,6 +565,71 @@ public class IcebergMetadataOpsValidationTest {
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.existing"),
                             nestedOnUpdateColumn, null, 1L),
                     "Modifying default values is not supported for Iceberg columns: s.existing");
+        }
+
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
+    }
+
+    @Test
+    public void testTopLevelColumnOperationsRejectUnsupportedDefaultMetadata() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+
+        Column defaultColumn = new Column("id", Type.BIGINT, false, null, true, "7", "");
+        Column onUpdateColumn = Mockito.spy(new Column("id", Type.BIGINT, true));
+        Column onUpdateAddColumn = Mockito.spy(new Column("new_col", Type.BIGINT, true));
+        Mockito.doReturn(true).when(onUpdateColumn).hasOnUpdateDefaultValue();
+        Mockito.doReturn(true).when(onUpdateAddColumn).hasOnUpdateDefaultValue();
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(dorisTable, defaultColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: id");
+            assertUserException(() -> ops.modifyColumn(
+                            dorisTable, ColumnPath.of("id"), onUpdateColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: id");
+            assertUserException(() -> ops.addColumn(dorisTable, onUpdateAddColumn, null, 1L),
+                    "ON UPDATE is not supported for Iceberg ADD COLUMN: new_col");
+            assertUserException(() -> ops.addColumns(
+                            dorisTable, Collections.singletonList(onUpdateAddColumn), 1L),
+                    "ON UPDATE is not supported for Iceberg ADD COLUMN: new_col");
+        }
+
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
+    }
+
+    @Test
+    public void testUnsupportedPrimitiveModifyFailsBeforeUpdateSchema() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "top_long", Types.LongType.get()),
+                Types.NestedField.required(2, "info", Types.StructType.of(
+                        Types.NestedField.required(3, "metric", Types.LongType.get()),
+                        Types.NestedField.required(4, "child", Types.StructType.of(
+                                Types.NestedField.required(5, "value", Types.IntegerType.get()))))));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(
+                            dorisTable, ColumnPath.of("info"), new Column("info", Type.INT, true), null, 1L),
+                    "Modify column type from complex to primitive is not supported: info");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.child"),
+                            new Column("child", Type.INT, true), null, 1L),
+                    "Modify column type from complex to primitive is not supported: info.child");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("top_long"),
+                            new Column("top_long", Type.INT, true), null, 1L),
+                    "Cannot change Iceberg column top_long type from long to int");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
+                            new Column("metric", Type.INT, true), null, 1L),
+                    "Cannot change Iceberg column info.metric type from long to int");
         }
 
         Mockito.verify(icebergTable, Mockito.never()).updateSchema();

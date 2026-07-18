@@ -23,6 +23,7 @@ import org.apache.doris.nereids.DorisParser.NonReservedContext;
 import org.apache.doris.nereids.DorisParser.QuotedIdentifierContext;
 import org.apache.doris.nereids.DorisParserBaseListener;
 import org.apache.doris.nereids.errors.QueryParsingErrors;
+import org.apache.doris.nereids.exceptions.ParseException;
 
 import org.antlr.v4.runtime.CommonToken;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -43,6 +44,9 @@ public class PostProcessor extends DorisParserBaseListener {
 
     @Override
     public void exitQuotedIdentifier(QuotedIdentifierContext ctx) {
+        if (ctx.getText().equals("``")) {
+            throw new ParseException("Quoted identifier cannot be empty", ctx);
+        }
         replaceTokenByIdentifier(ctx, 1, token -> {
             // Remove the double back ticks in the string.
             token.setText(token.getText().replace("``", "`"));

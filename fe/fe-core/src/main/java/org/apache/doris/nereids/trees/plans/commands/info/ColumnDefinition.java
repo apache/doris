@@ -190,6 +190,10 @@ public class ColumnDefinition {
         return defaultValue.isPresent();
     }
 
+    public boolean hasOnUpdateDefaultValue() {
+        return onUpdateDefaultValue.isPresent();
+    }
+
     public boolean isVisible() {
         return isVisible;
     }

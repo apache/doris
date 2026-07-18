@@ -145,6 +145,21 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     @Test
+    public void testEmptyQuotedIdentifiersAreRejectedAsParseErrors() {
+        for (String sql : List.of(
+                "ALTER TABLE t ADD COLUMN `` INT NULL",
+                "ALTER TABLE t ADD COLUMN info.`` INT NULL",
+                "ALTER TABLE t MODIFY COLUMN info.`` BIGINT",
+                "ALTER TABLE t MODIFY COLUMN info.`` COMMENT 'comment'",
+                "ALTER TABLE t DROP COLUMN info.``",
+                "ALTER TABLE t RENAME COLUMN info.`` TO renamed")) {
+            ParseException exception = Assertions.assertThrows(ParseException.class,
+                    () -> parser.parseSingle(sql), sql);
+            Assertions.assertTrue(exception.getMessage().contains("Quoted identifier cannot be empty"), sql);
+        }
+    }
+
+    @Test
     public void testModifyColumnRoundTripPreservesNullabilityIntent() {
         ModifyColumnOp omitted = assertSingleClausePath(
                 "ALTER TABLE t MODIFY COLUMN info.metric BIGINT",

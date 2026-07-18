@@ -276,6 +276,47 @@ public class AlterTableCommandTest {
     }
 
     @Test
+    void testRejectUnsupportedDefaultChangesForIcebergTable() throws AnalysisException {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t MODIFY COLUMN c BIGINT DEFAULT 7",
+                "ALTER TABLE t MODIFY COLUMN c BIGINT DEFAULT NULL",
+                "ALTER TABLE t MODIFY COLUMN ts DATETIME DEFAULT CURRENT_TIMESTAMP "
+                        + "ON UPDATE CURRENT_TIMESTAMP")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Modifying default values is not supported for Iceberg columns"));
+        }
+
+        AnalysisException onUpdateException = Assertions.assertThrows(AnalysisException.class,
+                () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(
+                        "ALTER TABLE t ADD COLUMN ts DATETIME NULL DEFAULT CURRENT_TIMESTAMP "
+                                + "ON UPDATE CURRENT_TIMESTAMP").getOps()));
+        Assertions.assertTrue(onUpdateException.getMessage()
+                .contains("ON UPDATE is not supported for Iceberg ADD COLUMN"));
+
+        AlterTableCommand.checkColumnOperationsSupported(table,
+                parseAlter("ALTER TABLE t ADD COLUMN c BIGINT NULL DEFAULT 7").getOps());
+    }
+
+    @Test
+    void testRejectCompoundNestedIcebergColumnOperations() throws AnalysisException {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN s.good INT NULL, DROP COLUMN m.value.x",
+                "ALTER TABLE t MODIFY COLUMN c COMMENT 'new comment', ADD COLUMN d INT NULL")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Multiple Iceberg column operations are not supported"));
+        }
+
+        AlterTableCommand.checkColumnOperationsSupported(table,
+                parseAlter("ALTER TABLE t ADD COLUMN c INT NULL, DROP COLUMN d").getOps());
+    }
+
+    @Test
     void testPreserveEmptyAddColumnsValidationForIcebergTable() throws AnalysisException {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         AddColumnsOp addColumnsOp = new AddColumnsOp(null, null, new HashMap<>());
