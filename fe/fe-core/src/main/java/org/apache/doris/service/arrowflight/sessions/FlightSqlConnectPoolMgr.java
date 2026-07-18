@@ -55,6 +55,11 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
 
     @Override
     public void unregisterConnection(ConnectContext ctx) {
+        // Finalize any Arrow Flight query whose coordinator was kept alive across the
+        // GetFlightInfo -> DoGet phases (see #62259), releasing its resources (e.g. external-table
+        // batch SplitSources and the query queue slot) when the connection is torn down: idle/query
+        // timeout, bearer token expiry, or explicit CloseSession all reach here.
+        ctx.closeFlightSqlDeferredExecutors();
         ctx.closeTxn();
         if (connectionMap.remove(ctx.getConnectionId()) != null) {
             numberConnection.decrementAndGet();
