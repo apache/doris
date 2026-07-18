@@ -441,27 +441,31 @@ TEST(UtilTest, test_normalize_http_uri) {
               "https://example.com/path?query=value#fragment");
 }
 
-TEST(UtilTest, test_strip_uri_scheme) {
-    EXPECT_EQ(doris::strip_uri_scheme("example.com:9000"), "example.com:9000");
-    EXPECT_EQ(doris::strip_uri_scheme("http://example.com:9000"), "example.com:9000");
-    EXPECT_EQ(doris::strip_uri_scheme("https://example.com:9000"), "example.com:9000");
-    EXPECT_EQ(doris::strip_uri_scheme("HTTPS://example.com:9000"), "example.com:9000");
-}
-
-TEST(UtilTest, test_set_s3_client_http_scheme) {
+TEST(UtilTest, test_set_s3_client_default_http_scheme) {
     doris::cloud::S3Environment::getInstance();
     Aws::Client::ClientConfiguration client_config =
             doris::cloud::S3Environment::getClientConfiguration();
 
-    client_config.endpointOverride = "http://example.com:9000";
-    doris::set_s3_client_http_scheme(client_config, "https");
+    client_config.endpointOverride = "example.com:9000";
+    doris::set_s3_client_default_http_scheme(client_config, "http");
+    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
+
+    doris::set_s3_client_default_http_scheme(client_config, "https");
     EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
     EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
 
-    client_config.endpointOverride = "https://example.com:9000";
-    doris::set_s3_client_http_scheme(client_config, "http");
-    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
+    client_config.endpointOverride = "http://example.com:9000";
+    client_config.scheme = Aws::Http::Scheme::HTTP;
+    doris::set_s3_client_default_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "http://example.com:9000");
     EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
+
+    client_config.endpointOverride = "https://example.com:9000";
+    client_config.scheme = Aws::Http::Scheme::HTTPS;
+    doris::set_s3_client_default_http_scheme(client_config, "http");
+    EXPECT_EQ(client_config.endpointOverride, "https://example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
 }
 
 TEST(UtilTest, test_long_normalize_http_uri) {

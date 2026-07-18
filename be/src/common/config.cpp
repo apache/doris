@@ -1607,7 +1607,7 @@ DEFINE_Validator(paimon_file_system_scheme_mappings,
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
-// HTTP scheme used by S3Client. The endpoint's own scheme is ignored.
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
 DEFINE_String(s3_client_http_scheme, "http");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
