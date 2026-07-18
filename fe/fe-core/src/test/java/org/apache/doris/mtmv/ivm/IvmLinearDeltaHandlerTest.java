@@ -18,10 +18,15 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -58,19 +63,35 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
-    private static final class TestableIvmLinearDeltaHandler {
+    private final class TestableIvmLinearDeltaHandler {
         private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
-        private final IvmDeltaRewriteVisitor visitor;
-
-        private TestableIvmLinearDeltaHandler() {
-            visitor = new IvmDeltaRewriteVisitor();
-        }
 
         private IvmDeltaRewriteResult exposeRewritePlan(Plan plan, IvmRefreshContext ctx) {
+            return exposeRewritePlanOptional(plan, ctx).orElseThrow(AssertionError::new);
+        }
+
+        private java.util.Optional<IvmDeltaRewriteResult> exposeRewritePlanOptional(Plan plan, IvmRefreshContext ctx) {
+            Map<OlapTable, OlapTableStream> streams = new HashMap<>();
+            plan.collectToList(LogicalOlapScan.class::isInstance).forEach(node -> {
+                LogicalOlapScan scan = (LogicalOlapScan) node;
+                if (!(scan instanceof LogicalOlapTableStreamScan)) {
+                    OlapTable table = (OlapTable) scan.getTable();
+                    OlapTableStream stream = getRegisteredStream(table, 0L);
+                    if (stream != null) {
+                        streams.put(table, stream);
+                    }
+                }
+            });
+            IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
+                    new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(),
+                    new IvmDeltaRewriteState(streams, true, 0));
             return visitor.rewritePlan(plan, ctx);
         }
 
@@ -87,18 +108,51 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         MTMV mtmv = Mockito.mock(MTMV.class);
         Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
-        Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of("id", "name"));
+        Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of(Column.IVM_ROW_ID_COL, "id", "name"));
         return mtmv;
     }
 
     private InsertIntoTableCommand buildIncrementalInsertCommand(Plan sinkChild, MTMV mtmv) {
-        ConnectContext connectContext = new ConnectContext();
-        IvmRewriteResult rewriteResult = new IvmRewriteResult();
-        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
-                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false), connectContext);
+        PlanBundle bundle = normalizePlan(sinkChild);
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
+                bundle.normalizedPlan, bundle.rewriteResult, IvmRewriteContext.incremental(mtmv, false),
+                bundle.connectContext);
         Assertions.assertNotNull(rewritten);
         return new IvmRefreshManager().buildInsertCommand((org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten,
                 mtmv);
+    }
+
+    private LogicalOlapScan buildSnapshotScanForTable(long tableId, String tableName) {
+        LogicalOlapScan scan = buildScanForTable(tableId, tableName);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test_db");
+        if (db != null) {
+            db.unregisterTable(IvmUtil.streamName(0L, tableName));
+            db.unregisterTable(IvmUtil.streamName(1L, tableName));
+        }
+        return scan;
+    }
+
+    private PlanBundle normalizePlan(Plan plan) {
+        ConnectContext connectContext = newConnectContext();
+        JobContext jobContext = newJobContextForRoot(plan, connectContext);
+        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
+    }
+
+    private NamedExpression findProjectExpression(Plan plan, String columnName) {
+        Plan current = plan;
+        while (current instanceof LogicalProject) {
+            Optional<NamedExpression> match = ((LogicalProject<?>) current).getProjects().stream()
+                    .filter(expression -> columnName.equals(expression.getName()))
+                    .filter(Alias.class::isInstance)
+                    .findFirst();
+            if (match.isPresent()) {
+                return match.get();
+            }
+            current = ((LogicalProject<?>) current).child();
+        }
+        throw new AssertionError("No defining project expression found for column: " + columnName);
     }
 
     @Test
@@ -107,57 +161,41 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScan();
         InsertIntoTableCommand command = buildIncrementalInsertCommand(buildScanPlan(scan).child(), mtmv);
         UnboundTableSink<?> sink = getSink(command);
-        Assertions.assertEquals(ImmutableList.of("id", "name"), sink.getColNames());
+        Assertions.assertEquals(ImmutableList.of(Column.IVM_ROW_ID_COL, "id", "name"), sink.getColNames());
     }
 
     @Test
     void testRewritePlanInjectsDmlFactorAtScan() {
-        LogicalOlapScan scan = buildDeltaScan();
+        LogicalOlapScan scan = buildScan();
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());
         Assertions.assertInstanceOf(LogicalProject.class, result.plan);
         Assertions.assertEquals(scan.getOutput().size() + 2, result.plan.getOutput().size());
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
         Assertions.assertEquals(1,
                 result.plan.getOutput().stream().filter(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())).count());
     }
 
     @Test
     void testVisitLogicalProjectAppendsDmlFactor() {
-        LogicalOlapScan scan = buildDeltaScan();
+        LogicalOlapScan scan = buildScan();
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(ImmutableList.copyOf(scan.getOutput()), scan);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(project, dummyCtx());
         Assertions.assertInstanceOf(LogicalProject.class, result.plan);
-        // dml_factor is second-to-last, baseOp is last
+        // dml_factor is second-to-last, sequence is last
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL,
                 result.plan.getOutput().get(result.plan.getOutput().size() - 2).getName());
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL,
+        Assertions.assertEquals(Column.SEQUENCE_COL,
                 result.plan.getOutput().get(result.plan.getOutput().size() - 1).getName());
     }
 
     @Test
-    void testVisitLogicalProjectPreservesExistingDmlFactor() {
-        LogicalOlapScan scan = buildDeltaScan();
-        ImmutableList<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
-                .addAll(scan.getOutput())
-                .add(new Alias(new TinyIntLiteral((byte) 1), Column.IVM_DML_FACTOR_COL))
-                .build();
-        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(outputs, scan);
-        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
-
-        IvmDeltaRewriteResult result = handler.exposeRewritePlan(project, dummyCtx());
-        Assertions.assertEquals(1,
-                result.plan.getOutput().stream().filter(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())).count());
-        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
-    }
-
-    @Test
     void testVisitLogicalFilterPropagatesDmlFactor() {
-        LogicalOlapScan scan = buildDeltaScan();
+        LogicalOlapScan scan = buildScan();
         Expression predicate = new GreaterThan(scan.getOutput().get(0), new IntegerLiteral(0));
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
@@ -169,8 +207,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testVisitLogicalSubQueryAliasPropagatesDmlFactor() {
-        LogicalOlapTableStreamScan scan = buildDeltaScan();
-        LogicalSubQueryAlias<LogicalOlapTableStreamScan> alias = new LogicalSubQueryAlias<>("delta_t", scan);
+        LogicalOlapScan scan = buildScan();
+        LogicalSubQueryAlias<LogicalOlapScan> alias = new LogicalSubQueryAlias<>("delta_t", scan);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(alias, dummyCtx());
@@ -179,18 +217,18 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalSubQueryAlias<?> rewrittenAlias = (LogicalSubQueryAlias<?>) result.plan;
         Assertions.assertInstanceOf(LogicalProject.class, rewrittenAlias.child());
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
         Assertions.assertTrue(rewrittenAlias.getOutput().stream()
                 .anyMatch(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())));
         Assertions.assertTrue(rewrittenAlias.getOutput().stream()
-                .anyMatch(slot -> Column.IVM_BASE_OP_COL.equals(slot.getName())));
+                .anyMatch(slot -> Column.SEQUENCE_COL.equals(slot.getName())));
     }
 
     @Test
     void testVisitNestedLogicalSubQueryAliasPropagatesDmlFactor() {
-        LogicalOlapTableStreamScan scan = buildDeltaScan();
-        LogicalSubQueryAlias<LogicalOlapTableStreamScan> innerAlias = new LogicalSubQueryAlias<>("inner_t", scan);
-        LogicalSubQueryAlias<LogicalSubQueryAlias<LogicalOlapTableStreamScan>> outerAlias =
+        LogicalOlapScan scan = buildScan();
+        LogicalSubQueryAlias<LogicalOlapScan> innerAlias = new LogicalSubQueryAlias<>("inner_t", scan);
+        LogicalSubQueryAlias<LogicalSubQueryAlias<LogicalOlapScan>> outerAlias =
                 new LogicalSubQueryAlias<>("outer_t", innerAlias);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
@@ -198,14 +236,14 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
         Assertions.assertInstanceOf(LogicalSubQueryAlias.class, result.plan);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
         Assertions.assertTrue(result.plan.getOutput().stream()
                 .anyMatch(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())));
     }
 
     @Test
     void testVisitLogicalRepeatPreservesDmlFactorAsPassThrough() {
-        LogicalOlapScan scan = buildDeltaScan();
+        LogicalOlapScan scan = buildScan();
         Slot id = scan.getOutput().get(0);
         Slot name = scan.getOutput().get(1);
         LogicalRepeat<LogicalOlapScan> repeat = new LogicalRepeat<>(
@@ -217,10 +255,11 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(repeat, dummyCtx());
 
-        Assertions.assertInstanceOf(LogicalRepeat.class, result.plan);
-        LogicalRepeat<?> rewrittenRepeat = (LogicalRepeat<?>) result.plan;
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan);
+        LogicalRepeat<?> rewrittenRepeat = (LogicalRepeat<?>) ((LogicalProject<?>) result.plan).child();
         Assertions.assertEquals(repeat.getGroupingSets(), rewrittenRepeat.getGroupingSets());
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
         Assertions.assertFalse(rewrittenRepeat.toShapes().flattenGroupingSetExpression.stream()
                 .anyMatch(expr -> expr instanceof Slot
                         && Column.IVM_DML_FACTOR_COL.equals(((Slot) expr).getName())));
@@ -288,27 +327,25 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRewritePlanWithoutOpColumnUsesLiteralOne() {
-        // Non-incremental stream scan: rewrite returns scan as-is with null dmlFactor (no dml_factor injected)
-        LogicalOlapTableStreamScan scan = (LogicalOlapTableStreamScan) buildDeltaScan()
-                .withReadMode(StreamReadMode.SNAPSHOT);
+        LogicalOlapScan scan = buildScan();
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());
-        // Non-incremental scans do not inject dml_factor
-        Assertions.assertNull(result.dmlFactorSlot);
-        Assertions.assertSame(scan, result.plan);
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan);
+        NamedExpression factorExpr = findProjectExpression(result.plan, Column.IVM_DML_FACTOR_COL);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factorExpr.getName());
+        Assertions.assertInstanceOf(Alias.class, factorExpr);
+        Assertions.assertInstanceOf(If.class, ((Alias) factorExpr).child());
     }
 
     @Test
     void testRewritePlanWithOpColumnUsesIfExpression() {
-        // Incremental stream scan: should use IF(op = "APPEND" OR op = "UPDATE_AFTER", 1, -1)
-        LogicalOlapTableStreamScan scan = buildDeltaScan();
+        LogicalOlapScan scan = buildScan();
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());
-        LogicalProject<?> project = (LogicalProject<?>) result.plan;
-        // dml_factor is second-to-last, baseOp is last
-        NamedExpression factorExpr = project.getProjects().get(project.getProjects().size() - 2);
+        NamedExpression factorExpr = findProjectExpression(result.plan, Column.IVM_DML_FACTOR_COL);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factorExpr.getName());
         Assertions.assertInstanceOf(Alias.class, factorExpr);
         // Should be IF(STREAM_CHANGE_TYPE_COL = "APPEND", 1, -1)
@@ -327,10 +364,9 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRewritePlanWithOpColumnDmlFactorSlotPropagates() {
-        LogicalOlapTableStreamScan scan = buildDeltaScan();
-        // Wrap in project (simulating normalized plan)
+        LogicalOlapScan scan = buildScan();
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());
-        LogicalProject<LogicalOlapTableStreamScan> userProject = new LogicalProject<>(exprs, scan);
+        LogicalProject<LogicalOlapScan> userProject = new LogicalProject<>(exprs, scan);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(userProject, dummyCtx());
@@ -345,8 +381,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinDmlFactorPropagationLeft() {
-        LogicalOlapScan scanDelta = buildDeltaScan(); // isDelta=true
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2"); // isDelta=false
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
@@ -360,8 +396,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinDmlFactorPropagationRight() {
-        LogicalOlapScan scanSnapshot = buildScanForTable(1, "t1"); // isDelta=false
-        LogicalOlapScan scanDelta = buildDeltaScan(); // isDelta=true
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(10, "t10");
+        LogicalOlapScan scanDelta = buildScan();
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanSnapshot, scanDelta, JoinReorderContext.EMPTY);
 
@@ -375,8 +411,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinCrossJoinDmlFactor() {
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
@@ -390,35 +426,33 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinBothDeltaThrows() {
-        LogicalOlapScan scanA = buildDeltaScan(); // isDelta=true
-        LogicalOlapScan scanB = buildDeltaScan(); // isDelta=true
-        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
-                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
-
-        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
-        Assertions.assertThrows(AnalysisException.class,
-                () -> handler.exposeRewritePlan(join, dummyCtx()),
-                "Both sides having dml_factor should throw");
-    }
-
-    @Test
-    void testJoinNeitherDeltaReturnsNullDmlFactor() {
-        LogicalOlapScan scanA = buildScanForTable(1, "t1"); // isDelta=false
-        LogicalOlapScan scanB = buildScanForTable(2, "t2"); // isDelta=false
+        LogicalOlapScan scanA = buildScan();
+        LogicalOlapScan scanB = buildScanForTable(2, "t2");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, dummyCtx());
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+    }
 
-        Assertions.assertNull(result.dmlFactorSlot,
-                "Neither side having dml_factor should return null dml_factor");
+    @Test
+    void testJoinNeitherDeltaReturnsNullDmlFactor() {
+        LogicalOlapScan scanA = buildSnapshotScanForTable(1, "t1");
+        LogicalOlapScan scanB = buildSnapshotScanForTable(2, "t2");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
+        Assertions.assertFalse(handler.exposeRewritePlanOptional(join, dummyCtx()).isPresent(),
+                "Neither side having delta should return Optional.empty()");
     }
 
     @Test
     void testJoinRightOuterJoinThrows() {
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
@@ -428,10 +462,10 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testJoinNonDetGuardAdded() {
+    void testJoinNonDetGuardNotAddedAtLinearRewrite() {
         // Build a join where the snapshot side has a normalized row_id slot (non-deterministic)
-        LogicalOlapScan scanDelta = buildDeltaScan(); // isDelta=true
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2"); // isDelta=false
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
 
         // Simulate normalization: wrap snapshot in a project with row_id slot
         Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
@@ -452,19 +486,16 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 
-        // The result should have assert_true guard wrapping dml_factor
         Assertions.assertNotNull(result.dmlFactorSlot);
-        Assertions.assertInstanceOf(LogicalProject.class, result.plan,
-                "Non-det guard should wrap with a Project containing assert_true");
         String planString = result.plan.toString();
-        Assertions.assertTrue(planString.contains("assert_true") || planString.contains("AssertTrue"),
-                "Non-deterministic row_id should add assert_true guard, plan: " + planString);
+        Assertions.assertFalse(planString.contains(IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX),
+                "Linear join rewrite must not add non-deterministic row_id guard: " + planString);
     }
 
     @Test
     void testJoinDetNoGuard() {
-        LogicalOlapScan scanDelta = buildDeltaScan(); // isDelta=true
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2"); // isDelta=false
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
 
         // Simulate normalization: wrap snapshot in a project with row_id slot
         Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
@@ -486,15 +517,14 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 
         Assertions.assertNotNull(result.dmlFactorSlot);
-        // Join result should NOT have an extra guard project
-        Assertions.assertInstanceOf(LogicalJoin.class, result.plan,
-                "Deterministic row_id should not add guard project");
+        Assertions.assertFalse(result.plan.toString().contains(IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX),
+                "Deterministic row_id should not add guard");
     }
 
     @Test
-    void testJoinGuardFallbackMessage() {
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+    void testJoinDoesNotAddRootGuard() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
 
         Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
         ImmutableList.Builder<NamedExpression> snapshotOutputs = ImmutableList.builder();
@@ -515,14 +545,14 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 
         String planString = result.plan.toString();
-        Assertions.assertTrue(planString.contains("IVM fallback: delete on non-deterministic row_id in INNER_JOIN"),
-                "Guard should contain fallback message, plan: " + planString);
+        Assertions.assertFalse(planString.contains(IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX),
+                "Join rewrite must not add the root fallback guard: " + planString);
     }
 
     @Test
     void testJoinDmlFactorWithHashConjuncts() {
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
         EqualTo condition = new EqualTo(scanDelta.getOutput().get(0), scanSnapshot.getOutput().get(0));
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(condition), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
@@ -559,8 +589,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testUnionDeltaInFirstArm() {
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
         LogicalUnion union = buildUnionAll(scanDelta, scanSnapshot);
 
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
@@ -575,8 +605,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testUnionDeltaInSecondArm() {
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
-        LogicalOlapScan scanDelta = buildDeltaScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
         LogicalUnion union = buildUnionAll(scanSnapshot, scanDelta);
 
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
@@ -591,36 +621,32 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testUnionAllSnapshotReturnsNullDmlFactor() {
-        LogicalOlapScan scanA = buildScanForTable(2, "t2");
-        LogicalOlapScan scanB = buildScanForTable(3, "t3");
+        LogicalOlapScan scanA = buildSnapshotScanForTable(2, "t2");
+        LogicalOlapScan scanB = buildSnapshotScanForTable(3, "t3");
         LogicalUnion union = buildUnionAll(scanA, scanB);
 
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
-        IvmDeltaRewriteResult result = handler.exposeRewritePlan(union, dummyCtx());
-
-        Assertions.assertNull(result.dmlFactorSlot,
-                "All-snapshot union should have null dmlFactorSlot");
-        Assertions.assertInstanceOf(LogicalUnion.class, result.plan,
-                "All-snapshot union should rebuild as LogicalUnion");
+        Assertions.assertFalse(handler.exposeRewritePlanOptional(union, dummyCtx()).isPresent(),
+                "All-snapshot union should return Optional.empty()");
     }
 
     @Test
     void testUnionBothDeltaThrows() {
-        LogicalOlapScan scanA = buildDeltaScan();
-        LogicalOlapTableStreamScan scanB = buildDeltaScanForTable(2, "t2");
+        LogicalOlapScan scanA = buildScan();
+        LogicalOlapScan scanB = buildScanForTable(2, "t2");
         LogicalUnion union = buildUnionAll(scanA, scanB);
 
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
-        Assertions.assertThrows(AnalysisException.class,
-                () -> handler.exposeRewritePlan(union, dummyCtx()),
-                "Multiple delta arms in union should throw AnalysisException");
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(union, dummyCtx());
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
     }
 
     @Test
     void testUnionThreeWayDeltaInMiddle() {
-        LogicalOlapScan scanA = buildScanForTable(2, "t2");
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanC = buildScanForTable(3, "t3");
+        LogicalOlapScan scanA = buildSnapshotScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanC = buildSnapshotScanForTable(3, "t3");
         LogicalUnion union = buildUnionAll(scanA, scanDelta, scanC);
 
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
@@ -635,8 +661,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testUnionOutputMappingPreservesExprIds() {
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
         LogicalUnion union = buildUnionAll(scanDelta, scanSnapshot);
 
         List<ExprId> unionExprIds = union.getOutputs().stream()
@@ -660,9 +686,9 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         // Delta is in the inner union's first arm.
         // Rewriter should: inner union → eliminate b, return a as delta;
         // outer union → eliminate c, return mapped project with dml_factor.
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanB = buildScanForTable(2, "t2");
-        LogicalOlapScan scanC = buildScanForTable(3, "t3");
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanB = buildSnapshotScanForTable(2, "t2");
+        LogicalOlapScan scanC = buildSnapshotScanForTable(3, "t3");
 
         LogicalUnion innerUnion = buildUnionAll(scanDelta, scanB);
         LogicalUnion outerUnion = buildUnionAll(innerUnion, scanC);
@@ -686,50 +712,50 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         }
     }
 
-    // ==================== BaseOp propagation tests ====================
+    // ==================== Sequence propagation tests ====================
 
     @Test
-    void testStreamScanInjectsBaseOpColumn() {
-        LogicalOlapScan scan = buildDeltaScan();
+    void testScanInjectsSequenceColumn() {
+        LogicalOlapScan scan = buildScan();
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());
-        Assertions.assertNotNull(result.baseOpSlot, "baseOp slot should be set for delta scan");
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertNotNull(result.sequenceSlot, "sequence slot should be set for delta scan");
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
         Assertions.assertEquals(scan.getOutput().size() + 2, result.plan.getOutput().size(),
-                "should add dml_factor and baseOp");
+                "should add dml_factor and sequence");
         Assertions.assertEquals(1,
                 result.plan.getOutput().stream()
-                        .filter(slot -> Column.IVM_BASE_OP_COL.equals(slot.getName())).count());
+                        .filter(slot -> Column.SEQUENCE_COL.equals(slot.getName())).count());
     }
 
     @Test
-    void testProjectPropagatesBaseOp() {
-        LogicalOlapScan scan = buildDeltaScan();
+    void testProjectPropagatesSequence() {
+        LogicalOlapScan scan = buildScan();
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
                 ImmutableList.copyOf(scan.getOutput()), scan);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(project, dummyCtx());
-        Assertions.assertNotNull(result.baseOpSlot, "baseOp should propagate through Project");
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertNotNull(result.sequenceSlot, "sequence should propagate through Project");
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
     }
 
     @Test
-    void testFilterPropagatesBaseOp() {
-        LogicalOlapScan scan = buildDeltaScan();
+    void testFilterPropagatesSequence() {
+        LogicalOlapScan scan = buildScan();
         Expression predicate = new GreaterThan(scan.getOutput().get(0), new IntegerLiteral(0));
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(
                 new LogicalFilter<>(com.google.common.collect.ImmutableSet.of(predicate), scan), dummyCtx());
-        Assertions.assertNotNull(result.baseOpSlot, "baseOp should propagate through Filter");
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertNotNull(result.sequenceSlot, "sequence should propagate through Filter");
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
     }
 
     @Test
-    void testRepeatPropagatesBaseOp() {
-        LogicalOlapScan scan = buildDeltaScan();
+    void testRepeatPropagatesSequence() {
+        LogicalOlapScan scan = buildScan();
         Slot id = scan.getOutput().get(0);
         Slot name = scan.getOutput().get(1);
         LogicalRepeat<LogicalOlapScan> repeat = new LogicalRepeat<>(
@@ -740,20 +766,20 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(repeat, dummyCtx());
-        Assertions.assertNotNull(result.baseOpSlot, "baseOp should propagate through Repeat");
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertNotNull(result.sequenceSlot, "sequence should propagate through Repeat");
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
     }
 
     @Test
-    void testUnionPropagatesBaseOpFromDeltaArm() {
-        LogicalOlapScan scanDelta = buildDeltaScan();
-        LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
+    void testUnionPropagatesSequenceFromDeltaArm() {
+        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanSnapshot = buildSnapshotScanForTable(2, "t2");
         LogicalUnion union = buildUnionAll(scanDelta, scanSnapshot);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(union, dummyCtx());
-        Assertions.assertNotNull(result.baseOpSlot,
-                "baseOp should propagate from delta arm through Union");
-        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertNotNull(result.sequenceSlot,
+                "sequence should propagate from delta arm through Union");
+        Assertions.assertEquals(Column.SEQUENCE_COL, result.sequenceSlot.getName());
     }
 }

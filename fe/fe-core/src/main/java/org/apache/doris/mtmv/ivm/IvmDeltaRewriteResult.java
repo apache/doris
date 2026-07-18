@@ -20,17 +20,24 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.Objects;
+
 /**
  * Result of one delta rewrite visitor step.
+ *
+ * <p>{@code maxSeqSuffix} is rewrite metadata used to allocate outer-join
+ * synthetic-row sequences. It is the unencoded low-bit suffix and is not an output slot.
  */
 public class IvmDeltaRewriteResult {
     final Plan plan;
     final Slot dmlFactorSlot;
-    final Slot baseOpSlot;
+    final Slot sequenceSlot;
+    final long maxSeqSuffix;
 
-    IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot, Slot baseOpSlot) {
-        this.plan = plan;
-        this.dmlFactorSlot = dmlFactorSlot;
-        this.baseOpSlot = baseOpSlot;
+    IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot, Slot sequenceSlot, long maxSeqSuffix) {
+        this.plan = Objects.requireNonNull(plan, "plan can not be null");
+        this.dmlFactorSlot = Objects.requireNonNull(dmlFactorSlot, "dml factor slot can not be null");
+        this.sequenceSlot = Objects.requireNonNull(sequenceSlot, "sequence slot can not be null");
+        this.maxSeqSuffix = maxSeqSuffix;
     }
 }
