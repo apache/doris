@@ -176,9 +176,53 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     protected OSS buildOssClient(boolean pathStyle) throws IOException {
         String endpoint = properties.getEndpoint();
+        OssCredentialsProviderType type = properties.getCredentialsProviderType();
+        switch (type) {
+            case INSTANCE_PROFILE:
+                return new OSSClientBuilder().build(endpoint,
+                        new com.aliyun.oss.common.auth.EcsRamRoleCredentialsProvider(
+                                resolveEcsRoleName()),
+                        clientConfiguration(pathStyle));
+            case OIDC:
+                return new OSSClientBuilder().build(endpoint,
+                        new AliyunCredentialsBridge(buildOidcProvider()),
+                        clientConfiguration(pathStyle));
+            case ENV:
+                return new OSSClientBuilder().build(endpoint,
+                        new com.aliyun.oss.common.auth.EnvironmentVariableCredentialsProvider(),
+                        clientConfiguration(pathStyle));
+            case ANONYMOUS:
+                return new OSSClientBuilder().build(endpoint, anonymousCredentialsProvider(),
+                        anonymousClientConfiguration(pathStyle));
+            default:
+                break; // DEFAULT — fall through to property-driven chain below
+        }
+        // DEFAULT: property-driven chain
+        if (hasText(properties.getEcsRamRoleName())) {
+            return new OSSClientBuilder().build(endpoint,
+                    new com.aliyun.oss.common.auth.EcsRamRoleCredentialsProvider(
+                            properties.getEcsRamRoleName()),
+                    clientConfiguration(pathStyle));
+        }
+        if (hasText(properties.getOidcProviderArn())) {
+            return new OSSClientBuilder().build(endpoint,
+                    new AliyunCredentialsBridge(buildOidcProvider()),
+                    clientConfiguration(pathStyle));
+        }
+        if (hasText(properties.getRoleArn())) {
+            return new OSSClientBuilder().build(endpoint,
+                    new AliyunCredentialsBridge(buildAssumeRoleProvider()),
+                    clientConfiguration(pathStyle));
+        }
+        // existing ak/sk / anonymous logic — unchanged
         String accessKey = properties.getAccessKey();
         String secretKey = properties.getSecretKey();
         if (!hasText(accessKey)) {
+            if (hasText(System.getenv("OSS_ACCESS_KEY_ID"))) {
+                return new OSSClientBuilder().build(endpoint,
+                        new com.aliyun.oss.common.auth.EnvironmentVariableCredentialsProvider(),
+                        clientConfiguration(pathStyle));
+            }
             return new OSSClientBuilder().build(endpoint, anonymousCredentialsProvider(),
                     anonymousClientConfiguration(pathStyle));
         }
@@ -188,6 +232,57 @@ public class OssObjStorage implements ObjStorage<OSS> {
             return new OSSClientBuilder().build(endpoint, accessKey, secretKey, token, config);
         }
         return new OSSClientBuilder().build(endpoint, accessKey, secretKey, config);
+    }
+
+    // protected so tests can override
+    protected String discoverEcsRoleName() throws IOException {
+        java.net.URL url = new java.net.URL(
+                "http://100.100.100.200/latest/meta-data/ram/security-credentials/");
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+        conn.setConnectTimeout(3000);
+        conn.setReadTimeout(3000);
+        try (java.io.InputStream in = conn.getInputStream()) {
+            return new String(in.readAllBytes()).trim().split("\n")[0].trim();
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    private String resolveEcsRoleName() throws IOException {
+        String name = properties.getEcsRamRoleName();
+        return hasText(name) ? name : discoverEcsRoleName();
+    }
+
+    private com.aliyuncs.auth.AlibabaCloudCredentialsProvider buildOidcProvider() {
+        String roleArn = hasText(properties.getRoleArn())
+                ? properties.getRoleArn() : System.getenv("ALIBABA_CLOUD_ROLE_ARN");
+        String providerArn = hasText(properties.getOidcProviderArn())
+                ? properties.getOidcProviderArn()
+                : System.getenv("ALIBABA_CLOUD_OIDC_PROVIDER_ARN");
+        String tokenFile = hasText(properties.getOidcTokenFile())
+                ? properties.getOidcTokenFile()
+                : System.getenv("ALIBABA_CLOUD_OIDC_TOKEN_FILE");
+        return com.aliyuncs.auth.OIDCCredentialsProvider.builder()
+                .roleArn(roleArn)
+                .oidcProviderArn(providerArn)
+                .oidcTokenFilePath(tokenFile)
+                .roleSessionName(properties.getRoleSessionName())
+                .stsRegionId(properties.getRegion())
+                .build();
+    }
+
+    private com.aliyuncs.auth.AlibabaCloudCredentialsProvider buildAssumeRoleProvider() {
+        com.aliyuncs.auth.STSAssumeRoleSessionCredentialsProvider.Builder builder =
+                com.aliyuncs.auth.STSAssumeRoleSessionCredentialsProvider.builder()
+                        .accessKeyId(properties.getAccessKey())
+                        .accessKeySecret(properties.getSecretKey())
+                        .roleArn(properties.getRoleArn())
+                        .roleSessionName(properties.getRoleSessionName())
+                        .stsRegionId(properties.getRegion());
+        if (hasText(properties.getExternalId())) {
+            builder.externalId(properties.getExternalId());
+        }
+        return builder.build();
     }
 
     @Override
