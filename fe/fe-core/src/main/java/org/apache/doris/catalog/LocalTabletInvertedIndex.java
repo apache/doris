@@ -224,9 +224,9 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         long tabletId = entry.getKey();
         Replica replica = entry.getValue();
 
-        Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+        Preconditions.checkState(tabletMetaStore.containsKey(tabletId),
                 "tablet " + tabletId + " not exists, backend " + backendId);
-        TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+        TabletMeta tabletMeta = tabletMetaStore.getTabletMeta(tabletId);
 
         if (backendTablets.containsKey(tabletId)) {
             // Tablet exists in both FE and BE
@@ -413,7 +413,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             }
 
             if (storageMedium != tabletMeta.getStorageMedium()) {
-                tabletMeta.setStorageMedium(storageMedium);
+                tabletMetaStore.setStorageMedium(tabletId, storageMedium);
             }
         }
     }
@@ -747,7 +747,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                     }
                 }
             }
-            tabletMetaMap.remove(tabletId);
+            tabletMetaStore.remove(tabletId);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("delete tablet: {}", tabletId);
             }
@@ -761,7 +761,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         long stamp = writeLock();
         try {
             long backendId = replica.getBackendIdWithoutException();
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+            Preconditions.checkState(tabletMetaStore.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, replica " + replica.getId()
                             + ", backend " + backendId);
             replicaMetaTable.put(tabletId, backendId, replica);
@@ -780,7 +780,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
     public void deleteReplica(long tabletId, long backendId) {
         long stamp = writeLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+            Preconditions.checkState(tabletMetaStore.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, backend " + backendId);
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
@@ -811,7 +811,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
     public Replica getReplica(long tabletId, long backendId) {
         long stamp = readLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+            Preconditions.checkState(tabletMetaStore.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, backend " + backendId);
             return replicaMetaTable.get(tabletId, backendId);
         } finally {
@@ -869,7 +869,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
                 return replicaMetaWithBackend.entrySet().stream()
-                        .filter(entry -> tabletMetaMap.get(entry.getKey()).getStorageMedium() == storageMedium)
+                        .filter(entry -> tabletMetaStore.getStorageMedium(entry.getKey()) == storageMedium)
                         .map(entry -> Pair.of(entry.getKey(), entry.getValue().getDataSize()))
                         .collect(Collectors.toList());
             }
@@ -903,7 +903,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
                 for (long tabletId : replicaMetaWithBackend.keySet()) {
-                    if (tabletMetaMap.get(tabletId).getStorageMedium() == TStorageMedium.HDD) {
+                    if (tabletMetaStore.getStorageMedium(tabletId) == TStorageMedium.HDD) {
                         hddNum++;
                     } else {
                         ssdNum++;
@@ -980,20 +980,26 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
 
                 try {
                     Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
-                    TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
-                    if (dbIds.contains(tabletMeta.getDbId()) || tableIds.contains(tabletMeta.getTableId())
-                            || partitionIds.contains(tabletMeta.getPartitionId())) {
+                    // Use individual field accessors to avoid constructing a TabletMeta object
+                    // per iteration, reducing GC pressure when iterating over millions of tablets.
+                    long dbId = tabletMetaStore.getDbId(tabletId);
+                    if (dbId == TabletInvertedIndex.NOT_EXIST_VALUE) {
                         continue;
                     }
-                    Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
+                    long tableId = tabletMetaStore.getTableId(tabletId);
+                    long partitionId = tabletMetaStore.getPartitionId(tabletId);
+                    if (dbIds.contains(dbId) || tableIds.contains(tableId)
+                            || partitionIds.contains(partitionId)) {
+                        continue;
+                    }
                     Preconditions.checkState(
-                            !Env.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
-                            "table " + tabletMeta.getTableId() + " should not be the colocate table");
+                            !Env.getCurrentColocateIndex().isColocateTable(tableId),
+                            "table " + tableId + " should not be the colocate table");
 
-                    TStorageMedium medium = tabletMeta.getStorageMedium();
+                    long indexId = tabletMetaStore.getIndexId(tabletId);
+                    TStorageMedium medium = tabletMetaStore.getStorageMedium(tabletId);
                     Table<Long, Long, Map<Long, Long>> partitionReplicasInfo = partitionReplicasInfoMaps.get(medium);
-                    Map<Long, Long> countMap = partitionReplicasInfo.get(
-                            tabletMeta.getPartitionId(), tabletMeta.getIndexId());
+                    Map<Long, Long> countMap = partitionReplicasInfo.get(partitionId, indexId);
                     if (countMap == null) {
                         // If one be doesn't have any replica of one partition,
                         // it should be counted too.
@@ -1004,7 +1010,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
 
                     Long count = countMap.getOrDefault(beId, 0L);
                     countMap.put(beId, count + 1L);
-                    partitionReplicasInfo.put(tabletMeta.getPartitionId(), tabletMeta.getIndexId(), countMap);
+                    partitionReplicasInfo.put(partitionId, indexId, countMap);
                     partitionReplicasInfoMaps.put(medium, partitionReplicasInfo);
                 } catch (IllegalStateException | NullPointerException e) {
                     // If the tablet or be has some problem, don't count in
