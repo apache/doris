@@ -30,7 +30,6 @@
 #include <sstream>
 #include <string>
 #include <tuple>
-#include <vector>
 
 #include "io/cache/file_cache_common.h"
 

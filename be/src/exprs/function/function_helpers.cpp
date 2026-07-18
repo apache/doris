@@ -27,7 +27,6 @@
 #include <memory>
 #include <ostream>
 #include <string>
-#include <vector>
 
 #include "common/consts.h"
 #include "common/status.h"
