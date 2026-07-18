@@ -213,16 +213,16 @@ public class IcebergMetadataOpsValidationTest {
                     "is not supported for Iceberg column new_field");
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
                             new Column("metric", Type.LARGEINT, true), null, 1L),
-                    "is not supported for Iceberg column metric");
+                    "is not supported for Iceberg column info.metric");
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.child"),
                             new Column("child", unsupportedStruct, false), null, 1L),
-                    "is not supported for Iceberg column child");
+                    "is not supported for Iceberg column info.child.value");
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.events"),
                             new Column("events", unsupportedArray, false), null, 1L),
-                    "is not supported for Iceberg column events");
+                    "is not supported for Iceberg column info.events.element");
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.attrs"),
                             new Column("attrs", unsupportedMap, false), null, 1L),
-                    "is not supported for Iceberg column attrs");
+                    "is not supported for Iceberg column info.attrs.value");
         }
 
         Mockito.verify(icebergTable, Mockito.never()).updateSchema();
@@ -307,6 +307,139 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.verify(updateSchema).updateColumn("Payload.Value", Types.LongType.get(), null);
         Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional(Mockito.anyString());
         Mockito.verify(updateSchema, Mockito.times(2)).commit();
+    }
+
+    @Test
+    public void testPrimitiveModifyPreservesActualTypeWhenMappingDisabled() throws Throwable {
+        Schema schema = mappedPrimitiveSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+        Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(false);
+        Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(false);
+
+        Column topUuid = new Column("top_uuid", Type.STRING, true);
+        topUuid.setNullableSpecified(true);
+        Column nestedUuid = new Column("uuid_value", Type.STRING, true);
+        nestedUuid.setNullableSpecified(true);
+        Column nestedTimestamp = new Column(
+                "tz_value", ScalarType.createDatetimeV2Type(6), true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.of("top_uuid"), topUuid, ColumnPosition.FIRST, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.uuid_value"), nestedUuid,
+                    new ColumnPosition("other"), 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.tz_value"),
+                    nestedTimestamp, null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumnDoc("top_uuid", "");
+        Mockito.verify(updateSchema).updateColumnDoc("info.uuid_value", "");
+        Mockito.verify(updateSchema).updateColumnDoc("info.tz_value", "");
+        Mockito.verify(updateSchema).makeColumnOptional("top_uuid");
+        Mockito.verify(updateSchema).makeColumnOptional("info.uuid_value");
+        Mockito.verify(updateSchema).moveFirst("top_uuid");
+        Mockito.verify(updateSchema).moveAfter("info.uuid_value", "info.other");
+        Mockito.verify(updateSchema, Mockito.never()).updateColumn(
+                Mockito.anyString(), Mockito.any(org.apache.iceberg.types.Type.PrimitiveType.class),
+                Mockito.nullable(String.class));
+        Mockito.verify(updateSchema, Mockito.times(3)).commit();
+    }
+
+    @Test
+    public void testPrimitiveModifyPreservesActualTypeWhenMappingEnabled() throws Throwable {
+        Schema schema = mappedPrimitiveSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+        Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
+        Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.of("top_uuid"),
+                    new Column("top_uuid", ScalarType.createVarbinaryType(16), true), null, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.tz_value"),
+                    new Column("tz_value", ScalarType.createTimeStampTzType(6), true), null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumnDoc("top_uuid", "");
+        Mockito.verify(updateSchema).updateColumnDoc("info.tz_value", "");
+        Mockito.verify(updateSchema, Mockito.never()).updateColumn(
+                Mockito.anyString(), Mockito.any(org.apache.iceberg.types.Type.PrimitiveType.class),
+                Mockito.nullable(String.class));
+        Mockito.verify(updateSchema, Mockito.times(2)).commit();
+    }
+
+    @Test
+    public void testComplexModifyIgnoresUnchangedMappedChildren() throws Throwable {
+        Schema schema = mappedComplexSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+        Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
+        Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("outer.payload"),
+                    new Column("payload", mappedPayloadDorisType(Type.BIGINT, 8,
+                            ScalarType.createVarbinaryType(4)), true), null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumn(
+                "outer.payload.metric", Types.LongType.get(), null);
+        Mockito.verify(updateSchema, Mockito.times(1)).updateColumn(
+                Mockito.anyString(), Mockito.any(org.apache.iceberg.types.Type.PrimitiveType.class),
+                Mockito.nullable(String.class));
+        Mockito.verify(updateSchema).updateColumnDoc("outer.payload", "");
+        Mockito.verify(updateSchema).commit();
+    }
+
+    @Test
+    public void testComplexModifyRejectsChangedUnsupportedMappedChildrenBeforeUpdateSchema() {
+        Schema schema = mappedComplexSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
+        Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("outer.payload"),
+                            new Column("payload", mappedPayloadDorisType(Type.LARGEINT, 8,
+                                    ScalarType.createVarbinaryType(4)), true), null, 1L),
+                    "Type largeint is not supported for Iceberg column outer.payload.metric");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("outer.payload"),
+                            new Column("payload", mappedPayloadDorisType(Type.INT, 16,
+                                    ScalarType.createVarbinaryType(4)), true), null, 1L),
+                    "Type varbinary(16) is not supported for Iceberg column outer.payload.fixed_value");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("outer.payload"),
+                            new Column("payload", mappedPayloadDorisType(Type.INT, 8,
+                                    ScalarType.createVarbinaryType(8)), true), null, 1L),
+                    "Cannot change MAP key type from varbinary(4) to varbinary(8)");
+        }
+
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
     }
 
     @Test
@@ -924,6 +1057,44 @@ public class IcebergMetadataOpsValidationTest {
                         Types.ListType.ofOptional(2, Types.IntegerType.get())),
                 Types.NestedField.optional(3, "m", Types.MapType.ofOptional(
                         4, 5, Types.StringType.get(), Types.IntegerType.get())));
+    }
+
+    private Schema mappedPrimitiveSchema() {
+        return new Schema(
+                Types.NestedField.required(1, "top_uuid", Types.UUIDType.get()),
+                Types.NestedField.required(2, "top_other", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "info", Types.StructType.of(
+                        Types.NestedField.required(4, "uuid_value", Types.UUIDType.get()),
+                        Types.NestedField.required(5, "tz_value", Types.TimestampType.withZone()),
+                        Types.NestedField.required(6, "other", Types.IntegerType.get()))));
+    }
+
+    private Schema mappedComplexSchema() {
+        return new Schema(Types.NestedField.optional(1, "outer", Types.StructType.of(
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "uuid_value", Types.UUIDType.get()),
+                        Types.NestedField.optional(4, "binary_value", Types.BinaryType.get()),
+                        Types.NestedField.optional(5, "fixed_value", Types.FixedType.ofLength(8)),
+                        Types.NestedField.optional(6, "tz_value", Types.TimestampType.withZone()),
+                        Types.NestedField.optional(7, "metric", Types.IntegerType.get()),
+                        Types.NestedField.optional(8, "events",
+                                Types.ListType.ofOptional(9, Types.UUIDType.get())),
+                        Types.NestedField.optional(10, "attrs", Types.MapType.ofOptional(
+                                11, 12, Types.FixedType.ofLength(4), Types.TimestampType.withZone())))))));
+    }
+
+    private StructType mappedPayloadDorisType(Type metricType, int fixedLength, Type mapKeyType) {
+        return new StructType(
+                new StructField("uuid_value", ScalarType.createVarbinaryType(16)),
+                new StructField("binary_value",
+                        ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH)),
+                new StructField("fixed_value", ScalarType.createVarbinaryType(fixedLength)),
+                new StructField("tz_value", ScalarType.createTimeStampTzType(6)),
+                new StructField("metric", metricType),
+                new StructField("events", ArrayType.create(
+                        ScalarType.createVarbinaryType(16), true)),
+                new StructField("attrs", new MapType(
+                        mapKeyType, ScalarType.createTimeStampTzType(6))));
     }
 
     private Schema requiredNestedSchema() {
