@@ -103,106 +103,117 @@ bool uses_legacy_access_path_encoding(const TColumnAccessPath& path) {
 
 namespace {
 
-// Routes only descendant paths produced by ColumnIterator::_split_access_paths(). Their versions
-// have been validated, legacy paths have DATA type, and every active payload is non-empty.
-// Routing rewrites only the payload selected by type.
+// Routes descendant paths produced by ColumnIterator::_split_access_paths() to the immediate data
+// children of a nested column. Their versions have been validated, legacy paths have DATA type,
+// and every payload selected by type is non-empty. Routing never interprets or rewrites the
+// unselected compatibility payload.
 class DescendantAccessPathRouter final {
 public:
     DescendantAccessPathRouter() = delete;
 
-    struct ChildRoutes {
-        TColumnAccessPaths all;
-        TColumnAccessPaths predicate;
+    // Preserve the two set_access_paths() input channels. all_paths originates from the
+    // all-access-path superset, while predicate_paths separately records predicate-phase paths.
+    // Routing may omit all_paths when the parent already requires complete child data.
+    struct ChildAccessPaths {
+        TColumnAccessPaths all_paths;
+        TColumnAccessPaths predicate_paths;
 
-        bool empty() const { return all.empty() && predicate.empty(); }
+        bool empty() const { return all_paths.empty() && predicate_paths.empty(); }
     };
 
-    struct MapRoutes {
-        ChildRoutes key;
-        ChildRoutes value;
+    struct MapChildAccessPaths {
+        ChildAccessPaths key;
+        ChildAccessPaths value;
     };
 
-    static Result<MapRoutes> route_map_descendants(TColumnAccessPaths all_paths,
-                                                   TColumnAccessPaths predicate_paths,
-                                                   const std::string& key_name,
-                                                   const std::string& value_name) {
-        MapRoutes routes;
-        auto status = route_map_path_set(std::move(all_paths), key_name, value_name, routes.key.all,
-                                         routes.value.all);
+    // Map selectors are logical. Convert KEYS/VALUES to the actual key/value iterator names. For a
+    // wildcard, create a complete DATA path for keys and route trailing qualifiers to values.
+    static Result<MapChildAccessPaths> route_map_paths_to_children(
+            TColumnAccessPaths all_paths, TColumnAccessPaths predicate_paths,
+            const std::string& key_name, const std::string& value_name) {
+        MapChildAccessPaths child_paths;
+        auto status = distribute_map_paths(std::move(all_paths), key_name, value_name,
+                                           child_paths.key.all_paths, child_paths.value.all_paths);
         if (!status.ok()) {
             return ResultError(std::move(status));
         }
-        status = route_map_path_set(std::move(predicate_paths), key_name, value_name,
-                                    routes.key.predicate, routes.value.predicate);
+        status = distribute_map_paths(std::move(predicate_paths), key_name, value_name,
+                                      child_paths.key.predicate_paths,
+                                      child_paths.value.predicate_paths);
         if (!status.ok()) {
             return ResultError(std::move(status));
         }
-        return routes;
+        return child_paths;
     }
 
-    static Result<ChildRoutes> route_array_descendants(TColumnAccessPaths all_paths,
-                                                       TColumnAccessPaths predicate_paths,
-                                                       const std::string& item_name) {
-        ChildRoutes routes {.all = std::move(all_paths), .predicate = std::move(predicate_paths)};
-        auto rewrite_item_roots = [&](TColumnAccessPaths& paths) -> Status {
+    // Array has one data child. Retarget its logical wildcard selector to the item iterator name.
+    static Result<ChildAccessPaths> route_array_paths_to_item(TColumnAccessPaths all_paths,
+                                                              TColumnAccessPaths predicate_paths,
+                                                              const std::string& item_name) {
+        ChildAccessPaths child_paths {.all_paths = std::move(all_paths),
+                                      .predicate_paths = std::move(predicate_paths)};
+        auto retarget_wildcard_paths_to_item = [&](TColumnAccessPaths& paths) -> Status {
             for (auto& path : paths) {
-                const bool matches_access_all = DORIS_TRY(
-                        root_matches(path, ColumnIterator::ACCESS_ALL, RootMatchMode::EXACT));
-                if (matches_access_all) {
-                    RETURN_IF_ERROR(rewrite_active_payload_root(path, item_name));
+                const bool is_wildcard = DORIS_TRY(selected_payload_head_matches(
+                        path, ColumnIterator::ACCESS_ALL, PathHeadMatchMode::EXACT));
+                if (is_wildcard) {
+                    RETURN_IF_ERROR(replace_selected_payload_head(path, item_name));
                 }
             }
             return Status::OK();
         };
 
-        auto status = rewrite_item_roots(routes.all);
+        auto status = retarget_wildcard_paths_to_item(child_paths.all_paths);
         if (!status.ok()) {
             return ResultError(std::move(status));
         }
-        status = rewrite_item_roots(routes.predicate);
+        status = retarget_wildcard_paths_to_item(child_paths.predicate_paths);
         if (!status.ok()) {
             return ResultError(std::move(status));
         }
-        return routes;
+        return child_paths;
     }
 
-    static Result<ChildRoutes> route_struct_child(const TColumnAccessPaths& all_paths,
-                                                  const TColumnAccessPaths& predicate_paths,
-                                                  const std::string& child_name,
-                                                  bool route_projection_paths) {
-        ChildRoutes routes;
-        auto route_path_set = [&](const TColumnAccessPaths& source_paths,
-                                  bool is_predicate) -> Status {
-            auto& child_paths = is_predicate ? routes.predicate : routes.all;
+    // Struct selectors already use child field names. Select the paths for one child without
+    // rewriting them, so that the child can validate and strip its own name.
+    static Result<ChildAccessPaths> select_struct_paths_for_child(
+            const TColumnAccessPaths& all_paths, const TColumnAccessPaths& predicate_paths,
+            const std::string& child_name, bool include_all_paths) {
+        ChildAccessPaths child_paths;
+        auto select_matching_paths = [&](const TColumnAccessPaths& source_paths,
+                                         TColumnAccessPaths& child_paths) -> Status {
             for (const auto& path : source_paths) {
-                const bool routes_to_child =
-                        DORIS_TRY(root_matches(path, child_name, RootMatchMode::CASE_INSENSITIVE));
-                if (routes_to_child) {
+                const bool matches_child = DORIS_TRY(selected_payload_head_matches(
+                        path, child_name, PathHeadMatchMode::CASE_INSENSITIVE));
+                if (matches_child) {
                     child_paths.emplace_back(path);
                 }
             }
             return Status::OK();
         };
 
-        if (route_projection_paths) {
-            auto status = route_path_set(all_paths, false);
+        if (include_all_paths) {
+            auto status = select_matching_paths(all_paths, child_paths.all_paths);
             if (!status.ok()) {
                 return ResultError(std::move(status));
             }
         }
-        auto status = route_path_set(predicate_paths, true);
+        auto status = select_matching_paths(predicate_paths, child_paths.predicate_paths);
         if (!status.ok()) {
             return ResultError(std::move(status));
         }
-        return routes;
+        return child_paths;
     }
 
 private:
-    enum class RootMatchMode { EXACT, CASE_INSENSITIVE };
-    enum class MapTarget { NONE, WILDCARD, KEY, VALUE };
+    enum class PathHeadMatchMode { EXACT, CASE_INSENSITIVE };
+    enum class MapSelector { UNRECOGNIZED, WILDCARD, KEYS, VALUES };
 
+    // TColumnAccessPath may carry both payload fields after compatibility forwarding. Selected
+    // means data_access_path for DATA and meta_access_path for META. Visit only that payload and
+    // leave the other payload untouched.
     template <typename AccessPath, typename Visitor>
-    static Status visit_normalized_payload(AccessPath& access_path, Visitor&& visitor) {
+    static Status visit_selected_payload(AccessPath& access_path, Visitor&& visitor) {
         switch (access_path.type) {
         case TAccessPathType::DATA:
             if (!access_path.__isset.data_access_path) {
@@ -222,14 +233,15 @@ private:
         }
     }
 
-    static Result<bool> root_matches(const TColumnAccessPath& access_path,
-                                     const std::string& expected_root, RootMatchMode match_mode) {
+    static Result<bool> selected_payload_head_matches(const TColumnAccessPath& access_path,
+                                                      const std::string& expected_head,
+                                                      PathHeadMatchMode match_mode) {
         bool matches = false;
-        auto status = visit_normalized_payload(access_path, [&](const auto& payload) {
+        auto status = visit_selected_payload(access_path, [&](const auto& payload) {
             DORIS_CHECK(!payload.path.empty());
-            matches = match_mode == RootMatchMode::EXACT
-                              ? payload.path.front() == expected_root
-                              : StringCaseEqual()(payload.path.front(), expected_root);
+            matches = match_mode == PathHeadMatchMode::EXACT
+                              ? payload.path.front() == expected_head
+                              : StringCaseEqual()(payload.path.front(), expected_head);
             return Status::OK();
         });
         if (!status.ok()) {
@@ -238,9 +250,9 @@ private:
         return matches;
     }
 
-    static Status rewrite_active_payload_root(TColumnAccessPath& access_path,
-                                              const std::string& child_name) {
-        return visit_normalized_payload(access_path, [&](auto& payload) {
+    static Status replace_selected_payload_head(TColumnAccessPath& access_path,
+                                                const std::string& child_name) {
+        return visit_selected_payload(access_path, [&](auto& payload) {
             DORIS_CHECK(!payload.path.empty());
             payload.path.front() = child_name;
             return Status::OK();
@@ -250,62 +262,61 @@ private:
     // Map `*` applies trailing qualifiers only to values, while locating entries still requires
     // the complete key column as DATA. Construct a fresh key path because the source may be META,
     // and preserve its version so child routing keeps the same legacy/typed encoding.
-    static TColumnAccessPath create_version_preserving_whole_data_child_path(
-            const TColumnAccessPath& source_path, const std::string& child_name) {
+    static TColumnAccessPath make_full_data_path_for_child(const TColumnAccessPath& version_source,
+                                                           const std::string& child_name) {
         TColumnAccessPath child_path;
         child_path.__set_type(TAccessPathType::DATA);
         TDataAccessPath data_path;
         data_path.__set_path({child_name});
         child_path.__set_data_access_path(data_path);
-        if (source_path.__isset.version) {
-            child_path.__set_version(source_path.version);
+        if (version_source.__isset.version) {
+            child_path.__set_version(version_source.version);
         }
         return child_path;
     }
 
-    static Result<MapTarget> map_target(const TColumnAccessPath& access_path) {
-        MapTarget target = MapTarget::NONE;
-        auto status = visit_normalized_payload(access_path, [&](const auto& payload) {
+    static Result<MapSelector> classify_map_selector(const TColumnAccessPath& access_path) {
+        MapSelector selector = MapSelector::UNRECOGNIZED;
+        auto status = visit_selected_payload(access_path, [&](const auto& payload) {
             DORIS_CHECK(!payload.path.empty());
-            const auto& root = payload.path.front();
-            if (root == ColumnIterator::ACCESS_ALL) {
-                target = MapTarget::WILDCARD;
-            } else if (root == ColumnIterator::ACCESS_MAP_KEYS) {
-                target = MapTarget::KEY;
-            } else if (root == ColumnIterator::ACCESS_MAP_VALUES) {
-                target = MapTarget::VALUE;
+            const auto& head = payload.path.front();
+            if (head == ColumnIterator::ACCESS_ALL) {
+                selector = MapSelector::WILDCARD;
+            } else if (head == ColumnIterator::ACCESS_MAP_KEYS) {
+                selector = MapSelector::KEYS;
+            } else if (head == ColumnIterator::ACCESS_MAP_VALUES) {
+                selector = MapSelector::VALUES;
             }
             return Status::OK();
         });
         if (!status.ok()) {
             return ResultError(std::move(status));
         }
-        return target;
+        return selector;
     }
 
-    static Status route_map_path_set(TColumnAccessPaths source_paths, const std::string& key_name,
-                                     const std::string& value_name, TColumnAccessPaths& key_paths,
-                                     TColumnAccessPaths& value_paths) {
+    static Status distribute_map_paths(TColumnAccessPaths source_paths, const std::string& key_name,
+                                       const std::string& value_name, TColumnAccessPaths& key_paths,
+                                       TColumnAccessPaths& value_paths) {
         for (auto& path : source_paths) {
-            const auto target = DORIS_TRY(map_target(path));
-            switch (target) {
-            case MapTarget::WILDCARD:
+            const auto selector = DORIS_TRY(classify_map_selector(path));
+            switch (selector) {
+            case MapSelector::WILDCARD:
                 // A wildcard needs complete keys for runtime lookup, while any remaining
                 // qualifiers apply only to the value. The value keeps its type and version.
-                key_paths.emplace_back(
-                        create_version_preserving_whole_data_child_path(path, key_name));
-                RETURN_IF_ERROR(rewrite_active_payload_root(path, value_name));
+                key_paths.emplace_back(make_full_data_path_for_child(path, key_name));
+                RETURN_IF_ERROR(replace_selected_payload_head(path, value_name));
                 value_paths.emplace_back(std::move(path));
                 break;
-            case MapTarget::KEY:
-                RETURN_IF_ERROR(rewrite_active_payload_root(path, key_name));
+            case MapSelector::KEYS:
+                RETURN_IF_ERROR(replace_selected_payload_head(path, key_name));
                 key_paths.emplace_back(std::move(path));
                 break;
-            case MapTarget::VALUE:
-                RETURN_IF_ERROR(rewrite_active_payload_root(path, value_name));
+            case MapSelector::VALUES:
+                RETURN_IF_ERROR(replace_selected_payload_head(path, value_name));
                 value_paths.emplace_back(std::move(path));
                 break;
-            case MapTarget::NONE:
+            case MapSelector::UNRECOGNIZED:
                 break;
             }
         }
@@ -1751,13 +1762,13 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
         return Status::OK();
     }
 
-    auto child_paths = DORIS_TRY(DescendantAccessPathRouter::route_map_descendants(
+    auto child_paths = DORIS_TRY(DescendantAccessPathRouter::route_map_paths_to_children(
             std::move(plan.all.descendant_paths), std::move(plan.predicate.descendant_paths),
             _key_iterator->column_name(), _val_iterator->column_name()));
 
     if (!child_paths.key.empty()) {
-        RETURN_IF_ERROR(
-                _key_iterator->set_access_paths(child_paths.key.all, child_paths.key.predicate));
+        RETURN_IF_ERROR(_key_iterator->set_access_paths(child_paths.key.all_paths,
+                                                        child_paths.key.predicate_paths));
         // Apply LAZY_OUTPUT after child predicate paths have been handled. Read requirements are
         // monotonic, so a predicate-only child already promoted to PREDICATE will not
         // be downgraded, while a non-predicate child becomes a lazy materialization target.
@@ -1768,8 +1779,8 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     }
 
     if (!child_paths.value.empty()) {
-        RETURN_IF_ERROR(_val_iterator->set_access_paths(child_paths.value.all,
-                                                        child_paths.value.predicate));
+        RETURN_IF_ERROR(_val_iterator->set_access_paths(child_paths.value.all_paths,
+                                                        child_paths.value.predicate_paths));
         // Same as keys: predicate-only value paths stay PREDICATE because this
         // post-processing update cannot lower a stronger child requirement.
         _val_iterator->set_read_requirement_self(ReadRequirement::LAZY_OUTPUT);
@@ -2039,15 +2050,14 @@ Status StructFileColumnIterator::set_access_paths(
     }
 
     const bool reads_all_sub_columns = plan.all.reads_current_data;
-    const bool route_projection_paths = !reads_all_sub_columns;
+    const bool include_all_paths = !reads_all_sub_columns;
     for (auto& sub_iterator : _sub_column_iterators) {
         const auto name = sub_iterator->column_name();
-        auto paths = DORIS_TRY(DescendantAccessPathRouter::route_struct_child(
+        auto paths = DORIS_TRY(DescendantAccessPathRouter::select_struct_paths_for_child(
                 plan.all.descendant_paths, plan.predicate.descendant_paths, name,
-                route_projection_paths));
+                include_all_paths));
 
-        // Predicate-only child paths still need to be routed to the child iterator
-        // even when the child is not requested by ordinary projection access paths.
+        // Predicate paths must still reach the child even when no non-predicate path selects it.
         const bool need_to_read = reads_all_sub_columns || !paths.empty();
         if (!need_to_read) {
             set_read_requirement_self(ReadRequirement::SKIP);
@@ -2056,7 +2066,7 @@ Status StructFileColumnIterator::set_access_paths(
             continue;
         }
 
-        RETURN_IF_ERROR(sub_iterator->set_access_paths(paths.all, paths.predicate));
+        RETURN_IF_ERROR(sub_iterator->set_access_paths(paths.all_paths, paths.predicate_paths));
         // Set LAZY_OUTPUT after routing child predicate paths. If the child was needed only for
         // predicate evaluation, set_access_paths() has already promoted it to
         // PREDICATE and this monotonic update will not downgrade it. Otherwise, this
@@ -2440,12 +2450,13 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
 
     const bool has_all_descendant = plan.all.has_descendant_paths();
     const bool has_predicate_descendant = plan.predicate.has_descendant_paths();
-    auto child_paths = DORIS_TRY(DescendantAccessPathRouter::route_array_descendants(
+    auto child_paths = DORIS_TRY(DescendantAccessPathRouter::route_array_paths_to_item(
             std::move(plan.all.descendant_paths), std::move(plan.predicate.descendant_paths),
             _item_iterator->column_name()));
 
     if (has_all_descendant || has_predicate_descendant) {
-        RETURN_IF_ERROR(_item_iterator->set_access_paths(child_paths.all, child_paths.predicate));
+        RETURN_IF_ERROR(_item_iterator->set_access_paths(child_paths.all_paths,
+                                                         child_paths.predicate_paths));
         // Predicate-only item paths stay PREDICATE because this update runs after
         // child set_access_paths() and read requirements are monotonic. Non-predicate item paths are
         // marked as lazy materialization targets.
