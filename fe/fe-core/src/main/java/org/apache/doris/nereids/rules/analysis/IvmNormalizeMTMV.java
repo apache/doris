@@ -137,23 +137,20 @@ import java.util.stream.Collectors;
  *
  * <h3>Supported plan nodes</h3>
  * OlapScan, filter, project, aggregate, inner/cross join, left/right/full outer join chain whose
- * null side does not contain another outer join, UNION ALL, result sink, logical olap table sink.
+ * null side does not contain another outer join, result sink, logical olap table sink.
  */
 public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.NormalizeContext>
         implements CustomRewriter {
     static final class NormalizeContext {
-        private static final NormalizeContext ROOT = new NormalizeContext(true, false, false, false);
+        private static final NormalizeContext ROOT = new NormalizeContext(true, false, false);
 
         private final boolean isFirstNonSink;
         private final boolean isOuterJoinNullSide;
-        private final boolean isInsideUnion;
         private final boolean isInsideAggregate;
 
-        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullSide, boolean isInsideUnion,
-                boolean isInsideAggregate) {
+        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullSide, boolean isInsideAggregate) {
             this.isFirstNonSink = isFirstNonSink;
             this.isOuterJoinNullSide = isOuterJoinNullSide;
-            this.isInsideUnion = isInsideUnion;
             this.isInsideAggregate = isInsideAggregate;
         }
 
@@ -161,28 +158,21 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             if (!isFirstNonSink) {
                 return this;
             }
-            return new NormalizeContext(false, isOuterJoinNullSide, isInsideUnion, isInsideAggregate);
+            return new NormalizeContext(false, isOuterJoinNullSide, isInsideAggregate);
         }
 
         private NormalizeContext enterOuterJoinNullSide() {
             if (isOuterJoinNullSide) {
                 return this;
             }
-            return new NormalizeContext(isFirstNonSink, true, isInsideUnion, isInsideAggregate);
-        }
-
-        private NormalizeContext enterUnion() {
-            if (isInsideUnion) {
-                return this;
-            }
-            return new NormalizeContext(isFirstNonSink, isOuterJoinNullSide, true, isInsideAggregate);
+            return new NormalizeContext(isFirstNonSink, true, isInsideAggregate);
         }
 
         private NormalizeContext enterAggregate() {
             if (isInsideAggregate) {
                 return this;
             }
-            return new NormalizeContext(isFirstNonSink, isOuterJoinNullSide, isInsideUnion, true);
+            return new NormalizeContext(isFirstNonSink, isOuterJoinNullSide, true);
         }
     }
 
@@ -221,10 +211,6 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     // whitelisted: only OlapScan — inject IVM row-id at index 0
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, NormalizeContext context) {
-        if (context.isOuterJoinNullSide && context.isInsideUnion && !isExcludedTriggerTable(scan)) {
-            throw new IvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                    "IVM OUTER JOIN does not support UNION ALL with OlapScan on null side");
-        }
         OlapTable table = scan.getTable();
         Pair<Expression, Boolean> rowId = buildRowId(table, scan);
         validateBinlogEnabled(scan);
@@ -383,7 +369,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         List<Plan> newChildren = new ArrayList<>();
         List<List<SlotReference>> newChildrenOutputs = new ArrayList<>();
         boolean allDet = true;
-        NormalizeContext childContext = context.afterNonSink().enterUnion();
+        NormalizeContext childContext = context.afterNonSink();
 
         for (int i = 0; i < union.children().size(); i++) {
             Plan normalizedChild = union.child(i).accept(this, childContext);
