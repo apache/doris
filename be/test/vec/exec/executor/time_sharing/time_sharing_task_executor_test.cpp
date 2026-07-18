@@ -29,6 +29,7 @@
 #include <string>
 #include <thread>
 
+#include "common/exception.h"
 #include "vec/exec/executor/ticker.h"
 #include "vec/exec/executor/time_sharing/time_sharing_task_handle.h"
 
@@ -291,6 +292,28 @@ private:
     ListenableFuture<Void> _completion_future {};
 };
 
+class ThrowingSplitRunner : public SplitRunner {
+public:
+    explicit ThrowingSplitRunner(Status status) : _status(std::move(status)) {}
+
+    Status init() override { return Status::OK(); }
+
+    Result<SharedListenableFuture<Void>> process_for(std::chrono::nanoseconds) override {
+        throw Exception(_status);
+    }
+
+    void close(const Status& status) override {}
+
+    bool is_finished() override { return false; }
+
+    Status finished_status() override { return _status; }
+
+    std::string get_info() const override { return ""; }
+
+private:
+    Status _status;
+};
+
 class QueueOnlySplitRunner : public SplitRunner {
 public:
     Status init() override { return Status::OK(); }
@@ -362,6 +385,58 @@ protected:
         }
     }
 };
+
+TEST_F(TimeSharingTaskExecutorTest, test_remove_task_clears_queued_task_count) {
+    auto ticker = std::make_shared<TestingTicker>();
+
+    TimeSharingTaskExecutor::ThreadConfig thread_config;
+    thread_config.thread_name = "leak_repro";
+    thread_config.workload_group = "normal";
+    thread_config.max_thread_num = 0;
+    thread_config.min_thread_num = 0;
+    thread_config.max_queue_size = 2;
+    TimeSharingTaskExecutor executor(thread_config, 0, 1, 1, ticker);
+    ASSERT_TRUE(executor.init().ok());
+    ASSERT_TRUE(executor.start().ok());
+
+    try {
+        for (int i = 0; i < thread_config.max_queue_size; ++i) {
+            auto task_handle = TEST_TRY(executor.create_task(
+                    TaskId("removed_task_" + std::to_string(i)), []() { return 0.0; }, 1,
+                    std::chrono::milliseconds(1), std::optional<int>(1)));
+            auto split = std::make_shared<QueueOnlySplitRunner>();
+
+            auto enqueue_result = executor.enqueue_splits(task_handle, false, {split});
+            ASSERT_TRUE(enqueue_result.has_value()) << enqueue_result.error();
+            EXPECT_EQ(executor.waiting_splits_size(), 1);
+
+            ASSERT_TRUE(executor.remove_task(task_handle).ok());
+            EXPECT_FALSE(split->is_started());
+            EXPECT_EQ(executor.waiting_splits_size(), 0);
+            EXPECT_EQ(executor.get_queue_size(), 0);
+        }
+
+        EXPECT_EQ(executor.num_active_threads(), 0);
+        EXPECT_EQ(executor.waiting_splits_size(), 0);
+        EXPECT_EQ(executor.get_queue_size(), 0);
+
+        auto task_handle = TEST_TRY(executor.create_task(
+                TaskId("next_task"), []() { return 0.0; }, 1, std::chrono::milliseconds(1),
+                std::optional<int>(1)));
+        auto split = std::make_shared<QueueOnlySplitRunner>();
+
+        auto enqueue_result = executor.enqueue_splits(task_handle, false, {split});
+        ASSERT_TRUE(enqueue_result.has_value()) << enqueue_result.error();
+        EXPECT_EQ(executor.waiting_splits_size(), 1);
+        EXPECT_EQ(executor.get_queue_size(), 1);
+
+        static_cast<void>(executor.remove_task(task_handle));
+    } catch (...) {
+        executor.stop();
+        throw;
+    }
+    executor.stop();
+}
 
 TEST_F(TimeSharingTaskExecutorTest, test_invalid_task_handle_returns_error) {
     auto ticker = std::make_shared<TestingTicker>();
