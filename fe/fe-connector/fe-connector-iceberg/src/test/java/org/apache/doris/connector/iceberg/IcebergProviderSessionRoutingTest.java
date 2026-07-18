@@ -108,7 +108,7 @@ public class IcebergProviderSessionRoutingTest {
     public void writeProviderAppliesResolverWithCallSessionAndFailsClosed() {
         List<ConnectorSession> seen = new ArrayList<>();
         IcebergWritePlanProvider provider = new IcebergWritePlanProvider(Collections.emptyMap(),
-                failClosedResolver(seen, new RecordingIcebergCatalogOps()), null, null);
+                failClosedResolver(seen, new RecordingIcebergCatalogOps()), null);
         RoutingSession noCred = new RoutingSession(null);
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,

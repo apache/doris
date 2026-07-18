@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
@@ -230,26 +231,46 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void planningPassLoadsSameTableOnceViaFatHandle() {
-        // PERF-01 metric gate: a single planning pass threads ONE IcebergTableHandle through getColumnHandles
-        // (metadata) and planScan (provider). The fat-handle memo (transient resolvedTable set by the first
-        // resolve, reused by the second) collapses BOTH remote reads onto a single loadTable RPC. This is the
-        // deterministic core claim — one remote loadTable per table per planning pass, independent of the
-        // cross-query cache (off here: context-less provider, disabled metadata cache).
-        // MUTATION: dropping the fat handle (each resolve re-loads) -> 2 loadTable log entries -> red.
+    public void planningPassLoadsSameTableOnceViaSharedScope() {
+        // PERF-07 metric gate: a statement's metadata read (getColumnHandles) and scan planning (planScan) resolve
+        // the SAME table. Sharing ONE per-statement scope across both (same session) collapses BOTH remote reads
+        // onto a single loadTable RPC. This is the deterministic core claim — one remote loadTable per table per
+        // statement, independent of the cross-query cache (off here: disabled metadata cache, null-cache provider).
+        // MUTATION: not routing through the scope (each resolve re-loads) -> 2 loadTable log entries -> red.
         Table empty = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         RecordingIcebergCatalogOps ops = opsReturning(empty);
         IcebergConnectorMetadata metadata =
                 new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
         IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
 
-        metadata.getColumnHandles(null, handle);
-        provider.planScan(null, handle, Collections.emptyList(), Optional.empty());
+        metadata.getColumnHandles(session, handle);
+        provider.planScan(session, handle, Collections.emptyList(), Optional.empty());
 
         long remoteLoads = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
         Assertions.assertEquals(1, remoteLoads,
-                "fat handle must collapse the metadata + provider reads to one remote loadTable");
+                "the per-statement scope must collapse the metadata + provider reads to one remote loadTable");
+    }
+
+    @Test
+    public void planningPassWithoutSharedScopeLoadsEachTime() {
+        // Contrast to the shared-scope gate: with NONE (no live statement scope) each resolver loads independently
+        // (byte-identical to the pre-scope offline behavior). MUTATION: memoizing under NONE -> 1 load -> red.
+        Table empty = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        RecordingIcebergCatalogOps ops = opsReturning(empty);
+        IcebergConnectorMetadata metadata =
+                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        ConnectorSession none = new FakeScanSession("UTC", Collections.emptyMap());
+
+        metadata.getColumnHandles(none, handle);
+        provider.planScan(none, handle, Collections.emptyList(), Optional.empty());
+
+        long remoteLoads = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
+        Assertions.assertEquals(2, remoteLoads, "under NONE each resolver loads (no memo)");
     }
 
     // --- T02 split-enumeration + predicate-pushdown tests ---
@@ -1185,10 +1206,11 @@ public class IcebergScanPlanProviderTest {
     // ── commit-bridge supply (S4 part 2): a v3 scan stashes each data file's non-equality deletes by raw path ──
 
     @Test
-    public void planScanStashesRewritableDeletesKeyedByRawDataFilePathForV3() {
-        // A v3 scan over a data file that already has a deletion vector must stash that DV keyed on the data
-        // file's RAW path, so a same-statement DELETE/MERGE write can hand it to the BE. MUTATION: not stashing
-        // (or keying on the normalized path) -> the write supplies nothing -> the BE resurrects the deleted rows.
+    public void planScanAccumulatesRewritableDeletesKeyedByRawDataFilePathForV3() {
+        // A v3 scan over a data file that already has a deletion vector must accumulate that DV into the
+        // per-statement scope keyed on the data file's RAW path, so a same-statement DELETE/MERGE write can hand
+        // it to the BE. MUTATION: not accumulating (or keying on the normalized path) -> the write supplies
+        // nothing -> the BE resurrects the deleted rows.
         Map<String, String> v3 = new HashMap<>();
         v3.put("format-version", "3");
         Table table = createTable("v3dv", SCHEMA, PartitionSpec.unpartitioned(), v3);
@@ -1199,27 +1221,26 @@ public class IcebergScanPlanProviderTest {
                 .addDeletes(deletionVectorFile("s3://b/db/t1/dv.puffin", 16L, 64L))
                 .commit();
 
-        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
-        IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), null, null, stash);
-        provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "v3dv"), Collections.emptyList(), Optional.empty());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+        provider.planScan(session, new IcebergTableHandle("db1", "v3dv"), Collections.emptyList(), Optional.empty());
 
-        Map<String, List<TIcebergDeleteFileDesc>> sets = stash.retrieveAndRemove("q");
-        Assertions.assertNotNull(sets, "a v3 scan with a live DV must stash a supply for queryId 'q'");
+        Map<String, List<TIcebergDeleteFileDesc>> sets = IcebergStatementScope.rewritableDeleteSupply(session);
+        Assertions.assertFalse(sets.isEmpty(), "a v3 scan with a live DV must accumulate a supply into the scope");
         // Keyed on the RAW data-file path (== originalPath), the string the BE matches a rewritable set against.
         Assertions.assertTrue(sets.containsKey("s3://b/db/t1/f1.parquet"),
-                "stash must key on the raw data-file path, got keys: " + sets.keySet());
+                "supply must key on the raw data-file path, got keys: " + sets.keySet());
         List<TIcebergDeleteFileDesc> descs = sets.get("s3://b/db/t1/f1.parquet");
         Assertions.assertEquals(1, descs.size());
         Assertions.assertEquals(3, descs.get(0).getContent(), "the DV is content 3");
     }
 
     @Test
-    public void planScanDoesNotStashForVersionTwo() {
+    public void planScanDoesNotAccumulateForVersionTwo() {
         // v2 deletes are plain position-delete files (no DV union); the rewritable supply is a v3-only concept.
         // A real position delete is committed so the assertion proves the formatVersion>=3 GATE, not an absence
-        // of deletes. MUTATION: dropping the v3 gate -> this v2 position delete would be stashed -> red.
+        // of deletes. MUTATION: dropping the v3 gate -> this v2 position delete would be accumulated -> red.
         Table table = createTable("v2pd", SCHEMA, PartitionSpec.unpartitioned(),
                 Collections.singletonMap("format-version", "2"));
         table.newAppend()
@@ -1229,18 +1250,19 @@ public class IcebergScanPlanProviderTest {
                 .addDeletes(positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null))
                 .commit();
 
-        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
-        IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), null, null, stash);
-        provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "v2pd"), Collections.emptyList(), Optional.empty());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+        provider.planScan(session, new IcebergTableHandle("db1", "v2pd"), Collections.emptyList(), Optional.empty());
 
-        Assertions.assertEquals(0, stash.size(), "a v2 scan must not stash any rewritable supply");
+        Assertions.assertTrue(IcebergStatementScope.rewritableDeleteSupply(session).isEmpty(),
+                "a v2 scan must not accumulate any rewritable supply");
     }
 
     @Test
-    public void planScanWithoutStashIsInert() {
-        // The offline 2-arg ctor leaves the stash null; a v3 scan must not NPE — it simply skips stashing.
+    public void planScanUnderNoneScopeIsInert() {
+        // Under a NONE scope (offline / no live statement) a v3 scan must not NPE — it simply accumulates into a
+        // throwaway map that does not bridge to any write. MUTATION: dereferencing a missing scope -> NPE -> red.
         Map<String, String> v3 = new HashMap<>();
         v3.put("format-version", "3");
         Table table = createTable("v3ns", SCHEMA, PartitionSpec.unpartitioned(), v3);
@@ -1449,10 +1471,22 @@ public class IcebergScanPlanProviderTest {
     private static final class FakeScanSession implements ConnectorSession {
         private final String timeZone;
         private final Map<String, String> sessionProperties;
+        private ConnectorStatementScope statementScope = ConnectorStatementScope.NONE;
 
         FakeScanSession(String timeZone, Map<String, String> sessionProperties) {
             this.timeZone = timeZone;
             this.sessionProperties = sessionProperties;
+        }
+
+        /** Installs a memoizing per-statement scope; share one instance across sessions to mimic one statement. */
+        FakeScanSession withScope(ConnectorStatementScope scope) {
+            this.statementScope = scope;
+            return this;
+        }
+
+        @Override
+        public ConnectorStatementScope getStatementScope() {
+            return statementScope;
         }
 
         @Override

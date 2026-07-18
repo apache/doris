@@ -353,13 +353,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // handle) is not cached and propagates to the caller's catch (still ""), so behavior is unchanged.
         if (commentCache != null) {
             return commentCache.getOrLoad(TableIdentifier.of(dbName, tableName),
-                    () -> loadTableComment(dbName, tableName));
+                    () -> loadTableComment(session, dbName, tableName));
         }
-        return loadTableComment(dbName, tableName);
+        return loadTableComment(session, dbName, tableName);
     }
 
-    private String loadTableComment(String dbName, String tableName) {
-        Table table = loadTable(new IcebergTableHandle(dbName, tableName));
+    private String loadTableComment(ConnectorSession session, String dbName, String tableName) {
+        Table table = loadTable(session, new IcebergTableHandle(dbName, tableName));
         return table.properties().getOrDefault(TABLE_COMMENT_PROP, "");
     }
 
@@ -394,7 +394,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         // Mirror legacy IcebergMetadataOps.loadTable: wrap the remote load in the auth context. The schema
         // + table-property assembly is pure (operates on the already-loaded Table).
-        Table table = loadTable(iceHandle);
+        Table table = loadTable(session, iceHandle);
         return buildTableSchema(iceHandle.getTableName(), table, table.schema());
     }
 
@@ -419,7 +419,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (snapshot == null || snapshot.getSchemaId() < 0) {
             return getTableSchema(session, handle);
         }
-        Table table = loadTable(iceHandle);
+        Table table = loadTable(session, iceHandle);
         Schema schema;
         if (table.currentSnapshot() == null) {
             // Empty table: legacy getSchema falls back to the latest schema (NEWEST_SCHEMA_ID path).
@@ -591,35 +591,30 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * remote), so the many reads sharing one handle in a planning/analysis pass collapse onto a single remote
      * {@code loadTable} (PERF-01); a fat-handle hit returns without any remote call.
      */
-    private Table loadTable(IcebergTableHandle handle) {
+    private Table loadTable(ConnectorSession session, IcebergTableHandle handle) {
         try {
-            return context.executeAuthenticated(() -> resolveTableForRead(handle));
+            return context.executeAuthenticated(() -> resolveTableForRead(session, handle));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
         }
     }
 
     /**
-     * Resolves the RAW iceberg {@link Table} for {@code handle} with PERF-01's two-layer memo, WITHOUT opening
-     * an auth scope or wrapping exceptions — callers own both. The query-scoped fat handle comes first (same
-     * handle instance -&gt; same table); then the cross-query {@link IcebergTableCache} when enabled (else a
-     * direct remote load); finally the result is memoized back onto the handle. The remote loader's exception
-     * propagates verbatim (the cache re-throws it unwrapped), so a caller's own {@code NoSuchTableException}
-     * degradation (the partition-view readers) still fires. Callers needing the auth scope wrap the call in
-     * {@code executeAuthenticated} (see {@link #loadTable}). NOT used by the sys-table path
-     * ({@link #loadSysTable}) or the DDL/write path (both take a fresh remote base by design).
+     * Resolves the RAW iceberg {@link Table} for {@code handle}, WITHOUT opening an auth scope or wrapping
+     * exceptions — callers own both. The per-statement scope ({@link IcebergStatementScope#sharedTable}) comes
+     * first, so the statement's read metadata, scan planning and write all resolve the SAME one loaded object;
+     * on a scope miss the loader consults the cross-query {@link IcebergTableCache} when enabled (else a direct
+     * remote load). The remote loader's exception propagates verbatim (the cache re-throws it unwrapped), so a
+     * caller's own {@code NoSuchTableException} degradation (the partition-view readers) still fires. Callers
+     * needing the auth scope wrap the call in {@code executeAuthenticated} (see {@link #loadTable}). NOT used by
+     * the sys-table path ({@link #loadSysTable}), which takes a fresh remote base by design.
      */
-    private Table resolveTableForRead(IcebergTableHandle handle) {
-        Table cached = handle.getResolvedTable();
-        if (cached != null) {
-            return cached;
-        }
-        Table table = tableCache != null
-                ? tableCache.getOrLoad(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
-                        () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
-                : catalogOps.loadTable(handle.getDbName(), handle.getTableName());
-        handle.setResolvedTable(table);
-        return table;
+    private Table resolveTableForRead(ConnectorSession session, IcebergTableHandle handle) {
+        return IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
+                () -> tableCache != null
+                        ? tableCache.getOrLoad(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
+                                () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
+                        : catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
     }
 
     /**
@@ -660,7 +655,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Mirror getTableSchema: wrap the remote load in the auth context. A sys handle resolves the
         // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
         // its pruned sys-table slots by name; a data handle resolves the base table's columns.
-        Table table = iceHandle.isSystemTable() ? loadSysTable(iceHandle) : loadTable(iceHandle);
+        Table table = iceHandle.isSystemTable() ? loadSysTable(iceHandle) : loadTable(session, iceHandle);
         List<Types.NestedField> fields = table.schema().columns();
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (Types.NestedField field : fields) {
@@ -697,7 +692,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         long rowCount;
         try {
-            rowCount = computeRowCount(loadTable(iceHandle));
+            rowCount = computeRowCount(loadTable(session, iceHandle));
         } catch (Exception e) {
             LOG.warn("Failed to compute Iceberg row count for {}.{}",
                     iceHandle.getDbName(), iceHandle.getTableName(), e);
@@ -1448,7 +1443,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             default:
                 return;
         }
-        Table table = loadTable((IcebergTableHandle) handle);
+        Table table = loadTable(session, (IcebergTableHandle) handle);
         String mode = table.properties().getOrDefault(modeProperty, defaultMode);
         if (RowLevelOperationMode.COPY_ON_WRITE.modeName().equalsIgnoreCase(mode)) {
             throw new DorisConnectorException(String.format(
@@ -1473,7 +1468,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return;
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        Table table = loadTable(iceHandle);
+        Table table = loadTable(session, iceHandle);
         PartitionSpec spec = table.spec();
         String tableName = iceHandle.getTableName();
         if (!spec.isPartitioned()) {
@@ -1526,7 +1521,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             return context.executeAuthenticated(() -> {
-                Table table = resolveTableForRead(iceHandle);
+                Table table = resolveTableForRead(session, iceHandle);
                 return Optional.of(IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId(),
                         TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache));
             });
@@ -1550,7 +1545,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return context.executeAuthenticated(() -> {
                 Table table;
                 try {
-                    table = resolveTableForRead(iceHandle);
+                    table = resolveTableForRead(session, iceHandle);
                 } catch (NoSuchTableException e) {
                     LOG.warn("Iceberg table not found while listing partitions: {}.{}",
                             iceHandle.getDbName(), iceHandle.getTableName(), e);
@@ -1582,7 +1577,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return context.executeAuthenticated(() -> {
                 Table table;
                 try {
-                    table = resolveTableForRead(iceHandle);
+                    table = resolveTableForRead(session, iceHandle);
                 } catch (NoSuchTableException e) {
                     LOG.warn("Iceberg table not found while listing partitions: {}.{}",
                             iceHandle.getDbName(), iceHandle.getTableName(), e);
@@ -1617,7 +1612,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         TableIdentifier id = TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName());
         IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache.getOrLoad(id, () -> {
-            Table table = loadTable(iceHandle);
+            Table table = loadTable(session, iceHandle);
             Snapshot current = table.currentSnapshot();
             return new IcebergLatestSnapshotCache.CachedSnapshot(
                     current == null ? -1L : current.snapshotId(), table.schema().schemaId());
@@ -1650,7 +1645,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorMvccSnapshot> resolveTimeTravel(
             ConnectorSession session, ConnectorTableHandle handle, ConnectorTimeTravelSpec spec) {
-        Table table = loadTable((IcebergTableHandle) handle);
+        Table table = loadTable(session, (IcebergTableHandle) handle);
         switch (spec.getKind()) {
             case SNAPSHOT_ID: {
                 long id = Long.parseLong(spec.getStringValue());

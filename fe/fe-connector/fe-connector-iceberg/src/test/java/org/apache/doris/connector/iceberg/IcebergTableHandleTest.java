@@ -18,10 +18,6 @@
 package org.apache.doris.connector.iceberg;
 
 import com.google.common.collect.ImmutableSet;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -29,7 +25,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.util.Collections;
 
 /**
  * Tests for {@link IcebergTableHandle}, including the T07 MVCC / time-travel pin carriers and the
@@ -360,58 +355,4 @@ public class IcebergTableHandleTest {
         Assertions.assertEquals(ImmutableSet.of("oss://b/db/t1/f1.parquet"), h.getRewriteFileScope());
     }
 
-    // ==================== PERF-01: query-scoped resolved-table memo ====================
-
-    private static Table fakeTable() {
-        return new FakeIcebergTable("t1",
-                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())),
-                PartitionSpec.unpartitioned(), "s3://b/db1/t1", Collections.emptyMap());
-    }
-
-    @Test
-    public void resolvedTableMemoRidesPinAndScopeCopiesButIsNotIdentity() {
-        Table table = fakeTable();
-        IcebergTableHandle bare = new IcebergTableHandle("db1", "t1");
-        Assertions.assertNull(bare.getResolvedTable(), "a fresh handle has no resolved-table memo");
-        bare.setResolvedTable(table);
-        Assertions.assertSame(table, bare.getResolvedTable());
-
-        // WHY (PERF-01): getColumnHandles resolves and memoizes the table BEFORE applySnapshot copies the handle
-        // to thread the pin on (and rewrite scope / topn likewise). So each with* copy MUST carry the memo, else
-        // a pin copy would re-load the table it already resolved. MUTATION: a with* copy not carrying
-        // resolvedTable -> getResolvedTable() null on the copy -> red.
-        Assertions.assertSame(table, bare.withSnapshot(42L, null, 3L).getResolvedTable());
-        Assertions.assertSame(table, bare.withRewriteFileScope(ImmutableSet.of("s3://b/db1/t1/f.parquet"))
-                .getResolvedTable());
-        Assertions.assertSame(table, bare.withTopnLazyMaterialize(true).getResolvedTable());
-
-        // WHY: the memo is a resolution cache, NOT a coordinate, so it must NOT enter handle identity (the plan
-        // key). MUTATION: adding resolvedTable to equals/hashCode -> a resolved handle would not equal an
-        // un-resolved handle for the same table -> the two asserts below fail.
-        IcebergTableHandle unresolved = new IcebergTableHandle("db1", "t1");
-        Assertions.assertEquals(unresolved, bare, "the memo must not change equals");
-        Assertions.assertEquals(unresolved.hashCode(), bare.hashCode(), "the memo must not change hashCode");
-    }
-
-    @Test
-    public void resolvedTableMemoIsTransientAcrossSerialization() throws Exception {
-        IcebergTableHandle original = new IcebergTableHandle("db1", "t1");
-        original.setResolvedTable(fakeTable());
-
-        // The handle serializes even though the memoized FakeIcebergTable is NOT Serializable — proving the
-        // field is transient. MUTATION: making resolvedTable non-transient -> writeObject throws
-        // NotSerializableException here -> red.
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-            oos.writeObject(original);
-        }
-        IcebergTableHandle restored;
-        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()))) {
-            restored = (IcebergTableHandle) ois.readObject();
-        }
-        // WHY: a deserialized handle (BE side / plan reuse) must start with NO memo and resolve live — the live
-        // SDK Table is FE-only. MUTATION: a non-transient memo would either fail serialization or staple a stale
-        // table onto the wire object.
-        Assertions.assertNull(restored.getResolvedTable(), "the resolved-table memo must not cross serialization");
-    }
 }

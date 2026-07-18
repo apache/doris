@@ -161,8 +161,9 @@ public class IcebergConnector implements Connector {
     private final IcebergLatestSnapshotCache latestSnapshotCache;
     // PERF-01: cross-query cache of the RAW iceberg Table (restores the legacy IcebergExternalMetaCache table
     // cache that the SPI cutover dropped). null when the catalog's credentials are query-dependent
-    // (iceberg.rest.session=user / REST vended-credentials) — see the constructor. The query-scoped fat handle
-    // (IcebergTableHandle.resolvedTable) is always on and independent of this field.
+    // (iceberg.rest.session=user / REST vended-credentials) — see the constructor. The per-statement scope
+    // (ConnectorStatementScope) shares one loaded table across a statement's read/scan/write regardless of this
+    // field, and is what a credential-gated catalog (this field null) relies on within a statement.
     private final IcebergTableCache tableCache;
     // PERF-02: cross-query partition-view cache (the raw PARTITIONS-scan result, keyed by (table, snapshotId)).
     // Built unconditionally — the cached value is pure metadata with no FileIO/credential, so no credential gate
@@ -178,11 +179,6 @@ public class IcebergConnector implements Connector {
     // authorization a shared cache would bypass. null for every other flavor.
     private final IcebergCommentCache commentCache;
     private final IcebergManifestCache manifestCache = new IcebergManifestCache();
-    // commit-bridge supply (S4 part 2): per-catalog stash carrying a row-level DML's non-equality delete supply
-    // across the scan->write seam — the scan provider fills it (keyed by queryId), the write provider drains it
-    // into rewritable_delete_file_sets. Like the caches above, a REFRESH CATALOG rebuilds the connector and thus
-    // drops it. Inert pre-cutover (iceberg scans/writes do not route through the providers until P6.6).
-    private final IcebergRewritableDeleteStash rewritableDeleteStash = new IcebergRewritableDeleteStash();
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
     // null for a non-Kerberos catalog. Its doAs acts on the PLUGIN's UserGroupInformation copy — the one the
@@ -679,7 +675,7 @@ public class IcebergConnector implements Connector {
         // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
         return new IcebergScanPlanProvider(properties,
                 this::newCatalogBackedOps, context, manifestCache,
-                rewritableDeleteStash, tableCache, formatCache);
+                tableCache, formatCache);
     }
 
     @Override
@@ -689,8 +685,7 @@ public class IcebergConnector implements Connector {
         // IcebergConnectorTransaction. It resolves the target via catalogOps.loadTable, so it shares the
         // fully-threaded ops (newCatalogBackedOps) — external_catalog.name must apply to INSERT/DELETE/MERGE.
         return new IcebergWritePlanProvider(properties,
-                this::newCatalogBackedOps, context,
-                rewritableDeleteStash);
+                this::newCatalogBackedOps, context);
     }
 
     @Override

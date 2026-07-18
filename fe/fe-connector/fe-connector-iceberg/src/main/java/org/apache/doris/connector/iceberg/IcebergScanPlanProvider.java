@@ -219,16 +219,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // Nullable — null via the 2-/3-arg ctors (offline tests, default-disabled gate); when null the gate is
     // forced off and planScan uses the SDK splitFiles path.
     private final IcebergManifestCache manifestCache;
-    // commit-bridge supply (S4 part 2): owned by the long-lived IcebergConnector, shared with the write provider.
-    // A format-version>=3 DELETE/MERGE scan stashes its non-equality delete supply here keyed by queryId; the
-    // write provider retrieves it to fill rewritable_delete_file_sets. Nullable — null via the 2-/3-/4-arg ctors
-    // (offline tests), in which case stashing is skipped (the supply is exercised only on the post-cutover write
-    // path; pre-flip the provider never runs at all).
-    private final IcebergRewritableDeleteStash rewritableDeleteStash;
     // PERF-01: cross-query RAW-table cache shared with the metadata layer, owned by the long-lived
     // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors and
     // when the connector's credential gate disables the cross-query layer; when null resolveTable still uses the
-    // query-scoped fat handle and falls back to a direct remote load.
+    // per-statement scope and falls back to a direct remote load.
     private final IcebergTableCache tableCache;
     // PERF-03: cross-query inferred-file-format cache shared with the connector, owned by the long-lived
     // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors; when null
@@ -243,37 +237,30 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps) {
-        this(properties, catalogOps, null, null, null);
+        this(properties, catalogOps, null, null);
     }
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
-        this(properties, catalogOps, context, null, null);
+        this(properties, catalogOps, context, null);
     }
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context, IcebergManifestCache manifestCache) {
-        this(properties, catalogOps, context, manifestCache, null);
-    }
-
-    public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
-            ConnectorContext context, IcebergManifestCache manifestCache,
-            IcebergRewritableDeleteStash rewritableDeleteStash) {
         // Constant resolver: these ctors (offline tests + the pre-session connector paths) bind a single ops that
         // ignores the session, so existing behaviour/tests are byte-identical. No cross-query cache (tableCache
-        // null) — the fat handle still dedups within a planning pass.
-        this(properties, session -> catalogOps, context, manifestCache, rewritableDeleteStash, null);
+        // null) — the per-statement scope still dedups within a statement.
+        this(properties, session -> catalogOps, context, manifestCache, null);
     }
 
     /**
      * Session-aware convenience ctor without a cross-query table cache (tableCache null); used by the offline
-     * session-routing tests. The query-scoped fat handle still dedups within a planning pass.
+     * session-routing tests. The per-statement scope still dedups within a statement.
      */
     public IcebergScanPlanProvider(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
-            ConnectorContext context, IcebergManifestCache manifestCache,
-            IcebergRewritableDeleteStash rewritableDeleteStash) {
-        this(properties, catalogOpsResolver, context, manifestCache, rewritableDeleteStash, null);
+            ConnectorContext context, IcebergManifestCache manifestCache) {
+        this(properties, catalogOpsResolver, context, manifestCache, null);
     }
 
     /**
@@ -284,26 +271,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     public IcebergScanPlanProvider(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
-            ConnectorContext context, IcebergManifestCache manifestCache,
-            IcebergRewritableDeleteStash rewritableDeleteStash, IcebergTableCache tableCache) {
-        this(properties, catalogOpsResolver, context, manifestCache, rewritableDeleteStash, tableCache, null);
+            ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache) {
+        this(properties, catalogOpsResolver, context, manifestCache, tableCache, null);
     }
 
     /**
      * Full ctor used by {@link IcebergConnector#getScanPlanProvider()}, adding the PERF-03 cross-query
-     * inferred-file-format cache ({@code formatCache}). The 6-arg ctor delegates here with a null format cache
+     * inferred-file-format cache ({@code formatCache}). The 5-arg ctor delegates here with a null format cache
      * (offline tests + pre-cache paths resolve {@code file_format_type} live).
      */
     public IcebergScanPlanProvider(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
-            ConnectorContext context, IcebergManifestCache manifestCache,
-            IcebergRewritableDeleteStash rewritableDeleteStash, IcebergTableCache tableCache,
+            ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache,
             IcebergFormatCache formatCache) {
         this.properties = properties;
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
         this.manifestCache = manifestCache;
-        this.rewritableDeleteStash = rewritableDeleteStash;
         this.tableCache = tableCache;
         this.formatCache = formatCache;
     }
@@ -578,7 +562,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             while (iterator.hasNext()) {
                 IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, false, null);
+                        orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null);
                 if (range != null) {
                     buffered = range;
                     return true;
@@ -669,15 +653,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // and emit one BE-ready IcebergScanRange per task, populating the typed iceberg carriers — incl. the
         // merge-on-read delete files (T04) — mirroring legacy IcebergScanNode.createIcebergSplit. The field-id
         // history dict (T06, scan-level), MVCC pin, and vended credentials (T09) land later.
-        // commit-bridge supply (S4 part 2): for a format-version>=3 scan, stash each data file's non-equality
-        // delete supply (old DVs + old position deletes) keyed by the statement queryId, so a DELETE/MERGE write
-        // on the same statement can fill rewritable_delete_file_sets and the BE OR-merges those old deletes into
-        // the new deletion vector — a missing supply silently resurrects previously-deleted rows. queryId is read
-        // once (stable across this statement's scan and write sessions). Skipped pre-v3 and when the stash is
-        // absent (offline tests / pre-cutover the provider never runs); a non-DML scan just leaves a leaked entry
-        // the stash ages out, and accumulate() itself no-ops a blank queryId or an empty (no non-eq delete) list.
-        boolean stashRewritableDeletes = rewritableDeleteStash != null && formatVersion >= 3;
-        String stashQueryId = stashRewritableDeletes ? session.getQueryId() : null;
+        // commit-bridge supply (S4 part 2): for a format-version>=3 scan, accumulate each data file's non-equality
+        // delete supply (old DVs + old position deletes) into the per-statement scope, so a DELETE/MERGE write on
+        // the same statement can fill rewritable_delete_file_sets and the BE OR-merges those old deletes into the
+        // new deletion vector — a missing supply silently resurrects previously-deleted rows. The scope is keyed by
+        // catalog id + queryId (shared across this statement's scan and write, isolated per catalog for a
+        // cross-catalog MERGE). Skipped pre-v3; a non-DML scan just leaves an entry GC'd with the statement, and an
+        // absent scope (offline) yields a throwaway map that the write seam guards against (fail loud on v3 DML).
+        Map<String, List<TIcebergDeleteFileDesc>> rewritableDeleteSupply = formatVersion >= 3
+                ? IcebergStatementScope.rewritableDeleteSupply(session) : null;
 
         // WS-REWRITE R2 per-group scope: when the handle carries a rewrite file scope (the engine
         // rewrite_data_files driver sets it before each group's INSERT-SELECT), keep ONLY the data files in
@@ -696,7 +680,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
                 IcebergScanRange range = buildRangeForTask(task, table, formatVersion, partitioned,
                         orderedPartitionKeys, zone, uriNormalizer, plan.targetSplitSize, rewriteScope,
-                        stashRewritableDeletes, stashQueryId);
+                        rewritableDeleteSupply);
                 if (range != null) {
                     ranges.add(range);
                 }
@@ -747,15 +731,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Map one {@link FileScanTask} to its BE-ready {@link IcebergScanRange}, applying the rewrite-scope filter
      * (returns {@code null} to skip a data file outside the scope) and the v3 commit-bridge rewritable-delete
-     * stash side-effect. Shared by the synchronous {@link #planScanInternal} loop and the streaming
+     * accumulation. Shared by the synchronous {@link #planScanInternal} loop and the streaming
      * {@code IcebergStreamingSplitSource} so both paths produce byte-identical ranges and never drop a
-     * side-effect. The streaming path passes {@code stashRewritableDeletes=false} (v3 is gated onto the eager
-     * path — see {@link #streamingSplitEstimate}), so the stash is inert there.
+     * side-effect. The streaming path passes {@code rewritableDeleteSupply=null} (v3 is gated onto the eager
+     * path — see {@link #streamingSplitEstimate}), so the accumulation is inert there.
      */
     private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, int formatVersion,
             boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, long targetSplitSize, Set<String> rewriteScope,
-            boolean stashRewritableDeletes, String stashQueryId) {
+            Map<String, List<TIcebergDeleteFileDesc>> rewritableDeleteSupply) {
         DataFile dataFile = task.file();
         if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
             return null;
@@ -764,9 +748,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
         IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
                 orderedPartitionKeys, zone, uriNormalizer, -1, targetSplitSize);
-        if (stashRewritableDeletes) {
-            rewritableDeleteStash.accumulate(stashQueryId, range.getOriginalPath(),
-                    range.rewritableDeleteDescs());
+        if (rewritableDeleteSupply != null) {
+            // Record this data file's non-equality delete supply keyed on its RAW path (the exact string the BE
+            // matches a rewritable set against). Splits of one file carry an identical list, so the put is
+            // idempotent; an empty list (no old non-eq deletes) contributes nothing.
+            List<TIcebergDeleteFileDesc> descs = range.rewritableDeleteDescs();
+            if (range.getOriginalPath() != null && descs != null && !descs.isEmpty()) {
+                rewritableDeleteSupply.put(range.getOriginalPath(), descs);
+            }
         }
         return range;
     }
@@ -2274,26 +2263,22 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code null} context (offline unit tests / simple-auth) resolves directly.
      */
     private Table resolveTable(ConnectorSession session, IcebergTableHandle handle) {
-        // Fat handle first (PERF-01): one handle threaded through getColumnHandles + planScan resolves the table
-        // once. The memo holds the RAW table; wrapTableForScan (the Kerberos doAs FileIO) is re-applied per call
-        // below so no per-request authenticator is ever frozen into the shared memo/cache.
-        Table cached = handle.getResolvedTable();
-        if (cached != null) {
-            return wrapTableForScan(cached);
-        }
-        // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim.
+        // Per-statement scope (PERF-07): the statement's read metadata, scan planning and write all resolve the
+        // SAME one loaded RAW table. The scope holds the RAW table; wrapTableForScan (the Kerberos doAs FileIO) is
+        // re-applied per call below so no per-request authenticator is ever frozen into the shared object.
+        // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim (it
+        // re-validates the credential even on a scope hit).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
-        Table raw;
-        if (context == null) {
-            raw = loadRawTable(ops, handle);
-        } else {
+        Table raw = IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(), () -> {
+            if (context == null) {
+                return loadRawTable(ops, handle);
+            }
             try {
-                raw = context.executeAuthenticated(() -> loadRawTable(ops, handle));
+                return context.executeAuthenticated(() -> loadRawTable(ops, handle));
             } catch (Exception e) {
                 throw new RuntimeException("Failed to load table for scan, error message is:" + e.getMessage(), e);
             }
-        }
-        handle.setResolvedTable(raw);
+        });
         return wrapTableForScan(raw);
     }
 
