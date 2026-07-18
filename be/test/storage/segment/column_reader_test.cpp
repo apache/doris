@@ -1341,7 +1341,7 @@ TEST_F(ColumnReaderTest, SplitAccessPathsClassifiesCurrentAndDescendantPaths) {
     EXPECT_EQ(iterator._read_requirement, ColumnIterator::ReadRequirement::NORMAL);
 }
 
-TEST_F(ColumnReaderTest, MapDescendantRoutingPreservesActivePayloadAndVersion) {
+TEST_F(ColumnReaderTest, MapChildPathRoutingRewritesOnlySelectedPayloadAndPreservesVersion) {
     auto key_iterator = std::make_unique<TrackingColumnIterator>();
     key_iterator->set_column_name("key");
     auto* key = key_iterator.get();
@@ -1356,9 +1356,9 @@ TEST_F(ColumnReaderTest, MapDescendantRoutingPreservesActivePayloadAndVersion) {
 
     auto path = create_meta_access_path(
             {"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET});
-    TDataAccessPath inactive_data_payload;
-    inactive_data_payload.__set_path(path.meta_access_path.path);
-    path.__set_data_access_path(std::move(inactive_data_payload));
+    TDataAccessPath unselected_data_payload;
+    unselected_data_payload.__set_path(path.meta_access_path.path);
+    path.__set_data_access_path(std::move(unselected_data_payload));
     auto legacy_path = create_data_access_path(
             {"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET});
     legacy_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
@@ -1399,7 +1399,7 @@ TEST_F(ColumnReaderTest, MapDescendantRoutingPreservesActivePayloadAndVersion) {
               (std::vector<std::string> {"value", ColumnIterator::ACCESS_OFFSET}));
 }
 
-TEST_F(ColumnReaderTest, ArrayDescendantRoutingRewritesOnlyActivePayload) {
+TEST_F(ColumnReaderTest, ArrayItemPathRoutingRewritesOnlySelectedPayload) {
     auto item_iterator = std::make_unique<TrackingColumnIterator>();
     item_iterator->set_column_name("item");
     auto* item = item_iterator.get();
@@ -1411,9 +1411,9 @@ TEST_F(ColumnReaderTest, ArrayDescendantRoutingRewritesOnlyActivePayload) {
 
     auto path = create_meta_access_path(
             {"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET});
-    TDataAccessPath inactive_data_payload;
-    inactive_data_payload.__set_path(path.meta_access_path.path);
-    path.__set_data_access_path(std::move(inactive_data_payload));
+    TDataAccessPath unselected_data_payload;
+    unselected_data_payload.__set_path(path.meta_access_path.path);
+    path.__set_data_access_path(std::move(unselected_data_payload));
 
     auto st = array_iterator.set_access_paths({path}, {});
     ASSERT_TRUE(st.ok()) << st.to_string();
