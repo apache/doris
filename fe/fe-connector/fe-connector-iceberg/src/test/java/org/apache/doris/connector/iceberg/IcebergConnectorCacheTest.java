@@ -344,4 +344,63 @@ public class IcebergConnectorCacheTest {
         connector.invalidateAll();
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
     }
+
+    private static Map<String, String> restProps(boolean vended, boolean sessionUser) {
+        Map<String, String> m = new HashMap<>();
+        m.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        if (vended) {
+            m.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        }
+        if (sessionUser) {
+            m.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        }
+        return m;
+    }
+
+    private static IcebergCommentCache commentCacheOf(Map<String, String> props) {
+        return new IcebergConnector(props, new RecordingConnectorContext()).commentCacheForTest();
+    }
+
+    @Test
+    public void commentCacheBuiltOnlyForVendedNonSessionCatalog() {
+        // PERF-05: the comment cache fills the gap PERF-01's tableCache leaves for vended-credentials catalogs, but
+        // ONLY when NOT session=user -- a session=user comment cache would serve one user's comment to another
+        // whose per-user loadTable authorization was never checked (a metadata disclosure). Plain catalogs already
+        // reuse tableCache for the comment path, so no comment cache there either.
+        // Plain catalog -> null (tableCache covers the comment path; no redundant cache).
+        Assertions.assertNull(commentCacheOf(Collections.emptyMap()),
+                "a plain catalog must NOT build the comment cache (tableCache already serves it)");
+        // Vended, non-session -> built (the one flavor it is safe + useful for).
+        Assertions.assertNotNull(commentCacheOf(restProps(true, false)),
+                "a vended-credentials (non-session) catalog must build the comment cache");
+        // session=user -> null (per-user authorization must not be bypassed by a shared cache).
+        Assertions.assertNull(commentCacheOf(restProps(false, true)),
+                "a session=user catalog must NOT build the comment cache (per-user authz)");
+        // vended AND session=user -> null (session=user wins; !isUserSessionEnabled() gates it off).
+        Assertions.assertNull(commentCacheOf(restProps(true, true)),
+                "vended + session=user must NOT build the comment cache (session=user takes precedence)");
+    }
+
+    @Test
+    public void refreshHooksInvalidateCommentCache() {
+        // The REFRESH hooks must clear the comment cache too (else an external ALTER comment stays invisible beyond
+        // the pin): REFRESH TABLE drops that table, REFRESH DATABASE that db, REFRESH CATALOG everything. MUTATION:
+        // an invalidate* hook not touching commentCache -> a stale comment survives -> a size assert below red.
+        IcebergConnector connector = new IcebergConnector(restProps(true, false), new RecordingConnectorContext());
+        IcebergCommentCache cache = connector.commentCacheForTest();
+        Assertions.assertNotNull(cache);
+        cache.getOrLoad(TableIdentifier.of("db1", "t1"), () -> "c1");
+        cache.getOrLoad(TableIdentifier.of("db1", "t2"), () -> "c2");
+        cache.getOrLoad(TableIdentifier.of("db2", "t1"), () -> "c3");
+        Assertions.assertEquals(3, cache.size());
+
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops db1.t1");
+
+        connector.invalidateDb("db1");
+        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops db1's remaining table");
+
+        connector.invalidateAll();
+        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
 }

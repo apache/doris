@@ -172,6 +172,11 @@ public class IcebergConnector implements Connector {
     // (table, snapshotId)). Like partitionCache, the value is pure metadata (a format-name string) with no
     // FileIO/credential, so no gate; only the TTL knob disables it.
     private final IcebergFormatCache formatCache;
+    // PERF-05: cross-query table-comment cache (value = the 'comment' property string). Built ONLY for a REST
+    // vended-credentials catalog that is NOT session=user -- plain catalogs already reuse tableCache (PERF-01) for
+    // the comment path, and session=user must stay live because the loadTable itself carries per-user
+    // authorization a shared cache would bypass. null for every other flavor.
+    private final IcebergCommentCache commentCache;
     private final IcebergManifestCache manifestCache = new IcebergManifestCache();
     // commit-bridge supply (S4 part 2): per-catalog stash carrying a row-level DML's non-equality delete supply
     // across the scan->write seam — the scan provider fills it (keyed by queryId), the write provider drains it
@@ -219,6 +224,16 @@ public class IcebergConnector implements Connector {
         // PERF-03: inferred-file-format cache. Pure metadata (no credentials) -> no gate; same TTL/capacity.
         this.formatCache = new IcebergFormatCache(
                 resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // PERF-05: table-comment cache, built ONLY for a REST vended-credentials catalog that is NOT session=user.
+        // Plain catalogs (tableCache on) already serve the comment path from tableCache; session=user is excluded
+        // because a shared comment cache would bypass the per-user loadTable authorization (a metadata disclosure).
+        // Comment is pure metadata (no credential) so no gate on the VALUE -- the flavor gate is an authorization
+        // decision, not a credential-leak one. Same TTL/capacity (ttl<=0 still disables internally).
+        this.commentCache = (IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties)
+                && !isUserSessionEnabled())
+                ? new IcebergCommentCache(
+                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY)
+                : null;
     }
 
     /**
@@ -242,8 +257,8 @@ public class IcebergConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new IcebergConnectorMetadata(
-                newCatalogBackedOps(session), properties, context, latestSnapshotCache, tableCache, partitionCache);
+        return new IcebergConnectorMetadata(newCatalogBackedOps(session), properties, context,
+                latestSnapshotCache, tableCache, partitionCache, commentCache);
     }
 
     /**
@@ -559,6 +574,9 @@ public class IcebergConnector implements Connector {
         }
         partitionCache.invalidate(TableIdentifier.of(dbName, tableName));
         formatCache.invalidate(TableIdentifier.of(dbName, tableName));
+        if (commentCache != null) {
+            commentCache.invalidate(TableIdentifier.of(dbName, tableName));
+        }
     }
 
     /**
@@ -580,6 +598,9 @@ public class IcebergConnector implements Connector {
         }
         partitionCache.invalidateDb(dbName);
         formatCache.invalidateDb(dbName);
+        if (commentCache != null) {
+            commentCache.invalidateDb(dbName);
+        }
     }
 
     /**
@@ -597,6 +618,9 @@ public class IcebergConnector implements Connector {
         }
         partitionCache.invalidateAll();
         formatCache.invalidateAll();
+        if (commentCache != null) {
+            commentCache.invalidateAll();
+        }
         manifestCache.invalidateAll();
     }
 
@@ -639,6 +663,11 @@ public class IcebergConnector implements Connector {
     /** Test-only: the cross-query inferred-file-format cache (PERF-03; always built, no credential gate). */
     IcebergFormatCache formatCacheForTest() {
         return formatCache;
+    }
+
+    /** Test-only: the table-comment cache (PERF-05), or {@code null} unless vended-credentials and non-session. */
+    IcebergCommentCache commentCacheForTest() {
+        return commentCache;
     }
 
     @Override

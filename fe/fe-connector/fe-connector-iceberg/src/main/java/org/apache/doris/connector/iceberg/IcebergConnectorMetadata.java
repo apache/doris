@@ -151,6 +151,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // PERF-02: cross-query partition-view cache (null = no cross-query layer; the convenience ctors used by
     // direct-construction tests pass null). Consumed by getMvccPartitionView / listPartitions / listPartitionNames.
     private final IcebergPartitionCache partitionCache;
+    // PERF-05: cross-query table-comment cache (null = no cross-query layer). Non-null only when the owning
+    // connector is a REST vended-credentials, non-session catalog (see IcebergConnector); the convenience ctors
+    // used by direct-construction tests pass null. Consumed only by getTableComment.
+    private final IcebergCommentCache commentCache;
 
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
@@ -173,12 +177,21 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache) {
+        this(catalogOps, properties, context, latestSnapshotCache, tableCache, partitionCache, null);
+    }
+
+    /** Full ctor used by {@link IcebergConnector#getMetadata}, adding the PERF-05 table-comment cache. */
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+            ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
+            IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
+            IcebergCommentCache commentCache) {
         this.catalogOps = catalogOps;
         this.properties = properties;
         this.context = context;
         this.latestSnapshotCache = latestSnapshotCache;
         this.tableCache = tableCache;
         this.partitionCache = partitionCache;
+        this.commentCache = commentCache;
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -333,6 +346,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Comment column would all be blank even though the raw comment key still appears in the SHOW CREATE
         // PROPERTIES(...) block (F9/F12). Views render their comment through getViewDefinition / the view
         // SHOW CREATE arm, so a view handle here (loadTable throws) falls back to "" via the caller's catch.
+        // PERF-05: on a vended-credentials (non-session) catalog, memoize the comment per table across queries so
+        // the per-table loadTable that information_schema.tables / SHOW TABLE STATUS pays for EVERY table collapses
+        // on repeats. commentCache is null for every other flavor (plain catalogs reuse tableCache via loadTable;
+        // session=user must stay live to preserve per-user authorization) -> resolve directly. A thrown load (view
+        // handle) is not cached and propagates to the caller's catch (still ""), so behavior is unchanged.
+        if (commentCache != null) {
+            return commentCache.getOrLoad(TableIdentifier.of(dbName, tableName),
+                    () -> loadTableComment(dbName, tableName));
+        }
+        return loadTableComment(dbName, tableName);
+    }
+
+    private String loadTableComment(String dbName, String tableName) {
         Table table = loadTable(new IcebergTableHandle(dbName, tableName));
         return table.properties().getOrDefault(TABLE_COMMENT_PROP, "");
     }
