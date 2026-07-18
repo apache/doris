@@ -58,3 +58,16 @@
 - **结果**：全 iceberg 模块 **957 pass / 0 fail / 1 skip**（`install -am`），checkstyle 绿，0 回归（无需改任何现有测试）。summary 见 `designs/FIX-PERF-03-format-inference-cache-summary.md`。
 - **踩坑/印证**：InMemoryCatalog `newAppend().commit()` 后同一 table 对象 `currentSnapshot()` 会刷新（度量守门测试 ORC+loadCount==1 通过即证），无需像 `dayPartitionedTable` 那样 reload；但 reload 仍是更稳的既有范式。
 - **下一步**：见 HANDOFF —— PERF-04（IcebergManifestCache 两条旁路接回：C17 streaming 大表踢出 cache + C18 COUNT(*) 下推绕过 cache）。
+
+---
+
+## 2026-07-18 — session 3（续）：PERF-04 实现 + 全绿（commit `2e5f393779c`）
+
+- **复核 + 冲突求证（关键）**：C17/C18 = manifest cache（opt-in 默认关）被大表流式 + COUNT(*) 下推两条路径绕过。**审计说"legacy batch 走 cache 是回退"，我核 legacy `6fef25709d3^` 确认但补全另一半**：legacy batch 走 cache 时**一次性物化整表任务列表**（无 OOM 保护，OOM 保护只在缓存关时的惰性分支）；迁移用"一律流式（OOM 安全、无缓存）"换掉了缓存收益。**审计建议的"缓存开→退回物化"会重引 legacy 就有的 OOM 风险**——否决"一行修复"。
+- **决策上交用户（AskUserQuestion，三选项 A 恢复 legacy/B 维持现状/C 惰性+缓存兼得）**：用户选 **C**。C 可行性由代码证实：现 `planFileScanTaskWithManifestCache` 只在 Phase 2 攒 `List`，delete 索引(Phase 1)本就 eager（= SDK planFiles 也 eager 读 delete）→ 把 Phase 2 改惰性即得"缓存 + 不 OOM"。
+- **设计红队（独立 agent 对抗，7 攻击）**：核心思路(惰性迭代器三处复用)判 sound；抓 **1 HIGH**（回退 `catch` 须 `Exception` 非 `IOException`——缓存把失败重抛成 RuntimeException）+ 3 MED（跨线程 stats 竞争→流式用无 stats 重载；COUNT 对比测试勿断言 path 相等因 `ParallelIterable` 乱序；保 `snapshot==null` 守卫 + 空表 COUNT 用例）+ 2 LOW（大表流式现在填充缓存=目的；COUNT+cache 少一份 profile=与现有 cache 路径一致）。全并入。
+- **实现（连接器侧一个 `[perf]` commit）**：抽 `cacheBackedFileScanTasks()`（惰性 CloseableIterable）+ `manifestCacheGet`（stats/无 stats 重载分派）+ 内部类 `ManifestCacheFileScanTaskIterator`（扁平映射迭代器，schemaJson/specJson 提为循环不变量）；`planFileScanTaskWithManifestCache` 改物化它；`streamSplits`→`streamingFileScanTasks`（cache 开惰性+回退）；`planCountPushdown`→`countPushdownFileScanTasks`（cache 开取首文件+回退）+ 从 `planScanInternal` 透传 `filter`/`session`。
+- **测试（`IcebergScanPlanProviderTest` +5）**：流式 cache parity vs SDK + 命中；分区剪枝 parity；跨多 data manifest 扁平映射；COUNT count-parity(60) + 惰性早停(`cache.size()<总 manifest`)；空表 null 快照 COUNT 守卫。回退路径未单测（`IcebergManifestCache` final 无 seam，与既有同步回退同样未测，逐字镜像）。
+- **踩坑（CI 前本地捕获）**：① `java.util.Iterator` 漏 import（编译挂）；② 重构后同步 `planFileScanTaskWithManifestCache` 顶部无条件 `session.getQueryId()`，而既有空表用例传 **null session**（旧码 snapshot==null 早返回、从不碰 session）→ NPE；改 `statsQueryId = session != null ? getQueryId() : null`。
+- **结果**：全 iceberg 模块 **962 pass / 0 fail / 0 error / 1 skip**，checkstyle 0 违规，0 回归（现有测试全绿）。summary 见 `designs/FIX-PERF-04-*-summary.md`。
+- **下一步**：见 HANDOFF —— PERF-05（C9 information_schema.tables 每表 loadTable 只为取 comment）。

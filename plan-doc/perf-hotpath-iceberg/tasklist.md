@@ -18,7 +18,7 @@
 | PERF-01 | P0 | C1 C4 C6 C10 C16 | 一次规划 3~7 次远程 loadTable → 胖 handle(查询内单实例)+ 跨查询 IcebergTableCache(挂 Connector);~~convertPredicate 收窄~~已删(红队证伪) | — | ✅ 完成 | `484f0e0c125` |
 | PERF-02 | P0 | C7 C22 C23 | 分区视图每查询重扫 PARTITIONS 元数据表 → `(table,snapshotId)` 缓存(连接器侧,无凭证 gate);MTMV refresh pin 判定为多余(靠 latestSnapshotCache 稳定快照坍缩,不改 fe-core) | 与 01 共享快照 pin 机制 | ✅ 完成 | `518d0599cbf` |
 | PERF-03 | P0 | C2 C11 | #64134 复活：`file_format_type` 兜底走整表 planFiles → 跨查询 `(table,snapshotId)` memoize(连接器侧,无 gate);~~从枚举反推~~已否决(getFileFormatType 早于 planScan + 无过滤 vs 带谓词破 parity) | 与 01/02 共享快照 pin | ✅ 完成 | `0b96f2e6c78` |
-| PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 两条旁路接回 | — | ⏳ | |
+| PERF-04 | P1 | C17 C18 | streaming / COUNT(*) 下推旁路 IcebergManifestCache → 抽惰性 `cacheBackedFileScanTasks`(delete 索引 eager + data manifest 惰性扁平映射)三处复用;缓存与不 OOM 兼得(否决审计"退回物化"因重引 OOM) | — | ✅ 完成 | `2e5f393779c` |
 | PERF-05 | P1 | C9 | information_schema.tables 循环内每表 loadTable（只为拿 comment） → 随表缓存 / 惰性取 | — | ⏳ | |
 | PERF-06 | P1 | C3 | REST vended-cred 每 data/delete file 重建 StorageProperties+Configuration → scan 级 memo | — | ⏳ | |
 | PERF-07 | P1 | C20 | 一条 DML 3~5 次 load 同表 → 语句级 resolve 一次传递 | — | ⏳ | |
@@ -53,9 +53,11 @@
 
 ## P1 — 局部旁路/局部 hoist，触发面较窄或特定场景
 
-### [ ] PERF-04 — 簇4：IcebergManifestCache 两条旁路接回（C17 C18）
-- **病灶**：manifest cache（`meta.cache.iceberg.manifest.enable`，默认 off）只接在同步路径 `planFileScanTask:1681`（gate `isManifestCacheEnabled:1832`）。**C17**：文件数 ≥ `num_files_in_batch_mode`（默认 1024）走 streaming `streamSplits:449 → scan.planFiles():463`，**恰好把 cache 瞄准的大表踢出缓存**（legacy batch 模式仍走 cache）。**C18**：COUNT(*) 下推 `planScanInternal:594-598 → planCountPushdown:1021 → scan.planFiles():1024` 在到 cache 分支前 return（`ParallelIterable` 还激进提交所有 manifest 读任务，虽只要第一个）。
-- **修复方向**：cache 开启时 streaming 判定返回 -1 退回同步物化路径（**一行 legacy-parity 修复** = C17）；count 分支改走 `planFileScanTask`（C18）。
+### [x] PERF-04 — 簇4：IcebergManifestCache 两条旁路接回（C17 C18） · ✅ `2e5f393779c`
+- **病灶**：manifest cache（`meta.cache.iceberg.manifest.enable`，默认 off）只接在同步物化路径。**C17**：≥`num_files_in_batch_mode` 的大表走 streaming `streamSplits → scan.planFiles()`（SDK 裸扫，恰把 cache 目标大表踢出）。**C18**：COUNT(*) 下推 `planCountPushdown → scan.planFiles()` 只为取一个占位文件（行数来自快照摘要），也不走 cache 且 `ParallelIterable` 全提交。
+- **复核否决审计"一行修复"**：核 legacy(`6fef25709d3^`) batch 模式确走 cache **但一次性物化整表**（无 OOM 保护）；"退回物化"会重引 legacy 就有的 OOM 风险。用户拍板方向 = **惰性+缓存兼得**。
+- **落地**：抽惰性 `cacheBackedFileScanTasks`（delete 索引 eager + data manifest 惰性扁平映射，产整文件任务不攒整表），三处复用（同步物化它保启发式切片；流式喂它保 OOM 安全+固定切片+现在命中缓存；COUNT 迭代取首文件惰性早停）。决策不改；失败 `catch(Exception)` 退 SDK；`statsQueryId` 可空(流式 null 消跨线程 stats 竞争)。红队 7 攻击核心 sound，采纳 catch 类型/线程/测试 3 修正。
+- **收益**：开缓存大表流式从 0 命中→命中且不 OOM；COUNT 从全提交→首文件即停。全模块 962 UT 绿。
 
 ### [ ] PERF-05 — C9：information_schema.tables 每表 loadTable
 - **病灶**：`FrontendServiceImpl.listTableStatus:719 for(table)` → `:755 setComment(table.getComment())`（**无条件**，不看请求是否要 comment 列）→ `PluginDrivenExternalTable.getComment:944 → IcebergConnectorMetadata.getTableComment:305 → loadTable`。N 表 = N 次串行远程 load；几百表的库一条 `SELECT * FROM information_schema.tables` 数十秒~分钟，BI 工具高频触发。教科书级"伪装成轻访问器"。
