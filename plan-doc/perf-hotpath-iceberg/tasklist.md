@@ -25,7 +25,7 @@
 | PERF-08 | P2 | C19 C21 | 维护路径逐单位重扫 / 无去重（rewrite_data_files 每 group planFiles；expire_snapshots S×M）→ union 一次注册 / 按 path 去重 | 改动小可先行 | ✅ 完成 | `89cc39c8d88`(C19)+`be0035eff62`(C21) |
 | PERF-09 | P2 | C5 | **（fe-core 框架层）** streaming pump 逐 split 重建 backend 候选集 + 锁往返 → 微批 | ⚠ 跨连接器，见约束 | ⏳ | |
 | PERF-10 | P2 | C8 | 同组 WHERE conjunct 被转换 5~6 次/查询 → node 字段 memo（与 01 同点失效） | 与 01 同源 | 🔬 暂缓（复核判低价值） | |
-| PERF-11 | P2 | C12 C13 C14 C15 | per-split 不变量重算 + payload 逐 slice 复制 → hoist / (specId,PartitionData) memo / per-file 共享 | 同区域批量 · ⚠ 含 fe-core 通用节点 | 🚧 部分完成（C12+C15a+C13-plan） | `10b7d29423f` |
+| PERF-11 | P2 | C12 C13 C14 C15 | per-split 不变量重算 + payload 逐 slice 复制 → hoist / (specId,PartitionData) memo / per-file 共享 + 通用节点 provider memo | 同区域批量 · ⚠ 含 fe-core 通用节点 | 🚧 部分完成（C12+C15a+C13-plan+C14-provider） | `10b7d29423f`+`87ff73b1a95`(C14-provider) |
 
 ---
 
@@ -104,13 +104,13 @@
   - **处置**：用户 2026-07-18 拍板**跳过**，改做高价值 PERF-11。若将来愿加一个中性 `ConnectorSession` explain 信号，连接器侧 explain-gate 可复活（收益仍微秒级）。
 - **依赖**：与 PERF-01 同源，宜在 01 之后顺手。
 
-### [🚧] PERF-11 — 簇5：per-split 不变量 + payload 放大（C12 C13 C14 C15） · 部分完成 `10b7d29423f`
+### [🚧] PERF-11 — 簇5：per-split 不变量 + payload 放大（C12 C13 C14 C15） · 部分完成 `10b7d29423f`+`87ff73b1a95`
 > 同一 `buildRange`/`populateRangeParams` 区域的 per-split 重复计算与 payload 放大，拆多 commit。权威设计/小结/红队见 [`designs/FIX-PERF-11-per-file-invariant-memo-*`](./designs/FIX-PERF-11-per-file-invariant-memo-design.md)。
 > **已完成（`10b7d29423f`，连接器侧）= C12 + C15(a) + C13(plan 侧)**：`buildRange` 穿 1 条目 `PerFileScratch`（键 `task.file()` 身份），partition JSON/identity/ordered 值/delete 载体 per-slice→per-file；同文件 k range 共享不可变实例（省 FE heap）；v3 `rewritableDeleteSupply.put` per-slice→per-file（文件首 slice、覆盖末文件）。eager+流式共用 `buildRangeForTask` choke point，流式 scratch O(1) 不破 OOM。3 视角对抗 byte-parity 0 破坏；全模块 1064 pass/1 skip。
 > **仍未做（deferred，另立 commit/任务）**：
 > - **C15(b) 线路字节**：`populateRangeParams` 逐 range 把完整 delete 列表 `toThrift()` + partition JSON 塞进每个 `TFileRangeDesc` —— 真正减线路字节须 thrift params 级 delete-file 字典 + per-range 索引 + **BE reader 改**，是**协议演进非回归修复**（审计 C15 自述）。
 > - **C13(wire) 二次转换**：上面的 `populateRangeParams` per-range `delete.toThrift()` 亦是 C13 的「第二次转换」——与 C15b 同一处线路侧，随 C15b 一并处理或单独 hoist（缓存 per-file 已转换 descs，牵扯持有 thrift 对象的内存权衡）。
-> - **C14 fe-core 通用节点 hoist**：见下（框架层，须双不变，另议）。
+> - **C14 fe-core 通用节点**：✅ **provider memo（子项 #3）已完成** `87ff73b1a95`——`PluginDrivenScanNode.resolveScanProvider` per-split 重分配 provider → 按 `currentHandle` 身份 memo（不可变 holder + volatile 发布），byte 等价、3 视角红队 0 缺陷；权威设计/小结见 [`designs/FIX-PERF-11-scan-provider-memo-*`](./designs/FIX-PERF-11-scan-provider-memo-design.md)。**剩余暂缓**（用户 2026-07-19 拍板只做 #3）：路径重复解析（#1/#2，`LocationPath.of`/`toStorageLocation` 有跨连接器 Hadoop Path 规整字节风险、性价比差）、build-then-discard 分区列（#4，须新增 `ConnectorScanRange` 能力位给 fe-core 加面、碰铁律 A）。
 - **C12**：一个 data file 被 `TableScanUtil.splitFiles` 切成 k 个 byte-slice 后，`buildRange:1045` 对每个 slice 重算 partition JSON（Jackson 序列化 + 时区格式化）、identity map、delete 转换 —— (specId, PartitionData) 级不变量。100k split ≈ 0.5~2s CPU。修：按 (specId, PartitionData) memo。
 - **C13**：v3 rewritable-delete stash：同一 delete 列表 plan 期 `rewritableDeleteDescs:302-313` 转一次 thrift，`populateRangeParams` 再转一次；每 slice 重复 put 相同 supply。修：转一次复用、per-file 而非 per-slice。
 - **C14**：通用节点 per-split 重复 `LocationPath.of`（URLEncoder+URI.create）、重建 columns-from-path 却被 `IcebergScanRange.populateRangeParams:435-437` unset 丢弃；`resolveScanProvider` 每 split 经 `getFileCompressType` 反复解析。修：hoist 不变量 / 删造完即弃分支。⚠ 涉 **fe-core 通用节点**——保持 connector-agnostic，勿加 source-specific 分支。

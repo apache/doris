@@ -143,3 +143,19 @@
   - **明确不做**（tasklist 记）：**C15(b) 线路字节**（`populateRangeParams` 逐 range `toThrift()`+partition JSON 塞每个 `TFileRangeDesc`，减字节须 thrift 字典+BE reader 改=协议演进非回归修复）、**C13(wire) 二次转换**（同处线路侧、随 C15b）、**C14 fe-core 通用节点 hoist**（框架层、须双不变）。
   - **结果**：`IcebergScanPlanProviderTest` 105/105（+2）、`IcebergConnectorTransactionTest` 66/66、**全模块 1064 pass/1 skip/0 fail**、BUILD SUCCESS + 0 checkstyle。
 - **下一步**：见 HANDOFF —— PERF-09（fe-core streaming pump 微批）或 PERF-11 remainder（C15b/C13-wire/C14）。
+
+---
+
+## 2026-07-19 — session 4：P2 剩余复核（3 候选）+ PERF-11 C14-provider-memo 落地（commit `87ff73b1a95`）
+
+- **开场按 README step 4 复核 3 个剩余候选并交用户定**（HEAD 55087e08d0c，行号信 grep）：派 3 recon + 3 对抗 verify agent，全判**证据未失效**、3 verify 全 CONFIRMED。要点：
+  - **streaming pump 微批（C5/PERF-09）**：`PluginDrivenScanNode.startStreamingSplit:1638-1642` 逐 split `addToQueue`→`FederationBackendPolicy.computeScanRangeAssignment` 每 split 重建（audit 还**漏算** `equateDistribution` O(B log B)+两堆恒跑、`ResettableRandomizedIterator` 拷贝在默认 ROUND_ROBIN 下死重）。纯 CPU/GC（10⁵ split≈0.1-0.5s），触 iceberg+trino 两流式。**非字节等价**：攒批令 shuffle+均衡真生效→**后端分配结果会变**（功能安全、纯负载均衡启发式变），且是上游基线演进非回归修——**需用户签"接受语义变"**。
+  - **C14 通用节点（PERF-11 剩）**：4 子项全在 HEAD。**#3 provider memo=安全小赢**（纯 fe-core、近零字节风险）；#1/#2 路径少解析有跨连接器 Hadoop Path 字节风险；#4 build-then-discard 须新增 SPI 能力位（碰铁律 A）。byte-identical thrift、iron D 不触。
+  - **C15b/C13-wire（PERF-11 剩）**：`IcebergScanRange.populateRangeParams:413-417` 逐 range `delete.toThrift()`+partition JSON 塞每个 `TFileRangeDesc`。真减线路字节=thrift 扫描节点级删除字典+per-range 索引+**BE reader 改**+跨版本兼容=**协议演进（iron D，需签字）**。verify 纠正 recon 一处：FE 发端**不需动 fe-core**（`populateScanLevelParams` SPI 挂钩已存在、paimon 已用），但 BE+兼容矩阵是大头。FE-only「memoize toThrift」半赢**零线路字节收益**。
+- **用户拍板**：只做 **C14 #3 provider memo**（干净低风险小赢），其余暂缓。
+- **设计 + 红队（clean-room，3 视角对抗）**：并发/JMM · 跨 8 连接器字节等价 · 生命周期与必要性——**全 SURVIVES、0 缺陷、一致"照做"**。关键确认：provider 是 `currentHandle` 纯函数（单格式忽略 handle、hive 网关按格式选、休眠）；`currentHandle` 只规划早期 pushdown/pin 换新对象、split 枚举后恒定；**"整次扫描共享一个 provider" 已是现状**（`startSplit:1542`/`startStreamingSplit:1628` 捕获一次、并发 async planScan 共享）；per-split 方法（`adjustFileCompressType`/`getDeleteFiles`/`classifyColumn`）纯函数；jdbc/maxcompute 已字段缓存→memo 对其 no-op。修正设计一处笔误（那两连接器非 new-per-call，方向安全）。
+- **落地（TDD，fe-core 一个 `[perf]` commit）**：`resolveScanProvider()` 改按 `currentHandle` **身份键** memo——不可变 `ResolvedScanProvider{handle,provider}` holder + **单次 volatile 写**发布（并发 partition-batch appendBatch 线程读自洽对、禁撕裂）；命中复用、身份 miss 重解析、null provider 正确缓存。仅 `PluginDrivenScanNode.java` +1 volatile 字段 +1 私有静态 holder 类 + 方法体 ~15 行；零调用点/SPI/连接器改动。
+- **先 RED 后 GREEN**：新守门 `PluginDrivenScanNodeScanProviderSelectionTest.memoizesProviderForStableHandleAndReResolvesOnHandleChange` 在旧码 `Wanted 1 time ... but was 3` 确证 RED（每 split 重解析）；实现后固定 handle 连调 3 次 `verify(times(1))`、换 handle 再 2 次各 1 次 + provider 匹配。
+- **结果**：全 `PluginDrivenScanNode*Test` 19 类 **103 pass / 0 fail / 0 skip**、**fe-core Checkstyle 0 违规**、BUILD SUCCESS、0 回归。度量：per-split provider 重分配 O(splits)→ 每 handle 1 次。**fe-core-only、iceberg 不依赖 fe-core → 无编译/测试耦合、不受影响**（无需另跑 iceberg 模块）。
+- **新判据（可复用）**：「共享框架热路径的 memo：以句柄/键的**身份（==）**为键即与逐次调用**机械等价**、免依赖连接器语义假设；并发下用**不可变 holder + 单次 volatile 写**安全发布，且先确认该共享是否已是现状（现状即许可）」。
+- **下一步**：见 HANDOFF —— P2 剩余仅存 PERF-09（流式 pump 微批，需签"接受分配语义变"）与 PERF-11 remainder 的 C15b/C13-wire（协议演进，需签字）+ C14 #1/#2/#4（暂缓），均已在本 session 复核清楚、待用户择时定夺或收尾。
