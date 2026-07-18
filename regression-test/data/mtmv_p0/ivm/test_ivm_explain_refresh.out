@@ -3,123 +3,83 @@
 PhysicalOlapTableSink
 --PhysicalDistribute[DistributionSpecOlapTableSinkHashPartitioned]
 ----PhysicalProject
-------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((__doris_ivm_insert.__DORIS_IVM_ROW_ID_COL__ = __doris_ivm_delete.__DORIS_IVM_ROW_ID_COL__)) otherCondition=()
---------PhysicalUnion
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
-----------------PhysicalProject
-------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
---------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-----------------PhysicalEmptyRelation
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
-----------------PhysicalProject
-------------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
---------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-----------------PhysicalUnion
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------PhysicalProject
-----------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
-------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------PhysicalProject
-----------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
-------------------------PhysicalProject
---------------------------hashAgg[GLOBAL]
-----------------------------PhysicalProject
-------------------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
---------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
-------------------------PhysicalEmptyRelation
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------PhysicalProject
-----------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
-------------------------PhysicalProject
---------------------------hashAgg[GLOBAL]
-----------------------------PhysicalProject
-------------------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
---------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
-------------------------PhysicalProject
---------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
-----------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
---------PhysicalUnion
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
-----------------PhysicalProject
-------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
---------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-----------------PhysicalEmptyRelation
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
-----------------PhysicalProject
-------------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
---------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-----------------PhysicalProject
-------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
+------PhysicalUnion
+--------PhysicalDistribute[DistributionSpecExecutionAny]
+----------PhysicalProject
+------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((k1 = k1)) otherCondition=()
+--------------PhysicalProject
+----------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+--------------PhysicalEmptyRelation
+--------PhysicalDistribute[DistributionSpecExecutionAny]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+--------------PhysicalProject
+----------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
+------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+--------------PhysicalUnion
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
 --------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+----------------------PhysicalProject
+------------------------hashAgg[GLOBAL]
+--------------------------PhysicalProject
+----------------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
+------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+----------------------PhysicalEmptyRelation
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+----------------------PhysicalProject
+------------------------hashAgg[GLOBAL]
+--------------------------PhysicalProject
+----------------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
+------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+----------------------PhysicalProject
+------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
+--------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 
 -- !right_delta_shape_plan --
 PhysicalOlapTableSink
 --PhysicalDistribute[DistributionSpecOlapTableSinkHashPartitioned]
 ----PhysicalProject
-------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((__doris_ivm_insert.__DORIS_IVM_ROW_ID_COL__ = __doris_ivm_delete.__DORIS_IVM_ROW_ID_COL__)) otherCondition=()
---------PhysicalUnion
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
-----------------PhysicalProject
-------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
---------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-----------------PhysicalEmptyRelation
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
-----------------PhysicalProject
-------------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
---------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-----------------PhysicalUnion
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------PhysicalProject
-----------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
-------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------PhysicalProject
-----------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
-------------------------PhysicalProject
---------------------------hashAgg[GLOBAL]
-----------------------------PhysicalProject
-------------------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
---------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
-------------------------PhysicalEmptyRelation
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------PhysicalProject
-----------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
-------------------------PhysicalProject
---------------------------hashAgg[GLOBAL]
-----------------------------PhysicalProject
-------------------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
---------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
-------------------------PhysicalProject
---------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
-----------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
---------PhysicalUnion
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
-----------------PhysicalProject
-------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
---------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-----------------PhysicalEmptyRelation
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
-----------------PhysicalProject
-------------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
---------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-----------------PhysicalProject
-------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
+------PhysicalUnion
+--------PhysicalDistribute[DistributionSpecExecutionAny]
+----------PhysicalProject
+------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((k1 = k1)) otherCondition=()
+--------------PhysicalProject
+----------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+--------------PhysicalEmptyRelation
+--------PhysicalDistribute[DistributionSpecExecutionAny]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+--------------PhysicalProject
+----------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
+------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+--------------PhysicalUnion
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
 --------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+----------------------PhysicalProject
+------------------------hashAgg[GLOBAL]
+--------------------------PhysicalProject
+----------------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
+------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+----------------------PhysicalEmptyRelation
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+----------------------PhysicalProject
+------------------------hashAgg[GLOBAL]
+--------------------------PhysicalProject
+----------------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
+------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+----------------------PhysicalProject
+------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
+--------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 

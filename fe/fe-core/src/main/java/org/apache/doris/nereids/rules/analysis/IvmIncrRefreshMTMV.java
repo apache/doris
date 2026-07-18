@@ -79,7 +79,7 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
                     "IVM incremental refresh target table mismatch, sink=" + sink.getTargetTable().getName()
                             + ", mtmv=" + mtmv.getName());
         }
-        Plan rewrittenSinkChild = newDeltaRewriter().generateIncrementalRefreshPlan(
+        Plan rewrittenSinkChild = newDeltaRewriter().generateIncrRefreshPlan(
                 sink.child(), rewriteResult, rewriteContext, connectContext);
         List<NamedExpression> reboundOutputExprs = IvmDeltaRewriteHelper.INSTANCE.rebindSinkOutputs(
                 sink.getOutputExprs(), rewrittenSinkChild.getOutput(), "sink");

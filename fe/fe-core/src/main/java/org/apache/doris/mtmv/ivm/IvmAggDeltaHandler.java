@@ -70,7 +70,7 @@ import java.util.Set;
  *
  * <p>Non-aggregate nodes are handled by the linear and outer-join handlers. Aggregate
  * nodes return an apply plan from {@link #rewriteAggregate(LogicalAggregate,
- * IvmDeltaRewriteVisitor, IvmRefreshContext)} with an aggregate-level dml_factor.
+ * IvmDeltaRewriteVisitor, IvmRefreshContext)} with aggregate-level dml_factor and sequence slots.
  *
  * <p>Handles single-table aggregate MVs with count/sum/avg/min/max.
  * Min/max use an assert_true guard: if a deleted row matches the current extreme,
@@ -88,8 +88,8 @@ import java.util.Set;
  * </ol>
  *
  * <h3>Visitor integration</h3>
- * <p>The visitor calls {@code rewriteAggregate} as the main entry point that builds delta + apply.
- * Projects above the aggregate are then handled by the linear handler like other normalized projects.
+ * <p>The visitor dispatches to {@code rewriteAggregate}, which recursively rewrites its child before building
+ * delta + apply. Projects above the aggregate are then handled by the linear handler like other normalized projects.
  */
 class IvmAggDeltaHandler {
 
@@ -126,14 +126,15 @@ class IvmAggDeltaHandler {
     /**
      * Rewrites an aggregate subtree for IVM delta refresh.
      *
-     * <p>Takes a pre-processed child where dml_factor is already injected by the visitor
-     * on each branch before UNION ALL merging, and is called directly by
-     * {@code IvmDeltaRewriter} after the AGG is re-attached on top of the merged child.
+     * <p>Recursively rewrites the child where dml_factor is injected. When the child has no pending delta,
+     * the aggregate also has no delta.
      */
-    IvmDeltaRewriteResult rewriteAggregate(
-            LogicalAggregate<? extends Plan> agg,
-            IvmDeltaRewriteResult childResult,
-            IvmRefreshContext context) {
+    Optional<IvmDeltaRewriteResult> rewriteAggregate(LogicalAggregate<? extends Plan> agg,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
+        Optional<IvmDeltaRewriteResult> childResult = agg.child().accept(visitor, context);
+        if (!childResult.isPresent()) {
+            return Optional.empty();
+        }
         IvmRewriteResult rewriteResult = context.getRewriteResult();
         if (rewriteResult == null) {
             throw new AnalysisException("IVM agg delta rewrite requires normalize result");
@@ -142,11 +143,13 @@ class IvmAggDeltaHandler {
         if (aggMeta == null) {
             throw new AnalysisException("IVM agg delta rewrite requires aggregate metadata");
         }
-        DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult, aggMeta);
-        LogicalProject<?> applyProject = buildApplyPlan(agg, delta, aggMeta, context);
+        DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult.get(), aggMeta);
+        LogicalProject<?> applyProject = buildApplyPlan(
+                agg, delta, aggMeta, context, visitor.getRewriteState(), childResult.get().maxSeqSuffix);
         Slot dmlFactorSlot = helper.findSlotByName(applyProject.getOutput(), Column.IVM_DML_FACTOR_COL);
-        // AGG MV does not produce or need baseOp — always null.
-        return new IvmDeltaRewriteResult(applyProject, dmlFactorSlot, null);
+        Slot sequenceSlot = helper.findSlotByName(applyProject.getOutput(), Column.SEQUENCE_COL);
+        return Optional.of(new IvmDeltaRewriteResult(applyProject, dmlFactorSlot, sequenceSlot,
+                childResult.get().maxSeqSuffix));
     }
 
     /**
@@ -268,7 +271,8 @@ class IvmAggDeltaHandler {
      * prevents inserting delete-sign rows for groups that never existed in the MV.
      */
     LogicalProject<?> buildApplyPlan(LogicalAggregate<?> normalizedAgg,
-            DeltaPlanParts delta, IvmAggMeta aggMeta, IvmRefreshContext ctx) {
+            DeltaPlanParts delta, IvmAggMeta aggMeta, IvmRefreshContext ctx,
+            IvmDeltaRewriteState rewriteState, long maxSeqSuffix) {
         LogicalOlapScan rawMvScan = buildMvScan(ctx.getMtmv(), ctx);
         LogicalPlan mvPlan = BindRelation.checkAndAddDeleteSignFilter(
                 rawMvScan, ctx.getConnectContext(), ctx.getMtmv());
@@ -315,6 +319,7 @@ class IvmAggDeltaHandler {
             finalOutputs.add(new Alias(target.getExprId(), expr, target.getName()));
         }
         finalOutputs.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
+        finalOutputs.add(new Alias(new BigIntLiteral(rewriteState.toSequence(maxSeqSuffix)), Column.SEQUENCE_COL));
         return new LogicalProject<>(ImmutableList.copyOf(finalOutputs), joinInput);
     }
 

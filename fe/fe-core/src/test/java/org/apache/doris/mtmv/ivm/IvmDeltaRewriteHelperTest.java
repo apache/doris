@@ -113,6 +113,22 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
     }
 
     @Test
+    void testRootNonDetGuardKeepsSequenceSlot() {
+        Slot dmlFactor = new SlotReference(Column.IVM_DML_FACTOR_COL, IntegerType.INSTANCE, false);
+        Slot sequence = new SlotReference(Column.SEQUENCE_COL, IntegerType.INSTANCE, false);
+        LogicalEmptyRelation source = new LogicalEmptyRelation(new RelationId(100),
+                ImmutableList.of(dmlFactor, sequence));
+        IvmDeltaRewriteResult guarded = helper.wrapDmlFactorWithRootNonDetGuard(
+                new IvmDeltaRewriteResult(source, dmlFactor, sequence, 3));
+
+        Assertions.assertNotEquals(dmlFactor, guarded.dmlFactorSlot);
+        Assertions.assertEquals(sequence, guarded.sequenceSlot);
+        Assertions.assertEquals(3, guarded.maxSeqSuffix);
+        Assertions.assertTrue(guarded.plan.toString().contains(
+                IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX));
+    }
+
+    @Test
     void testRemapScanOutputForPreSnapshotPreservesExprId() throws Exception {
         LogicalOlapScan scan = buildScanForTable(1, "t_pre");
         OlapTableStream stream = (OlapTableStream) Env.getCurrentInternalCatalog()

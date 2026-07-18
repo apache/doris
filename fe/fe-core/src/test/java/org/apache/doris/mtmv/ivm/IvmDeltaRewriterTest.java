@@ -19,50 +19,41 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
-import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.function.Predicate;
 
 class IvmDeltaRewriterTest extends IvmDeltaTestBase {
-
-    private static final Predicate<LogicalOlapScan> NO_EXCLUSIONS = scan -> false;
 
     private static MTMV mockMtmv() {
         MTMV mtmv = Mockito.mock(MTMV.class);
@@ -77,39 +68,37 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     private InsertIntoTableCommand buildIncrementalInsertCommand(Plan sinkChild, MTMV mtmv,
             ConnectContext connectContext, IvmRewriteResult rewriteResult) {
         ensureStatementContext(connectContext);
-        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false), connectContext);
         Assertions.assertNotNull(rewritten);
         return new IvmRefreshManager().buildInsertCommand(
                 (org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten, mtmv);
     }
 
-    /** Creates a baseTableStreams map with a single pending-delta stream for the scan's table. */
-    private Map<TableNameInfo, Long> makeStreams(LogicalOlapScan scan) {
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        return streams;
+    private PlanBundle normalizePlan(Plan plan) {
+        ConnectContext connectContext = newConnectContext();
+        JobContext jobContext = newJobContextForRoot(plan, connectContext);
+        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
     }
 
-    private Map<TableNameInfo, Long> makeStreamsWithOffsets(LogicalOlapScan scan,
-            long previousOffset, long nextOffset) {
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scan, previousOffset, nextOffset);
-        return streams;
+    private Plan generateMergedDelta(Plan plan, boolean includeUpToDateStreams) {
+        return generateMergedDelta(plan, includeUpToDateStreams, null);
     }
 
-    private void addStream(Map<TableNameInfo, Long> streams,
-            LogicalOlapScan scan, long previousOffset, long nextOffset) {
-        bumpBaseTableTso(scan.getTable(), nextOffset);
-        setStreamOffset(scan.getTable(), getRegisteredStream(scan.getTable(), 0L), previousOffset);
-    }
-
-    private void makeStreamUpToDate(LogicalOlapScan scan, long offset) {
-        bumpBaseTableTso(scan.getTable(), offset);
-        advanceStreamToBaseTable(scan.getTable(), getRegisteredStream(scan.getTable(), 0L));
-    }
-
-    private IvmRefreshContext rewriteContext(Map<TableNameInfo, Long> streams) {
-        return new IvmRefreshContext(mockMtmv(), newConnectContext(), new IvmRewriteResult());
+    private Plan generateMergedDelta(Plan plan, boolean includeUpToDateStreams, String excludedTriggerTables) {
+        ConnectContext connectContext = newConnectContext();
+        JobContext jobContext = newJobContextForRoot(plan, connectContext);
+        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        MTMV mtmv = buildMtmvFromPlan(normalizedPlan.getOutput());
+        if (excludedTriggerTables != null) {
+            mtmv.setMvProperties(ImmutableMap.of(
+                    PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, excludedTriggerTables));
+        }
+        return new IvmDeltaRewriter().generateIncrRefreshPlan(normalizedPlan, rewriteResult,
+                IvmRewriteContext.incremental(mtmv, includeUpToDateStreams), connectContext);
     }
 
     private LogicalJoin<LogicalOlapScan, LogicalOlapScan> crossJoin(
@@ -126,19 +115,21 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
     @Test
     void testScanOnlyProducesInsertBundle() {
-        MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
+        PlanBundle bundle = normalizePlan(buildScanPlan(scan).child());
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         InsertIntoTableCommand command = buildIncrementalInsertCommand(
-                buildScanPlan(scan).child(), mtmv, new ConnectContext(), new IvmRewriteResult());
+                bundle.normalizedPlan, mtmv, bundle.connectContext, bundle.rewriteResult);
         Assertions.assertNotNull(command);
     }
 
     @Test
     void testProjectScanProducesInsertBundle() {
-        MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
+        PlanBundle bundle = normalizePlan(buildProjectScanPlan(scan).child());
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         InsertIntoTableCommand command = buildIncrementalInsertCommand(
-                buildProjectScanPlan(scan).child(), mtmv, new ConnectContext(), new IvmRewriteResult());
+                bundle.normalizedPlan, mtmv, bundle.connectContext, bundle.rewriteResult);
         Assertions.assertNotNull(command);
     }
 
@@ -170,6 +161,8 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                 () -> new IvmRefreshContext(null, new ConnectContext(), null));
         Assertions.assertThrows(NullPointerException.class,
                 () -> new IvmRefreshContext(mtmv, null, null));
+        Assertions.assertTrue(new IvmRefreshContext(mtmv, new ConnectContext(), new IvmRewriteResult(), true)
+                .isIncludeUpToDateStreams());
     }
 
     @Test
@@ -192,26 +185,39 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
     @Test
     void testAggJoinWithTwoDeltaBranchesKeepsAggInputsBound() {
-        LogicalOlapScan leftScan = buildScanForTable(201, "left_tbl");
-        LogicalOlapScan rightScan = buildScanForTable(202, "right_tbl");
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
-                ImmutableList.of(new EqualTo(leftScan.getOutput().get(0), rightScan.getOutput().get(0))),
-                leftScan, rightScan, JoinReorderContext.EMPTY);
-        Slot groupKey = leftScan.getOutput().get(1);
-        LogicalAggregate<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> agg = new LogicalAggregate<>(
+        LogicalOlapScan leftScan = buildScanForTable(201, "agg_join_left_tbl");
+        LogicalOlapScan rightScan = buildScanForTable(202, "agg_join_right_tbl");
+        LogicalProject<LogicalOlapScan> leftProject = new LogicalProject<>(
+                ImmutableList.of(
+                        new Alias(leftScan.getOutput().get(0), "left_id")),
+                leftScan);
+        LogicalProject<LogicalOlapScan> rightProject = new LogicalProject<>(
+                ImmutableList.of(
+                        new Alias(rightScan.getOutput().get(0), "right_id")),
+                rightScan);
+        LogicalJoin<LogicalProject<LogicalOlapScan>, LogicalProject<LogicalOlapScan>> join = new LogicalJoin<>(
+                JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(leftProject.getOutput().get(0), rightProject.getOutput().get(0))),
+                leftProject, rightProject, JoinReorderContext.EMPTY);
+        Slot groupKey = join.getOutput().get(0);
+        LogicalAggregate<LogicalJoin<LogicalProject<LogicalOlapScan>, LogicalProject<LogicalOlapScan>>> agg =
+                new LogicalAggregate<>(
                 ImmutableList.of(groupKey),
                 ImmutableList.of(groupKey, new Alias(new Count(), "cnt"),
-                        new Alias(new Sum(new Add(leftScan.getOutput().get(0), rightScan.getOutput().get(0))),
+                        new Alias(new Sum(new Add(join.getOutput().get(0), join.getOutput().get(1))),
                                 "total")),
                 true, Optional.empty(), join);
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
+        mtmv.setId(201_001L);
+        registerTestStream(leftScan.getTable(), mtmv.getId());
+        registerTestStream(rightScan.getTable(), mtmv.getId());
         bumpBaseTableTso(leftScan.getTable(), 20);
         setStreamOffset(leftScan.getTable(), getRegisteredStream(leftScan.getTable(), mtmv.getId()), 10);
         bumpBaseTableTso(rightScan.getTable(), 20);
         setStreamOffset(rightScan.getTable(), getRegisteredStream(rightScan.getTable(), mtmv.getId()), 10);
 
-        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
                 IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
 
@@ -220,13 +226,14 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
     @Test
     void testDeltaRewriterBuildsSinkProjectForNonAggPlan() {
-        MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
+        PlanBundle bundle = normalizePlan(buildScanPlan(scan).child());
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         InsertIntoTableCommand command = buildIncrementalInsertCommand(
-                buildScanPlan(scan).child(), mtmv, new ConnectContext(), new IvmRewriteResult());
+                bundle.normalizedPlan, mtmv, bundle.connectContext, bundle.rewriteResult);
         UnboundTableSink<?> sink = getSink(command);
         Plan child = sink.child();
-        Assertions.assertEquals(ImmutableList.of("id", "name"), sink.getColNames());
+        Assertions.assertEquals(ImmutableList.of(Column.IVM_ROW_ID_COL, "id", "name"), sink.getColNames());
         Assertions.assertInstanceOf(LogicalProject.class, child);
         Assertions.assertFalse(child instanceof LogicalJoin);
     }
@@ -234,394 +241,198 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     @Test
     void testGenerateIncrementalRefreshPlanBuildsDeleteSignProjectWhenDeltaAvailable() {
         LogicalOlapScan scan = buildScanForTable(1, "a");
-        Plan sinkChild = buildScanPlan(scan).child();
-        MTMV mtmv = buildMtmvFromPlan(sinkChild.getOutput());
-
-        ConnectContext connectContext = newConnectContext();
-        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
-                sinkChild, new IvmRewriteResult(), IvmRewriteContext.incremental(mtmv, false),
-                connectContext);
+        PlanBundle bundle = normalizePlan(buildScanPlan(scan).child());
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
+                bundle.normalizedPlan, bundle.rewriteResult, IvmRewriteContext.incremental(mtmv, false),
+                bundle.connectContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, rewritten);
         LogicalProject<?> finalProject = (LogicalProject<?>) rewritten;
-        Assertions.assertEquals(4, finalProject.getOutput().size());
-        Assertions.assertEquals("id", finalProject.getOutput().get(0).getName());
-        Assertions.assertEquals("name", finalProject.getOutput().get(1).getName());
-        Assertions.assertEquals(Column.SEQUENCE_COL, finalProject.getOutput().get(2).getName());
-        Assertions.assertEquals(Column.DELETE_SIGN, finalProject.getOutput().get(3).getName());
+        Assertions.assertEquals(5, finalProject.getOutput().size());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, finalProject.getOutput().get(0).getName());
+        Assertions.assertEquals("id", finalProject.getOutput().get(1).getName());
+        Assertions.assertEquals("name", finalProject.getOutput().get(2).getName());
+        Assertions.assertEquals(Column.SEQUENCE_COL, finalProject.getOutput().get(3).getName());
+        Assertions.assertEquals(Column.DELETE_SIGN, finalProject.getOutput().get(4).getName());
         Assertions.assertNotNull(finalProject.child());
     }
 
     @Test
-    void testGetSequencePrefixEncodesRefreshVersionAndDeltaIndex() throws Exception {
-        IvmDeltaRewriter rewriter = new IvmDeltaRewriter();
+    void testSingleScanPendingDeltaUsesIncrementalStream() {
+        LogicalOlapScan scan = buildScanForTable(101, "single_pending");
+        bumpBaseTableTso(scan.getTable(), 20);
+        setStreamOffset(scan.getTable(), getRegisteredStream(scan.getTable(), 1L), 10);
 
-        long prefix = invokeGetSequencePrefix(rewriter, 7L, 5);
+        Plan rewritten = generateMergedDelta(scan, false);
 
-        Assertions.assertEquals((7L << 11) | (5L << 1), prefix);
-    }
-
-    @Test
-    void testGetSequencePrefixRejectsOutOfRangeDeltaIndex() throws Exception {
-        IvmDeltaRewriter rewriter = new IvmDeltaRewriter();
-
-        InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
-                () -> invokeSequencePrefixMethod().invoke(rewriter, 1L, 1024));
-        Assertions.assertInstanceOf(IllegalStateException.class, exception.getCause());
-        Assertions.assertTrue(exception.getCause().getMessage().contains("invalid IVM delta plan index"));
-    }
-
-    private long invokeGetSequencePrefix(IvmDeltaRewriter rewriter, long refreshVersion, int deltaPlanIndex)
-            throws Exception {
-        return (long) invokeSequencePrefixMethod().invoke(rewriter, refreshVersion, deltaPlanIndex);
-    }
-
-    private Method invokeSequencePrefixMethod() throws NoSuchMethodException {
-        Method method = IvmDeltaRewriter.class.getDeclaredMethod("getSequencePrefix", long.class, int.class);
-        method.setAccessible(true);
-        return method;
-    }
-
-    // ==================== generateDeltaPlans tests ====================
-
-    // ---------- Single scan ----------
-
-    @Test
-    void testGenSingleScanPendingDelta() {
-        LogicalOlapScan scan = buildScanForTable(1, "a");
-        Map<TableNameInfo, Long> streams = makeStreamsWithOffsets(scan, 10, 20);
-
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        Assertions.assertEquals(1, plans.size());
-        List<LogicalOlapScan> scans = collectScans(plans.get(0));
+        List<LogicalOlapScan> scans = collectScans(rewritten);
         Assertions.assertEquals(1, scans.size());
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans.get(0)));
     }
 
     @Test
-    void testGenDeltaPlanClearsOldGroupExpression() {
-        LogicalOlapScan scan = buildScanForTable(1, "a");
-        Plan scanInMemo = new GroupExpression(scan).getPlan();
-        Map<TableNameInfo, Long> streams = makeStreamsWithOffsets(scan, 10, 20);
+    void testSingleScanUpToDateProducesEmptyRelation() {
+        LogicalOlapScan scan = buildScanForTable(102, "single_up_to_date");
+        bumpBaseTableTso(scan.getTable(), 20);
+        advanceStreamToBaseTable(scan.getTable(), getRegisteredStream(scan.getTable(), 1L));
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(
-                scanInMemo, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        Assertions.assertEquals(1, plans.size());
-        Assertions.assertFalse(plans.get(0).getGroupExpression().isPresent());
-        Assertions.assertFalse(collectScans(plans.get(0)).get(0).getGroupExpression().isPresent());
+        Assertions.assertInstanceOf(LogicalEmptyRelation.class, generateMergedDelta(scan, false));
     }
 
     @Test
-    void testGenSingleScanUpToDate() {
-        LogicalOlapScan scan = buildScanForTable(101, "a_up_to_date_single");
-        makeStreamUpToDate(scan, 20);
-        Map<TableNameInfo, Long> streams = makeStreams(scan);
+    void testIncludeUpToDateScanUsesIncrementalStream() {
+        LogicalOlapScan scan = buildScanForTable(103, "single_include_up_to_date");
+        bumpBaseTableTso(scan.getTable(), 20);
+        advanceStreamToBaseTable(scan.getTable(), getRegisteredStream(scan.getTable(), 1L));
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false);
+        Plan rewritten = generateMergedDelta(scan, true);
 
-        Assertions.assertTrue(plans.isEmpty(), "Up-to-date scan should produce no delta plans");
+        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(collectScans(rewritten).get(0)));
     }
 
     @Test
-    void testGenMergedPlanIncludesUpToDateScan() {
-        LogicalOlapScan scan = buildScanForTable(1, "a");
-        Map<TableNameInfo, Long> streams = makeStreamsWithOffsets(scan, 20, 20);
+    void testRecursiveJoinDeltaMergesBothScanDeltas() {
+        LogicalOlapScan left = buildScanForTable(301, "recursive_left");
+        LogicalOlapScan right = buildScanForTable(302, "recursive_right");
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = crossJoin(left, right);
+        bumpBaseTableTso(left.getTable(), 20);
+        setStreamOffset(left.getTable(), getRegisteredStream(left.getTable(), 1L), 10);
+        bumpBaseTableTso(right.getTable(), 20);
+        setStreamOffset(right.getTable(), getRegisteredStream(right.getTable(), 1L), 10);
 
-        Plan mergedPlan = new IvmDeltaRewriter()
-                .generateMergedDeltaPlan(scan, rewriteContext(streams), NO_EXCLUSIONS, true);
+        Plan rewritten = generateMergedDelta(join, false);
 
-        Assertions.assertNotNull(mergedPlan);
-        Assertions.assertTrue(mergedPlan.getOutput().stream()
-                .anyMatch(slot -> Column.SEQUENCE_COL.equals(slot.getName())));
-        List<LogicalOlapScan> scans = collectScans(mergedPlan);
-        Assertions.assertEquals(1, scans.size());
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans.get(0)));
-    }
-
-    // ---------- Two-table JOIN ----------
-
-    @Test
-    void testGenTwoTableJoinBothPending() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        LogicalOlapScan scanB = buildScanForTable(2, "b");
-        Plan join = crossJoin(scanA, scanB);
-
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scanA, 10, 20);
-        addStream(streams, scanB, 30, 40);
-
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        Assertions.assertEquals(2, plans.size());
-
-        // Plan 0: delta(a) JOIN b(pre snapshot)
-        List<LogicalOlapScan> scans0 = collectScans(plans.get(0));
-        Assertions.assertEquals(2, scans0.size());
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans0.get(0)), "a should be delta in plan 0");
-        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans0.get(1)));
-        Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, scans0.get(1));
-        Assertions.assertTrue(((LogicalOlapTableStreamScan) scans0.get(1)).isSnapshot());
-
-        // Plan 1: a(post snapshot) JOIN delta(b)
-        List<LogicalOlapScan> scans1 = collectScans(plans.get(1));
-        Assertions.assertEquals(2, scans1.size());
-        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans1.get(0)));
-        Assertions.assertFalse(scans1.get(0) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans1.get(1)), "b should be delta in plan 1");
+        Assertions.assertEquals(2, rewritten.collectToList(node -> node instanceof LogicalOlapScan
+                && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) node)).size());
+        Assertions.assertEquals(1, rewritten.collectToList(node -> node instanceof LogicalUnion).size());
     }
 
     @Test
-    void testGenTwoTableJoinOnePending() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        LogicalOlapScan scanB = buildScanForTable(2, "b");
-        Plan join = crossJoin(scanA, scanB);
-        advanceStreamToBaseTable(scanB.getTable(), getRegisteredStream(scanB.getTable(), 0L));
+    void testTwoTableJoinWithOnePendingDeltaHasOneContribution() {
+        LogicalOlapScan left = buildScanForTable(104, "join_left_pending");
+        LogicalOlapScan right = buildScanForTable(105, "join_right_up_to_date");
+        bumpBaseTableTso(left.getTable(), 20);
+        setStreamOffset(left.getTable(), getRegisteredStream(left.getTable(), 1L), 10);
+        bumpBaseTableTso(right.getTable(), 20);
+        advanceStreamToBaseTable(right.getTable(), getRegisteredStream(right.getTable(), 1L));
 
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scanA, 10, 20);  // pending
-        addStream(streams, scanB, 40, 40);  // up-to-date
+        Plan rewritten = generateMergedDelta(crossJoin(left, right), false);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        Assertions.assertEquals(1, plans.size());
-
-        // Plan 0: delta(a) JOIN b(pre snapshot)
-        List<LogicalOlapScan> scans0 = collectScans(plans.get(0));
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans0.get(0)), "a should be delta");
-        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans0.get(1)));
-        Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, scans0.get(1));
-        Assertions.assertTrue(((LogicalOlapTableStreamScan) scans0.get(1)).isSnapshot());
+        Assertions.assertEquals(1, rewritten.collectToList(node -> node instanceof LogicalOlapScan
+                && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) node)).size());
+        Assertions.assertTrue(rewritten.collectToList(node -> node instanceof LogicalUnion).isEmpty());
     }
 
     @Test
-    void testGenTwoTableJoinBothUpToDate() {
-        LogicalOlapScan scanA = buildScanForTable(102, "a_up_to_date_join");
-        LogicalOlapScan scanB = buildScanForTable(103, "b_up_to_date_join");
-        Plan join = crossJoin(scanA, scanB);
+    void testTwoTableJoinWithNoPendingDeltaProducesEmptyRelation() {
+        LogicalOlapScan left = buildScanForTable(106, "join_left_up_to_date");
+        LogicalOlapScan right = buildScanForTable(107, "join_right_no_pending");
+        bumpBaseTableTso(left.getTable(), 20);
+        advanceStreamToBaseTable(left.getTable(), getRegisteredStream(left.getTable(), 1L));
+        bumpBaseTableTso(right.getTable(), 20);
+        advanceStreamToBaseTable(right.getTable(), getRegisteredStream(right.getTable(), 1L));
 
-        makeStreamUpToDate(scanA, 20);
-        makeStreamUpToDate(scanB, 40);
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        Assertions.assertTrue(plans.isEmpty(), "Both up-to-date should produce no plans");
-    }
-
-    // ---------- Self-join ----------
-
-    @Test
-    void testGenSelfJoinBothOccurrencesPending() {
-        LogicalOlapScan scanA1 = buildScanForTable(1, "a");
-        LogicalOlapScan scanA2 = buildScanForTable(1, "a");
-        Plan join = crossJoin(scanA1, scanA2);
-
-        Map<TableNameInfo, Long> streams = makeStreamsWithOffsets(scanA1, 10, 20);
-
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        Assertions.assertEquals(2, plans.size());
-
-        // Plan 0: delta(a1) JOIN a2(pre snapshot)
-        List<LogicalOlapScan> scans0 = collectScans(plans.get(0));
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans0.get(0)));
-        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans0.get(1)));
-        Assertions.assertTrue(scans0.get(1) instanceof LogicalOlapTableStreamScan);
-
-        // Plan 1: a1(post snapshot) JOIN delta(a2)
-        List<LogicalOlapScan> scans1 = collectScans(plans.get(1));
-        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans1.get(0)));
-        Assertions.assertFalse(scans1.get(0) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans1.get(1)));
-    }
-
-    // ---------- Three-table JOIN ----------
-
-    @Test
-    void testGenThreeTableJoinAllPending() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        LogicalOlapScan scanB = buildScanForTable(2, "b");
-        LogicalOlapScan scanC = buildScanForTable(3, "c");
-        Plan abJoin = crossJoin(scanA, scanB);
-        LogicalJoin<Plan, LogicalOlapScan> abcJoin = new LogicalJoin<>(
-                JoinType.CROSS_JOIN, abJoin, scanC,
-                new JoinReorderContext());
-
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scanA, 10, 20);
-        addStream(streams, scanB, 30, 40);
-        addStream(streams, scanC, 50, 60);
-
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        Assertions.assertEquals(3, plans.size());
-
-        // Plan 0: delta(a) JOIN b(pre snapshot) JOIN c(pre snapshot)
-        List<LogicalOlapScan> s0 = collectScans(plans.get(0));
-        Assertions.assertEquals(3, s0.size());
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s0.get(0)));
-        Assertions.assertTrue(s0.get(1) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(s0.get(2) instanceof LogicalOlapTableStreamScan);
-
-        // Plan 1: a(post snapshot) JOIN delta(b) JOIN c(pre snapshot)
-        List<LogicalOlapScan> s1 = collectScans(plans.get(1));
-        Assertions.assertFalse(s1.get(0) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s1.get(1)));
-        Assertions.assertTrue(s1.get(2) instanceof LogicalOlapTableStreamScan);
-
-        // Plan 2: a(post snapshot) JOIN b(post snapshot) JOIN delta(c)
-        List<LogicalOlapScan> s2 = collectScans(plans.get(2));
-        Assertions.assertFalse(s2.get(0) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertFalse(s2.get(1) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s2.get(2)));
+        Assertions.assertInstanceOf(LogicalEmptyRelation.class, generateMergedDelta(crossJoin(left, right), false));
     }
 
     @Test
-    void testGenThreeTableJoinMiddleUpToDate() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        LogicalOlapScan scanB = buildScanForTable(2, "b");
-        LogicalOlapScan scanC = buildScanForTable(3, "c");
-        Plan abJoin = crossJoin(scanA, scanB);
-        LogicalJoin<Plan, LogicalOlapScan> abcJoin = new LogicalJoin<>(
-                JoinType.CROSS_JOIN, abJoin, scanC,
-                new JoinReorderContext());
+    void testSelfJoinProducesOneContributionPerScanOccurrence() {
+        LogicalOlapScan left = buildScanForTable(108, "self_join");
+        LogicalOlapScan right = buildScanForTable(108, "self_join");
+        bumpBaseTableTso(left.getTable(), 20);
+        setStreamOffset(left.getTable(), getRegisteredStream(left.getTable(), 1L), 10);
 
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scanA, 10, 20);
-        addStream(streams, scanB, 40, 40);  // up-to-date
-        addStream(streams, scanC, 50, 60);
+        Plan rewritten = generateMergedDelta(crossJoin(left, right), false);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        Assertions.assertEquals(2, plans.size());
-
-        // Plan 0: delta(a) JOIN b(pre snapshot) JOIN c(pre snapshot)
-        List<LogicalOlapScan> s0 = collectScans(plans.get(0));
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s0.get(0)));
-        Assertions.assertTrue(s0.get(1) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(s0.get(2) instanceof LogicalOlapTableStreamScan);
-
-        // Plan 1: a(post snapshot) JOIN b(post snapshot) JOIN delta(c)
-        List<LogicalOlapScan> s1 = collectScans(plans.get(1));
-        Assertions.assertFalse(s1.get(0) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertFalse(s1.get(1) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s1.get(2)));
-    }
-
-    // ---------- Excluded trigger table ----------
-
-    @Test
-    void testGenExcludedTriggerTableSkipped() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        LogicalOlapScan scanB = buildScanForTable(2, "b");
-        Plan join = crossJoin(scanA, scanB);
-
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scanA, 10, 20);
-        addStream(streams, scanB, 30, 40);
-
-        // Exclude table with id=2 ("b")
-        Predicate<LogicalOlapScan> excludeB = scan -> scan.getTable().getId() == 2;
-
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), excludeB, false);
-
-        // Only scanA is collected; scanB is excluded → 1 plan
-        Assertions.assertEquals(1, plans.size());
-
-        List<LogicalOlapScan> scans = collectScans(plans.get(0));
-        Assertions.assertEquals(2, scans.size());
-        // scanA (left) is delta
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans.get(0)));
-        // scanB (right) is excluded and remains unchanged
-        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans.get(1)));
-        Assertions.assertFalse(scans.get(1) instanceof LogicalOlapTableStreamScan);
+        Assertions.assertEquals(2, rewritten.collectToList(node -> node instanceof LogicalOlapScan
+                && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) node)).size());
+        Assertions.assertEquals(1, rewritten.collectToList(node -> node instanceof LogicalUnion).size());
     }
 
     @Test
-    void testGenAllExcludedProducesNoPlan() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        Map<TableNameInfo, Long> streams = makeStreamsWithOffsets(scanA, 10, 20);
+    void testThreeTableJoinWithAllPendingDeltas() {
+        LogicalOlapScan first = buildScanForTable(109, "three_first");
+        LogicalOlapScan second = buildScanForTable(110, "three_second");
+        LogicalOlapScan third = buildScanForTable(111, "three_third");
+        for (LogicalOlapScan scan : ImmutableList.of(first, second, third)) {
+            bumpBaseTableTso(scan.getTable(), 20);
+            setStreamOffset(scan.getTable(), getRegisteredStream(scan.getTable(), 1L), 10);
+        }
+        Plan plan = new LogicalJoin<>(JoinType.CROSS_JOIN, crossJoin(first, second), third,
+                JoinReorderContext.EMPTY);
 
-        Predicate<LogicalOlapScan> excludeAll = scan -> true;
+        Plan rewritten = generateMergedDelta(plan, false);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scanA, rewriteContext(streams), excludeAll, false);
-
-        Assertions.assertTrue(plans.isEmpty());
+        Assertions.assertEquals(3, rewritten.collectToList(node -> node instanceof LogicalOlapScan
+                && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) node)).size());
     }
 
     @Test
-    void testGenExcludedTableRemainsUnchanged() {
-        // In a 3-table join, if middle table is excluded, it should stay unchanged
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        LogicalOlapScan scanB = buildScanForTable(2, "b");
-        LogicalOlapScan scanC = buildScanForTable(3, "c");
-        Plan abJoin = crossJoin(scanA, scanB);
-        LogicalJoin<Plan, LogicalOlapScan> abcJoin = new LogicalJoin<>(
-                JoinType.CROSS_JOIN, abJoin, scanC,
-                new JoinReorderContext());
+    void testBalancedFourTableJoinSharesOppositeSnapshotSubtree() {
+        LogicalOlapScan first = buildScanForTable(115, "balanced_first");
+        LogicalOlapScan second = buildScanForTable(116, "balanced_second");
+        LogicalOlapScan third = buildScanForTable(117, "balanced_third");
+        LogicalOlapScan fourth = buildScanForTable(118, "balanced_fourth");
+        for (LogicalOlapScan scan : ImmutableList.of(first, second, third, fourth)) {
+            bumpBaseTableTso(scan.getTable(), 20);
+            setStreamOffset(scan.getTable(), getRegisteredStream(scan.getTable(), 1L), 10);
+        }
+        Plan plan = new LogicalJoin<>(JoinType.CROSS_JOIN, crossJoin(first, second), crossJoin(third, fourth),
+                JoinReorderContext.EMPTY);
 
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scanA, 10, 20);
-        addStream(streams, scanB, 30, 40);
-        addStream(streams, scanC, 50, 60);
+        Plan rewritten = generateMergedDelta(plan, false);
 
-        // Exclude b (id=2)
-        Predicate<LogicalOlapScan> excludeB = scan -> scan.getTable().getId() == 2;
-
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), excludeB, false);
-
-        // a and c are collected (both pending) → 2 plans
-        Assertions.assertEquals(2, plans.size());
-
-        // Plan 0: delta(a) JOIN b(unchanged) JOIN c(pre snapshot)
-        List<LogicalOlapScan> s0 = collectScans(plans.get(0));
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s0.get(0)));
-        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s0.get(1)));
-        Assertions.assertFalse(s0.get(1) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(s0.get(2) instanceof LogicalOlapTableStreamScan);
-
-        // Plan 1: a(post snapshot) JOIN b(unchanged) JOIN delta(c)
-        List<LogicalOlapScan> s1 = collectScans(plans.get(1));
-        Assertions.assertFalse(s1.get(0) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s1.get(1)));
-        Assertions.assertFalse(s1.get(1) instanceof LogicalOlapTableStreamScan);
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s1.get(2)));
-    }
-
-    // ---------- Snapshot shape correctness ----------
-
-    @Test
-    void testGenSnapshotShapeValues() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        LogicalOlapScan scanB = buildScanForTable(2, "b");
-        Plan join = crossJoin(scanA, scanB);
-
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scanA, 100, 200);
-        addStream(streams, scanB, 300, 400);
-
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
-
-        // Plan 0: delta(a) JOIN b(pre snapshot)
-        LogicalOlapScan b0 = collectScans(plans.get(0)).get(1);
-        Assertions.assertTrue(b0 instanceof LogicalOlapTableStreamScan);
-
-        // Plan 1: a(post snapshot) JOIN delta(b)
-        LogicalOlapScan a1 = collectScans(plans.get(1)).get(0);
-        Assertions.assertFalse(a1 instanceof LogicalOlapTableStreamScan);
+        Assertions.assertEquals(4, rewritten.collectToList(node -> node instanceof LogicalOlapScan
+                && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) node)).size());
+        // Two top-level contributions each contain one delta subtree, one opposite snapshot subtree, and the
+        // top-level join. Rebuilding all four delta plans would create 12 joins instead of 8.
+        Assertions.assertEquals(8, rewritten.collectToList(node -> node instanceof LogicalJoin).size());
     }
 
     @Test
-    void testGenDeltaScanKeepsIncrementalShape() {
-        LogicalOlapScan scan = buildScanForTable(1, "a");
-        Map<TableNameInfo, Long> streams = makeStreamsWithOffsets(scan, 10, 20);
+    void testThreeTableJoinSkipsUpToDateMiddleScan() {
+        LogicalOlapScan first = buildScanForTable(112, "three_pending_first");
+        LogicalOlapScan second = buildScanForTable(113, "three_up_to_date_middle");
+        LogicalOlapScan third = buildScanForTable(114, "three_pending_third");
+        bumpBaseTableTso(first.getTable(), 20);
+        setStreamOffset(first.getTable(), getRegisteredStream(first.getTable(), 1L), 10);
+        bumpBaseTableTso(second.getTable(), 20);
+        advanceStreamToBaseTable(second.getTable(), getRegisteredStream(second.getTable(), 1L));
+        bumpBaseTableTso(third.getTable(), 20);
+        setStreamOffset(third.getTable(), getRegisteredStream(third.getTable(), 1L), 10);
+        Plan plan = new LogicalJoin<>(JoinType.CROSS_JOIN, crossJoin(first, second), third,
+                JoinReorderContext.EMPTY);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false);
+        Plan rewritten = generateMergedDelta(plan, false);
 
-        LogicalOlapScan deltaScan = collectScans(plans.get(0)).get(0);
-        Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(deltaScan));
+        Assertions.assertEquals(2, rewritten.collectToList(node -> node instanceof LogicalOlapScan
+                && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) node)).size());
+    }
+
+    @Test
+    void testExcludedTriggerTableDoesNotContributeDelta() {
+        LogicalOlapScan left = buildScanForTable(115, "excluded_left");
+        LogicalOlapScan right = buildScanForTable(116, "excluded_right");
+        for (LogicalOlapScan scan : ImmutableList.of(left, right)) {
+            bumpBaseTableTso(scan.getTable(), 20);
+            setStreamOffset(scan.getTable(), getRegisteredStream(scan.getTable(), 1L), 10);
+        }
+
+        Plan rewritten = generateMergedDelta(crossJoin(left, right), false, "excluded_right");
+
+        Assertions.assertEquals(1, rewritten.collectToList(node -> node instanceof LogicalOlapScan
+                && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) node)).size());
+    }
+
+    @Test
+    void testAllExcludedTriggerTablesProduceEmptyRelation() {
+        LogicalOlapScan scan = buildScanForTable(117, "all_excluded");
+        bumpBaseTableTso(scan.getTable(), 20);
+        setStreamOffset(scan.getTable(), getRegisteredStream(scan.getTable(), 1L), 10);
+
+        Assertions.assertInstanceOf(LogicalEmptyRelation.class,
+                generateMergedDelta(scan, false, "all_excluded"));
     }
 
 }

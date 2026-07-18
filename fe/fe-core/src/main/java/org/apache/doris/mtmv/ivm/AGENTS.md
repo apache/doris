@@ -19,7 +19,7 @@ This runs every suite in the `ivm` subdirectory. New IVM suites are added over t
 Run all IVM-related FE unit tests. The relevant test files are located in:
 
 - `fe/fe-core/src/test/java/org/apache/doris/mtmv/ivm/` — IVM core tests
-- `fe/fe-core/src/test/java/org/apache/doris/nereids/rules/rewrite/IvmNormalizeMTMVTest.java`
+- `fe/fe-core/src/test/java/org/apache/doris/nereids/rules/analysis/IvmNormalizeMTMVTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/nereids/trees/plans/CreateMTMVCommandTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/ShowCreateMTMVTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/DropMaterializedViewTest.java`
@@ -39,8 +39,9 @@ Stream-based binlog capture is implemented for IVM incremental refresh:
 - Consumption positions are managed by `OlapTableStream` per-partition offsets (`partitionOffset`).
 - On `CREATE MTMV ... REFRESH INCREMENTAL`, an internal stream
   `__doris_ivm_{mvId}_{baseTableName}` is auto-created for each base table.
-- `IvmDeltaRewriter.replaceWithDelta()` constructs `LogicalOlapTableStreamScan`
-  with `OlapTableStreamWrapper`, flowing through stream → `RowBinlogTableWrapper` → binlog scan.
+- `IvmDeltaRewriter` recursively builds one merged delta relation. `IvmDeltaRewriteState`
+  owns `Map<OlapTable, OlapTableStream>` and creates `LogicalOlapTableStreamScan` only when
+  a leaf scan contributes delta rows.
 - `dml_factor` is derived from `__DORIS_STREAM_CHANGE_TYPE__`:
   `APPEND/UPDATE_AFTER → +1, DELETE/UPDATE_BEFORE → -1`.
 
@@ -50,6 +51,20 @@ Snapshot rewrite now uses two explicit logical forms:
 - post snapshot: ordinary `LogicalOlapScan`
 
 IVM no longer uses mock `scan.withTso(tso)` bindings in incremental refresh rewrite.
+
+## Recursive Delta Rewrite
+
+- `IvmNormalizeMTMV` rejects an input `LogicalOlapTableStreamScan`; normalized MV queries start
+  from ordinary `LogicalOlapScan` nodes.
+- `IvmDeltaRewriteVisitor` returns `Optional<IvmDeltaRewriteResult>`. An empty result means the
+  subtree has no pending delta.
+- For an inner join, the left delta joins the right pre snapshot and the right delta joins the
+  left post snapshot. Non-empty child contributions are combined with `UNION ALL`.
+- `preSnapshot(plan)` and `postSnapshot(plan)` rewrite scans on demand and then fresh-copy the plan.
+- Delta rows carry `dml_factor` and `sequence` together. `sequence` is allocated at delta scan
+  leaves and propagated upward; `maxSeqSuffix` is metadata used by outer-join padding rows.
+- Aggregate IVM output uses the refresh-version-encoded `maxSeqSuffix` from its child delta. Aggregate refresh
+  does not require row event ordering, but it must retain the normal sequence-column contract.
 
 ## Explain Refresh Plans
 
