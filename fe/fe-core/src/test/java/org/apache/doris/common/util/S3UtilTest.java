@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.common.UserException;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -26,35 +24,6 @@ import java.util.Arrays;
 import java.util.List;
 
 public class S3UtilTest {
-
-    @Test
-    public void testIsExactS3ExpressObject() throws Exception {
-        String object = "s3://analytics--use1-az4--x-s3/data/file.parquet";
-        String awsEndpoint = "https://s3.us-east-1.amazonaws.com";
-
-        Assert.assertTrue(S3Util.isExactS3ExpressObject(
-                object, awsEndpoint, "us-east-1", false));
-        Assert.assertFalse(S3Util.isExactS3ExpressObject(
-                object, "https://minio.example.com", "us-east-1", false));
-        Assert.assertFalse(S3Util.isExactS3ExpressObject(
-                "s3://analytics/data/file.parquet", awsEndpoint, "us-east-1", false));
-
-        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
-                "s3://analytics--use1-az4--x-s3/data/*.parquet",
-                awsEndpoint, "us-east-1", false));
-        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
-                "s3://analytics--use1-az4--x-s3/data/",
-                awsEndpoint, "us-east-1", false));
-        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
-                "s3://analytics--use1-az4--x-s3",
-                awsEndpoint, "us-east-1", false));
-        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
-                object, "https://s3express-control.us-east-1.amazonaws.com", "us-east-1", false));
-        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
-                object, awsEndpoint, "us-west-2", false));
-        Assert.assertThrows(UserException.class, () -> S3Util.isExactS3ExpressObject(
-                object, awsEndpoint, "us-east-1", true));
-    }
 
     @Test
     public void testExtendGlobNumberRange_simpleRange() {
@@ -488,3 +457,4 @@ public class S3UtilTest {
         Assert.assertEquals("file[abc.csv", S3Util.expandBracketPatterns("file[abc.csv"));
     }
 }
+

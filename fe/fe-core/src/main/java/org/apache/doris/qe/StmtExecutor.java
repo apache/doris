@@ -91,6 +91,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -98,6 +99,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
@@ -774,6 +776,8 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        context.getStatementContext().setS3ExpressImportRead(
+                shouldEnableS3ExpressImportRead(logicalPlan, context.getState().isInternal()));
         checkSqlBlocked(logicalPlan.getClass());
         if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (isForwardToMaster()) {
@@ -974,6 +978,17 @@ public class StmtExecutor {
             }
             handleQueryWithRetry(queryId);
         }
+    }
+
+    static boolean shouldEnableS3ExpressImportRead(LogicalPlan logicalPlan, boolean internal) {
+        if (internal) {
+            return false;
+        }
+        if (logicalPlan instanceof ExplainCommand) {
+            logicalPlan = ((ExplainCommand) logicalPlan).getLogicalPlan();
+        }
+        return logicalPlan instanceof InsertIntoTableCommand
+                && logicalPlan.getType() == PlanType.INSERT_INTO_TABLE_COMMAND;
     }
 
     public static void initBlockSqlAstNames() {

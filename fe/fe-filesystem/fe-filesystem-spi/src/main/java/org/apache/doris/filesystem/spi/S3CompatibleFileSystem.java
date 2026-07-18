@@ -868,11 +868,12 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
     }
 
-    protected String globListPrefix(String globPattern) {
+    protected String globListPrefix(String bucket, String globPattern) throws IOException {
         return longestNonGlobPrefix(globPattern);
     }
 
-    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
+    protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix)
+            throws IOException {
         return expandedGlobListPrefixes(globPattern);
     }
 
@@ -1205,8 +1206,8 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
-        String listPrefix = globListPrefix(expandedKeyPattern);
-        List<String> listPrefixes = globListPrefixes(expandedKeyPattern, listPrefix);
+        String listPrefix = globListPrefix(bucket, expandedKeyPattern);
+        List<String> listPrefixes = globListPrefixes(bucket, expandedKeyPattern, listPrefix);
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;

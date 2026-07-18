@@ -54,6 +54,9 @@ import java.util.regex.Pattern;
  */
 public abstract class AbstractS3CompatibleProperties extends StorageProperties implements ObjectStorageProperties {
     private static final Logger LOG = LogManager.getLogger(AbstractS3CompatibleProperties.class);
+    // Internal FE-to-BE scope marker; raw user properties never bind this flag.
+    public static final String S3_EXPRESS_IMPORT_READ = "__DORIS_S3_EXPRESS_IMPORT_READ__";
+    private boolean s3ExpressImportRead;
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
@@ -118,7 +121,14 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(credentialsProviderType)) {
             s3Props.put("AWS_CREDENTIALS_PROVIDER_TYPE", credentialsProviderType);
         }
+        if (s3ExpressImportRead) {
+            s3Props.put(S3_EXPRESS_IMPORT_READ, Boolean.TRUE.toString());
+        }
         return s3Props;
+    }
+
+    public void enableS3ExpressImportRead() {
+        s3ExpressImportRead = true;
     }
 
     protected String getAwsCredentialsProviderTypeForBackend() {

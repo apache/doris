@@ -63,6 +63,8 @@ public final class S3FileSystemProperties
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
     public static final String USE_PATH_STYLE = "use_path_style";
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
+    // Must match AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ and the BE property key.
+    static final String S3_EXPRESS_IMPORT_READ = "__DORIS_S3_EXPRESS_IMPORT_READ__";
 
     public static final String DEFAULT_MAX_CONNECTIONS = "50";
     public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
@@ -336,6 +338,10 @@ public final class S3FileSystemProperties
     public boolean isDirectoryBucketEndpoint() {
         return StringUtils.containsIgnoreCase(endpoint, "s3express-control.")
                 || StringUtils.containsIgnoreCase(endpoint, "s3express-");
+    }
+
+    boolean isS3ExpressImportReadEnabled() {
+        return Boolean.parseBoolean(rawProperties.get(S3_EXPRESS_IMPORT_READ));
     }
 
     private static void putIfNotBlank(Map<String, String> map, String key, String value) {

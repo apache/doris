@@ -58,18 +58,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
-    private static final String DIRECTORY_BUCKET_SUFFIX = "--x-s3";
-    private static final Pattern DIRECTORY_BUCKET_PATTERN =
-            Pattern.compile("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--[a-z0-9-]+-az[0-9]+--x-s3$");
-    private static final Pattern AWS_S3_REGIONAL_ENDPOINT_PATTERN = Pattern.compile(
-            "^https://s3\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?(?::443)?/?$",
-            Pattern.CASE_INSENSITIVE);
 
     private static AwsCredentialsProvider getAwsCredencialsProvider(CloudCredential credential) {
         AwsCredentials awsCredential;
@@ -307,63 +300,6 @@ public class S3Util {
         }
 
         return globPattern.substring(0, earliestSpecialCharIndex);
-    }
-
-    public static boolean isExactS3ExpressObject(
-            String path, String endpoint, String region, boolean usePathStyle) throws UserException {
-        if (!(path.regionMatches(true, 0, "s3://", 0, "s3://".length())
-                || path.regionMatches(true, 0, "s3a://", 0, "s3a://".length())
-                || path.regionMatches(true, 0, "s3n://", 0, "s3n://".length()))) {
-            return false;
-        }
-        S3URI uri = S3URI.create(path);
-        String bucketName = uri.getBucket();
-        if (!bucketName.endsWith(DIRECTORY_BUCKET_SUFFIX) || Strings.isNullOrEmpty(endpoint)) {
-            return false;
-        }
-        Matcher awsEndpoint = AWS_S3_REGIONAL_ENDPOINT_PATTERN.matcher(endpoint);
-        if (!awsEndpoint.matches()) {
-            if (isAwsEndpoint(endpoint)) {
-                throw new UserException("AWS Directory Bucket requires a standard HTTPS regional S3 "
-                        + "endpoint; do not use s3express-control or a zonal endpoint");
-            }
-            return false;
-        }
-        if (!isDirectoryBucketName(bucketName)) {
-            throw new UserException("Invalid AWS Directory Bucket name " + bucketName
-                    + "; expected <bucket-base-name>--<zone-id>--x-s3");
-        }
-        if (!awsEndpoint.group(1).equalsIgnoreCase(region)) {
-            throw new UserException("AWS Directory Bucket endpoint region " + awsEndpoint.group(1)
-                    + " does not match configured region " + region);
-        }
-        if (usePathStyle) {
-            throw new UserException("Path-style addressing is not supported for AWS Directory Bucket");
-        }
-        if (Strings.isNullOrEmpty(uri.getKey()) || !getLongestPrefix(path).equals(path)
-                || uri.getKey().endsWith("/")
-                || uri.getQueryParams().isPresent()) {
-            throw new UserException("AWS Directory Bucket TVF and Load paths must identify one complete "
-                    + "object key and cannot contain glob expressions or a directory prefix");
-        }
-        return true;
-    }
-
-    private static boolean isDirectoryBucketName(String bucketName) {
-        return bucketName != null && DIRECTORY_BUCKET_PATTERN.matcher(bucketName).matches();
-    }
-
-    private static boolean isAwsEndpoint(String endpoint) {
-        int schemeSeparator = endpoint.indexOf("://");
-        URI uri = URI.create(schemeSeparator > 0 ? endpoint : "https://" + endpoint);
-        String host = uri.getHost();
-        if (host == null) {
-            return false;
-        }
-        host = host.toLowerCase(Locale.ROOT);
-        return host.endsWith(".amazonaws.com")
-                || host.endsWith(".amazonaws.com.cn")
-                || host.endsWith(".api.aws");
     }
 
     // Apply some rules to extend the globs parsing behavior

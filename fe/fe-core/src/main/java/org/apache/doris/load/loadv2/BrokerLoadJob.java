@@ -45,6 +45,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -69,6 +70,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -125,6 +127,21 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
     }
 
+    protected BrokerDesc brokerDescForS3ExpressImport() {
+        if (jobType != EtlJobType.BROKER || brokerDesc == null
+                || brokerDesc.getStorageType() != StorageBackend.StorageType.S3) {
+            return brokerDesc;
+        }
+        Map<String, String> properties = new HashMap<>(brokerDesc.getProperties());
+        BrokerDesc importBrokerDesc = new BrokerDesc(
+                brokerDesc.getName(), brokerDesc.getStorageType(), properties);
+        if (importBrokerDesc.getStorageProperties() instanceof AbstractS3CompatibleProperties) {
+            ((AbstractS3CompatibleProperties) importBrokerDesc.getStorageProperties())
+                    .enableS3ExpressImportRead();
+        }
+        return importBrokerDesc;
+    }
+
     @Override
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
@@ -146,7 +163,8 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     protected LoadTask createPendingTask() {
-        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority());
+        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
+                brokerDescForS3ExpressImport(), getPriority());
     }
 
     /**
@@ -259,7 +277,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
             BrokerPendingTaskAttachment attachment) throws UserException {
-        LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
+        LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDescForS3ExpressImport(),
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
                 transactionId, this, getTimeZone(), getTimeout(),

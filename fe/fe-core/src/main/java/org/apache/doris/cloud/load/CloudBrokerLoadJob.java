@@ -155,7 +155,8 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
             BrokerPendingTaskAttachment attachment) throws UserException {
         cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
-        LoadLoadingTask task = new CloudLoadLoadingTask(this.userInfo, db, table, brokerDesc,
+        LoadLoadingTask task = new CloudLoadLoadingTask(this.userInfo, db, table,
+                brokerDescForS3ExpressImport(),
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
                 transactionId, this, getTimeZone(), getTimeout(),

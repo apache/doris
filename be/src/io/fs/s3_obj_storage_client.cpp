@@ -164,11 +164,8 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
-    if (!_is_s3_express) {
-        Aws::Utils::ByteBuffer part_md5(
-                Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-        request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
-    }
+    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
+    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
     request.SetBody(string_view_stream);
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
@@ -212,11 +209,8 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
 
     request.SetBody(string_view_stream);
 
-    if (!_is_s3_express) {
-        Aws::Utils::ByteBuffer part_md5(
-                Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-        request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
-    }
+    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
+    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
 
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");

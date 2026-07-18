@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +29,7 @@ import java.util.Optional;
 public class S3FileSystem extends S3CompatibleFileSystem {
 
     private final S3FileSystemProperties properties;
+    private final S3ObjStorage s3ObjStorage;
 
     public S3FileSystem(S3FileSystemProperties properties) {
         this(properties, new S3ObjStorage(properties));
@@ -36,11 +38,13 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     S3FileSystem(S3FileSystemProperties properties, S3ObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
         this.properties = properties;
+        this.s3ObjStorage = objStorage;
     }
 
     public S3FileSystem(S3ObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
         this.properties = null;
+        this.s3ObjStorage = objStorage;
     }
 
     public Optional<S3FileSystemProperties> properties() {
@@ -48,19 +52,20 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     @Override
-    protected String globListPrefix(String globPattern) {
-        if (isDirectoryBucketEndpoint()) {
+    protected String globListPrefix(String bucket, String globPattern) throws IOException {
+        if (isDirectoryBucketEndpoint() || s3ObjStorage.usesS3ExpressRead(bucket)) {
             return slashTerminatedNonGlobPrefix(globPattern);
         }
-        return super.globListPrefix(globPattern);
+        return super.globListPrefix(bucket, globPattern);
     }
 
     @Override
-    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
-        if (isDirectoryBucketEndpoint()) {
+    protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix)
+            throws IOException {
+        if (isDirectoryBucketEndpoint() || s3ObjStorage.usesS3ExpressRead(bucket)) {
             return List.of(listPrefix);
         }
-        return super.globListPrefixes(globPattern, listPrefix);
+        return super.globListPrefixes(bucket, globPattern, listPrefix);
     }
 
     private boolean isDirectoryBucketEndpoint() {

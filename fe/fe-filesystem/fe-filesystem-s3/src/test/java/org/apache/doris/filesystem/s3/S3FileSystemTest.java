@@ -45,6 +45,8 @@ import java.util.Map;
  */
 class S3FileSystemTest {
 
+    private static final String DIRECTORY_BUCKET = "analytics--usw2-az1--x-s3";
+
     private S3ObjStorage mockStorage;
     private S3FileSystem fs;
 
@@ -700,6 +702,96 @@ class S3FileSystemTest {
                 ArgumentMatchers.eq("s3://bucket/data/a"), ArgumentMatchers.any());
         Mockito.verify(mockStorage, Mockito.never()).listObjects(
                 ArgumentMatchers.eq("s3://bucket/data/b"), ArgumentMatchers.any());
+    }
+
+    @Test
+    void globListWithLimit_regionalDirectoryBucketUsesSlashTerminatedPrefix() throws IOException {
+        S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                "s3.endpoint", "https://s3.us-west-2.amazonaws.com",
+                "s3.region", "us-west-2"));
+        S3FileSystem directoryBucketFs = new S3FileSystem(properties, mockStorage);
+        Mockito.when(mockStorage.usesS3ExpressRead(DIRECTORY_BUCKET)).thenReturn(true);
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://" + DIRECTORY_BUCKET + "/data/"),
+                        ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("data/a.csv", "a.csv", null, 10L, 0L),
+                                new RemoteObject("data/b.csv", "b.csv", null, 20L, 0L)),
+                        false, null));
+
+        GlobListing listing = directoryBucketFs.globListWithLimit(
+                Location.of("s3://" + DIRECTORY_BUCKET + "/data/[ab]*.csv"), null, 0L, 0L);
+
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Assertions.assertEquals("data/", listing.getPrefix());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("s3://" + DIRECTORY_BUCKET + "/data/"),
+                ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void globListWithLimit_regionalDirectoryBucketExactPathFiltersSibling() throws IOException {
+        S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                "s3.endpoint", "https://s3.us-west-2.amazonaws.com",
+                "s3.region", "us-west-2"));
+        S3FileSystem directoryBucketFs = new S3FileSystem(properties, mockStorage);
+        Mockito.when(mockStorage.usesS3ExpressRead(DIRECTORY_BUCKET)).thenReturn(true);
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://" + DIRECTORY_BUCKET + "/data/"),
+                        ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("data/target.csv", "target.csv", null, 10L, 0L),
+                                new RemoteObject("data/target.csv.bak", "target.csv.bak", null, 20L, 0L)),
+                        false, null));
+
+        GlobListing listing = directoryBucketFs.globListWithLimit(
+                Location.of("s3://" + DIRECTORY_BUCKET + "/data/target.csv"), null, 0L, 0L);
+
+        Assertions.assertEquals(1, listing.getFiles().size());
+        Assertions.assertEquals(
+                "s3://" + DIRECTORY_BUCKET + "/data/target.csv",
+                listing.getFiles().get(0).location().uri());
+    }
+
+    @Test
+    void globListWithLimit_regionalDirectoryBucketPaginatesWithOpaqueToken() throws IOException {
+        S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                "s3.endpoint", "https://s3.us-west-2.amazonaws.com",
+                "s3.region", "us-west-2"));
+        S3FileSystem directoryBucketFs = new S3FileSystem(properties, mockStorage);
+        String listUri = "s3://" + DIRECTORY_BUCKET + "/data/";
+        Mockito.when(mockStorage.usesS3ExpressRead(DIRECTORY_BUCKET)).thenReturn(true);
+        Mockito.doAnswer(invocation -> {
+            ObjectListOptions options = invocation.getArgument(1);
+            if (options.continuationToken() == null) {
+                return new RemoteObjects(
+                        List.of(new RemoteObject("data/b.csv", "b.csv", null, 20L, 0L)),
+                        true, "opaque-token");
+            }
+            return new RemoteObjects(
+                    List.of(new RemoteObject("data/a.csv", "a.csv", null, 10L, 0L)),
+                    false, null);
+        }).when(mockStorage).listObjectsWithOptions(
+                ArgumentMatchers.eq(listUri), ArgumentMatchers.any(ObjectListOptions.class));
+
+        GlobListing listing = directoryBucketFs.globListWithLimit(
+                Location.of("s3://" + DIRECTORY_BUCKET + "/data/*.csv"), null, 0L, 0L);
+
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Assertions.assertEquals(
+                List.of(
+                        "s3://" + DIRECTORY_BUCKET + "/data/b.csv",
+                        "s3://" + DIRECTORY_BUCKET + "/data/a.csv"),
+                listing.getFiles().stream().map(file -> file.location().uri()).toList());
+        ArgumentCaptor<ObjectListOptions> optionsCaptor = ArgumentCaptor.forClass(ObjectListOptions.class);
+        Mockito.verify(mockStorage, Mockito.times(2)).listObjectsWithOptions(
+                ArgumentMatchers.eq(listUri), optionsCaptor.capture());
+        Assertions.assertNull(optionsCaptor.getAllValues().get(0).startAfter());
+        Assertions.assertEquals(
+                "opaque-token", optionsCaptor.getAllValues().get(1).continuationToken());
+        Assertions.assertNull(optionsCaptor.getAllValues().get(1).startAfter());
     }
 
     @Test

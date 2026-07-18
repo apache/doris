@@ -17,11 +17,11 @@
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
-#include <aws/s3/model/PutObjectRequest.h>
-#include <aws/s3/model/UploadPartRequest.h>
 
 #include "gmock/gmock.h"
 #include "io/fs/s3_obj_storage_client.h"
@@ -37,10 +37,8 @@ public:
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
-    MOCK_METHOD(Aws::S3::Model::PutObjectOutcome, PutObject,
-                (const Aws::S3::Model::PutObjectRequest& request), (const, override));
-    MOCK_METHOD(Aws::S3::Model::UploadPartOutcome, UploadPart,
-                (const Aws::S3::Model::UploadPartRequest& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::GetObjectOutcome, GetObject,
+                (const Aws::S3::Model::GetObjectRequest& request), (const, override));
 };
 
 class S3ObjStorageClientMockTest : public testing::Test {
@@ -126,35 +124,27 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
     files.clear();
 }
 
-TEST_F(S3ObjStorageClientMockTest, content_md5_depends_on_s3_express) {
-    const auto verify_requests = [](bool is_s3_express, bool expect_content_md5) {
-        auto mock_s3_client = std::make_shared<MockS3Client>();
-        S3ObjStorageClient s3_obj_storage_client(mock_s3_client, is_s3_express);
+TEST_F(S3ObjStorageClientMockTest, get_object_sets_range) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    S3ObjStorageClient s3_obj_storage_client(mock_s3_client);
 
-        EXPECT_CALL(*mock_s3_client, PutObject(testing::_))
-                .WillOnce([expect_content_md5](const PutObjectRequest& request) {
-                    EXPECT_EQ(expect_content_md5, request.ContentMD5HasBeenSet());
-                    return PutObjectOutcome(PutObjectResult {});
-                });
-        auto put_response = s3_obj_storage_client.put_object(
-                {.bucket = "dummy-bucket", .key = "content-md5-put"}, "put-body");
-        EXPECT_EQ(ErrorCode::OK, put_response.status.code);
+    EXPECT_CALL(*mock_s3_client, GetObject(testing::_))
+            .WillOnce([](const GetObjectRequest& request) {
+                EXPECT_EQ(request.GetBucket(), "dummy-bucket");
+                EXPECT_EQ(request.GetKey(), "data.parquet");
+                EXPECT_EQ(request.GetRange(), "bytes=7-10");
+                GetObjectResult result;
+                result.SetContentLength(4);
+                return GetObjectOutcome(std::move(result));
+            });
 
-        EXPECT_CALL(*mock_s3_client, UploadPart(testing::_))
-                .WillOnce([expect_content_md5](const UploadPartRequest& request) {
-                    EXPECT_EQ(expect_content_md5, request.ContentMD5HasBeenSet());
-                    return UploadPartOutcome(UploadPartResult {});
-                });
-        auto upload_response = s3_obj_storage_client.upload_part(
-                {.bucket = "dummy-bucket",
-                 .key = "content-md5-multipart",
-                 .upload_id = "upload-id"},
-                "part-body", 1);
-        EXPECT_EQ(ErrorCode::OK, upload_response.resp.status.code);
-    };
-
-    verify_requests(false, true);
-    verify_requests(true, false);
+    char buffer[4];
+    size_t size_return = 0;
+    auto response =
+            s3_obj_storage_client.get_object({.bucket = "dummy-bucket", .key = "data.parquet"},
+                                             buffer, 7, sizeof(buffer), &size_return);
+    EXPECT_EQ(ErrorCode::OK, response.status.code);
+    EXPECT_EQ(sizeof(buffer), size_return);
 }
 
 TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {

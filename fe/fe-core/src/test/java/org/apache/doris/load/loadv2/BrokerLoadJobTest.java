@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -27,9 +28,11 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
@@ -65,6 +68,27 @@ public class BrokerLoadJobTest {
     @BeforeClass
     public static void start() {
         MetricRepo.init();
+    }
+
+    @Test
+    public void testS3ExpressImportPropertyIsTaskScopedToBrokerLoad() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        properties.put("s3.region", "us-west-2");
+        BrokerDesc original = new BrokerDesc("S3", StorageBackend.StorageType.S3, properties);
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        Deencapsulation.setField(brokerLoadJob, "brokerDesc", original);
+
+        BrokerDesc taskBrokerDesc = brokerLoadJob.brokerDescForS3ExpressImport();
+
+        Assert.assertNotSame(original, taskBrokerDesc);
+        Assert.assertFalse(original.getBackendConfigProperties()
+                .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+        Assert.assertEquals("true", taskBrokerDesc.getBackendConfigProperties()
+                .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+
+        Deencapsulation.setField(brokerLoadJob, "jobType", EtlJobType.COPY);
+        Assert.assertSame(original, brokerLoadJob.brokerDescForS3ExpressImport());
     }
 
     @Test

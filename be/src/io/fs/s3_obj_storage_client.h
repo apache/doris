@@ -32,9 +32,7 @@ class ObjClientHolder;
 
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
-    explicit S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                                bool is_s3_express = false)
-            : _client(std::move(client)), _is_s3_express(is_s3_express) {}
+    S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client) : _client(std::move(client)) {}
     ~S3ObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;
@@ -60,7 +58,6 @@ public:
 
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;
-    bool _is_s3_express = false;
 };
 
 } // namespace doris::io

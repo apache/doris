@@ -50,6 +50,8 @@ class Adder;
 
 namespace doris {
 
+inline constexpr char S3_EXPRESS_IMPORT_READ[] = "__DORIS_S3_EXPRESS_IMPORT_READ__";
+
 namespace s3_bvar {
 extern bvar::LatencyRecorder s3_get_latency;
 extern bvar::LatencyRecorder s3_put_latency;
@@ -87,6 +89,8 @@ struct S3ClientConf {
     bool use_virtual_addressing = true;
     // For aws s3, no need to override endpoint
     bool need_override_endpoint = true;
+    // Enable S3 Express client selection for a scoped import read.
+    bool enable_s3_express_read = false;
 
     CredProviderType cred_provider_type = CredProviderType::Default;
     std::string role_arn;
@@ -104,6 +108,7 @@ struct S3ClientConf {
         hash_code ^= request_timeout_ms;
         hash_code ^= connect_timeout_ms;
         hash_code ^= use_virtual_addressing;
+        hash_code ^= enable_s3_express_read ? 0x9e3779b97f4a7c15ULL : 0;
         hash_code ^= static_cast<int>(provider);
 
         hash_code ^= static_cast<int>(cred_provider_type);
@@ -116,12 +121,41 @@ struct S3ClientConf {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-                "cred_provider_type={},role_arn={}, external_id={}",
+                "enable_s3_express_read={}, cred_provider_type={},role_arn={}, external_id={}",
                 hide_access_key(ak), token, endpoint, region, bucket, max_connections,
-                request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id);
+                request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
+                enable_s3_express_read, cred_provider_type, role_arn, external_id);
     }
 };
+
+struct S3ClientBuildOptions {
+    bool use_endpoint_provider = false;
+    bool use_compatible_endpoint_provider = false;
+    bool override_endpoint = false;
+    bool force_https = false;
+    bool use_virtual_addressing = true;
+    bool request_dependent_signing = false;
+    bool disable_s3_express_auth = false;
+};
+
+S3ClientBuildOptions get_s3_client_build_options(const S3ClientConf& conf);
+
+#ifdef BE_TEST
+struct S3EndpointResolutionForTest {
+    std::string url;
+    std::string authority;
+    std::string path;
+    std::string backend;
+    std::string signing_name;
+    uint16_t port = 0;
+    bool use_s3_express_auth = false;
+};
+
+S3EndpointResolutionForTest resolve_s3_compatible_endpoint_for_test(std::string_view endpoint,
+                                                                    std::string_view region,
+                                                                    std::string_view bucket,
+                                                                    bool use_virtual_addressing);
+#endif
 
 struct S3Conf {
     std::string bucket;

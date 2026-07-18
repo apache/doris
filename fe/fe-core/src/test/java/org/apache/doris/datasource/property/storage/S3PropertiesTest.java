@@ -554,4 +554,19 @@ public class S3PropertiesTest {
         Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
         Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.s3n.impl.disable.cache"));
     }
+
+    @Test
+    public void testS3ExpressImportMarkerRequiresInternalOptIn() {
+        origProps.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        origProps.put("s3.region", "us-west-2");
+        origProps.put(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ, "true");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+
+        Assertions.assertFalse(s3Properties.getBackendConfigProperties()
+                .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+
+        s3Properties.enableS3ExpressImportRead();
+        Assertions.assertEquals("true", s3Properties.getBackendConfigProperties()
+                .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+    }
 }

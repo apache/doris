@@ -21,8 +21,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.functions.table.S3;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -114,6 +121,59 @@ public class ExternalFileTableValuedFunctionTest {
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();
+        }
+    }
+
+    @Test
+    public void testS3ExpressMarkerIsScopedToOneShotInsertStatement() throws AnalysisException {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        ConnectContext previousContext = ConnectContext.get();
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.csv");
+            properties.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+            properties.put("s3.region", "us-west-2");
+            properties.put("format", "csv");
+
+            S3TableValuedFunction directTvf = new S3TableValuedFunction(properties);
+            Assert.assertFalse(directTvf.getBackendConnectProperties()
+                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            Assert.assertFalse(directTvf.getBrokerDesc().getBackendConfigProperties()
+                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+
+            ConnectContext context = new ConnectContext();
+            StatementContext statementContext = new StatementContext(
+                    context, new OriginStatement("insert into t select * from s3(...)", 0));
+            context.setStatementContext(statementContext);
+            context.setThreadLocalInfo();
+
+            S3TableValuedFunction queryTvf = (S3TableValuedFunction) new S3(new Properties(properties))
+                    .getCatalogFunction();
+            Assert.assertFalse(queryTvf.getBackendConnectProperties()
+                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+
+            statementContext.setS3ExpressImportRead(true);
+            S3TableValuedFunction insertTvf = (S3TableValuedFunction) new S3(new Properties(properties))
+                    .getCatalogFunction();
+            Assert.assertEquals("true", insertTvf.getBackendConnectProperties()
+                    .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            Assert.assertEquals("true", insertTvf.getBrokerDesc().getBackendConfigProperties()
+                    .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            Assert.assertFalse(insertTvf.processedParams
+                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+
+            statementContext.setS3ExpressImportRead(false);
+            S3TableValuedFunction streamingTvf = (S3TableValuedFunction) new S3(new Properties(properties))
+                    .getCatalogFunction();
+            Assert.assertFalse(streamingTvf.getBackendConnectProperties()
+                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
         }
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
@@ -39,12 +40,22 @@ import java.util.Map;
  */
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "s3";
+    private final boolean s3ExpressImportRead;
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        this(properties, false);
+    }
+
+    public S3TableValuedFunction(Map<String, String> properties, boolean s3ExpressImportRead)
+            throws AnalysisException {
+        this.s3ExpressImportRead = s3ExpressImportRead;
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
         try {
             this.storageProperties = StorageProperties.createPrimary(props);
+            if (s3ExpressImportRead) {
+                enableS3ExpressImportRead(storageProperties);
+            }
             this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
             String uri = storageProperties.validateAndGetUri(props);
             filePath = storageProperties.validateAndNormalizeUri(uri);
@@ -76,7 +87,17 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("S3TvfBroker", processedParams);
+        BrokerDesc brokerDesc = new BrokerDesc("S3TvfBroker", processedParams);
+        if (s3ExpressImportRead) {
+            enableS3ExpressImportRead(brokerDesc.getStorageProperties());
+        }
+        return brokerDesc;
+    }
+
+    private static void enableS3ExpressImportRead(StorageProperties properties) {
+        if (properties instanceof AbstractS3CompatibleProperties) {
+            ((AbstractS3CompatibleProperties) properties).enableS3ExpressImportRead();
+        }
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================
@@ -85,4 +106,3 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         return "S3TableValuedFunction";
     }
 }
-

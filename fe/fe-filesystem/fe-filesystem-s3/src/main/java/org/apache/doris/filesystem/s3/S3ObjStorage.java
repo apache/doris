@@ -98,7 +98,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private static final Pattern DIRECTORY_BUCKET_PATTERN =
             Pattern.compile("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--[a-z0-9-]+-az[0-9]+--x-s3$");
     private static final Pattern AWS_S3_REGIONAL_ENDPOINT_PATTERN = Pattern.compile(
-            "^https://s3\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?(?::443)?/?$",
+            "^(?:https://)?s3\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?(?::443)?/?$",
             Pattern.CASE_INSENSITIVE);
 
     /** Validity period for pre-signed URLs and STS tokens (seconds). */
@@ -173,14 +173,16 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 .httpClient(UrlConnectionHttpClient.builder()
                         .socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30))
-                .build())
+                        .build())
                 .credentialsProvider(clientCredentialsProvider)
                 .region(Region.of(region))
-                .disableS3ExpressSessionAuth(!express)
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
                         .pathStyleAccessEnabled(express ? false : usePathStyle)
                         .build());
+        if (s3Properties.isS3ExpressImportReadEnabled() && !s3Properties.isDirectoryBucketEndpoint()) {
+            builder.disableS3ExpressSessionAuth(!express);
+        }
 
         if (!express && StringUtils.isNotBlank(endpointStr)) {
             if (!endpointStr.contains("://")) {
@@ -218,18 +220,22 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return credentialsProvider;
     }
 
-    private S3Client clientForHead(String requestBucket) throws IOException {
-        if (!requestBucket.endsWith(DIRECTORY_BUCKET_SUFFIX)
+    boolean usesS3ExpressRead(String requestBucket) throws IOException {
+        if (!s3Properties.isS3ExpressImportReadEnabled()
+                || requestBucket == null || !requestBucket.endsWith(DIRECTORY_BUCKET_SUFFIX)
                 || StringUtils.isBlank(s3Properties.getEndpoint())) {
-            return getClient();
+            return false;
         }
         Matcher endpoint = AWS_S3_REGIONAL_ENDPOINT_PATTERN.matcher(s3Properties.getEndpoint());
         if (!endpoint.matches()) {
+            if (s3Properties.isDirectoryBucketEndpoint()) {
+                return false;
+            }
             if (isAwsEndpoint(s3Properties.getEndpoint())) {
                 throw new IOException("AWS Directory Bucket requires a standard HTTPS regional S3 "
                         + "endpoint; do not use s3express-control or a zonal endpoint");
             }
-            return getClient();
+            return false;
         }
         if (!isDirectoryBucketName(requestBucket)) {
             throw new IOException("Invalid AWS Directory Bucket name " + requestBucket
@@ -242,6 +248,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         if (usePathStyle) {
             throw new IOException("Path-style addressing is not supported for AWS Directory Bucket");
         }
+        return true;
+    }
+
+    private S3Client getExpressClient() throws IOException {
         if (closed.get()) {
             throw new IOException("S3ObjStorage is already closed");
         }
@@ -276,13 +286,20 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
+        boolean expressRead = usesS3ExpressRead(uri.bucket());
+        String requestPrefix = expressRead ? slashTerminatedPrefix(uri.key()) : uri.key();
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
-                .bucket(uri.bucket())
-                .prefix(uri.key());
+                .bucket(uri.bucket());
+        if (!expressRead || !requestPrefix.isEmpty()) {
+            builder.prefix(requestPrefix);
+        }
         if (options != null) {
             if (StringUtils.isNotBlank(options.continuationToken())) {
                 builder.continuationToken(options.continuationToken());
             } else if (StringUtils.isNotBlank(options.startAfter())) {
+                if (expressRead) {
+                    throw new IOException("StartAfter is not supported for AWS Directory Bucket listings");
+                }
                 builder.startAfter(options.startAfter());
             }
             if (options.maxKeys() > 0) {
@@ -293,7 +310,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
         }
         try {
-            ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
+            S3Client listClient = expressRead ? getExpressClient() : getClient();
+            ListObjectsV2Response response = listClient.listObjectsV2(builder.build());
             List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
                     .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
                             s3Obj.key(),
@@ -358,7 +376,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public org.apache.doris.filesystem.spi.RemoteObject headObject(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
-            HeadObjectResponse response = clientForHead(uri.bucket()).headObject(
+            HeadObjectResponse response = getClient().headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return new org.apache.doris.filesystem.spi.RemoteObject(
                     uri.key(), uri.key(), response.eTag(), response.contentLength(),
@@ -724,6 +742,14 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     private static boolean isDirectoryBucketName(String bucketName) {
         return bucketName != null && DIRECTORY_BUCKET_PATTERN.matcher(bucketName).matches();
+    }
+
+    private static String slashTerminatedPrefix(String key) {
+        if (key.isEmpty() || key.endsWith("/")) {
+            return key;
+        }
+        int slash = key.lastIndexOf('/');
+        return slash < 0 ? "" : key.substring(0, slash + 1);
     }
 
     private static boolean isAwsEndpoint(String endpoint) {
