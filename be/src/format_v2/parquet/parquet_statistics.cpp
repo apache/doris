@@ -89,6 +89,23 @@ Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
     return Status::OK();
 }
 
+bool can_use_native_footer_min_max(const ParquetTypeDescriptor& type_descriptor,
+                                   const tparquet::Statistics& statistics) {
+    const bool binary = type_descriptor.physical_type == ::parquet::Type::BYTE_ARRAY ||
+                        type_descriptor.physical_type == ::parquet::Type::FIXED_LEN_BYTE_ARRAY;
+    if (!binary) {
+        return true;
+    }
+    if (statistics.__isset.min_value || statistics.__isset.max_value) {
+        // Do not combine a type-defined bound with a deprecated bound: the two fields can use
+        // different byte ordering, so a mixed pair cannot form one valid interval.
+        return statistics.__isset.min_value && statistics.__isset.max_value;
+    }
+    // Deprecated binary min/max fields were ordered with signed bytes by legacy parquet-mr, while
+    // Parquet's type-defined order is unsigned. Only an equal pair is independent of that mismatch.
+    return statistics.__isset.min && statistics.__isset.max && statistics.min == statistics.max;
+}
+
 } // namespace detail
 
 namespace {
@@ -1234,6 +1251,13 @@ Status select_row_groups_by_metadata(
 
 namespace {
 
+bool native_metadata_predicate_is_type_safe(const ParquetColumnSchema& column_schema) {
+    DORIS_CHECK(column_schema.type != nullptr);
+    // Raw VARBINARY file slots may feed table-side STRING casts. Footer/page metadata is still in
+    // the pre-cast domain, so using it for a rewritten table predicate can cause false negatives.
+    return remove_nullable(column_schema.type)->get_primitive_type() != TYPE_VARBINARY;
+}
+
 bool check_native_statistics(const tparquet::RowGroup& row_group,
                              const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                              const format::FileScanRequest& request,
@@ -1250,6 +1274,7 @@ bool check_native_statistics(const tparquet::RowGroup& row_group,
         }
         const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
         if (column_schema == nullptr || column_schema->type == nullptr ||
+            !native_metadata_predicate_is_type_safe(*column_schema) ||
             column_schema->leaf_column_id >= static_cast<int>(row_group.columns.size())) {
             continue;
         }
@@ -1259,6 +1284,10 @@ bool check_native_statistics(const tparquet::RowGroup& row_group,
             const auto& column_metadata = chunk.meta_data;
             const auto* statistics =
                     column_metadata.__isset.statistics ? &column_metadata.statistics : nullptr;
+            if (statistics != nullptr && !detail::can_use_native_footer_min_max(
+                                                 column_schema->type_descriptor, *statistics)) {
+                statistics = nullptr;
+            }
             zone_map = ParquetStatisticsUtils::MakeZoneMap(
                     ParquetStatisticsUtils::TransformColumnStatistics(
                             *column_schema, statistics, column_metadata.num_values, timezone));
@@ -1346,6 +1375,11 @@ ParquetRowGroupPruneReason native_dictionary_prune_reason(
             column_schema->leaf_column_id >= static_cast<int>(row_group.columns.size())) {
             continue;
         }
+        if (!native_metadata_predicate_is_type_safe(*column_schema)) {
+            // The file-local VARBINARY may feed a table-side STRING cast. Pruning before that cast
+            // can compare different Field kinds and incorrectly discard a matching row group.
+            continue;
+        }
         const auto& chunk = row_group.columns[column_schema->leaf_column_id];
         if (!chunk.__isset.meta_data ||
             (chunk.meta_data.type != tparquet::Type::BYTE_ARRAY &&
@@ -1403,6 +1437,7 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
         }
         const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
         if (column_schema == nullptr || column_schema->type == nullptr ||
+            !native_metadata_predicate_is_type_safe(*column_schema) ||
             !bloom_filter_supported(*column_schema) ||
             column_schema->leaf_column_id >= static_cast<int>(row_group.columns.size())) {
             continue;
@@ -2224,7 +2259,8 @@ Status select_row_group_ranges_by_native_page_index(
             continue;
         }
         const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
-        if (column_schema == nullptr) {
+        if (column_schema == nullptr || column_schema->type == nullptr ||
+            !native_metadata_predicate_is_type_safe(*column_schema)) {
             continue;
         }
         const auto index_it = page_indexes.find(column_schema->leaf_column_id);

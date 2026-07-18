@@ -63,63 +63,6 @@ int64_t column_chunk_start_offset(const ::parquet::ColumnChunkMetaData& column_m
                    : cast_set<int64_t>(column_metadata.data_page_offset());
 }
 
-void collect_all_leaf_column_ids(const ParquetColumnSchema& column_schema,
-                                 std::unordered_set<int>* leaf_column_ids) {
-    DORIS_CHECK(leaf_column_ids != nullptr);
-    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
-        if (column_schema.leaf_column_id >= 0) {
-            leaf_column_ids->insert(column_schema.leaf_column_id);
-        }
-        return;
-    }
-    for (const auto& child : column_schema.children) {
-        DORIS_CHECK(child != nullptr);
-        collect_all_leaf_column_ids(*child, leaf_column_ids);
-    }
-}
-
-void collect_projected_leaf_column_ids(const ParquetColumnSchema& column_schema,
-                                       const format::LocalColumnIndex& projection,
-                                       std::unordered_set<int>* leaf_column_ids) {
-    DORIS_CHECK(leaf_column_ids != nullptr);
-    if (projection.project_all_children || projection.children.empty()) {
-        collect_all_leaf_column_ids(column_schema, leaf_column_ids);
-        return;
-    }
-    for (const auto& child_projection : projection.children) {
-        const auto child_it =
-                std::ranges::find_if(column_schema.children, [&](const auto& child_schema) {
-                    return child_schema->local_id == child_projection.local_id();
-                });
-        DORIS_CHECK(child_it != column_schema.children.end());
-        collect_projected_leaf_column_ids(**child_it, child_projection, leaf_column_ids);
-    }
-}
-
-void collect_request_leaf_column_ids(
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, std::unordered_set<int>* leaf_column_ids) {
-    DORIS_CHECK(leaf_column_ids != nullptr);
-    auto collect_scan_column = [&](const format::LocalColumnIndex& projection) {
-        const auto local_id = projection.local_id();
-        if (local_id == format::ROW_POSITION_COLUMN_ID ||
-            local_id == format::GLOBAL_ROWID_COLUMN_ID) {
-            return;
-        }
-        DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
-        DORIS_CHECK(file_schema[local_id] != nullptr);
-        collect_projected_leaf_column_ids(*file_schema[local_id], projection, leaf_column_ids);
-    };
-    for (const auto& column : request.predicate_columns) {
-        collect_scan_column(column);
-    }
-    for (const auto& column : request.non_predicate_columns) {
-        if (!request.is_count_star_placeholder(column.column_id())) {
-            collect_scan_column(column);
-        }
-    }
-}
-
 Status validate_all_projected_leaves_supported(const ParquetColumnSchema& column_schema) {
     if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
         if (!column_schema.type_descriptor.unsupported_reason.empty()) {
@@ -174,34 +117,6 @@ Status validate_requested_columns_supported(
         }
     }
     return Status::OK();
-}
-
-std::vector<ParquetPageCacheRange> build_page_cache_ranges(
-        const tparquet::FileMetaData& metadata,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, const RowGroupScanPlan& row_group_plan) {
-    std::unordered_set<int> leaf_column_ids;
-    collect_request_leaf_column_ids(file_schema, request, &leaf_column_ids);
-    std::vector<ParquetPageCacheRange> ranges;
-    ranges.reserve(row_group_plan.row_groups.size() * leaf_column_ids.size());
-    for (const auto& row_group_plan_item : row_group_plan.row_groups) {
-        const auto& row_group_metadata = metadata.row_groups[row_group_plan_item.row_group_id];
-        for (const auto leaf_column_id : leaf_column_ids) {
-            DORIS_CHECK(leaf_column_id >= 0 &&
-                        leaf_column_id < static_cast<int>(row_group_metadata.columns.size()));
-            const auto& column_metadata = row_group_metadata.columns[leaf_column_id].meta_data;
-            const int64_t offset = column_metadata.__isset.dictionary_page_offset
-                                           ? column_metadata.dictionary_page_offset
-                                           : column_metadata.data_page_offset;
-            const int64_t size = column_metadata.total_compressed_size;
-            DORIS_CHECK(offset >= 0);
-            DORIS_CHECK(size >= 0);
-            if (size > 0) {
-                ranges.push_back(ParquetPageCacheRange {.offset = offset, .size = size});
-            }
-        }
-    }
-    return ranges;
 }
 
 const ParquetColumnSchema& projected_root_schema(
@@ -385,10 +300,11 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
-                             bool enable_mapping_timestamp_tz)
+                             bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
-          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz) {}
+          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
+          _enable_mapping_varbinary(enable_mapping_varbinary) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -427,9 +343,9 @@ Status ParquetReader::init(RuntimeState* state) {
     // around the whole operation so footer/cache latency cannot disappear from a slow profile.
     {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
-        RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
-                                                  _state->enable_page_cache, *_file_description,
-                                                  _enable_mapping_timestamp_tz));
+        RETURN_IF_ERROR(_state->file_context.open(
+                _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
+                _enable_mapping_timestamp_tz, _enable_mapping_varbinary));
     }
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
@@ -548,11 +464,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     if (_profile != nullptr) {
         _parquet_profile.update_pruning_stats(row_group_plan.pruning_stats);
     }
-    if (_state->enable_page_cache) {
-        _state->file_context.register_page_cache_ranges(
-                build_page_cache_ranges(_state->file_context.native_metadata->to_thrift(),
-                                        _state->file_schema, *request_snapshot, row_group_plan));
-    }
+    // Native page readers admit exact validated page payloads to cache. Do not pre-register whole
+    // column chunks here: footer offsets are untrusted and this obsolete range map is not consumed.
     _state->scan_plan = row_group_plan;
     _state->scheduler.set_page_skip_profile(_parquet_profile.page_skip_profile());
     _state->scheduler.set_global_rowid_context(_global_rowid_context);

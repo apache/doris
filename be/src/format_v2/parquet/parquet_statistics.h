@@ -55,11 +55,14 @@ namespace doris::format::parquet {
 
 struct ParquetColumnSchema;
 struct ParquetFileContext;
+struct ParquetTypeDescriptor;
 
 namespace detail {
 Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
                                            int64_t payload_size, int64_t declared_length,
                                            size_t file_size);
+bool can_use_native_footer_min_max(const ParquetTypeDescriptor& type_descriptor,
+                                   const tparquet::Statistics& statistics);
 } // namespace detail
 
 // ============================================================================

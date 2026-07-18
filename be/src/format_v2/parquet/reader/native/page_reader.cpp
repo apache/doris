@@ -53,7 +53,35 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_validate_page_header(uint32_t h
         // Sizes are untrusted signed Thrift fields and must fit the column chunk before arithmetic.
         return Status::Corruption("Parquet page payload exceeds its column chunk");
     }
-    if (_cur_page_header.__isset.data_page_header_v2) {
+
+    const bool has_v1 = _cur_page_header.__isset.data_page_header;
+    const bool has_v2 = _cur_page_header.__isset.data_page_header_v2;
+    const bool has_dictionary = _cur_page_header.__isset.dictionary_page_header;
+    const bool has_index = _cur_page_header.__isset.index_page_header;
+    bool matching_layout = false;
+    switch (_cur_page_header.type) {
+    case tparquet::PageType::DATA_PAGE:
+        matching_layout = has_v1 && !has_v2 && !has_dictionary && !has_index;
+        break;
+    case tparquet::PageType::DATA_PAGE_V2:
+        matching_layout = has_v2 && !has_v1 && !has_dictionary && !has_index;
+        break;
+    case tparquet::PageType::DICTIONARY_PAGE:
+        matching_layout = has_dictionary && !has_v1 && !has_v2 && !has_index;
+        break;
+    case tparquet::PageType::INDEX_PAGE:
+        matching_layout = has_index && !has_v1 && !has_v2 && !has_dictionary;
+        break;
+    default:
+        break;
+    }
+    if (UNLIKELY(!matching_layout)) {
+        // The type discriminant owns the only valid union member. Guessing from an optional header
+        // lets a malformed page use one layout for validation and another for decoding.
+        return Status::Corruption("Parquet page type does not match its page-header layout");
+    }
+
+    if (_cur_page_header.type == tparquet::PageType::DATA_PAGE_V2) {
         const auto& v2 = _cur_page_header.data_page_header_v2;
         if (UNLIKELY(v2.num_values < 0 || v2.num_rows < 0 || v2.num_nulls < 0 ||
                      v2.repetition_levels_byte_length < 0 ||
@@ -71,10 +99,10 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_validate_page_header(uint32_t h
                              static_cast<uint64_t>(_cur_page_header.uncompressed_page_size))) {
             return Status::Corruption("Parquet data page v2 level bytes exceed the page payload");
         }
-    } else if (_cur_page_header.__isset.data_page_header &&
+    } else if (_cur_page_header.type == tparquet::PageType::DATA_PAGE &&
                UNLIKELY(_cur_page_header.data_page_header.num_values < 0)) {
         return Status::Corruption("Parquet data page has a negative value count");
-    } else if (_cur_page_header.__isset.dictionary_page_header &&
+    } else if (_cur_page_header.type == tparquet::PageType::DICTIONARY_PAGE &&
                UNLIKELY(_cur_page_header.dictionary_page_header.num_values < 0)) {
         return Status::Corruption("Parquet dictionary page has a negative value count");
     }
@@ -146,6 +174,8 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
             Slice s = _page_cache_handle.data();
             real_header_size = cast_set<uint32_t>(s.size);
             SCOPED_RAW_TIMER(&_page_statistics.decode_header_time);
+            // Thrift does not clear absent optional fields when reusing an output object.
+            _cur_page_header = tparquet::PageHeader {};
             auto st = deserialize_thrift_msg(reinterpret_cast<const uint8_t*>(s.data),
                                              &real_header_size, true, &_cur_page_header);
             if (!st.ok()) return st;
@@ -205,6 +235,8 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
         }
         real_header_size = cast_set<uint32_t>(header_size);
         SCOPED_RAW_TIMER(&_page_statistics.decode_header_time);
+        // Reset on every retry as a partial deserialize can otherwise leak a stale union member.
+        _cur_page_header = tparquet::PageHeader {};
         auto st =
                 deserialize_thrift_msg(page_header_buf, &real_header_size, true, &_cur_page_header);
         if (st.ok()) {

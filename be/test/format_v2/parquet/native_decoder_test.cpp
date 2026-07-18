@@ -35,6 +35,7 @@
 #include "format_v2/parquet/reader/native/byte_array_dict_decoder.h"
 #include "format_v2/parquet/reader/native/column_reader.h"
 #include "format_v2/parquet/reader/native/decoder.h"
+#include "format_v2/parquet/reader/native/delta_bit_pack_decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
 #include "io/fs/buffered_reader.h"
@@ -1025,6 +1026,15 @@ TEST(ParquetV2NativeDecoderTest, CompactDeltaSkipKeepsScratchBounded) {
     EXPECT_LE(decoder->retained_scratch_bytes(), 4096 * sizeof(int32_t) + 1);
 }
 
+TEST(ParquetV2NativeDecoderTest, DeltaPaddingBitCountIsWidenedBeforeCursorAdvance) {
+    int64_t padding_bits = 0;
+    ASSERT_TRUE(detail::checked_delta_padding_bits(64, std::numeric_limits<uint32_t>::max(),
+                                                   &padding_bits)
+                        .ok());
+    EXPECT_EQ(padding_bits, 64LL * std::numeric_limits<uint32_t>::max());
+    EXPECT_GT(padding_bits, std::numeric_limits<uint32_t>::max());
+}
+
 TEST(ParquetV2NativeDecoderTest, DeltaByteArraySkipsKeepScratchBounded) {
     constexpr size_t value_count = 1U << 16;
     std::vector<::parquet::ByteArray> values(value_count);
@@ -1380,6 +1390,27 @@ TEST(ParquetV2NativeDecoderTest, PageHeaderRejectsSignedAndV2LevelSizeCorruption
     impossible_counts.data_page_header_v2.__set_repetition_levels_byte_length(0);
     impossible_counts.data_page_header_v2.__set_num_nulls(2);
     EXPECT_TRUE(parse_header(impossible_counts).is<ErrorCode::CORRUPTION>());
+
+    tparquet::PageHeader missing_layout;
+    missing_layout.type = tparquet::PageType::DATA_PAGE;
+    missing_layout.__set_compressed_page_size(0);
+    missing_layout.__set_uncompressed_page_size(0);
+    EXPECT_TRUE(parse_header(missing_layout).is<ErrorCode::CORRUPTION>());
+
+    auto swapped_layout = oversized_levels;
+    swapped_layout.type = tparquet::PageType::DATA_PAGE;
+    EXPECT_TRUE(parse_header(swapped_layout).is<ErrorCode::CORRUPTION>());
+
+    auto competing_layouts = negative;
+    competing_layouts.__set_compressed_page_size(0);
+    competing_layouts.__set_uncompressed_page_size(0);
+    competing_layouts.__isset.data_page_header_v2 = true;
+    competing_layouts.data_page_header_v2.__set_num_values(0);
+    competing_layouts.data_page_header_v2.__set_num_rows(0);
+    competing_layouts.data_page_header_v2.__set_num_nulls(0);
+    competing_layouts.data_page_header_v2.__set_repetition_levels_byte_length(0);
+    competing_layouts.data_page_header_v2.__set_definition_levels_byte_length(0);
+    EXPECT_TRUE(parse_header(competing_layouts).is<ErrorCode::CORRUPTION>());
 }
 
 TEST(ParquetV2NativeDecoderTest, FlatPagesRejectLogicalAndPhysicalCardinalityMismatch) {
@@ -1673,6 +1704,7 @@ TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsIndexPageBeforeInitializingData
     index_header.type = tparquet::PageType::INDEX_PAGE;
     index_header.__set_compressed_page_size(3);
     index_header.__set_uncompressed_page_size(3);
+    index_header.__set_index_page_header(tparquet::IndexPageHeader());
     auto bytes = serialize_page(index_header, {1, 2, 3});
 
     tparquet::PageHeader data_header;
@@ -1703,7 +1735,8 @@ TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsIndexPageBeforeInitializingData
     ParquetPageReadContext context(false, "");
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
                                                  context);
-    ASSERT_TRUE(chunk_reader.init().ok());
+    const auto init_status = chunk_reader.init();
+    ASSERT_TRUE(init_status.ok()) << init_status;
     EXPECT_EQ(chunk_reader.remaining_num_values(), 1);
     ASSERT_TRUE(chunk_reader.load_page_data().ok());
 }

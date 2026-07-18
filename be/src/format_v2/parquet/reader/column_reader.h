@@ -63,6 +63,7 @@ public:
     // Native statistics are cumulative and can be recursively aggregated for complex columns.
     // Flush once at the scheduler batch boundary instead of snapshotting after each operation.
     virtual void flush_profile() {}
+    virtual bool crossed_page_since_last_batch() { return false; }
     virtual Result<MutableColumnPtr> dictionary_values() {
         return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
     }

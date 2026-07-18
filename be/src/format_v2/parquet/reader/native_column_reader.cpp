@@ -519,8 +519,8 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
 
     const auto* matched_id_column = check_and_get_column<ColumnInt32>(*_matched_dictionary_ids);
     DORIS_CHECK(matched_id_column != nullptr);
-    auto string_values =
-            DORIS_TRY(_native_reader->convert_dict_column_to_string_column(matched_id_column));
+    auto string_values = DORIS_TRY(
+            _native_reader->convert_dict_column_to_string_column(matched_id_column, _type));
     RETURN_IF_ERROR(append_non_null_dictionary_values(column, std::move(string_values)));
     if (_profile.reader_select_rows != nullptr) {
         COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
@@ -531,27 +531,42 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
 }
 
 void NativeColumnReader::flush_profile() {
-    int64_t max_leaf_page_reads = 0;
-    record_page_fragments(sync_native_profile(&max_leaf_page_reads), max_leaf_page_reads);
+    record_page_fragments(sync_native_profile());
+}
+
+bool NativeColumnReader::crossed_page_since_last_batch() {
+    if (_native_reader == nullptr) {
+        return false;
+    }
+    const auto stats = _native_reader->column_statistics();
+    bool crossed_page = false;
+    if (stats.leaf_page_read_counters.size() == _batch_leaf_page_read_counters.size()) {
+        for (size_t leaf = 0; leaf < stats.leaf_page_read_counters.size(); ++leaf) {
+            crossed_page |=
+                    stats.leaf_page_read_counters[leaf] - _batch_leaf_page_read_counters[leaf] > 1;
+        }
+    } else {
+        // The first snapshot covers the first batch; later snapshots must keep the stable tree shape.
+        for (const int64_t page_reads : stats.leaf_page_read_counters) {
+            crossed_page |= page_reads > 1;
+        }
+    }
+    _batch_leaf_page_read_counters = stats.leaf_page_read_counters;
+    return crossed_page;
 }
 
 Result<MutableColumnPtr> NativeColumnReader::dictionary_values() {
     DORIS_CHECK(_native_reader != nullptr);
-    return _native_reader->dictionary_values();
+    return _native_reader->dictionary_values(_type);
 }
 
-void NativeColumnReader::record_page_fragments(int64_t page_fragments,
-                                               int64_t max_leaf_page_reads) {
+void NativeColumnReader::record_page_fragments(int64_t page_fragments) {
     if (_profile.native_page_fragments != nullptr) {
         COUNTER_UPDATE(_profile.native_page_fragments, page_fragments);
     }
-    // Summed fragments from MAP/STRUCT siblings do not mean any individual leaf crossed a page.
-    if (max_leaf_page_reads > 1 && _profile.page_crossing_batches != nullptr) {
-        COUNTER_UPDATE(_profile.page_crossing_batches, 1);
-    }
 }
 
-int64_t NativeColumnReader::sync_native_profile(int64_t* max_leaf_page_reads) {
+int64_t NativeColumnReader::sync_native_profile() {
     if (_native_reader == nullptr) {
         return 0;
     }
@@ -620,22 +635,6 @@ int64_t NativeColumnReader::sync_native_profile(int64_t* max_leaf_page_reads) {
                        stats.read_page_header_time - reported.read_page_header_time);
     }
     const int64_t page_read_delta = stats.page_read_counter - reported.page_read_counter;
-    int64_t max_leaf_delta = 0;
-    if (stats.leaf_page_read_counters.size() == reported.leaf_page_read_counters.size()) {
-        for (size_t leaf = 0; leaf < stats.leaf_page_read_counters.size(); ++leaf) {
-            max_leaf_delta =
-                    std::max(max_leaf_delta, stats.leaf_page_read_counters[leaf] -
-                                                     reported.leaf_page_read_counters[leaf]);
-        }
-    } else {
-        // The tree shape is stable after initialization; retain a safe first-snapshot fallback.
-        for (const int64_t page_reads : stats.leaf_page_read_counters) {
-            max_leaf_delta = std::max(max_leaf_delta, page_reads);
-        }
-    }
-    if (max_leaf_page_reads != nullptr) {
-        *max_leaf_page_reads = max_leaf_delta;
-    }
     if (_profile.page_read_count != nullptr) {
         COUNTER_UPDATE(_profile.page_read_count, page_read_delta);
     }

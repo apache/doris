@@ -919,10 +919,16 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
                                              _scan_params->__isset.enable_mapping_timestamp_tz &&
                                              _scan_params->enable_mapping_timestamp_tz;
+    const bool enable_mapping_varbinary = _scan_params != nullptr &&
+                                          _scan_params->__isset.enable_mapping_varbinary &&
+                                          _scan_params->enable_mapping_varbinary;
     if (_format == FileFormat::PARQUET) {
+        // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
+        // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
+        // match the table type.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {

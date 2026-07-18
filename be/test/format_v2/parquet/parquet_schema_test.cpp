@@ -628,6 +628,107 @@ TEST(ParquetSchemaTest, NativeGroupEnumLogicalTypeIsRejected) {
               std::string::npos);
 }
 
+TEST(ParquetSchemaTest, NativeStringAnnotationsAndTimeUnitsPreserveLogicalTypes) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(8);
+
+    auto binary_leaf = [](const std::string& name) {
+        tparquet::SchemaElement leaf;
+        leaf.__set_name(name);
+        leaf.__set_type(tparquet::Type::BYTE_ARRAY);
+        leaf.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        return leaf;
+    };
+    auto logical_enum = binary_leaf("logical_enum");
+    logical_enum.__set_logicalType(tparquet::LogicalType());
+    logical_enum.logicalType.__set_ENUM(tparquet::EnumType());
+    auto logical_bson = binary_leaf("logical_bson");
+    logical_bson.__set_logicalType(tparquet::LogicalType());
+    logical_bson.logicalType.__set_BSON(tparquet::BsonType());
+    auto converted_enum = binary_leaf("converted_enum");
+    converted_enum.__set_converted_type(tparquet::ConvertedType::ENUM);
+    auto converted_bson = binary_leaf("converted_bson");
+    converted_bson.__set_converted_type(tparquet::ConvertedType::BSON);
+
+    auto logical_time = [](const std::string& name, bool millis) {
+        tparquet::SchemaElement leaf;
+        leaf.__set_name(name);
+        leaf.__set_type(millis ? tparquet::Type::INT32 : tparquet::Type::INT64);
+        leaf.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+        leaf.__set_logicalType(tparquet::LogicalType());
+        leaf.logicalType.__set_TIME(tparquet::TimeType());
+        leaf.logicalType.TIME.__set_isAdjustedToUTC(false);
+        leaf.logicalType.TIME.__set_unit(tparquet::TimeUnit());
+        if (millis) {
+            leaf.logicalType.TIME.unit.__set_MILLIS(tparquet::MilliSeconds());
+        } else {
+            leaf.logicalType.TIME.unit.__set_MICROS(tparquet::MicroSeconds());
+        }
+        return leaf;
+    };
+    auto logical_millis = logical_time("logical_millis", true);
+    auto logical_micros = logical_time("logical_micros", false);
+    auto converted_millis = logical_time("converted_millis", true);
+    converted_millis.__isset.logicalType = false;
+    converted_millis.__set_converted_type(tparquet::ConvertedType::TIME_MILLIS);
+    auto converted_micros = logical_time("converted_micros", false);
+    converted_micros.__isset.logicalType = false;
+    converted_micros.__set_converted_type(tparquet::ConvertedType::TIME_MICROS);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor
+                        .parse_from_thrift({root, logical_enum, logical_bson, converted_enum,
+                                            converted_bson, logical_millis, logical_micros,
+                                            converted_millis, converted_micros})
+                        .ok());
+    for (size_t field = 0; field < 4; ++field) {
+        EXPECT_EQ(remove_nullable(descriptor.get_column(field)->data_type)->get_primitive_type(),
+                  TYPE_STRING);
+    }
+    EXPECT_EQ(remove_nullable(descriptor.get_column(4)->data_type)->get_scale(), 3);
+    EXPECT_EQ(remove_nullable(descriptor.get_column(5)->data_type)->get_scale(), 6);
+    EXPECT_EQ(remove_nullable(descriptor.get_column(6)->data_type)->get_scale(), 3);
+    EXPECT_EQ(remove_nullable(descriptor.get_column(7)->data_type)->get_scale(), 6);
+}
+
+TEST(ParquetSchemaTest, NativeSchemaRejectsAmbiguousKindsAndMissingRepetition) {
+    auto valid_root = []() {
+        tparquet::SchemaElement root;
+        root.__set_name("schema");
+        root.__set_num_children(1);
+        return root;
+    };
+    auto valid_leaf = []() {
+        tparquet::SchemaElement leaf;
+        leaf.__set_name("value");
+        leaf.__set_type(tparquet::Type::INT32);
+        leaf.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+        return leaf;
+    };
+
+    NativeFieldDescriptor descriptor;
+    auto primitive_root = valid_root();
+    primitive_root.__set_type(tparquet::Type::INT32);
+    EXPECT_FALSE(descriptor.parse_from_thrift({primitive_root, valid_leaf()}).ok());
+
+    auto repeated_root = valid_root();
+    repeated_root.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    EXPECT_FALSE(descriptor.parse_from_thrift({repeated_root, valid_leaf()}).ok());
+
+    auto missing_repetition = valid_leaf();
+    missing_repetition.__isset.repetition_type = false;
+    EXPECT_FALSE(descriptor.parse_from_thrift({valid_root(), missing_repetition}).ok());
+
+    auto dual_kind = valid_leaf();
+    dual_kind.__set_num_children(1);
+    EXPECT_FALSE(descriptor.parse_from_thrift({valid_root(), dual_kind}).ok());
+
+    auto missing_kind = valid_leaf();
+    missing_kind.__isset.type = false;
+    EXPECT_FALSE(descriptor.parse_from_thrift({valid_root(), missing_kind}).ok());
+}
+
 TEST(ParquetSchemaTest, NativeSchemaRejectsUnboundedChildCountsBeforeAllocation) {
     tparquet::SchemaElement root;
     root.__set_name("schema");

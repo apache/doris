@@ -42,6 +42,21 @@
 #include "util/slice.h"
 
 namespace doris::format::parquet::native {
+namespace detail {
+
+inline Status checked_delta_padding_bits(uint32_t bit_width, uint32_t remaining_values,
+                                         int64_t* padding_bits) {
+    DORIS_CHECK(padding_bits != nullptr);
+    const uint64_t widened_bits = static_cast<uint64_t>(bit_width) * remaining_values;
+    if (UNLIKELY(widened_bits > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))) {
+        return Status::Corruption("Parquet delta miniblock padding is too large");
+    }
+    *padding_bits = static_cast<int64_t>(widened_bits);
+    return Status::OK();
+}
+
+} // namespace detail
+
 class DeltaDecoder : public Decoder {
 public:
     DeltaDecoder() = default;
@@ -657,7 +672,13 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
     _total_values_remaining -= num_values;
 
     if (_total_values_remaining == 0) [[unlikely]] {
-        if (!_bit_reader->Advance(_delta_bit_width * _values_remaining_current_mini_block)) {
+        int64_t padding_bits = 0;
+        // Footer-controlled miniblock counts can exceed 32-bit products. Widen before multiplying;
+        // BitReader::Advance then verifies that the full declared padding exists in the stream.
+        RETURN_IF_ERROR(detail::checked_delta_padding_bits(cast_set<uint32_t>(_delta_bit_width),
+                                                           _values_remaining_current_mini_block,
+                                                           &padding_bits));
+        if (!_bit_reader->Advance(padding_bits)) {
             return Status::IOError("Skip padding EOF");
         }
         _values_remaining_current_mini_block = 0;

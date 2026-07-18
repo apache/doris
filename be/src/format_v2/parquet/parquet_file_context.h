@@ -197,7 +197,7 @@ struct ParquetFileContext {
 
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
                 const io::FileDescription& file_description,
-                bool enable_mapping_timestamp_tz = false);
+                bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false);
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,
             std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const;
@@ -206,8 +206,6 @@ struct ParquetFileContext {
                                     std::unordered_map<int, NativeParquetPageIndex>* page_indexes,
                                     int64_t* read_time = nullptr,
                                     int64_t* parse_time = nullptr) const;
-    // Retained as a compatibility hook for callers; native readers admit exact page payloads.
-    void register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges);
     // Best-effort asynchronous warm-up for Parquet column chunks. This only has an effect when
     // the underlying Doris file reader is a CachedRemoteFileReader; other readers keep the same
     // random-access behavior and simply skip prefetch.

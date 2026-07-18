@@ -713,7 +713,7 @@ Status arrow_status_to_doris_status(const arrow::Status& status) {
 
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx,
                                 bool enable_page_cache, const io::FileDescription& file_description,
-                                bool enable_mapping_timestamp_tz) {
+                                bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary) {
     DORIS_CHECK(input_file_reader != nullptr);
     if (detail::should_stage_small_http_file(input_file_reader->path().native(),
                                              input_file_reader->size(),
@@ -732,7 +732,8 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     auto* meta_cache = ExecEnv::GetInstance()->file_meta_cache();
     auto meta_cache_key = FileMetaCache::get_key(native_file, file_description);
     meta_cache_key.append("\0v2", 3);
-    meta_cache_key.push_back(static_cast<char>(true));
+    // Schema mapping is part of the cached value, so both flags must participate in its identity.
+    meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
     meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
     size_t native_footer_size = 0;
     if (meta_cache != nullptr && meta_cache->enabled() &&
@@ -742,7 +743,7 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     } else {
         RETURN_IF_ERROR(parse_native_parquet_footer(
                 native_file, &native_metadata_owner, &native_footer_size, io_ctx,
-                /*enable_mapping_varbinary=*/true, enable_mapping_timestamp_tz));
+                enable_mapping_varbinary, enable_mapping_timestamp_tz));
         ++native_footer_read_calls;
         if (meta_cache != nullptr && meta_cache->enabled()) {
             meta_cache->insert(meta_cache_key, native_metadata_owner.release(),
@@ -972,12 +973,6 @@ Status ParquetFileContext::load_native_page_indexes(
         page_indexes->emplace(leaf_column_id, std::move(indexes));
     }
     return Status::OK();
-}
-
-void ParquetFileContext::register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges) {
-    // Native column readers register exact page payloads themselves; retaining a second range map
-    // would recreate the removed Arrow metadata adapter's cache path.
-    (void)ranges;
 }
 
 void ParquetFileContext::prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,

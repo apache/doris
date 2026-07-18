@@ -471,6 +471,14 @@ std::shared_ptr<arrow::Array> build_string_array(const std::vector<std::string>&
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_binary_array(const std::vector<std::string>& values) {
+    arrow::BinaryBuilder builder;
+    for (const auto& value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
 std::shared_ptr<arrow::Array> build_timestamp_array(const std::shared_ptr<arrow::DataType>& type,
                                                     const std::vector<int64_t>& values) {
     arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
@@ -541,6 +549,18 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_unannotated_binary_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({arrow::field("raw_bytes", arrow::binary(), false)});
+    auto table = arrow::Table::Make(schema, {build_binary_array({"否", "是", "测试"})});
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 3,
+                                                      builder.build()));
 }
 
 void write_decimal_and_fixed_binary_parquet_file(const std::string& file_path) {
@@ -1234,7 +1254,7 @@ protected:
             RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false,
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-            bool is_immutable = false) const {
+            bool is_immutable = false, bool enable_mapping_varbinary = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1245,7 +1265,7 @@ protected:
         file_description->is_immutable = is_immutable;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz);
+                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
     }
 
     std::filesystem::path _test_dir;
@@ -1268,6 +1288,39 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     EXPECT_EQ(schema[1].name, "value");
     ASSERT_TRUE(schema[1].type->is_nullable());
     EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_STRING);
+}
+
+TEST_F(NewParquetReaderTest, RawByteArrayMappingFollowsV2ScanOption) {
+    write_unannotated_binary_parquet_file(_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto string_reader = create_reader();
+    const auto string_init_status = string_reader->init(&state);
+    ASSERT_TRUE(string_init_status.ok()) << string_init_status;
+    std::vector<format::ColumnDefinition> string_schema;
+    ASSERT_TRUE(string_reader->get_schema(&string_schema).ok());
+    ASSERT_EQ(string_schema.size(), 1);
+    EXPECT_EQ(remove_nullable(string_schema[0].type)->get_primitive_type(), TYPE_STRING);
+
+    RuntimeProfile binary_profile("raw_binary_mapping_profile");
+    auto binary_reader =
+            create_reader(0, -1, &binary_profile, false, nullptr, std::nullopt, false, true);
+    const auto binary_init_status = binary_reader->init(&state);
+    ASSERT_TRUE(binary_init_status.ok()) << binary_init_status;
+    std::vector<format::ColumnDefinition> binary_schema;
+    ASSERT_TRUE(binary_reader->get_schema(&binary_schema).ok());
+    ASSERT_EQ(binary_schema.size(), 1);
+    // The explicit VARBINARY mapping must remain available for scans whose table contract asks for it.
+    EXPECT_EQ(remove_nullable(binary_schema[0].type)->get_primitive_type(), TYPE_VARBINARY);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(create_string_in_conjunct(0, {"是"}));
+    ASSERT_TRUE(binary_reader->open(request).ok());
+    // A table-side STRING comparison may be rewritten through this VARBINARY file slot. Native
+    // dictionary pruning must leave the row group available for the mapping expression.
+    EXPECT_EQ(binary_profile.get_counter("RowGroupsFilteredByDictionary")->value(), 0);
 }
 
 // Scenario: Parquet is columnar and supports predicate/non-predicate split, nested projection and

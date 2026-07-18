@@ -89,6 +89,7 @@ public:
                                          MutableColumnPtr& column, IColumn::Filter* row_filter,
                                          bool* used_filter) override;
     void flush_profile() override;
+    bool crossed_page_since_last_batch() override;
     Result<MutableColumnPtr> dictionary_values() override;
 
 private:
@@ -107,8 +108,8 @@ private:
     Status read_with_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
                             MutableColumnPtr& column, const DataTypePtr& output_type,
                             bool dictionary_ids, int64_t* rows_read);
-    int64_t sync_native_profile(int64_t* max_leaf_page_reads = nullptr);
-    void record_page_fragments(int64_t page_fragments, int64_t max_leaf_page_reads);
+    int64_t sync_native_profile();
+    void record_page_fragments(int64_t page_fragments);
     Status validate_selected_span(int64_t rows);
     void advance_selected_span(int64_t rows);
 
@@ -130,6 +131,8 @@ private:
     // The native tree exposes cumulative statistics. Keep the last reported snapshot so each
     // FileScannerV2 batch contributes only its delta to RuntimeProfile.
     native::ColumnReader::ColumnStatistics _reported_native_stats;
+    // Page-crossing is sampled at every scheduler batch, independently of amortized profile flushes.
+    std::vector<int64_t> _batch_leaf_page_read_counters;
     std::vector<uint8_t> _filter_scratch;
     size_t _batches_since_scratch_check = 0;
     MutableColumnPtr _skip_column;

@@ -202,6 +202,7 @@ private:
 
     void reset_current_row_group();
     void flush_current_reader_profiles();
+    bool finish_current_reader_batch_profiles();
     const detail::PredicateConjunctSchedule& predicate_conjunct_schedule(
             const format::FileScanRequest& request);
     std::vector<format::LocalColumnIndex> adaptive_predicate_prefetch_columns(

@@ -658,10 +658,13 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
     std::shared_ptr<io::IOContext> io_ctx(&delete_io_ctx->io_ctx, [](io::IOContext*) {});
     const bool enable_mapping_timestamp_tz = scan_params.__isset.enable_mapping_timestamp_tz &&
                                              scan_params.enable_mapping_timestamp_tz;
+    const bool enable_mapping_varbinary =
+            scan_params.__isset.enable_mapping_varbinary && scan_params.enable_mapping_varbinary;
     if (delete_file.file_format == TFileFormatType::FORMAT_PARQUET) {
+        // Delete and data files must parse raw binary fields with the same scan-level mapping.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
-                enable_mapping_timestamp_tz);
+                enable_mapping_timestamp_tz, enable_mapping_varbinary);
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(system_properties, file_description,
                                                            io_ctx, _scanner_profile, std::nullopt,

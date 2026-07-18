@@ -71,7 +71,16 @@ static int num_children_node(const tparquet::SchemaElement& schema) {
 
 static Status validate_native_schema_structure(
         const std::vector<tparquet::SchemaElement>& schemas) {
-    if (schemas.empty() || !is_group_node(schemas[0])) {
+    if (schemas.empty()) {
+        return Status::InvalidArgument("Wrong parquet root schema element");
+    }
+
+    const auto& root = schemas[0];
+    if (root.__isset.type || !root.__isset.num_children || root.num_children <= 0 ||
+        (root.__isset.repetition_type &&
+         root.repetition_type != tparquet::FieldRepetitionType::REQUIRED)) {
+        // Writers may encode the root's implicit REQUIRED repetition explicitly, but an optional
+        // or repeated root would make every descendant's definition/repetition levels ambiguous.
         return Status::InvalidArgument("Wrong parquet root schema element");
     }
 
@@ -94,6 +103,19 @@ static Status validate_native_schema_structure(
 
         const size_t depth = pending.back().depth + 1;
         --pending.back().remaining_children;
+        const auto& schema = schemas[pos];
+        if (!schema.__isset.repetition_type) {
+            return Status::InvalidArgument("Schema element {} has no repetition type", pos);
+        }
+        if (schema.__isset.type == schema.__isset.num_children) {
+            // Every non-root node is exactly one of primitive or group. Rejecting both missing and
+            // dual kind fields prevents the parser from guessing based on a default child count.
+            return Status::InvalidArgument("Schema element {} has ambiguous primitive/group kind",
+                                           pos);
+        }
+        if (schema.__isset.num_children && schema.num_children <= 0) {
+            return Status::InvalidArgument("Group schema element {} has no children", pos);
+        }
         const int children = num_children_node(schemas[pos]);
         if (children < 0 || static_cast<size_t>(children) > schemas.size() - pos - 1) {
             return Status::InvalidArgument("Invalid child count {} at schema element {}", children,
@@ -326,7 +348,8 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         tparquet::LogicalType logicalType, bool nullable) {
     std::pair<DataTypePtr, bool> ans = {std::make_shared<DataTypeNothing>(), false};
     bool& is_type_compatibility = ans.second;
-    if (logicalType.__isset.STRING) {
+    if (logicalType.__isset.STRING || logicalType.__isset.ENUM || logicalType.__isset.JSON ||
+        logicalType.__isset.BSON) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
     } else if (logicalType.__isset.DECIMAL) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I, nullable,
@@ -358,7 +381,10 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
             }
         }
     } else if (logicalType.__isset.TIME) {
-        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable);
+        const int scale = logicalType.TIME.unit.__isset.MILLIS ? 3 : 6;
+        // TIME stores an integer unit, so its Doris scale must preserve the footer unit or
+        // sub-second values are silently truncated by the target SerDe.
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, scale);
     } else if (logicalType.__isset.TIMESTAMP) {
         if (_enable_mapping_timestamp_tz) {
             if (logicalType.TIMESTAMP.isAdjustedToUTC) {
@@ -371,8 +397,6 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         }
         ans.first = DataTypeFactory::instance().create_data_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
-    } else if (logicalType.__isset.JSON) {
-        ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
     } else if (logicalType.__isset.UUID) {
         if (_enable_mapping_varbinary) {
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable, -1,
@@ -394,6 +418,9 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
     bool& is_type_compatibility = ans.second;
     switch (physical_schema.converted_type) {
     case tparquet::ConvertedType::type::UTF8:
+    case tparquet::ConvertedType::type::ENUM:
+    case tparquet::ConvertedType::type::JSON:
+    case tparquet::ConvertedType::type::BSON:
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
         break;
     case tparquet::ConvertedType::type::DECIMAL:
@@ -404,9 +431,10 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATEV2, nullable);
         break;
     case tparquet::ConvertedType::type::TIME_MILLIS:
-        [[fallthrough]];
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, 3);
+        break;
     case tparquet::ConvertedType::type::TIME_MICROS:
-        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, 6);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, nullable, 0, 3);
@@ -438,9 +466,6 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
     case tparquet::ConvertedType::type::UINT_64:
         is_type_compatibility = true;
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, nullable);
-        break;
-    case tparquet::ConvertedType::type::JSON:
-        ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
         break;
     default:
         throw Exception(Status::InternalError("Not supported parquet ConvertedType: {}",

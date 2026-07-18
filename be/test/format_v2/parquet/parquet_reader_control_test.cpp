@@ -70,17 +70,26 @@ public:
     }
 
     void flush_profile() override { ++_profile_flushes; }
+    bool crossed_page_since_last_batch() override {
+        ++_page_crossing_checks;
+        return _crossed_page;
+    }
+
+    void set_crossed_page(bool crossed_page) { _crossed_page = crossed_page; }
 
     int64_t cursor() const { return _cursor; }
     const std::vector<int64_t>& skip_lengths() const { return _skip_lengths; }
     const std::vector<int64_t>& read_lengths() const { return _read_lengths; }
     int profile_flushes() const { return _profile_flushes; }
+    int page_crossing_checks() const { return _page_crossing_checks; }
 
 private:
     int64_t _cursor = 0;
     std::vector<int64_t> _skip_lengths;
     std::vector<int64_t> _read_lengths;
     int _profile_flushes = 0;
+    bool _crossed_page = false;
+    int _page_crossing_checks = 0;
 };
 
 GlobalRowLoacationV2 decode_rowid(const ColumnString& column, size_t row) {
@@ -206,6 +215,24 @@ TEST(ParquetColumnReaderControlTest, SchedulerFlushesReaderProfilesAtBatchBounda
 
     scheduler.flush_current_reader_profiles();
     EXPECT_EQ(reader_ptr->profile_flushes(), 1);
+}
+
+TEST(ParquetColumnReaderControlTest, SchedulerOrsPageCrossingOncePerBatch) {
+    ParquetScanScheduler scheduler;
+    auto predicate_reader = std::make_unique<CursorColumnReader>();
+    auto* predicate_ptr = predicate_reader.get();
+    predicate_ptr->set_crossed_page(true);
+    scheduler._current_predicate_columns.emplace(0, std::move(predicate_reader));
+
+    auto lazy_reader = std::make_unique<CursorColumnReader>();
+    auto* lazy_ptr = lazy_reader.get();
+    lazy_ptr->set_crossed_page(true);
+    scheduler._current_non_predicate_columns.emplace(1, std::move(lazy_reader));
+
+    // Both readers are sampled even after the OR becomes true so their next batch starts cleanly.
+    EXPECT_TRUE(scheduler.finish_current_reader_batch_profiles());
+    EXPECT_EQ(predicate_ptr->page_crossing_checks(), 1);
+    EXPECT_EQ(lazy_ptr->page_crossing_checks(), 1);
 }
 
 TEST(ParquetVirtualColumnReaderTest, RowPositionReadSkipAndInvalidArgs) {

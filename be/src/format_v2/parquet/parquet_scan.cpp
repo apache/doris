@@ -165,6 +165,11 @@ bool supports_row_level_dictionary_filter(const ParquetColumnSchema& column_sche
         column_metadata.type != tparquet::Type::BYTE_ARRAY) {
         return false;
     }
+    if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_VARBINARY) {
+        // A table STRING predicate can be rewritten through a raw VARBINARY file slot. Evaluating
+        // it on dictionary Fields before the mapping expression is neither type-safe nor exact.
+        return false;
+    }
     // Row-level dictionary filtering consumes dictionary ids from DATA_PAGE payloads. It is exact
     // only when every data page is dictionary encoded. Mixed dictionary/plain chunks are left on
     // the normal decoded-value path, matching the safety rule used by StarRocks and Doris v1.
@@ -988,6 +993,18 @@ void ParquetScanScheduler::flush_current_reader_profiles() {
     for (const auto& reader : _current_non_predicate_columns | std::views::values) {
         reader->flush_profile();
     }
+}
+
+bool ParquetScanScheduler::finish_current_reader_batch_profiles() {
+    bool crossed_page = false;
+    // A scheduler batch is counted once even when several projected leaves cross page boundaries.
+    for (const auto& reader : _current_predicate_columns | std::views::values) {
+        crossed_page |= reader->crossed_page_since_last_batch();
+    }
+    for (const auto& reader : _current_non_predicate_columns | std::views::values) {
+        crossed_page |= reader->crossed_page_since_last_batch();
+    }
+    return crossed_page;
 }
 
 const detail::PredicateConjunctSchedule& ParquetScanScheduler::predicate_conjunct_schedule(
@@ -1855,6 +1872,10 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     // every tiny batch is measurable on wide/nested scans, so flush periodically and force the
     // tail at row-group reset/close.
     Defer profile_flush {[this, batch_rows]() {
+        if (finish_current_reader_batch_profiles() &&
+            _scan_profile.column_reader_profile.page_crossing_batches != nullptr) {
+            COUNTER_UPDATE(_scan_profile.column_reader_profile.page_crossing_batches, 1);
+        }
         const bool finishes_row_group = _current_range_idx + 1 == _current_selected_ranges.size() &&
                                         _current_range_rows_read + batch_rows ==
                                                 _current_selected_ranges[_current_range_idx].length;

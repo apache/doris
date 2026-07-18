@@ -1096,5 +1096,35 @@ TEST(ParquetBloomFilterPruningTest, ParquetFloat16BloomDoesNotUseFloatHash) {
             *bloom_filter));
 }
 
+TEST(NativeParquetStatisticsTest, LegacyBinaryFooterBoundsRequireComparableOrdering) {
+    format::parquet::ParquetTypeDescriptor binary_type;
+    binary_type.physical_type = ::parquet::Type::BYTE_ARRAY;
+
+    tparquet::Statistics max_only;
+    max_only.__set_max("III");
+    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type, max_only));
+
+    tparquet::Statistics legacy_different;
+    legacy_different.__set_min("III");
+    legacy_different.__set_max("\xe6\x98\xaf");
+    EXPECT_FALSE(
+            format::parquet::detail::can_use_native_footer_min_max(binary_type, legacy_different));
+
+    tparquet::Statistics legacy_equal;
+    legacy_equal.__set_min("same");
+    legacy_equal.__set_max("same");
+    EXPECT_TRUE(format::parquet::detail::can_use_native_footer_min_max(binary_type, legacy_equal));
+
+    tparquet::Statistics type_defined;
+    type_defined.__set_min_value("III");
+    type_defined.__set_max_value("\xe6\x98\xaf");
+    EXPECT_TRUE(format::parquet::detail::can_use_native_footer_min_max(binary_type, type_defined));
+
+    tparquet::Statistics mixed_fields;
+    mixed_fields.__set_min_value("III");
+    mixed_fields.__set_max("\xe6\x98\xaf");
+    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type, mixed_fields));
+}
+
 } // namespace
 } // namespace doris

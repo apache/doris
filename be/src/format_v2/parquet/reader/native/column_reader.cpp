@@ -1171,11 +1171,14 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_levels(Filte
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Result<MutableColumnPtr>
 ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::convert_dict_column_to_string_column(
-        const ColumnInt32* dict_column) {
+        const ColumnInt32* dict_column, const DataTypePtr& target_type) {
     DORIS_CHECK(dict_column != nullptr);
+    DORIS_CHECK(target_type != nullptr);
     Decoder* dictionary_decoder = _chunk_reader->dictionary_decoder();
     DORIS_CHECK(dictionary_decoder != nullptr);
-    const DataTypePtr dictionary_type = remove_nullable(_field_schema->data_type);
+    // A Hive STRING can be backed by an unannotated Parquet BYTE_ARRAY that native metadata maps to
+    // VARBINARY. The dictionary must use the projected table type, exactly like normal data pages.
+    const DataTypePtr dictionary_type = remove_nullable(target_type);
     const DataTypeSerDeSPtr dictionary_serde = dictionary_type->get_serde();
     if (_materialization_state.dictionary_generation !=
         dictionary_decoder->dictionary_generation()) {
@@ -1213,7 +1216,8 @@ ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::convert_dict_column_to_string_c
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Result<MutableColumnPtr> ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::dictionary_values() {
+Result<MutableColumnPtr> ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::dictionary_values(
+        const DataTypePtr& target_type) {
     Decoder* dictionary_decoder = _chunk_reader->dictionary_decoder();
     if (dictionary_decoder == nullptr || dictionary_decoder->dictionary_size() == 0) {
         return ResultError(Status::NotSupported("Parquet column has no reusable dictionary"));
@@ -1226,7 +1230,7 @@ Result<MutableColumnPtr> ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::dictio
     }
     // Materialize the typed dictionary once and keep it in _materialization_state. Later row-level
     // filtering decodes only ids and flattens surviving values from this same dictionary.
-    return convert_dict_column_to_string_column(ids.get());
+    return convert_dict_column_to_string_column(ids.get(), target_type);
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
