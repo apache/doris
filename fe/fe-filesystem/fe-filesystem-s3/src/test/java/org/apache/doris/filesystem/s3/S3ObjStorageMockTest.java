@@ -58,13 +58,16 @@ import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Full unit tests for {@link S3ObjStorage} using a testable subclass that overrides
- * {@link S3ObjStorage#buildClient()} and {@link S3ObjStorage#buildExpressClient()}
+ * {@link S3ObjStorage#buildClient()} and {@link S3ObjStorage#buildExpressClient(String)}
  * to inject mock S3 clients.
  */
 class S3ObjStorageMockTest {
@@ -250,50 +253,130 @@ class S3ObjStorageMockTest {
     }
 
     @Test
-    void listObjects_directorySuffixOnThirdPartyEndpointUsesRegularClient() throws IOException {
+    void listObjects_directoryBucketIgnoresConfiguredEndpoint() throws IOException {
         S3Client regularClient = Mockito.mock(S3Client.class);
         S3Client expressClient = Mockito.mock(S3Client.class);
-        S3ObjStorage compatibleStorage = directoryBucketStorage(
+        S3ObjStorage expressStorage = directoryBucketStorage(
                 "https://minio.example.com", "us-west-2", false,
                 regularClient, expressClient);
-        Mockito.when(regularClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
                 .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
 
-        compatibleStorage.listObjects("s3://" + DIRECTORY_BUCKET + "/data/file", null);
+        expressStorage.listObjects("s3://" + DIRECTORY_BUCKET + "/data/file", null);
 
         ArgumentCaptor<ListObjectsV2Request> captor = ArgumentCaptor.forClass(ListObjectsV2Request.class);
-        Mockito.verify(regularClient).listObjectsV2(captor.capture());
-        Assertions.assertEquals("data/file", captor.getValue().prefix());
-        Mockito.verifyNoInteractions(expressClient);
+        Mockito.verify(expressClient).listObjectsV2(captor.capture());
+        Assertions.assertEquals("data/", captor.getValue().prefix());
+        Mockito.verifyNoInteractions(regularClient);
     }
 
     @Test
-    void usesS3ExpressRead_validatesNativeDirectoryBucketContext() throws IOException {
+    void usesS3ExpressRead_requiresScopeProviderAndCompleteBucketName() {
         S3Client regularClient = Mockito.mock(S3Client.class);
         S3Client expressClient = Mockito.mock(S3Client.class);
 
         Assertions.assertTrue(directoryBucketStorage(
-                "s3.us-west-2.amazonaws.com", "us-west-2", false,
+                "http://ignored.example.com", "wrong-region", true,
                 regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
-        Assertions.assertFalse(directoryBucketStorage(
-                "https://minio.example.com", "us-west-2", false,
-                regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
-        Assertions.assertFalse(directoryBucketStorage(
-                "https://s3express-usw2-az1.us-west-2.amazonaws.com", "us-west-2", false,
-                regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
+        Map<String, String> nonAwsProperties = directoryBucketProperties("", "us-west-2", false);
+        nonAwsProperties.put(S3FileSystemProperties.S3_EXPRESS_IMPORT_READ, "true");
+        nonAwsProperties.put("provider", "S3");
+        Assertions.assertFalse(new TestableS3ObjStorage(
+                nonAwsProperties, regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
 
-        Assertions.assertThrows(IOException.class, () -> directoryBucketStorage(
-                "http://s3.us-west-2.amazonaws.com", "us-west-2", false,
-                regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
-        Assertions.assertThrows(IOException.class, () -> directoryBucketStorage(
-                "https://s3.us-west-2.amazonaws.com", "us-east-1", false,
-                regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
-        Assertions.assertThrows(IOException.class, () -> directoryBucketStorage(
-                "https://s3.us-west-2.amazonaws.com", "us-west-2", true,
-                regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
-        Assertions.assertThrows(IOException.class, () -> directoryBucketStorage(
-                "https://s3.us-west-2.amazonaws.com", "us-west-2", false,
-                regularClient, expressClient).usesS3ExpressRead("invalid--x-s3"));
+        S3ObjStorage expressStorage = directoryBucketStorage(
+                "", "us-west-2", false, regularClient, expressClient);
+        Assertions.assertTrue(expressStorage.usesS3ExpressRead(
+                "analytics--archive--usw2-az1--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("ordinary-bucket"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("invalid--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("--usw2-az1--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("analytics----x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("analytics--usw2-az--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("analytics--usw2-azx--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("analytics--USW2-az1--x-s3"));
+    }
+
+    @Test
+    void listObjects_knownZonePrefixesOverrideConfiguredRegion() throws IOException {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
+        TestableS3ObjStorage expressStorage = directoryBucketStorage(
+                "https://ignored.example.com", "wrong-region", false,
+                regularClient, expressClient);
+        Map<String, String> expectedRegions = Map.of(
+                "use1", "us-east-1",
+                "use2", "us-east-2",
+                "usw2", "us-west-2",
+                "aps1", "ap-south-1",
+                "apne1", "ap-northeast-1",
+                "euw1", "eu-west-1",
+                "eun1", "eu-north-1");
+
+        for (String zonePrefix : expectedRegions.keySet()) {
+            expressStorage.listObjects(
+                    "s3://analytics--" + zonePrefix + "-az1--x-s3/data/file.csv", null);
+        }
+
+        Assertions.assertEquals(
+                Set.copyOf(expectedRegions.values()),
+                Set.copyOf(expressStorage.getBuiltExpressRegions()));
+        Mockito.verifyNoInteractions(regularClient);
+    }
+
+    @Test
+    void listObjects_unknownZonePrefixUsesConfiguredRegionVerbatim() throws IOException {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
+        TestableS3ObjStorage expressStorage = directoryBucketStorage(
+                "https://ignored.example.com", "me-central-future-1", false,
+                regularClient, expressClient);
+
+        expressStorage.listObjects(
+                "s3://analytics--mec9-az1--x-s3/data/file.csv", null);
+
+        Assertions.assertEquals(
+                List.of("me-central-future-1"), expressStorage.getBuiltExpressRegions());
+    }
+
+    @Test
+    void listObjects_unknownZonePrefixWithoutConfiguredRegionFails() {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        TestableS3ObjStorage expressStorage = directoryBucketStorage(
+                "https://ignored.example.com", "", false,
+                regularClient, expressClient);
+
+        IOException exception = Assertions.assertThrows(IOException.class,
+                () -> expressStorage.listObjects(
+                        "s3://analytics--mec9-az1--x-s3/data/file.csv", null));
+
+        Assertions.assertTrue(exception.getMessage().contains("set s3.region"));
+        Mockito.verifyNoInteractions(regularClient, expressClient);
+    }
+
+    @Test
+    void listObjects_knownZoneWithoutEndpointOrRegionCachesClientByEffectiveRegion() throws IOException {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
+        TestableS3ObjStorage expressStorage = directoryBucketStorage(
+                "", "", true, regularClient, expressClient);
+
+        expressStorage.listObjects(
+                "s3://analytics--usw2-az1--x-s3/data/file.csv", null);
+        expressStorage.listObjects(
+                "s3://logs--archive--usw2-lax1-az1--x-s3/data/file.csv", null);
+
+        Assertions.assertEquals(List.of("us-west-2"), expressStorage.getBuiltExpressRegions());
+        Mockito.verify(expressClient, Mockito.times(2)).listObjectsV2(
+                ArgumentMatchers.any(ListObjectsV2Request.class));
+        Mockito.verifyNoInteractions(regularClient);
     }
 
     // ------------------------------------------------------------------
@@ -611,6 +694,23 @@ class S3ObjStorageMockTest {
     }
 
     @Test
+    void buildExpressCredentialsProvider_usesRegionInferredFromBucketForAssumeRole() {
+        Map<String, String> props = directoryBucketProperties("", "", false);
+        props.remove("AWS_ACCESS_KEY");
+        props.remove("AWS_SECRET_KEY");
+        props.put("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/MyRole");
+        props.put(S3FileSystemProperties.S3_EXPRESS_IMPORT_READ, "true");
+        InspectableS3ObjStorage roleArnStorage = new InspectableS3ObjStorage(props, mockS3);
+
+        AwsCredentialsProvider credentialsProvider =
+                roleArnStorage.inspectBuildCredentialsProvider("us-west-2");
+
+        Assertions.assertEquals("StsAssumeRoleCredentialsProvider",
+                credentialsProvider.getClass().getSimpleName());
+        Assertions.assertEquals(List.of("us-west-2"), roleArnStorage.getBuiltStsRegions());
+    }
+
+    @Test
     void buildCredentialsProvider_usesTypedCredentialsProviderType() {
         Map<String, String> props = new HashMap<>();
         props.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
@@ -662,21 +762,28 @@ class S3ObjStorageMockTest {
     }
 
     @Test
-    void close_closesRegularAndExpressClients() throws IOException {
+    void close_closesRegularAndAllRegionalExpressClients() throws IOException {
         S3Client regularClient = Mockito.mock(S3Client.class);
-        S3Client expressClient = Mockito.mock(S3Client.class);
-        S3ObjStorage expressStorage = directoryBucketStorage(
-                "https://s3.us-west-2.amazonaws.com", "us-west-2", false,
-                regularClient, expressClient);
-        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+        S3Client westExpressClient = Mockito.mock(S3Client.class);
+        S3Client eastExpressClient = Mockito.mock(S3Client.class);
+        Map<String, String> props = directoryBucketProperties("", "", false);
+        props.put(S3FileSystemProperties.S3_EXPRESS_IMPORT_READ, "true");
+        S3ObjStorage expressStorage = new TestableS3ObjStorage(
+                props, regularClient, region -> region.equals("us-west-2")
+                        ? westExpressClient : eastExpressClient);
+        Mockito.when(westExpressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
+        Mockito.when(eastExpressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
                 .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
         expressStorage.getClient();
-        expressStorage.listObjects("s3://" + DIRECTORY_BUCKET + "/data/", null);
+        expressStorage.listObjects("s3://analytics--usw2-az1--x-s3/data/", null);
+        expressStorage.listObjects("s3://analytics--use1-az1--x-s3/data/", null);
 
         expressStorage.close();
 
         Mockito.verify(regularClient).close();
-        Mockito.verify(expressClient).close();
+        Mockito.verify(westExpressClient).close();
+        Mockito.verify(eastExpressClient).close();
     }
 
     // ------------------------------------------------------------------
@@ -685,7 +792,8 @@ class S3ObjStorageMockTest {
 
     private static class TestableS3ObjStorage extends S3ObjStorage {
         private final S3Client mockClient;
-        private final S3Client mockExpressClient;
+        private final Function<String, S3Client> expressClientFactory;
+        private final List<String> builtExpressRegions = new ArrayList<>();
 
         TestableS3ObjStorage(Map<String, String> properties, S3Client mockClient) {
             this(properties, mockClient, mockClient);
@@ -693,15 +801,20 @@ class S3ObjStorageMockTest {
 
         TestableS3ObjStorage(Map<String, String> properties, S3Client mockClient,
                 S3Client mockExpressClient) {
+            this(properties, mockClient, region -> mockExpressClient);
+        }
+
+        TestableS3ObjStorage(Map<String, String> properties, S3Client mockClient,
+                Function<String, S3Client> expressClientFactory) {
             super(properties);
             this.mockClient = mockClient;
-            this.mockExpressClient = mockExpressClient;
+            this.expressClientFactory = expressClientFactory;
         }
 
         TestableS3ObjStorage(S3FileSystemProperties properties, S3Client mockClient) {
             super(properties);
             this.mockClient = mockClient;
-            this.mockExpressClient = mockClient;
+            this.expressClientFactory = region -> mockClient;
         }
 
         @Override
@@ -710,12 +823,17 @@ class S3ObjStorageMockTest {
         }
 
         @Override
-        protected S3Client buildExpressClient() {
-            return mockExpressClient;
+        protected S3Client buildExpressClient(String region) {
+            builtExpressRegions.add(region);
+            return expressClientFactory.apply(region);
+        }
+
+        List<String> getBuiltExpressRegions() {
+            return builtExpressRegions;
         }
     }
 
-    private static S3ObjStorage directoryBucketStorage(String endpoint, String region,
+    private static TestableS3ObjStorage directoryBucketStorage(String endpoint, String region,
             boolean usePathStyle, S3Client regularClient, S3Client expressClient) {
         Map<String, String> props = directoryBucketProperties(endpoint, region, usePathStyle);
         props.put(S3FileSystemProperties.S3_EXPRESS_IMPORT_READ, "true");
@@ -727,6 +845,7 @@ class S3ObjStorageMockTest {
         Map<String, String> props = new HashMap<>();
         props.put("AWS_ENDPOINT", endpoint);
         props.put("AWS_REGION", region);
+        props.put("provider", "AWS");
         props.put("AWS_ACCESS_KEY", "testAK");
         props.put("AWS_SECRET_KEY", "testSK");
         props.put("AWS_BUCKET", DIRECTORY_BUCKET);
@@ -735,6 +854,8 @@ class S3ObjStorageMockTest {
     }
 
     private static class InspectableS3ObjStorage extends TestableS3ObjStorage {
+        private final List<String> builtStsRegions = new ArrayList<>();
+
         InspectableS3ObjStorage(Map<String, String> properties, S3Client mockClient) {
             super(properties, mockClient);
         }
@@ -747,8 +868,17 @@ class S3ObjStorageMockTest {
             return buildCredentialsProvider();
         }
 
+        AwsCredentialsProvider inspectBuildCredentialsProvider(String region) {
+            return buildCredentialsProvider(region);
+        }
+
+        List<String> getBuiltStsRegions() {
+            return builtStsRegions;
+        }
+
         @Override
         protected StsClient buildStsClient(AwsCredentialsProvider credentialsProvider, String region) {
+            builtStsRegions.add(region);
             return Mockito.mock(StsClient.class);
         }
     }

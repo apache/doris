@@ -90,6 +90,28 @@ class S3FileSystemProviderTest {
     }
 
     @Test
+    void supports_acceptsScopedAwsExpressWithoutEndpointOrRegion() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.provider", "AWS");
+        props.put(S3FileSystemProperties.S3_EXPRESS_IMPORT_READ, "true");
+
+        Assertions.assertTrue(provider.supports(props));
+        S3FileSystemProperties bound = provider.bind(props);
+        Assertions.assertTrue(bound.isScopedAwsS3ExpressImport());
+        Assertions.assertEquals("", bound.getEndpoint());
+        Assertions.assertEquals("", bound.getRegion());
+    }
+
+    @Test
+    void supports_rejectsExpressMarkerWithoutExplicitAwsProvider() {
+        Map<String, String> props = new HashMap<>();
+        props.put("provider", "S3");
+        props.put(S3FileSystemProperties.S3_EXPRESS_IMPORT_READ, "true");
+
+        Assertions.assertFalse(provider.supports(props));
+    }
+
+    @Test
     void bind_returnsValidatedS3FileSystemProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("s3.endpoint", "https://minio.local");

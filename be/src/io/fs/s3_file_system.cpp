@@ -101,7 +101,6 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.max_connections = conf.max_connections;
         reset_conf.request_timeout_ms = conf.request_timeout_ms;
         reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
-        reset_conf.enable_s3_express_read = conf.enable_s3_express_read;
 
         reset_conf.role_arn = conf.role_arn;
         reset_conf.external_id = conf.external_id;

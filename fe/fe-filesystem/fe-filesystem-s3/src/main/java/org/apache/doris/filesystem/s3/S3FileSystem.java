@@ -53,7 +53,7 @@ public class S3FileSystem extends S3CompatibleFileSystem {
 
     @Override
     protected String globListPrefix(String bucket, String globPattern) throws IOException {
-        if (isDirectoryBucketEndpoint() || s3ObjStorage.usesS3ExpressRead(bucket)) {
+        if (s3ObjStorage.usesS3ExpressRead(bucket)) {
             return slashTerminatedNonGlobPrefix(globPattern);
         }
         return super.globListPrefix(bucket, globPattern);
@@ -62,14 +62,10 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     @Override
     protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix)
             throws IOException {
-        if (isDirectoryBucketEndpoint() || s3ObjStorage.usesS3ExpressRead(bucket)) {
+        if (s3ObjStorage.usesS3ExpressRead(bucket)) {
             return List.of(listPrefix);
         }
         return super.globListPrefixes(bucket, globPattern, listPrefix);
-    }
-
-    private boolean isDirectoryBucketEndpoint() {
-        return properties != null && properties.isDirectoryBucketEndpoint();
     }
 
     private static String slashTerminatedNonGlobPrefix(String globPattern) {

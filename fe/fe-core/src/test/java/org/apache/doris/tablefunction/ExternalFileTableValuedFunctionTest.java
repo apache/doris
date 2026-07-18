@@ -132,6 +132,7 @@ public class ExternalFileTableValuedFunctionTest {
         try {
             Map<String, String> properties = Maps.newHashMap();
             properties.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.csv");
+            properties.put("s3.provider", "AWS");
             properties.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
             properties.put("s3.region", "us-west-2");
             properties.put("format", "csv");
@@ -154,7 +155,11 @@ public class ExternalFileTableValuedFunctionTest {
                     .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
 
             statementContext.setS3ExpressImportRead(true);
-            S3TableValuedFunction insertTvf = (S3TableValuedFunction) new S3(new Properties(properties))
+            Map<String, String> recommendedProperties = Maps.newHashMap(properties);
+            recommendedProperties.remove("s3.endpoint");
+            recommendedProperties.remove("s3.region");
+            S3TableValuedFunction insertTvf = (S3TableValuedFunction) new S3(
+                    new Properties(recommendedProperties))
                     .getCatalogFunction();
             Assert.assertEquals("true", insertTvf.getBackendConnectProperties()
                     .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
@@ -162,6 +167,8 @@ public class ExternalFileTableValuedFunctionTest {
                     .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
             Assert.assertFalse(insertTvf.processedParams
                     .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            Assert.assertEquals("", insertTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
+            Assert.assertEquals("", insertTvf.getBackendConnectProperties().get("AWS_REGION"));
 
             statementContext.setS3ExpressImportRead(false);
             S3TableValuedFunction streamingTvf = (S3TableValuedFunction) new S3(new Properties(properties))

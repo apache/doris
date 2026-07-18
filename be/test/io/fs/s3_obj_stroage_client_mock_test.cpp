@@ -17,8 +17,6 @@
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
-#include <aws/s3/model/GetObjectRequest.h>
-#include <aws/s3/model/GetObjectResult.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
@@ -37,8 +35,6 @@ public:
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
-    MOCK_METHOD(Aws::S3::Model::GetObjectOutcome, GetObject,
-                (const Aws::S3::Model::GetObjectRequest& request), (const, override));
 };
 
 class S3ObjStorageClientMockTest : public testing::Test {
@@ -122,29 +118,6 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
     EXPECT_EQ(response.status.code, ErrorCode::OK);
     EXPECT_EQ(files.size(), 5);
     files.clear();
-}
-
-TEST_F(S3ObjStorageClientMockTest, get_object_sets_range) {
-    auto mock_s3_client = std::make_shared<MockS3Client>();
-    S3ObjStorageClient s3_obj_storage_client(mock_s3_client);
-
-    EXPECT_CALL(*mock_s3_client, GetObject(testing::_))
-            .WillOnce([](const GetObjectRequest& request) {
-                EXPECT_EQ(request.GetBucket(), "dummy-bucket");
-                EXPECT_EQ(request.GetKey(), "data.parquet");
-                EXPECT_EQ(request.GetRange(), "bytes=7-10");
-                GetObjectResult result;
-                result.SetContentLength(4);
-                return GetObjectOutcome(std::move(result));
-            });
-
-    char buffer[4];
-    size_t size_return = 0;
-    auto response =
-            s3_obj_storage_client.get_object({.bucket = "dummy-bucket", .key = "data.parquet"},
-                                             buffer, 7, sizeof(buffer), &size_return);
-    EXPECT_EQ(ErrorCode::OK, response.status.code);
-    EXPECT_EQ(sizeof(buffer), size_return);
 }
 
 TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {

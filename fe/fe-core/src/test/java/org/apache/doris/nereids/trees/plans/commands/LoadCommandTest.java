@@ -22,6 +22,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -143,6 +144,35 @@ public class LoadCommandTest extends TestWithFeService {
         Assertions.assertEquals("s3://bucket/customer/part-1", filePaths.get(0));
         Assertions.assertEquals("s3://bucket/customer/part-2", filePaths.get(1));
         Assertions.assertEquals("s3://bucket/customer/part-3", filePaths.get(2));
+    }
+
+    @Test
+    public void testS3ExpressLoadWithoutEndpointAndRegion() {
+        String loadSql = "LOAD LABEL customer_s3_express_test( "
+                + "     DATA INFILE(\"s3://analytics--usw2-az1--x-s3/customer/*.parquet\") "
+                + "     INTO TABLE customer"
+                + "  ) "
+                + "  WITH S3(  "
+                + "     \"s3.provider\" = \"AWS\", "
+                + "     \"s3.access_key\" = \"AK\", "
+                + "     \"s3.secret_key\" = \"SK\", "
+                + "     \"use_path_style\" = \"false\");";
+
+        List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(loadSql);
+        Assertions.assertFalse(statements.isEmpty());
+
+        LoadCommand command = (LoadCommand) statements.get(0).first;
+        Map<String, String> backendProperties = command.getBrokerDesc().getBackendConfigProperties();
+        Assertions.assertEquals("true",
+                backendProperties.get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+        Assertions.assertEquals("AWS", backendProperties.get("provider"));
+        Assertions.assertEquals("", backendProperties.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("", backendProperties.get("AWS_REGION"));
+
+        String ordinaryBucketSql = loadSql.replace(
+                "analytics--usw2-az1--x-s3", "ordinary-bucket");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new NereidsParser().parseMultiple(ordinaryBucketSql));
     }
 
     @Test

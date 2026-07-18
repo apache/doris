@@ -18,6 +18,9 @@
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/S3EndpointProvider.h>
+#include <aws/s3/model/GetObjectRequest.h>
 #include <gtest/gtest.h>
 
 #include <cstdlib>
@@ -254,41 +257,100 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressReadConf) {
     S3Conf s3_conf;
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
     ASSERT_TRUE(s3_conf.client_conf.enable_s3_express_read);
+    ASSERT_EQ(s3_conf.client_conf.region, "us-west-2");
 
-    properties["AWS_ENDPOINT"] = "s3.us-west-2.amazonaws.com";
-    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
-
-    properties["AWS_ENDPOINT"] = "http://s3.us-west-2.amazonaws.com";
-    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
-
-    properties["AWS_ENDPOINT"] = "https://s3express-control.us-west-2.amazonaws.com";
-    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
-
-    properties["AWS_ENDPOINT"] =
-            "https://analytics--usw2-az1--x-s3.s3express-usw2-az1.us-west-2.amazonaws.com";
-    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
-
-    properties["AWS_ENDPOINT"] = "https://s3.us-west-2.amazonaws.com";
+    properties["AWS_ENDPOINT"] = "http://endpoint-is-ignored.example.com";
     properties["AWS_REGION"] = "us-east-1";
-    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
-
-    properties["AWS_REGION"] = "us-west-2";
     properties["use_path_style"] = "true";
-    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    S3Conf ignored_properties_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri,
+                                                               &ignored_properties_conf)
+                        .ok());
+    EXPECT_EQ(ignored_properties_conf.client_conf.endpoint,
+              "http://endpoint-is-ignored.example.com");
+    EXPECT_EQ(ignored_properties_conf.client_conf.region, "us-west-2");
+    EXPECT_FALSE(ignored_properties_conf.client_conf.use_virtual_addressing);
 
-    properties["AWS_ENDPOINT"] = "https://minio.example.com";
-    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
-    ASSERT_TRUE(s3_conf.client_conf.enable_s3_express_read);
-    ASSERT_FALSE(is_s3_express(s3_conf.client_conf.bucket, s3_conf.client_conf.endpoint,
-                               s3_conf.client_conf.region));
+    properties.clear();
+    properties[S3_EXPRESS_IMPORT_READ] = "true";
+    S3Conf bucket_only_conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &bucket_only_conf)
+                    .ok());
+    EXPECT_TRUE(bucket_only_conf.client_conf.endpoint.empty());
+    EXPECT_EQ(bucket_only_conf.client_conf.region, "us-west-2");
+
+    S3URI future_region_uri("s3://analytics--future1-az1--x-s3/path/to/data.parquet");
+    ASSERT_TRUE(future_region_uri.parse().ok());
+    properties["AWS_REGION"] = "future-region-1";
+    S3Conf future_region_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, future_region_uri,
+                                                               &future_region_conf)
+                        .ok());
+    EXPECT_TRUE(future_region_conf.client_conf.enable_s3_express_read);
+    EXPECT_EQ(future_region_conf.client_conf.region, "future-region-1");
+
+    properties.erase("AWS_REGION");
+    S3Conf missing_region_conf;
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, future_region_uri,
+                                                                &missing_region_conf)
+                         .ok());
 
     S3URI ordinary_uri("s3://ordinary-bucket/path/to/data.parquet");
     ASSERT_TRUE(ordinary_uri.parse().ok());
     properties["AWS_ENDPOINT"] = "https://s3.us-west-2.amazonaws.com";
-    properties.erase("use_path_style");
-    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, ordinary_uri, &s3_conf)
+    properties["AWS_REGION"] = "us-west-2";
+    S3Conf ordinary_conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, ordinary_uri, &ordinary_conf)
+                    .ok());
+    ASSERT_FALSE(ordinary_conf.client_conf.enable_s3_express_read);
+
+    S3URI malformed_uri("s3://analytics--x-s3/path/to/data.parquet");
+    ASSERT_TRUE(malformed_uri.parse().ok());
+    S3Conf malformed_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, malformed_uri,
+                                                               &malformed_conf)
                         .ok());
-    ASSERT_FALSE(s3_conf.client_conf.enable_s3_express_read);
+    ASSERT_FALSE(malformed_conf.client_conf.enable_s3_express_read);
+
+    S3URI malformed_zone_uri("s3://analytics--usw2-azx--x-s3/path/to/data.parquet");
+    ASSERT_TRUE(malformed_zone_uri.parse().ok());
+    S3Conf malformed_zone_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, malformed_zone_uri,
+                                                               &malformed_zone_conf)
+                        .ok());
+    ASSERT_FALSE(malformed_zone_conf.client_conf.enable_s3_express_read);
+
+    properties["provider"] = "AZURE";
+    S3Conf non_aws_conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &non_aws_conf).ok());
+    ASSERT_FALSE(non_aws_conf.client_conf.enable_s3_express_read);
+}
+
+TEST_F(S3ClientFactoryTest, S3ExpressRegionInference) {
+    struct TestCase {
+        const char* zone_id;
+        const char* region;
+    };
+    const TestCase test_cases[] = {
+            {.zone_id = "use1-az4", .region = "us-east-1"},
+            {.zone_id = "use2-az1", .region = "us-east-2"},
+            {.zone_id = "usw2-az1", .region = "us-west-2"},
+            {.zone_id = "aps1-az1", .region = "ap-south-1"},
+            {.zone_id = "apne1-az1", .region = "ap-northeast-1"},
+            {.zone_id = "euw1-az1", .region = "eu-west-1"},
+            {.zone_id = "eun1-az1", .region = "eu-north-1"},
+    };
+    const std::map<std::string, std::string> properties {{S3_EXPRESS_IMPORT_READ, "true"}};
+    for (const auto& test_case : test_cases) {
+        S3URI uri(fmt::format("s3://analytics--{}--x-s3/data.parquet", test_case.zone_id));
+        ASSERT_TRUE(uri.parse().ok());
+        S3Conf conf;
+        ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+        EXPECT_EQ(conf.client_conf.region, test_case.region);
+    }
 }
 
 TEST_F(S3ClientFactoryTest, S3ExpressReadIsPartOfClientCacheKey) {
@@ -303,109 +365,36 @@ TEST_F(S3ClientFactoryTest, S3ExpressReadIsPartOfClientCacheKey) {
     ASSERT_NE(regular_conf.get_hash(), express_read_conf.get_hash());
 }
 
-TEST_F(S3ClientFactoryTest, S3ExpressReadClientBuildOptions) {
-    S3ClientConf conf;
-    conf.bucket = "analytics--usw2-az1--x-s3";
-    conf.endpoint = "https://s3.us-west-2.amazonaws.com";
-    conf.region = "us-west-2";
-    conf.enable_s3_express_read = true;
+TEST_F(S3ClientFactoryTest, S3ExpressUsesSdkEndpointAndSessionAuth) {
+    Aws::S3::S3ClientConfiguration config(S3ClientFactory::getClientConfiguration(),
+                                          Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                                          true);
+    config.region = "us-west-2";
+    config.disableS3ExpressAuth = false;
 
-    auto options = get_s3_client_build_options(conf);
-    EXPECT_TRUE(options.use_endpoint_provider);
-    EXPECT_FALSE(options.use_compatible_endpoint_provider);
-    EXPECT_FALSE(options.override_endpoint);
-    EXPECT_TRUE(options.force_https);
-    EXPECT_TRUE(options.use_virtual_addressing);
-    EXPECT_TRUE(options.request_dependent_signing);
-    EXPECT_FALSE(options.disable_s3_express_auth);
+    auto endpoint_provider =
+            Aws::MakeShared<Aws::S3::Endpoint::S3EndpointProvider>("S3ClientFactoryTest");
+    auto client = std::make_shared<Aws::S3::S3Client>(
+            std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>(), endpoint_provider,
+            config);
+    ASSERT_NE(client, nullptr);
 
-    conf.endpoint = "https://minio.example.com";
-    conf.use_virtual_addressing = false;
-    options = get_s3_client_build_options(conf);
-    EXPECT_TRUE(options.use_endpoint_provider);
-    EXPECT_TRUE(options.use_compatible_endpoint_provider);
-    EXPECT_TRUE(options.override_endpoint);
-    EXPECT_FALSE(options.force_https);
-    EXPECT_FALSE(options.use_virtual_addressing);
-    EXPECT_FALSE(options.request_dependent_signing);
-    EXPECT_TRUE(options.disable_s3_express_auth);
-
-    conf.need_override_endpoint = false;
-    options = get_s3_client_build_options(conf);
-    EXPECT_FALSE(options.use_endpoint_provider);
-    EXPECT_FALSE(options.use_compatible_endpoint_provider);
-    EXPECT_FALSE(options.override_endpoint);
-    EXPECT_FALSE(options.disable_s3_express_auth);
-    conf.need_override_endpoint = true;
-
-    conf.endpoint = "https://s3express-control.us-west-2.amazonaws.com";
-    conf.use_virtual_addressing = true;
-    options = get_s3_client_build_options(conf);
-    EXPECT_FALSE(options.use_endpoint_provider);
-    EXPECT_FALSE(options.use_compatible_endpoint_provider);
-    EXPECT_TRUE(options.override_endpoint);
-    EXPECT_FALSE(options.force_https);
-    EXPECT_TRUE(options.use_virtual_addressing);
-    EXPECT_FALSE(options.request_dependent_signing);
-    EXPECT_FALSE(options.disable_s3_express_auth);
-
-    conf.bucket = "ordinary-bucket";
-    conf.endpoint = "https://s3.us-west-2.amazonaws.com";
-    options = get_s3_client_build_options(conf);
-    EXPECT_FALSE(options.use_endpoint_provider);
-    EXPECT_FALSE(options.use_compatible_endpoint_provider);
-    EXPECT_TRUE(options.override_endpoint);
-    EXPECT_FALSE(options.force_https);
-    EXPECT_TRUE(options.use_virtual_addressing);
-    EXPECT_FALSE(options.request_dependent_signing);
-    EXPECT_FALSE(options.disable_s3_express_auth);
-}
-
-TEST_F(S3ClientFactoryTest, S3CompatibleDirectoryBucketUsesRegularEndpointRules) {
-    constexpr std::string_view bucket = "analytics--usw2-az1--x-s3";
-
-    auto virtual_host = resolve_s3_compatible_endpoint_for_test("https://minio.example.com",
-                                                                "us-west-2", bucket, true);
-    EXPECT_EQ(virtual_host.authority, fmt::format("{}.minio.example.com", bucket));
-    EXPECT_EQ(virtual_host.signing_name, "s3");
-    EXPECT_TRUE(virtual_host.backend.empty());
-    EXPECT_FALSE(virtual_host.use_s3_express_auth);
-    EXPECT_EQ(virtual_host.url.find("--x-s2"), std::string::npos);
-
-    auto path_style = resolve_s3_compatible_endpoint_for_test("https://minio.example.com/base",
-                                                              "us-west-2", bucket, false);
-    EXPECT_EQ(path_style.authority, "minio.example.com");
-    EXPECT_EQ(path_style.path, fmt::format("/base/{}", bucket));
-    EXPECT_EQ(path_style.signing_name, "s3");
-    EXPECT_TRUE(path_style.backend.empty());
-    EXPECT_FALSE(path_style.use_s3_express_auth);
-
-    auto ip_endpoint = resolve_s3_compatible_endpoint_for_test("http://127.0.0.1:9000", "us-west-2",
-                                                               bucket, true);
-    EXPECT_EQ(ip_endpoint.authority, "127.0.0.1");
-    EXPECT_EQ(ip_endpoint.port, 9000);
-    EXPECT_TRUE(ip_endpoint.path.ends_with(fmt::format("/{}", bucket)));
-    EXPECT_EQ(ip_endpoint.signing_name, "s3");
-    EXPECT_TRUE(ip_endpoint.backend.empty());
-    EXPECT_FALSE(ip_endpoint.use_s3_express_auth);
-
-    constexpr std::string_view surrogate_bucket = "analytics--usw2-az1--x-s2";
-    auto colliding_path_style = resolve_s3_compatible_endpoint_for_test(
-            fmt::format("https://{}.example.com/base", surrogate_bucket), "us-west-2", bucket,
-            false);
-    EXPECT_EQ(colliding_path_style.authority, fmt::format("{}.example.com", surrogate_bucket));
-    EXPECT_EQ(colliding_path_style.path, fmt::format("/base/{}", bucket));
-
-    constexpr std::string_view dotted_bucket = "a.b--x-s3";
-    constexpr std::string_view dotted_surrogate_bucket = "a.b--x-s2";
-    auto auto_path_style = resolve_s3_compatible_endpoint_for_test(
-            fmt::format("https://{}.example.com/base", dotted_surrogate_bucket), "us-west-2",
-            dotted_bucket, true);
-    EXPECT_EQ(auto_path_style.authority, fmt::format("{}.example.com", dotted_surrogate_bucket));
-    EXPECT_EQ(auto_path_style.path, fmt::format("/base/{}", dotted_bucket));
-    EXPECT_EQ(auto_path_style.signing_name, "s3");
-    EXPECT_TRUE(auto_path_style.backend.empty());
-    EXPECT_FALSE(auto_path_style.use_s3_express_auth);
+    Aws::S3::Model::GetObjectRequest request;
+    request.SetBucket("analytics--usw2-az1--x-s3");
+    request.SetKey("data.parquet");
+    auto outcome = endpoint_provider->ResolveEndpoint(request.GetEndpointContextParams());
+    ASSERT_TRUE(outcome.IsSuccess());
+    const auto& endpoint = outcome.GetResult();
+    EXPECT_EQ(endpoint.GetURI().GetAuthority(),
+              "analytics--usw2-az1--x-s3.s3express-usw2-az1.us-west-2.amazonaws.com");
+    ASSERT_TRUE(endpoint.GetAttributes().has_value());
+    const auto& attributes = *endpoint.GetAttributes();
+    EXPECT_EQ(attributes.backend, "S3Express");
+    EXPECT_EQ(attributes.authScheme.GetName(), "S3ExpressSigner");
+    ASSERT_TRUE(attributes.authScheme.GetSigningName().has_value());
+    EXPECT_EQ(*attributes.authScheme.GetSigningName(), "s3express");
+    ASSERT_TRUE(attributes.authScheme.GetSigningRegion().has_value());
+    EXPECT_EQ(*attributes.authScheme.GetSigningRegion(), "us-west-2");
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) {

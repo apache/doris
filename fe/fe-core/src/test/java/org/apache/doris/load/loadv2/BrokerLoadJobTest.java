@@ -73,11 +73,20 @@ public class BrokerLoadJobTest {
     @Test
     public void testS3ExpressImportPropertyIsTaskScopedToBrokerLoad() {
         Map<String, String> properties = Maps.newHashMap();
-        properties.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
-        properties.put("s3.region", "us-west-2");
+        properties.put("s3.provider", "AWS");
+        properties.put("s3.endpoint", "https://endpoint-is-ignored.example.com");
+        properties.put("s3.region", "us-east-1");
         BrokerDesc original = new BrokerDesc("S3", StorageBackend.StorageType.S3, properties);
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
         Deencapsulation.setField(brokerLoadJob, "brokerDesc", original);
+        BrokerFileGroup expressFileGroup = Mockito.mock(BrokerFileGroup.class);
+        Mockito.when(expressFileGroup.getFilePaths()).thenReturn(
+                Collections.singletonList("s3://analytics--usw2-az1--x-s3/data.parquet"));
+        BrokerFileGroupAggInfo fileGroupAggInfo = new BrokerFileGroupAggInfo();
+        Deencapsulation.setField(fileGroupAggInfo, "aggKeyToFileGroups",
+                Collections.singletonMap(new FileGroupAggKey(1L, null),
+                        Collections.singletonList(expressFileGroup)));
+        Deencapsulation.setField(brokerLoadJob, "fileGroupAggInfo", fileGroupAggInfo);
 
         BrokerDesc taskBrokerDesc = brokerLoadJob.brokerDescForS3ExpressImport();
 
@@ -87,6 +96,12 @@ public class BrokerLoadJobTest {
         Assert.assertEquals("true", taskBrokerDesc.getBackendConfigProperties()
                 .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
 
+        Mockito.when(expressFileGroup.getFilePaths()).thenReturn(
+                Collections.singletonList("s3://ordinary-bucket/data.parquet"));
+        Assert.assertSame(original, brokerLoadJob.brokerDescForS3ExpressImport());
+
+        Mockito.when(expressFileGroup.getFilePaths()).thenReturn(
+                Collections.singletonList("s3://analytics--usw2-az1--x-s3/data.parquet"));
         Deencapsulation.setField(brokerLoadJob, "jobType", EtlJobType.COPY);
         Assert.assertSame(original, brokerLoadJob.brokerDescForS3ExpressImport());
     }

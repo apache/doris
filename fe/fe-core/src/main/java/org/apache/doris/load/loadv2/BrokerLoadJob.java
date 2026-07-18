@@ -45,7 +45,6 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -70,7 +69,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -129,17 +127,15 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     protected BrokerDesc brokerDescForS3ExpressImport() {
         if (jobType != EtlJobType.BROKER || brokerDesc == null
-                || brokerDesc.getStorageType() != StorageBackend.StorageType.S3) {
+                || brokerDesc.getStorageType() != StorageBackend.StorageType.S3
+                || !S3Properties.isAwsProvider(brokerDesc.getProperties())
+                || fileGroupAggInfo.getAggKeyToFileGroups().values().stream()
+                        .flatMap(List::stream)
+                        .flatMap(fileGroup -> fileGroup.getFilePaths().stream())
+                        .noneMatch(S3Properties::isS3ExpressUri)) {
             return brokerDesc;
         }
-        Map<String, String> properties = new HashMap<>(brokerDesc.getProperties());
-        BrokerDesc importBrokerDesc = new BrokerDesc(
-                brokerDesc.getName(), brokerDesc.getStorageType(), properties);
-        if (importBrokerDesc.getStorageProperties() instanceof AbstractS3CompatibleProperties) {
-            ((AbstractS3CompatibleProperties) importBrokerDesc.getStorageProperties())
-                    .enableS3ExpressImportRead();
-        }
-        return importBrokerDesc;
+        return BrokerDesc.createForS3ExpressImport(brokerDesc.getName(), brokerDesc.getProperties());
     }
 
     @Override

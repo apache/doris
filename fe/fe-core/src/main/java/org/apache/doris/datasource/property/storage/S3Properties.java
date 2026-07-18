@@ -22,6 +22,8 @@ import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
@@ -63,6 +65,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public static final String ROLE_ARN = "s3.role_arn";
     public static final String EXTERNAL_ID = "s3.external_id";
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
+    public static final String PROVIDER = "s3.provider";
 
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
@@ -190,11 +193,57 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Getter
     private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
+    @Getter
+    @ConnectorProperty(names = {PROVIDER, "provider"}, required = false,
+            description = "The S3 service provider.")
+    private String s3Provider = "";
+
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
         propertiesObj.initNormalizeAndCheckProps();
         return propertiesObj;
+    }
+
+    /** Creates the trusted S3 properties used only by the scoped S3 import paths. */
+    public static S3Properties createForS3ExpressImport(Map<String, String> properties) {
+        S3Properties propertiesObj = new S3Properties(properties);
+        propertiesObj.enableS3ExpressImportRead();
+        propertiesObj.initNormalizeAndCheckProps();
+        return propertiesObj;
+    }
+
+    /** Returns whether the user explicitly selected AWS as the S3 provider. */
+    public static boolean isAwsProvider(Map<String, String> properties) {
+        return properties.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(PROVIDER)
+                        || entry.getKey().equalsIgnoreCase("provider"))
+                .map(Map.Entry::getValue)
+                .anyMatch(value -> "AWS".equalsIgnoreCase(value));
+    }
+
+    /** Returns whether a scoped S3 TVF request can use SDK-managed S3 Express access. */
+    public static boolean isS3ExpressImport(Map<String, String> properties) {
+        if (!isAwsProvider(properties)) {
+            return false;
+        }
+        Optional<String> uri = properties.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        if (uri.isEmpty()) {
+            return false;
+        }
+        return isS3ExpressUri(uri.get());
+    }
+
+    /** Returns whether the URI contains a complete S3 Express directory bucket name. */
+    public static boolean isS3ExpressUri(String uri) {
+        try {
+            return S3URI.create(uri).useS3DirectoryBucket();
+        } catch (UserException e) {
+            return false;
+        }
     }
 
     /**
@@ -205,20 +254,15 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * - s3.dualstack.us-east-1.amazonaws.com      => region = us-east-1
      * - s3-fips.us-east-2.amazonaws.com           => region = us-east-2
      * - s3-fips.dualstack.us-east-2.amazonaws.com => region = us-east-2
-     * - s3express-control.us-west-2.amazonaws.com => region = us-west-2 (S3 Directory Bucket Regional)
-     * - s3express-usw2-az1.us-west-2.amazonaws.com => region = us-west-2 (S3 Directory Bucket Zonal)
      * <p>
-     * Group(1), Group(2), or Group(3) in the pattern captures the region part if available.
+     * Group(1) captures the region part if available.
      * <p>
      * For Glue https://docs.aws.amazon.com/general/latest/gr/glue.html
      */
     private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(
             Pattern.compile(
-                    "^(?:https?://)?(?:"
-                            + "s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)|" // Standard S3 endpoints
-                            + "s3express-control\\.([a-z0-9-]+)|"                  // Directory bucket regional
-                            + "s3express-[a-z0-9-]+\\.([a-z0-9-]+)"                // Directory bucket zonal
-                            + ")\\.amazonaws\\.com(?:/.*)?$",
+                    "^(?:https?://)?s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)"
+                            + "\\.amazonaws\\.com(?:/.*)?$",
                     Pattern.CASE_INSENSITIVE),
             Pattern.compile(
                     "^(?:https?://)?glue(?:-fips)?\\.([a-z0-9-]+)\\.(amazonaws\\.com(?:\\.cn)?|api\\.aws)$",
@@ -294,6 +338,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     public Map<String, String> getBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration();
+
+        if (isS3ExpressImportRead(this) && StringUtils.isNotBlank(s3Provider)) {
+            backendProperties.put("provider", s3Provider);
+        }
 
         if (StringUtils.isNotBlank(s3IAMRole)) {
             backendProperties.put("AWS_ROLE_ARN", s3IAMRole);

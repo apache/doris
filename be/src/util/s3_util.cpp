@@ -22,7 +22,6 @@
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
-#include <aws/core/http/URI.h>
 #include <aws/core/platform/Environment.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
@@ -30,16 +29,13 @@
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/S3EndpointProvider.h>
-#ifdef BE_TEST
-#include <aws/s3/model/GetObjectRequest.h>
-#endif
 #include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
 #include <cpp/token_bucket_rate_limiter.h>
 
-#include <algorithm>
 #include <atomic>
-#include <cctype>
+#include <optional>
+#include <string_view>
 
 #include "util/string_util.h"
 
@@ -89,214 +85,91 @@ bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 
 namespace {
 
-std::string ascii_lower(std::string_view value) {
-    std::string result(value);
-    std::ranges::transform(result, result.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return result;
-}
-
-struct AwsS3Endpoint {
-    bool aws_domain = false;
-    bool https = false;
-    bool standard_regional = false;
-    std::string region;
-};
-
-AwsS3Endpoint parse_aws_s3_endpoint(std::string_view endpoint) {
-    AwsS3Endpoint result;
-    const auto scheme_separator = endpoint.find("://");
-    if (scheme_separator != std::string_view::npos) {
-        result.https = ascii_lower(endpoint.substr(0, scheme_separator)) == "https";
-        endpoint.remove_prefix(scheme_separator + 3);
-    } else {
-        result.https = true;
-    }
-
-    const auto path_separator = endpoint.find_first_of("/?#");
-    const auto authority = endpoint.substr(0, path_separator);
-    const auto path = path_separator == std::string_view::npos ? std::string_view {}
-                                                               : endpoint.substr(path_separator);
-    bool standard_port = true;
-    auto host = authority;
-    if (const auto port_separator = authority.rfind(':');
-        port_separator != std::string_view::npos) {
-        standard_port = authority.substr(port_separator + 1) == "443";
-        host = authority.substr(0, port_separator);
-    }
-
-    const auto lower_host = ascii_lower(host);
-    constexpr std::string_view aws_domain = ".amazonaws.com";
-    constexpr std::string_view aws_china_domain = ".amazonaws.com.cn";
-    constexpr std::string_view aws_dualstack_domain = ".api.aws";
-    std::string_view domain;
-    if (lower_host.ends_with(aws_china_domain)) {
-        domain = aws_china_domain;
-    } else if (lower_host.ends_with(aws_domain)) {
-        domain = aws_domain;
-    } else if (lower_host.ends_with(aws_dualstack_domain)) {
-        result.aws_domain = true;
-        return result;
-    } else {
-        return result;
-    }
-    result.aws_domain = true;
-
-    constexpr std::string_view regional_prefix = "s3.";
-    if (!result.https || !standard_port || (!path.empty() && path != "/") ||
-        !lower_host.starts_with(regional_prefix)) {
-        return result;
-    }
-    const auto region = std::string_view(lower_host)
-                                .substr(regional_prefix.size(),
-                                        lower_host.size() - regional_prefix.size() - domain.size());
-    if (region.empty() || region.find('.') != std::string_view::npos) {
-        return result;
-    }
-    result.standard_regional = true;
-    result.region = region;
-    return result;
-}
-
-bool has_s3_directory_bucket_suffix(std::string_view bucket) {
-    return bucket.ends_with("--x-s3");
-}
-
-class S3CompatibleEndpointProvider final : public Aws::S3::S3EndpointProvider {
-public:
-    explicit S3CompatibleEndpointProvider(std::string_view endpoint) {
-        std::string normalized_endpoint(endpoint);
-        if (normalized_endpoint.find("://") == std::string::npos) {
-            normalized_endpoint.insert(0, "https://");
-        }
-        _endpoint_authority = Aws::Http::URI(normalized_endpoint.c_str()).GetAuthority();
-        DORIS_CHECK(!_endpoint_authority.empty());
-    }
-
-    Aws::Endpoint::ResolveEndpointOutcome ResolveEndpoint(
-            const Aws::Endpoint::EndpointParameters& endpoint_parameters) const override {
-        auto compatible_parameters = endpoint_parameters;
-        Aws::String bucket;
-        Aws::String surrogate_bucket;
-        for (auto& parameter : compatible_parameters) {
-            Aws::String value;
-            if (parameter.GetName() == "Bucket" &&
-                parameter.GetString(value) ==
-                        Aws::Endpoint::EndpointParameter::GetSetResult::SUCCESS &&
-                has_s3_directory_bucket_suffix(std::string_view(value.data(), value.size()))) {
-                bucket = std::move(value);
-                surrogate_bucket = bucket;
-                // The SDK selects S3 Express endpoint/signing rules solely from this suffix.
-                // Resolve an otherwise identical bucket through regular S3 rules, then restore
-                // the real bucket in the resolved URI below.
-                surrogate_bucket.back() = '2';
-                parameter.SetString(surrogate_bucket);
-                break;
-            }
-        }
-
-        auto outcome = Aws::S3::S3EndpointProvider::ResolveEndpoint(compatible_parameters);
-        if (bucket.empty() || !outcome.IsSuccess()) {
-            return outcome;
-        }
-
-        auto& endpoint = outcome.GetResult();
-        auto uri = endpoint.GetURI();
-        auto authority = uri.GetAuthority();
-        auto path = uri.GetPath();
-        const auto bucket_pos = path.rfind(surrogate_bucket);
-        const bool bucket_is_path_segment = bucket_pos != Aws::String::npos &&
-                                            (bucket_pos == 0 || path[bucket_pos - 1] == '/') &&
-                                            (bucket_pos + surrogate_bucket.size() == path.size() ||
-                                             path[bucket_pos + surrogate_bucket.size()] == '/');
-        const auto virtual_host_authority = surrogate_bucket + "." + _endpoint_authority;
-        if (authority == _endpoint_authority) {
-            DORIS_CHECK(bucket_is_path_segment);
-            path.replace(bucket_pos, surrogate_bucket.size(), bucket);
-            uri.SetPath(path);
-        } else {
-            DORIS_CHECK(authority == virtual_host_authority);
-            authority.replace(0, surrogate_bucket.size(), bucket);
-            uri.SetAuthority(authority);
-        }
-        endpoint.SetURI(std::move(uri));
-        return outcome;
-    }
-
-private:
-    Aws::String _endpoint_authority;
-};
-
-bool is_legacy_s3_directory_bucket_endpoint(std::string_view endpoint) {
-    const auto lower_endpoint = ascii_lower(endpoint);
-    return lower_endpoint.find("s3express-control.") != std::string::npos ||
-           lower_endpoint.find("s3express-") != std::string::npos;
-}
-
-bool is_s3_directory_bucket_name(std::string_view bucket) {
+std::optional<std::string_view> get_s3_express_zone_id(std::string_view bucket) {
     constexpr std::string_view suffix = "--x-s3";
     if (!bucket.ends_with(suffix)) {
-        return false;
+        return std::nullopt;
     }
     bucket.remove_suffix(suffix.size());
     const auto zone_separator = bucket.rfind("--");
-    if (zone_separator == std::string_view::npos || zone_separator == 0) {
-        return false;
-    }
-    const auto base_name = bucket.substr(0, zone_separator);
-    if (!std::isalnum(static_cast<unsigned char>(base_name.front())) ||
-        !std::isalnum(static_cast<unsigned char>(base_name.back())) ||
-        !std::ranges::all_of(base_name, [](unsigned char c) {
-            return std::islower(c) || std::isdigit(c) || c == '-';
-        })) {
-        return false;
+    if (zone_separator == std::string_view::npos || zone_separator == 0 ||
+        zone_separator + 2 == bucket.size()) {
+        return std::nullopt;
     }
     const auto zone_id = bucket.substr(zone_separator + 2);
     const auto az_separator = zone_id.rfind("-az");
-    return az_separator != std::string_view::npos && az_separator > 0 &&
-           az_separator + 3 < zone_id.size() &&
-           std::ranges::all_of(zone_id.substr(0, az_separator),
-                               [](unsigned char c) {
-                                   return std::islower(c) || std::isdigit(c) || c == '-';
-                               }) &&
-           std::ranges::all_of(zone_id.substr(az_separator + 3),
-                               [](unsigned char c) { return std::isdigit(c); });
+    if (az_separator == std::string_view::npos || az_separator == 0 ||
+        az_separator + 3 == zone_id.size()) {
+        return std::nullopt;
+    }
+    for (const char c : zone_id.substr(0, az_separator)) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) {
+            return std::nullopt;
+        }
+    }
+    for (const char c : zone_id.substr(az_separator + 3)) {
+        if (c < '0' || c > '9') {
+            return std::nullopt;
+        }
+    }
+    return zone_id;
+}
+
+std::optional<std::string_view> infer_s3_express_region(std::string_view zone_id) {
+    // Unknown zone prefixes deliberately fall back to the user-provided region below, so newly
+    // introduced AWS regions do not require Doris-side validation before the SDK can use them.
+    static constexpr std::pair<std::string_view, std::string_view> region_mappings[] = {
+            {"use1", "us-east-1"},  {"use2", "us-east-2"},       {"usw2", "us-west-2"},
+            {"aps1", "ap-south-1"}, {"apne1", "ap-northeast-1"}, {"euw1", "eu-west-1"},
+            {"eun1", "eu-north-1"},
+    };
+    const auto separator = zone_id.find('-');
+    const auto zone_prefix = zone_id.substr(0, separator);
+    for (const auto& [prefix, region] : region_mappings) {
+        if (zone_prefix == prefix) {
+            return region;
+        }
+    }
+    return std::nullopt;
+}
+
+bool use_s3_express_client(const S3ClientConf& conf) {
+    return conf.enable_s3_express_read && conf.provider == io::ObjStorageType::AWS &&
+           get_s3_express_zone_id(conf.bucket).has_value();
+}
+
+std::string_view effective_s3_region(const S3ClientConf& conf) {
+    if (use_s3_express_client(conf)) {
+        if (const auto zone_id = get_s3_express_zone_id(conf.bucket); zone_id.has_value()) {
+            if (const auto region = infer_s3_express_region(*zone_id); region.has_value()) {
+                return *region;
+            }
+        }
+    }
+    return conf.region;
+}
+
+void configure_s3_express_import_read(const StringCaseMap<std::string>& properties,
+                                      S3ClientConf* conf) {
+    const auto express_import = properties.find(S3_EXPRESS_IMPORT_READ);
+    const auto express_zone_id = get_s3_express_zone_id(conf->bucket);
+    conf->enable_s3_express_read =
+            express_import != properties.end() && express_import->second == "true" &&
+            conf->provider == io::ObjStorageType::AWS && express_zone_id.has_value();
+    if (conf->enable_s3_express_read) {
+        if (const auto region = infer_s3_express_region(*express_zone_id); region.has_value()) {
+            conf->region = std::string(*region);
+        }
+    }
 }
 
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
-    if (conf.endpoint.empty()) {
+    const bool s3_express = use_s3_express_client(conf);
+    if (conf.endpoint.empty() && !s3_express) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
     }
-    if (conf.region.empty()) {
+    if (effective_s3_region(conf).empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
-    }
-    const auto endpoint = parse_aws_s3_endpoint(conf.endpoint);
-    if (conf.enable_s3_express_read && conf.provider == io::ObjStorageType::AWS &&
-        endpoint.aws_domain && has_s3_directory_bucket_suffix(conf.bucket) &&
-        !is_legacy_s3_directory_bucket_endpoint(conf.endpoint)) {
-        if (!is_s3_directory_bucket_name(conf.bucket)) {
-            return Status::InvalidArgument<false>(
-                    "Invalid AWS Directory Bucket name {}; expected "
-                    "<bucket-base-name>--<zone-id>--x-s3",
-                    conf.bucket);
-        }
-        if (!endpoint.https) {
-            return Status::InvalidArgument<false>("AWS Directory Bucket requires HTTPS");
-        }
-        if (!endpoint.standard_regional) {
-            return Status::InvalidArgument<false>(
-                    "AWS Directory Bucket requires a standard regional S3 endpoint; do not use "
-                    "s3express-control or a zonal endpoint");
-        }
-        if (endpoint.region != ascii_lower(conf.region)) {
-            return Status::InvalidArgument<false>(
-                    "AWS Directory Bucket endpoint region {} does not match configured region {}",
-                    endpoint.region, conf.region);
-        }
-        if (!conf.use_virtual_addressing) {
-            return Status::InvalidArgument<false>(
-                    "Path-style addressing is not supported for AWS Directory Bucket");
-        }
     }
 
     if (conf.role_arn.empty()) {
@@ -696,15 +569,18 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         const S3ClientConf& s3_conf) {
-    const auto build_options = get_s3_client_build_options(s3_conf);
+    const bool s3_express = use_s3_express_client(s3_conf);
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
             std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
-    if (build_options.override_endpoint) {
+    // Let the SDK derive the zonal endpoint from the complete directory bucket name. A user
+    // endpoint is intentionally ignored for this scoped Express import client.
+    if (!s3_express && s3_conf.need_override_endpoint) {
         aws_config.endpointOverride = s3_conf.endpoint;
     }
-    aws_config.region = s3_conf.region;
+    const auto region = effective_s3_region(s3_conf);
+    aws_config.region = Aws::String(region.data(), region.size());
 
     if (_ca_cert_file_path.empty()) {
         _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
@@ -729,7 +605,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
 
-    if (build_options.force_https) {
+    if (s3_express) {
         aws_config.scheme = Aws::Http::Scheme::HTTPS;
     } else if (config::s3_client_http_scheme == "http") {
         aws_config.scheme = Aws::Http::Scheme::HTTP;
@@ -739,24 +615,16 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);
 
     std::shared_ptr<Aws::S3::S3Client> new_client;
-    if (build_options.use_endpoint_provider) {
-        const auto signing_policy =
-                build_options.request_dependent_signing
-                        ? Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent
-                        : Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never;
-        Aws::S3::S3ClientConfiguration endpoint_provider_config(
-                aws_config, signing_policy, build_options.use_virtual_addressing);
-        endpoint_provider_config.disableS3ExpressAuth = build_options.disable_s3_express_auth;
-        std::shared_ptr<Aws::S3::S3EndpointProviderBase> endpoint_provider;
-        if (build_options.use_compatible_endpoint_provider) {
-            endpoint_provider =
-                    Aws::MakeShared<S3CompatibleEndpointProvider>("S3Client", s3_conf.endpoint);
-        } else {
-            endpoint_provider = Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3Client");
-        }
-        new_client = std::make_shared<Aws::S3::S3Client>(get_aws_credentials_provider(s3_conf),
-                                                         std::move(endpoint_provider),
-                                                         endpoint_provider_config);
+    if (s3_express) {
+        // Directory buckets use virtual-hosted endpoints. Do not propagate a user path-style
+        // preference into the SDK client selected by the directory bucket name.
+        Aws::S3::S3ClientConfiguration express_config(
+                aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                true /* use virtual addressing */);
+        express_config.disableS3ExpressAuth = false;
+        new_client = std::make_shared<Aws::S3::S3Client>(
+                get_aws_credentials_provider(s3_conf),
+                Aws::MakeShared<Aws::S3::Endpoint::S3EndpointProvider>("S3Client"), express_config);
     } else {
         new_client = std::make_shared<Aws::S3::S3Client>(
                 get_aws_credentials_provider(s3_conf), std::move(aws_config),
@@ -821,10 +689,7 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     s3_conf->bucket = s3_uri.get_bucket();
     // For azure's compatibility
     s3_conf->client_conf.bucket = s3_uri.get_bucket();
-    const auto express_import = properties.find(S3_EXPRESS_IMPORT_READ);
-    s3_conf->client_conf.enable_s3_express_read = express_import != properties.end() &&
-                                                  express_import->second == "true" &&
-                                                  has_s3_directory_bucket_suffix(s3_conf->bucket);
+    configure_s3_express_import_read(properties, &s3_conf->client_conf);
     s3_conf->prefix = "";
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
@@ -846,6 +711,7 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     if (auto it = properties.find(S3_CREDENTIALS_PROVIDER_TYPE); it != properties.end()) {
         s3_conf->client_conf.cred_provider_type = cred_provider_type_from_string(it->second);
     }
+
     if (auto st = is_s3_conf_valid(s3_conf->client_conf); !st.ok()) {
         return st;
     }
@@ -1028,87 +894,5 @@ std::string hide_access_key(const std::string& ak) {
     }
     return key;
 }
-
-bool is_s3_express(std::string_view bucket, std::string_view endpoint, std::string_view region) {
-    const auto parsed_endpoint = parse_aws_s3_endpoint(endpoint);
-    return is_s3_directory_bucket_name(bucket) && parsed_endpoint.standard_regional &&
-           parsed_endpoint.region == ascii_lower(region);
-}
-
-S3ClientBuildOptions get_s3_client_build_options(const S3ClientConf& conf) {
-    const bool s3_express = conf.enable_s3_express_read &&
-                            conf.provider == io::ObjStorageType::AWS &&
-                            is_s3_express(conf.bucket, conf.endpoint, conf.region);
-    if (s3_express) {
-        return {.use_endpoint_provider = true,
-                .use_compatible_endpoint_provider = false,
-                .override_endpoint = false,
-                .force_https = true,
-                .use_virtual_addressing = true,
-                .request_dependent_signing = true,
-                .disable_s3_express_auth = false};
-    }
-
-    const bool compatible_directory_bucket = conf.enable_s3_express_read &&
-                                             conf.need_override_endpoint &&
-                                             has_s3_directory_bucket_suffix(conf.bucket) &&
-                                             !parse_aws_s3_endpoint(conf.endpoint).aws_domain;
-    if (compatible_directory_bucket) {
-        return {.use_endpoint_provider = true,
-                .use_compatible_endpoint_provider = true,
-                .override_endpoint = conf.need_override_endpoint,
-                .force_https = false,
-                .use_virtual_addressing = conf.use_virtual_addressing,
-                .request_dependent_signing = false,
-                .disable_s3_express_auth = true};
-    }
-
-    return {.use_endpoint_provider = false,
-            .use_compatible_endpoint_provider = false,
-            .override_endpoint = conf.need_override_endpoint,
-            .force_https = false,
-            .use_virtual_addressing = conf.use_virtual_addressing,
-            .request_dependent_signing = false,
-            .disable_s3_express_auth = false};
-}
-
-#ifdef BE_TEST
-S3EndpointResolutionForTest resolve_s3_compatible_endpoint_for_test(std::string_view endpoint,
-                                                                    std::string_view region,
-                                                                    std::string_view bucket,
-                                                                    bool use_virtual_addressing) {
-    Aws::Client::ClientConfiguration client_config;
-    client_config.endpointOverride = std::string(endpoint);
-    client_config.region = std::string(region);
-    Aws::S3::S3ClientConfiguration s3_config(
-            client_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            use_virtual_addressing);
-    s3_config.disableS3ExpressAuth = true;
-
-    S3CompatibleEndpointProvider provider(endpoint);
-    provider.InitBuiltInParameters(s3_config);
-    provider.AccessClientContextParameters().SetForcePathStyle(!use_virtual_addressing);
-    provider.AccessClientContextParameters().SetDisableS3ExpressSessionAuth(true);
-    provider.OverrideEndpoint(client_config.endpointOverride);
-
-    Aws::S3::Model::GetObjectRequest request;
-    request.SetBucket(std::string(bucket));
-    request.SetKey("object");
-    auto outcome = provider.ResolveEndpoint(request.GetEndpointContextParams());
-    DORIS_CHECK(outcome.IsSuccess());
-    const auto& endpoint_result = outcome.GetResult();
-    const auto& attributes = endpoint_result.GetAttributes();
-    DORIS_CHECK(attributes.has_value());
-    const auto& signing_name = attributes->authScheme.GetSigningName();
-    DORIS_CHECK(signing_name.has_value());
-    return {.url = endpoint_result.GetURL(),
-            .authority = endpoint_result.GetURI().GetAuthority(),
-            .path = endpoint_result.GetURI().GetPath(),
-            .backend = attributes->backend,
-            .signing_name = signing_name.value(),
-            .port = endpoint_result.GetURI().GetPort(),
-            .use_s3_express_auth = attributes->useS3ExpressAuth};
-}
-#endif
 
 } // end namespace doris

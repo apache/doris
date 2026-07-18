@@ -46,6 +46,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
@@ -161,7 +162,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
             StorageProperties sp = brokerDesc.getStorageProperties();
-            if (sp instanceof ObjectStorageProperties) {
+            if (sp instanceof ObjectStorageProperties
+                    && !AbstractS3CompatibleProperties.isS3ExpressImportRead(sp)) {
                 S3Util.validateAndTestEndpoint(((ObjectStorageProperties) sp).getEndpoint());
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {

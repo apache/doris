@@ -127,8 +127,14 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         return s3Props;
     }
 
-    public void enableS3ExpressImportRead() {
+    void enableS3ExpressImportRead() {
         s3ExpressImportRead = true;
+    }
+
+    /** Returns whether the typed properties carry the trusted S3 Express import marker. */
+    public static boolean isS3ExpressImportRead(StorageProperties properties) {
+        return properties instanceof AbstractS3CompatibleProperties
+                && ((AbstractS3CompatibleProperties) properties).s3ExpressImportRead;
     }
 
     protected String getAwsCredentialsProviderTypeForBackend() {
@@ -158,19 +164,24 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        setEndpointIfPossible();
-        setRegionIfPossible();
+        // S3 Express imports use the directory bucket name and SDK endpoint rules. Keep the
+        // user endpoint and region untouched: the object client ignores endpoint, and uses
+        // region only as a fallback when the bucket Zone ID is unknown to Doris.
+        if (!s3ExpressImportRead) {
+            setEndpointIfPossible();
+            setRegionIfPossible();
+        }
         //Allow anonymous access if both access_key and secret_key are empty
         //But not recommended for production use.
         if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
             throw new IllegalArgumentException("Both the access key and the secret key must be set.");
         }
-        if (StringUtils.isBlank(getRegion())) {
+        if (!s3ExpressImportRead && StringUtils.isBlank(getRegion())) {
             throw new IllegalArgumentException("Region is not set. If you are using a standard endpoint, the region "
                     + "will be detected automatically. Otherwise, please specify it explicitly."
             );
         }
-        if (StringUtils.isBlank(getEndpoint())) {
+        if (!s3ExpressImportRead && StringUtils.isBlank(getEndpoint())) {
             throw new IllegalArgumentException("Endpoint is not set. Please specify it explicitly."
             );
         }

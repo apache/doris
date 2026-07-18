@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
@@ -84,6 +85,15 @@ public final class FileSystemFactory {
      */
     public static org.apache.doris.filesystem.FileSystem getFileSystem(Map<String, String> properties)
             throws IOException {
+        // A raw map can come directly from user-managed resources or catalogs. Only the typed
+        // StorageProperties overload below may carry this import-scope marker into the S3 plugin.
+        Map<String, String> untrustedProperties = new HashMap<>(properties);
+        untrustedProperties.remove(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ);
+        return getFileSystemInternal(untrustedProperties);
+    }
+
+    private static org.apache.doris.filesystem.FileSystem getFileSystemInternal(Map<String, String> properties)
+            throws IOException {
         FileSystemPluginManager mgr = pluginManager;
         if (mgr != null) {
             return mgr.createFileSystem(properties);
@@ -112,7 +122,7 @@ public final class FileSystemFactory {
      */
     public static org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties storageProperties)
             throws IOException {
-        return getFileSystem(StoragePropertiesConverter.toMap(storageProperties));
+        return getFileSystemInternal(StoragePropertiesConverter.toMap(storageProperties));
     }
 
     /**

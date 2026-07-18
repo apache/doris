@@ -63,6 +63,8 @@ public final class S3FileSystemProperties
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
     public static final String USE_PATH_STYLE = "use_path_style";
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
+    private static final String S3_PROVIDER = "s3.provider";
+    private static final String PROVIDER = "provider";
     // Must match AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ and the BE property key.
     static final String S3_EXPRESS_IMPORT_READ = "__DORIS_S3_EXPRESS_IMPORT_READ__";
 
@@ -74,11 +76,8 @@ public final class S3FileSystemProperties
 
     private static final Pattern[] ENDPOINT_PATTERNS = new Pattern[] {
             Pattern.compile(
-                    "^(?:https?://)?(?:"
-                            + "s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)|"
-                            + "s3express-control\\.([a-z0-9-]+)|"
-                            + "s3express-[a-z0-9-]+\\.([a-z0-9-]+)"
-                            + ")\\.amazonaws\\.com(?:/.*)?$",
+                    "^(?:https?://)?s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)"
+                            + "\\.amazonaws\\.com(?:/.*)?$",
                     Pattern.CASE_INSENSITIVE),
             Pattern.compile(
                     "^(?:https?://)?glue(?:-fips)?\\.([a-z0-9-]+)\\.(amazonaws\\.com(?:\\.cn)?|api\\.aws)$",
@@ -188,7 +187,9 @@ public final class S3FileSystemProperties
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
         this.matchedProperties = Collections.unmodifiableMap(collectMatchedProperties(rawProperties));
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
-        normalizeForLegacyS3Compatibility();
+        if (!isScopedAwsS3ExpressImport()) {
+            normalizeForLegacyS3Compatibility();
+        }
     }
 
     /** Binds and validates raw properties. */
@@ -209,7 +210,8 @@ public final class S3FileSystemProperties
                         "s3.external_id must be used together with s3.role_arn")
                 .check(this::hasUnsupportedCredentialsProviderType,
                         "Unsupported s3.credentials_provider_type: " + credentialsProviderType)
-                .check(() -> StringUtils.isBlank(endpoint) && StringUtils.isBlank(region),
+                .check(() -> StringUtils.isBlank(endpoint) && StringUtils.isBlank(region)
+                                && !isScopedAwsS3ExpressImport(),
                         "Either s3.endpoint or s3.region must be set")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
@@ -335,13 +337,24 @@ public final class S3FileSystemProperties
         return StringUtils.isNotBlank(roleArn);
     }
 
-    public boolean isDirectoryBucketEndpoint() {
-        return StringUtils.containsIgnoreCase(endpoint, "s3express-control.")
-                || StringUtils.containsIgnoreCase(endpoint, "s3express-");
-    }
-
     boolean isS3ExpressImportReadEnabled() {
         return Boolean.parseBoolean(rawProperties.get(S3_EXPRESS_IMPORT_READ));
+    }
+
+    boolean isAwsProvider() {
+        return isAwsProvider(rawProperties);
+    }
+
+    boolean isScopedAwsS3ExpressImport() {
+        return isS3ExpressImportReadEnabled() && isAwsProvider();
+    }
+
+    static boolean isAwsProvider(Map<String, String> properties) {
+        return properties.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(S3_PROVIDER)
+                        || entry.getKey().equalsIgnoreCase(PROVIDER))
+                .map(Map.Entry::getValue)
+                .anyMatch(value -> "AWS".equalsIgnoreCase(value));
     }
 
     private static void putIfNotBlank(Map<String, String> map, String key, String value) {

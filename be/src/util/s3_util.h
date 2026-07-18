@@ -30,7 +30,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 
 #include "common/status.h"
@@ -66,7 +65,6 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 std::string hide_access_key(const std::string& ak);
-bool is_s3_express(std::string_view bucket, std::string_view endpoint, std::string_view region);
 int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit);
 int64_t apply_s3_rate_limit(S3RateLimitType type);
 // Rebuild the S3 GET/PUT rate limiters if the related configs have changed.
@@ -127,35 +125,6 @@ struct S3ClientConf {
                 enable_s3_express_read, cred_provider_type, role_arn, external_id);
     }
 };
-
-struct S3ClientBuildOptions {
-    bool use_endpoint_provider = false;
-    bool use_compatible_endpoint_provider = false;
-    bool override_endpoint = false;
-    bool force_https = false;
-    bool use_virtual_addressing = true;
-    bool request_dependent_signing = false;
-    bool disable_s3_express_auth = false;
-};
-
-S3ClientBuildOptions get_s3_client_build_options(const S3ClientConf& conf);
-
-#ifdef BE_TEST
-struct S3EndpointResolutionForTest {
-    std::string url;
-    std::string authority;
-    std::string path;
-    std::string backend;
-    std::string signing_name;
-    uint16_t port = 0;
-    bool use_s3_express_auth = false;
-};
-
-S3EndpointResolutionForTest resolve_s3_compatible_endpoint_for_test(std::string_view endpoint,
-                                                                    std::string_view region,
-                                                                    std::string_view bucket,
-                                                                    bool use_virtual_addressing);
-#endif
 
 struct S3Conf {
     std::string bucket;

@@ -21,7 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
@@ -52,9 +52,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
         try {
-            this.storageProperties = StorageProperties.createPrimary(props);
-            if (s3ExpressImportRead) {
-                enableS3ExpressImportRead(storageProperties);
+            if (s3ExpressImportRead && S3Properties.isS3ExpressImport(props)) {
+                this.storageProperties = S3Properties.createForS3ExpressImport(props);
+            } else {
+                this.storageProperties = StorageProperties.createPrimary(props);
             }
             this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
             String uri = storageProperties.validateAndGetUri(props);
@@ -87,17 +88,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        BrokerDesc brokerDesc = new BrokerDesc("S3TvfBroker", processedParams);
-        if (s3ExpressImportRead) {
-            enableS3ExpressImportRead(brokerDesc.getStorageProperties());
+        if (s3ExpressImportRead && S3Properties.isS3ExpressImport(processedParams)) {
+            return BrokerDesc.createForS3ExpressImport("S3TvfBroker", processedParams);
         }
-        return brokerDesc;
-    }
-
-    private static void enableS3ExpressImportRead(StorageProperties properties) {
-        if (properties instanceof AbstractS3CompatibleProperties) {
-            ((AbstractS3CompatibleProperties) properties).enableS3ExpressImportRead();
-        }
+        return new BrokerDesc("S3TvfBroker", processedParams);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

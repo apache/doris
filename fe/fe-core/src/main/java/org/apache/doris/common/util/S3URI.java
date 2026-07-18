@@ -359,25 +359,14 @@ public class S3URI {
         if (bucketName == null || !bucketName.endsWith(S3_DIRECTORY_BUCKET_SUFFIX)) {
             return false;
         }
-        // Check if the bucket name has the correct format: bucket-name--azid--x-s3
-        // The bucket name should have at least 3 segments separated by "--"
-        String[] segments = bucketName.split("--");
-        if (segments.length < 3) {
+        String nameAndZone = bucketName.substring(
+                0, bucketName.length() - S3_DIRECTORY_BUCKET_SUFFIX.length());
+        int zoneSeparator = nameAndZone.lastIndexOf("--");
+        if (zoneSeparator <= 0 || zoneSeparator + 2 == nameAndZone.length()) {
             return false;
         }
-        // The last segment should be "x-s3"
-        if (!"x-s3".equals(segments[segments.length - 1])) {
-            return false;
-        }
-        // The second-to-last segment should be the availability zone identifier
-        // It should have a format like "usw2-az1", "use1-az4", etc.
-        String azid = segments[segments.length - 2];
-        if (azid == null || azid.isEmpty()) {
-            return false;
-        }
-        // Basic validation: azid should contain at least one hyphen and not be empty
-        // More sophisticated validation could be added here if needed
-        return azid.contains("-") && azid.length() > 3;
+        String zoneId = nameAndZone.substring(zoneSeparator + 2);
+        return zoneId.matches("[a-z0-9-]+-az[0-9]+");
     }
 
     /**

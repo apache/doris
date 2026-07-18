@@ -76,14 +76,13 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -95,11 +94,14 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     private static final Logger LOG = LogManager.getLogger(S3ObjStorage.class);
     private static final String DIRECTORY_BUCKET_SUFFIX = "--x-s3";
-    private static final Pattern DIRECTORY_BUCKET_PATTERN =
-            Pattern.compile("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--[a-z0-9-]+-az[0-9]+--x-s3$");
-    private static final Pattern AWS_S3_REGIONAL_ENDPOINT_PATTERN = Pattern.compile(
-            "^(?:https://)?s3\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?(?::443)?/?$",
-            Pattern.CASE_INSENSITIVE);
+    private static final Map<String, String> S3_EXPRESS_REGIONS = Map.of(
+            "use1", "us-east-1",
+            "use2", "us-east-2",
+            "usw2", "us-west-2",
+            "aps1", "ap-south-1",
+            "apne1", "ap-northeast-1",
+            "euw1", "eu-west-1",
+            "eun1", "eu-north-1");
 
     /** Validity period for pre-signed URLs and STS tokens (seconds). */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
@@ -109,9 +111,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     /** Bucket name; may be null if not provided (listObjectsWithPrefix and related methods will fail). */
     private final String bucket;
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final Map<String, S3Client> expressClients = new HashMap<>();
     private volatile S3Client client;
-    private volatile S3Client expressClient;
-    private volatile AwsCredentialsProvider credentialsProvider;
 
     public S3ObjStorage(S3FileSystemProperties properties) {
         this.s3Properties = properties;
@@ -156,14 +157,14 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return buildClient(
                 s3Properties.getEndpoint(),
                 s3Properties.getRegion(),
-                getCredentialsProvider(), false);
+                buildCredentialsProvider(), false);
     }
 
-    protected S3Client buildExpressClient() throws IOException {
+    protected S3Client buildExpressClient(String region) throws IOException {
         return buildClient(
-                s3Properties.getEndpoint(),
-                s3Properties.getRegion(),
-                getCredentialsProvider(), true);
+                "",
+                region,
+                buildCredentialsProvider(region), true);
     }
 
     private S3Client buildClient(String endpointStr, String region,
@@ -180,8 +181,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         .chunkedEncodingEnabled(false)
                         .pathStyleAccessEnabled(express ? false : usePathStyle)
                         .build());
-        if (s3Properties.isS3ExpressImportReadEnabled() && !s3Properties.isDirectoryBucketEndpoint()) {
-            builder.disableS3ExpressSessionAuth(!express);
+        if (express) {
+            builder.disableS3ExpressSessionAuth(false);
         }
 
         if (!express && StringUtils.isNotBlank(endpointStr)) {
@@ -209,60 +210,33 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return S3CredentialsProviderFactory.createClientProvider(s3Properties, this::buildStsClient);
     }
 
-    private AwsCredentialsProvider getCredentialsProvider() {
-        if (credentialsProvider == null) {
-            synchronized (this) {
-                if (credentialsProvider == null) {
-                    credentialsProvider = buildCredentialsProvider();
-                }
-            }
-        }
-        return credentialsProvider;
+    protected AwsCredentialsProvider buildCredentialsProvider(String region) {
+        return S3CredentialsProviderFactory.createClientProvider(
+                s3Properties, (sourceCredentials, ignoredUserRegion) ->
+                        buildStsClient(sourceCredentials, region));
     }
 
-    boolean usesS3ExpressRead(String requestBucket) throws IOException {
-        if (!s3Properties.isS3ExpressImportReadEnabled()
-                || requestBucket == null || !requestBucket.endsWith(DIRECTORY_BUCKET_SUFFIX)
-                || StringUtils.isBlank(s3Properties.getEndpoint())) {
-            return false;
-        }
-        Matcher endpoint = AWS_S3_REGIONAL_ENDPOINT_PATTERN.matcher(s3Properties.getEndpoint());
-        if (!endpoint.matches()) {
-            if (s3Properties.isDirectoryBucketEndpoint()) {
-                return false;
-            }
-            if (isAwsEndpoint(s3Properties.getEndpoint())) {
-                throw new IOException("AWS Directory Bucket requires a standard HTTPS regional S3 "
-                        + "endpoint; do not use s3express-control or a zonal endpoint");
-            }
-            return false;
-        }
-        if (!isDirectoryBucketName(requestBucket)) {
-            throw new IOException("Invalid AWS Directory Bucket name " + requestBucket
-                    + "; expected <bucket-base-name>--<zone-id>--x-s3");
-        }
-        if (!endpoint.group(1).equalsIgnoreCase(s3Properties.getRegion())) {
-            throw new IOException("AWS Directory Bucket endpoint region " + endpoint.group(1)
-                    + " does not match configured region " + s3Properties.getRegion());
-        }
-        if (usePathStyle) {
-            throw new IOException("Path-style addressing is not supported for AWS Directory Bucket");
-        }
-        return true;
+    boolean usesS3ExpressRead(String requestBucket) {
+        return s3Properties.isScopedAwsS3ExpressImport()
+                && getS3ExpressZoneId(requestBucket).isPresent();
     }
 
-    private S3Client getExpressClient() throws IOException {
+    private S3Client getExpressClient(String requestBucket) throws IOException {
         if (closed.get()) {
             throw new IOException("S3ObjStorage is already closed");
         }
-        if (expressClient == null) {
-            synchronized (this) {
-                if (expressClient == null) {
-                    expressClient = buildExpressClient();
-                }
+        String region = getS3ExpressRegion(requestBucket);
+        synchronized (expressClients) {
+            if (closed.get()) {
+                throw new IOException("S3ObjStorage is already closed");
             }
+            S3Client expressClient = expressClients.get(region);
+            if (expressClient == null) {
+                expressClient = buildExpressClient(region);
+                expressClients.put(region, expressClient);
+            }
+            return expressClient;
         }
-        return expressClient;
     }
 
     private AwsCredentialsProvider buildStsSourceCredentialsProvider() {
@@ -310,7 +284,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
         }
         try {
-            S3Client listClient = expressRead ? getExpressClient() : getClient();
+            S3Client listClient = expressRead ? getExpressClient(uri.bucket()) : getClient();
             ListObjectsV2Response response = listClient.listObjectsV2(builder.build());
             List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
                     .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
@@ -740,8 +714,50 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return key.substring(normalized.length());
     }
 
-    private static boolean isDirectoryBucketName(String bucketName) {
-        return bucketName != null && DIRECTORY_BUCKET_PATTERN.matcher(bucketName).matches();
+    private static Optional<String> getS3ExpressZoneId(String bucketName) {
+        if (bucketName == null || !bucketName.endsWith(DIRECTORY_BUCKET_SUFFIX)) {
+            return Optional.empty();
+        }
+        String nameAndZone = bucketName.substring(
+                0, bucketName.length() - DIRECTORY_BUCKET_SUFFIX.length());
+        int zoneSeparator = nameAndZone.lastIndexOf("--");
+        if (zoneSeparator <= 0 || zoneSeparator + 2 == nameAndZone.length()) {
+            return Optional.empty();
+        }
+        String zoneId = nameAndZone.substring(zoneSeparator + 2);
+        int azSeparator = zoneId.lastIndexOf("-az");
+        if (azSeparator <= 0 || azSeparator + 3 == zoneId.length()) {
+            return Optional.empty();
+        }
+        for (int i = 0; i < azSeparator; i++) {
+            char c = zoneId.charAt(i);
+            if (!(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-') {
+                return Optional.empty();
+            }
+        }
+        for (int i = azSeparator + 3; i < zoneId.length(); i++) {
+            char c = zoneId.charAt(i);
+            if (c < '0' || c > '9') {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(zoneId);
+    }
+
+    private String getS3ExpressRegion(String bucketName) throws IOException {
+        String zoneId = getS3ExpressZoneId(bucketName).orElseThrow(
+                () -> new IOException("Invalid AWS Directory Bucket name " + bucketName
+                        + "; expected <bucket-base-name>--<zone-id>--x-s3"));
+        String zonePrefix = zoneId.substring(0, zoneId.indexOf('-'));
+        String inferredRegion = S3_EXPRESS_REGIONS.get(zonePrefix);
+        if (inferredRegion != null) {
+            return inferredRegion;
+        }
+        if (StringUtils.isBlank(s3Properties.getRegion())) {
+            throw new IOException("Cannot infer AWS region from Directory Bucket zone " + zoneId
+                    + "; set s3.region for newly introduced AWS regions");
+        }
+        return s3Properties.getRegion();
     }
 
     private static String slashTerminatedPrefix(String key) {
@@ -752,19 +768,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return slash < 0 ? "" : key.substring(0, slash + 1);
     }
 
-    private static boolean isAwsEndpoint(String endpoint) {
-        int schemeSeparator = endpoint.indexOf("://");
-        URI uri = URI.create(schemeSeparator > 0 ? endpoint : "https://" + endpoint);
-        String host = uri.getHost();
-        if (host == null) {
-            return false;
-        }
-        host = host.toLowerCase(Locale.ROOT);
-        return host.endsWith(".amazonaws.com")
-                || host.endsWith(".amazonaws.com.cn")
-                || host.endsWith(".api.aws");
-    }
-
     @Override
     public void close() throws IOException {
         if (closed.compareAndSet(false, true)) {
@@ -772,9 +775,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 client.close();
                 client = null;
             }
-            if (expressClient != null) {
-                expressClient.close();
-                expressClient = null;
+            synchronized (expressClients) {
+                for (S3Client expressClient : expressClients.values()) {
+                    expressClient.close();
+                }
+                expressClients.clear();
             }
         }
     }
