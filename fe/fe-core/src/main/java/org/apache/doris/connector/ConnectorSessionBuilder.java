@@ -21,8 +21,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.api.ConnectorDelegatedCredential;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -56,6 +58,9 @@ public final class ConnectorSessionBuilder {
     // over the ConnectContext extraction.
     private String sessionId;
     private ConnectorDelegatedCredential delegatedCredential;
+    // Explicit per-statement scope override for tests without a live ConnectContext; when set it wins over
+    // the ConnectContext capture in build().
+    private ConnectorStatementScope statementScope;
 
     private ConnectorSessionBuilder() {}
 
@@ -139,6 +144,16 @@ public final class ConnectorSessionBuilder {
         return this;
     }
 
+    /**
+     * Sets the per-statement scope explicitly (for callers without a live {@link ConnectContext}, e.g. tests
+     * that want to inject a memoizing scope). When unset, {@link #build()} captures it from the originating
+     * {@link ConnectContext}'s statement context, or falls back to {@link ConnectorStatementScope#NONE}.
+     */
+    public ConnectorSessionBuilder withStatementScope(ConnectorStatementScope statementScope) {
+        this.statementScope = statementScope;
+        return this;
+    }
+
     /** Builds an immutable {@link ConnectorSession} instance. */
     public ConnectorSession build() {
         String sid = null;
@@ -159,7 +174,32 @@ public final class ConnectorSessionBuilder {
             }
         }
         return new ConnectorSessionImpl(queryId, user, timeZone, locale,
-                catalogId, catalogName, catalogProperties, sessionProperties, sid, cred);
+                catalogId, catalogName, catalogProperties, sessionProperties, sid, cred,
+                captureStatementScope());
+    }
+
+    /**
+     * Captures the per-statement scope at build time (the request thread). An explicit test override wins;
+     * otherwise read it off the originating {@link ConnectContext}'s statement context (preferring the
+     * retained context from {@link #from} over the thread-local, so a session built off the request thread
+     * still captures correctly). Two-level null (no context / no statement context) yields
+     * {@link ConnectorStatementScope#NONE} -- mirrors {@code MvccUtil.getSnapshotFromContext}. Capturing the
+     * reference here (not reading it live) lets off-thread scan pumps that reuse this one session reach the
+     * same scope even though they have no ConnectContext thread-local.
+     */
+    private ConnectorStatementScope captureStatementScope() {
+        if (statementScope != null) {
+            return statementScope;
+        }
+        ConnectContext ctx = connectContext != null ? connectContext : ConnectContext.get();
+        if (ctx == null) {
+            return ConnectorStatementScope.NONE;
+        }
+        StatementContext sc = ctx.getStatementContext();
+        if (sc == null) {
+            return ConnectorStatementScope.NONE;
+        }
+        return sc.getOrCreateConnectorStatementScope();
     }
 
     /**
