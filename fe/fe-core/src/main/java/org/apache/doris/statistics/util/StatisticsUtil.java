@@ -605,9 +605,17 @@ public class StatisticsUtil {
         try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
             for (FileScanTask task : fileScanTasks) {
                 int colId = getColId(task.spec(), colName);
-                totalDataSize += task.file().columnSizes().get(colId);
+                Map<Integer, Long> columnSizes = task.file().columnSizes();
+                Map<Integer, Long> nullValueCounts = task.file().nullValueCounts();
+                Long columnSize = columnSizes == null ? null : columnSizes.get(colId);
+                Long nullValueCount = nullValueCounts == null ? null : nullValueCounts.get(colId);
+                // Iceberg can omit maps or entries for mode=none; partial aggregation would fabricate zero stats.
+                if (columnSize == null || nullValueCount == null) {
+                    return Optional.empty();
+                }
+                totalDataSize += columnSize;
                 totalDataCount += task.file().recordCount();
-                totalNumNull += task.file().nullValueCounts().get(colId);
+                totalNumNull += nullValueCount;
             }
         } catch (IOException e) {
             LOG.warn("Error to close FileScanTask.", e);

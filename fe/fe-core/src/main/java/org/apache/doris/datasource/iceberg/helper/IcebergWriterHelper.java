@@ -65,6 +65,8 @@ public class IcebergWriterHelper {
         // Get table specification information
         PartitionSpec spec = table.spec();
         FileFormat fileFormat = IcebergUtils.getFileFormat(table);
+        MetricsConfig metricsConfig = MetricsConfig.forTable(table);
+        Schema schema = table.schema();
 
         for (TIcebergCommitData commitData : commitDataList) {
             //get the files path
@@ -74,7 +76,7 @@ public class IcebergWriterHelper {
             long fileSize = commitData.getFileSize();
             long recordCount = commitData.getRowCount();
             CommonStatistics stat = new CommonStatistics(recordCount, DEFAULT_FILE_COUNT, fileSize);
-            Metrics metrics = buildDataFileMetrics(table, commitData);
+            Metrics metrics = buildDataFileMetrics(commitData, schema, metricsConfig);
             Optional<PartitionData> partitionData = Optional.empty();
             //get and check partitionValues when table is partitionedTable
             if (spec.isPartitioned()) {
@@ -157,7 +159,8 @@ public class IcebergWriterHelper {
         return partitionData;
     }
 
-    private static Metrics buildDataFileMetrics(Table table, TIcebergCommitData commitData) {
+    private static Metrics buildDataFileMetrics(
+            TIcebergCommitData commitData, Schema schema, MetricsConfig metricsConfig) {
         Map<Integer, Long> columnSizes = new HashMap<>();
         Map<Integer, Long> valueCounts = new HashMap<>();
         Map<Integer, Long> nullValueCounts = new HashMap<>();
@@ -182,8 +185,6 @@ public class IcebergWriterHelper {
             }
         }
 
-        MetricsConfig metricsConfig = MetricsConfig.forTable(table);
-        Schema schema = table.schema();
         // Physical file stats may contain every column, but manifest metrics must honor the table's metadata policy.
         return new Metrics(commitData.getRowCount(),
                 filterDisabledMetrics(columnSizes, schema, metricsConfig),

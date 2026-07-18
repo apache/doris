@@ -101,6 +101,32 @@ public class IcebergWriterHelperTest {
     }
 
     @Test
+    public void testConvertToWriterResultBuildsMetricsPolicyOncePerBatch() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(Map.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none"));
+
+        TIcebergCommitData firstCommit = new TIcebergCommitData();
+        firstCommit.setFilePath("/path/to/first.parquet");
+        firstCommit.setRowCount(10);
+        firstCommit.setFileSize(1024);
+
+        TIcebergCommitData secondCommit = new TIcebergCommitData();
+        secondCommit.setFilePath("/path/to/second.parquet");
+        secondCommit.setRowCount(20);
+        secondCommit.setFileSize(2048);
+
+        IcebergWriterHelper.convertToWriterResult(table, List.of(firstCommit, secondCommit));
+
+        // One schema lookup is made by Iceberg's policy builder and one is captured for all files in the batch.
+        Mockito.verify(table, Mockito.times(2)).schema();
+    }
+
+    @Test
     public void testConvertToDeleteFiles_EmptyList() {
         List<TIcebergCommitData> commitDataList = new ArrayList<>();
         List<DeleteFile> deleteFiles = IcebergWriterHelper.convertToDeleteFiles(
