@@ -95,6 +95,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -497,9 +498,32 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         long sliceSize = fileSplitSize > 0 ? fileSplitSize
                 : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
-        CloseableIterable<FileScanTask> tasks = TableScanUtil.splitFiles(scan.planFiles(), sliceSize);
+        CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(scan, session, table, filter, sliceSize);
         return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
                 orderedPartitionKeys, zone, vendedToken, sliceSize, iceHandle.getRewriteFileScope());
+    }
+
+    /**
+     * The streaming source's whole-file enumeration, byte-offset-split at {@code sliceSize}. PERF-04 (C17): when
+     * the manifest cache is enabled, read manifests THROUGH THE CACHE via the lazy {@link #cacheBackedFileScanTasks}
+     * (no-stats overload — Phase 2 iterates on the engine pump thread, see there) so a big streaming scan finally
+     * hits the cache while staying lazy (OOM-safe). An eager Phase-1 cache failure records it and falls back to the
+     * SDK {@code planFiles()} path (mirrors {@link #planFileScanTask}); a later lazy failure surfaces through the
+     * streaming source's {@code hasNext}. Cache disabled -> the SDK path, byte-unchanged.
+     */
+    private CloseableIterable<FileScanTask> streamingFileScanTasks(TableScan scan, ConnectorSession session,
+            Table table, Optional<ConnectorExpression> filter, long sliceSize) {
+        if (isManifestCacheEnabled()) {
+            try {
+                return TableScanUtil.splitFiles(
+                        cacheBackedFileScanTasks(scan, session, table, filter, null), sliceSize);
+            } catch (Exception e) {
+                LOG.warn("Iceberg streaming plan with manifest cache failed, falling back to SDK scan: {}",
+                        e.getMessage(), e);
+                manifestCache.recordFailure(session.getQueryId());
+            }
+        }
+        return TableScanUtil.splitFiles(scan.planFiles(), sliceSize);
     }
 
     /**
@@ -632,7 +656,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             long realCount = getCountFromSnapshot(scan, session);
             if (realCount >= 0) {
                 return planCountPushdown(table, scan, realCount, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, vendedToken);
+                        orderedPartitionKeys, zone, vendedToken, session, filter);
             }
         }
 
@@ -1127,8 +1151,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private List<ConnectorScanRange> planCountPushdown(Table table, TableScan scan, long realCount,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            Map<String, String> vendedToken) {
-        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            Map<String, String> vendedToken, ConnectorSession session, Optional<ConnectorExpression> filter) {
+        try (CloseableIterable<FileScanTask> tasks = countPushdownFileScanTasks(scan, session, table, filter)) {
             for (FileScanTask task : tasks) {
                 // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling
                 // weight is irrelevant → PluginDrivenSplit keeps SplitWeight.standard().
@@ -1140,6 +1164,31 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     + e.getMessage(), e);
         }
         return Collections.emptyList();
+    }
+
+    /**
+     * The COUNT(*)-pushdown placeholder enumeration: only the FIRST surviving file is consumed (BE serves the
+     * count from {@code table_level_row_count} and never reads the file). PERF-04 (C18): when the manifest cache is
+     * enabled, read through the lazy {@link #cacheBackedFileScanTasks} (stats overload — this runs on the single
+     * planning thread) so the manifest reads are cache hits and, being lazy, stop at the first file's manifest
+     * instead of the SDK {@code planFiles()}'s {@code ParallelIterable} eagerly submitting every manifest reader.
+     * An eager cache failure falls back to the SDK path (mirrors {@link #planFileScanTask}). The first surviving
+     * (pruned) file may differ from the SDK path's first file (its {@code ParallelIterable} order is
+     * non-deterministic), but the count is identical (from the snapshot summary) and BE ignores the file. Cache
+     * disabled -> the SDK path, byte-unchanged.
+     */
+    private CloseableIterable<FileScanTask> countPushdownFileScanTasks(TableScan scan, ConnectorSession session,
+            Table table, Optional<ConnectorExpression> filter) {
+        if (isManifestCacheEnabled()) {
+            try {
+                return cacheBackedFileScanTasks(scan, session, table, filter, session.getQueryId());
+            } catch (Exception e) {
+                LOG.warn("Iceberg count-pushdown plan with manifest cache failed, falling back to SDK scan: {}",
+                        e.getMessage(), e);
+                manifestCache.recordFailure(session.getQueryId());
+            }
+        }
+        return scan.planFiles();
     }
 
     /**
@@ -1811,24 +1860,62 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Manifest-level planning that consumes {@link IcebergManifestCache}, ported faithfully from legacy
-     * {@code IcebergScanNode.planFileScanTaskWithManifestCache}. It reconstructs iceberg's own planning:
-     * partition-prune manifests with a {@link ManifestEvaluator}, read each surviving manifest's data/delete
-     * files THROUGH THE CACHE, then per data file apply the {@link InclusiveMetricsEvaluator} (file-stats
-     * pruning) + {@link ResidualEvaluator} (partition residual) and attach its deletes via a
-     * {@link DeleteFileIndex}. The resulting {@link FileScanTask}s are byte-offset-split exactly like
-     * {@link #splitFiles}, so the downstream {@code buildRange} (T03-T07) is unchanged. The predicate /
-     * metrics / schema use the table's CURRENT schema (legacy parity).
+     * Synchronous (below-batch-threshold) manifest-cache planning: materialize the shared lazy
+     * {@link #cacheBackedFileScanTasks} enumeration into a list, because {@link #determineTargetFileSplitSize}
+     * (the per-table heuristic that gives small tables good BE parallelism) needs the whole task list. Byte
+     * identical to the pre-PERF-04 body; the streaming ({@link #streamSplits}) and COUNT(*)
+     * ({@link #planCountPushdown}) paths consume the same enumeration LAZILY instead (bounded FE heap). Uses the
+     * stats-tallying cache overload — this path runs on the single planning thread. The predicate / metrics /
+     * schema use the table's CURRENT schema (legacy parity).
      */
     private SplitPlan planFileScanTaskWithManifestCache(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter) throws IOException {
+        // Null-safe queryId (offline tests pass a null session): a null id selects the no-stats cache overload,
+        // matching the pre-PERF-04 body, which read scan.snapshot() and returned early for an empty table BEFORE
+        // ever calling session.getQueryId().
+        String statsQueryId = session != null ? session.getQueryId() : null;
+        List<FileScanTask> tasks = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> whole =
+                cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId)) {
+            for (FileScanTask task : whole) {
+                tasks.add(task);
+            }
+        }
+        long targetSplitSize = determineTargetFileSplitSize(tasks, session);
+        return new SplitPlan(
+                TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize), targetSplitSize);
+    }
+
+    /**
+     * PERF-04: the lazy, cache-backed {@link FileScanTask} enumeration shared by the synchronous
+     * ({@link #planFileScanTaskWithManifestCache}), streaming ({@link #streamSplits}), and COUNT(*)
+     * ({@link #planCountPushdown}) paths whenever {@link #isManifestCacheEnabled()}. Ported faithfully from legacy
+     * {@code IcebergScanNode.planFileScanTaskWithManifestCache}: partition-prune manifests with a
+     * {@link ManifestEvaluator}, read each surviving manifest's data/delete files THROUGH THE CACHE, then per data
+     * file apply the {@link InclusiveMetricsEvaluator} (file-stats prune) + {@link ResidualEvaluator} (partition
+     * residual) and attach its deletes via a {@link DeleteFileIndex}. Produces WHOLE-FILE
+     * {@link BaseFileScanTask}s (callers byte-offset-split via {@link TableScanUtil#splitFiles}).
+     *
+     * <p><b>Phase 1 is eager</b> (delete-manifest reads + {@link DeleteFileIndex} build): a data file's deletes
+     * need the full index before any data task can be produced, and running it here (on the caller's thread) lets
+     * the streaming/count callers catch a cache failure and fall back to the SDK path. Bounded like the SDK
+     * {@code planFiles()} (which also reads all delete manifests up front); delete manifests are far fewer than
+     * data manifests. <b>Phase 2 is lazy</b>: the returned iterable's iterator flat-maps the matching data
+     * manifests, yielding one surviving task at a time WITHOUT materializing the list, so a million-file streaming
+     * scan keeps FE heap bounded (peak = the delete index + one manifest's files + the split queue).
+     *
+     * <p>{@code statsQueryId} is nullable: a non-null id tallies cache hits/misses under that query (the
+     * single-threaded synchronous + COUNT paths); {@code null} selects the no-stats overload for the STREAMING
+     * path, whose Phase 2 runs on the engine pump thread while Phase 1 ran on the calling thread — tallying the
+     * per-query {@code ScanStats} counters from two threads would race (the cache documents them as
+     * single-thread-per-query), and streaming reports no manifest-cache stats today anyway.
+     */
+    private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
+            ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId) {
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
-            return new SplitPlan(CloseableIterable.withNoopClose(Collections.emptyList()), -1);
+            return CloseableIterable.withNoopClose(Collections.emptyList());
         }
-        // Stable per-statement key so VERBOSE EXPLAIN (rendered on a different, transient provider instance) can
-        // report THIS scan's manifest-cache hits/misses via the shared per-catalog cache.
-        String queryId = session.getQueryId();
         Expression filterExpr = combineFilter(filter, table, session);
         Map<Integer, PartitionSpec> specsById = table.specs();
         boolean caseSensitive = true;
@@ -1838,8 +1925,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 ResidualEvaluator.of(spec, filterExpr, caseSensitive)));
         InclusiveMetricsEvaluator metricsEvaluator =
                 new InclusiveMetricsEvaluator(table.schema(), filterExpr, caseSensitive);
+        String schemaJson = SchemaParser.toJson(table.schema());
 
-        // Phase 1: partition-prune + cache-load delete manifests into a flat delete-file list.
+        // Phase 1 (eager): partition-prune + cache-load delete manifests into the delete-file index.
         List<DeleteFile> deleteFiles = new ArrayList<>();
         for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
             if (manifest.content() != ManifestContent.DELETES) {
@@ -1852,50 +1940,131 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
                 continue;
             }
-            deleteFiles.addAll(manifestCache.getManifestCacheValue(manifest, table, queryId).getDeleteFiles());
+            deleteFiles.addAll(manifestCacheGet(manifest, table, statsQueryId).getDeleteFiles());
         }
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
                 .specsById(specsById)
                 .caseSensitive(caseSensitive)
                 .build();
 
-        // Phase 2: partition-prune + cache-load data manifests, then file-level prune + attach deletes.
-        List<FileScanTask> tasks = new ArrayList<>();
-        try (CloseableIterable<ManifestFile> dataManifests =
-                getMatchingManifest(snapshot.dataManifests(table.io()), specsById, filterExpr)) {
-            for (ManifestFile manifest : dataManifests) {
-                if (manifest.content() != ManifestContent.DATA) {
-                    continue;
-                }
-                PartitionSpec spec = specsById.get(manifest.partitionSpecId());
-                if (spec == null) {
-                    continue;
-                }
-                ResidualEvaluator residualEvaluator = residualEvaluators.get(manifest.partitionSpecId());
-                if (residualEvaluator == null) {
-                    continue;
-                }
-                ManifestCacheValue value = manifestCache.getManifestCacheValue(manifest, table, queryId);
-                for (DataFile dataFile : value.getDataFiles()) {
+        // Phase 2 (lazy): flat-map the matching data manifests, read through the cache on demand.
+        CloseableIterable<ManifestFile> dataManifests =
+                getMatchingManifest(snapshot.dataManifests(table.io()), specsById, filterExpr);
+        return new CloseableIterable<FileScanTask>() {
+            @Override
+            public CloseableIterator<FileScanTask> iterator() {
+                return new ManifestCacheFileScanTaskIterator(dataManifests.iterator(), table, specsById,
+                        residualEvaluators, metricsEvaluator, deleteIndex, schemaJson, statsQueryId);
+            }
+
+            @Override
+            public void close() throws IOException {
+                dataManifests.close();
+            }
+        };
+    }
+
+    /** Dispatch a manifest read to the stats-tallying or no-stats cache overload (see cacheBackedFileScanTasks). */
+    private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table, String statsQueryId) {
+        return statsQueryId != null
+                ? manifestCache.getManifestCacheValue(manifest, table, statsQueryId)
+                : manifestCache.getManifestCacheValue(manifest, table);
+    }
+
+    /**
+     * Lazy flat-map iterator behind {@link #cacheBackedFileScanTasks}: walks the matching data manifests, reads
+     * each through the manifest cache on demand, and yields the surviving (metrics + residual pruned)
+     * {@link BaseFileScanTask}s one file at a time so the consumer never holds the whole table's task list. Not
+     * thread-safe: single-pass, driven by ONE consumer (the sync materialize loop, the streaming pump, or the
+     * COUNT take-first). {@code schemaJson}/{@code currentSpecJson} are hoisted loop invariants (constant per
+     * table / per manifest spec), byte-identical to the pre-PERF-04 per-file computation.
+     */
+    private final class ManifestCacheFileScanTaskIterator implements CloseableIterator<FileScanTask> {
+        private final CloseableIterator<ManifestFile> manifestIt;
+        private final Table table;
+        private final Map<Integer, PartitionSpec> specsById;
+        private final Map<Integer, ResidualEvaluator> residualEvaluators;
+        private final InclusiveMetricsEvaluator metricsEvaluator;
+        private final DeleteFileIndex deleteIndex;
+        private final String schemaJson;
+        private final String statsQueryId;
+
+        private Iterator<DataFile> dataFileIt;
+        private ResidualEvaluator currentResidual;
+        private String currentSpecJson;
+        private FileScanTask next;
+
+        ManifestCacheFileScanTaskIterator(CloseableIterator<ManifestFile> manifestIt, Table table,
+                Map<Integer, PartitionSpec> specsById, Map<Integer, ResidualEvaluator> residualEvaluators,
+                InclusiveMetricsEvaluator metricsEvaluator, DeleteFileIndex deleteIndex, String schemaJson,
+                String statsQueryId) {
+            this.manifestIt = manifestIt;
+            this.table = table;
+            this.specsById = specsById;
+            this.residualEvaluators = residualEvaluators;
+            this.metricsEvaluator = metricsEvaluator;
+            this.deleteIndex = deleteIndex;
+            this.schemaJson = schemaJson;
+            this.statsQueryId = statsQueryId;
+        }
+
+        @Override
+        public boolean hasNext() {
+            advance();
+            return next != null;
+        }
+
+        @Override
+        public FileScanTask next() {
+            advance();
+            if (next == null) {
+                throw new NoSuchElementException();
+            }
+            FileScanTask result = next;
+            next = null;
+            return result;
+        }
+
+        // Fill `next` with the next surviving task, draining the current data manifest's files and advancing to
+        // further data manifests as needed. Per-file logic mirrors the pre-PERF-04 materialized Phase 2 exactly.
+        private void advance() {
+            while (next == null) {
+                if (dataFileIt != null && dataFileIt.hasNext()) {
+                    DataFile dataFile = dataFileIt.next();
                     if (!metricsEvaluator.eval(dataFile)) {
                         continue;
                     }
-                    if (residualEvaluator.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
+                    if (currentResidual.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
                         continue;
                     }
                     DeleteFile[] deletes = deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile);
-                    tasks.add(new BaseFileScanTask(
-                            dataFile,
-                            deletes,
-                            SchemaParser.toJson(table.schema()),
-                            PartitionSpecParser.toJson(spec),
-                            residualEvaluator));
+                    next = new BaseFileScanTask(dataFile, deletes, schemaJson, currentSpecJson, currentResidual);
+                    return;
                 }
+                if (!manifestIt.hasNext()) {
+                    return;
+                }
+                ManifestFile manifest = manifestIt.next();
+                if (manifest.content() != ManifestContent.DATA) {
+                    dataFileIt = null;
+                    continue;
+                }
+                PartitionSpec spec = specsById.get(manifest.partitionSpecId());
+                ResidualEvaluator residual = residualEvaluators.get(manifest.partitionSpecId());
+                if (spec == null || residual == null) {
+                    dataFileIt = null;
+                    continue;
+                }
+                currentResidual = residual;
+                currentSpecJson = PartitionSpecParser.toJson(spec);
+                dataFileIt = manifestCacheGet(manifest, table, statsQueryId).getDataFiles().iterator();
             }
         }
-        long targetSplitSize = determineTargetFileSplitSize(tasks, session);
-        return new SplitPlan(
-                TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize), targetSplitSize);
+
+        @Override
+        public void close() throws IOException {
+            manifestIt.close();
+        }
     }
 
     /**

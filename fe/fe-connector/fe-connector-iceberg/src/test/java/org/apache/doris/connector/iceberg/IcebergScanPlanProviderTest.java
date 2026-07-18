@@ -2008,6 +2008,120 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(manifest.get(0).getPath().get().endsWith("p1.parquet"));
     }
 
+    // --- PERF-04: streaming (C17) + COUNT(*) (C18) paths read through the manifest cache, LAZILY ---
+    // (fallback-to-SDK on a cache-read failure is not unit-tested: IcebergManifestCache is final so it cannot be
+    //  made to throw, exactly as the pre-existing synchronous planFileScanTask fallback is untested; the streaming/
+    //  count catch(Exception)+recordFailure mirrors that path verbatim.)
+
+    @Test
+    public void streamSplitsManifestCacheEnabledMatchesSdkPathAndConsumesCache() throws IOException {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/a.parquet", 100, null, null))
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/b.parquet", 200, null, null))
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/c.parquet", 300, null, null))
+                .commit();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        // Cache OFF: the streaming SDK planFiles() path (the pre-PERF-04 behavior).
+        List<ConnectorScanRange> sdk = drain(new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
+                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+        // Cache ON: streaming must now read manifests THROUGH the cache and yield the SAME files (PERF-04 C17).
+        // MUTATION: streaming still bypasses the cache (scan.planFiles()) -> cache stays empty -> red.
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
+                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+
+        Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
+        Assertions.assertEquals(3, cached.size());
+        Assertions.assertTrue(cache.size() > 0, "the streaming path must populate the manifest cache");
+    }
+
+    @Test
+    public void streamSplitsManifestCachePrunesPartitionLikeSdk() throws IOException {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "/d/p1.parquet", 100, null, "p=1"))
+                .appendFile(dataFile(spec, "/d/p2.parquet", 100, null, "p=2"))
+                .commit();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "pt");
+        Optional<ConnectorExpression> wherePeq1 = Optional.of(eqInt("p", 1));
+
+        List<ConnectorScanRange> sdk = drain(new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
+                .streamSplits(emptySession(), handle, Collections.emptyList(), wherePeq1, -1L));
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
+                .streamSplits(emptySession(), handle, Collections.emptyList(), wherePeq1, -1L));
+
+        // Partition prune (ManifestEvaluator + residual) keeps only p=1 in BOTH paths. MUTATION: the lazy iterator
+        // dropping the residual/metrics prune -> p=2 leaks in -> sizes differ -> red.
+        Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
+        Assertions.assertEquals(1, cached.size());
+        Assertions.assertTrue(cached.get(0).getPath().get().endsWith("p1.parquet"));
+    }
+
+    @Test
+    public void streamSplitsManifestCacheFlatMapsAcrossDataManifests() throws IOException {
+        // Three separate appends -> three data manifests. The lazy flat-map iterator must walk ALL of them (not
+        // just the first) and yield every file. MUTATION: advance() not advancing past the first manifest -> < 3.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/a.parquet", 100, null, null))
+                .commit();
+        table.newAppend().appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/b.parquet", 200, null, null))
+                .commit();
+        table.newAppend().appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/c.parquet", 300, null, null))
+                .commit();
+        Assertions.assertTrue(table.currentSnapshot().dataManifests(table.io()).size() >= 2,
+                "precondition: multiple data manifests");
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
+                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+        Assertions.assertEquals(3, cached.size(), "the lazy iterator must flat-map across all data manifests");
+    }
+
+    @Test
+    public void countPushdownManifestCacheMatchesCountAndReadsLazily() {
+        // Three appends -> three data manifests; record counts 10+20+30 = total-records 60 (snapshot summary).
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null)).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f3.parquet", 3072, null, null)).commit();
+        int totalManifests = table.currentSnapshot().dataManifests(table.io()).size();
+        Assertions.assertTrue(totalManifests >= 2, "precondition: multiple data manifests");
+
+        List<ConnectorScanRange> sdk = planCount(
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table)), null, true);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = planCount(manifestProvider(manifestCacheProps(), table, cache),
+                emptySession(), true);
+
+        // Same collapsed single range + same count (from the snapshot summary). The placeholder file path may
+        // differ (SDK planFiles' ParallelIterable order is non-deterministic), so assert count + shape, not path.
+        Assertions.assertEquals(1, sdk.size());
+        Assertions.assertEquals(1, cached.size());
+        Assertions.assertEquals(60L, cached.get(0).getPushDownRowCount());
+        Assertions.assertEquals(sdk.get(0).getPushDownRowCount(), cached.get(0).getPushDownRowCount());
+        // Lazy early stop: COUNT needs only the first surviving file, so it must NOT read every data manifest.
+        // MUTATION: routing count through the materialized cache path -> reads all manifests -> size == total -> red.
+        Assertions.assertTrue(cache.size() >= 1 && cache.size() < totalManifests,
+                "count reads lazily (stops at the first file's manifest), not the whole table");
+    }
+
+    @Test
+    public void countPushdownManifestCacheEmptyNullSnapshotReturnsNoRanges() {
+        // A never-appended table has no current snapshot; getCountFromSnapshot returns 0 (>=0) so planCountPushdown
+        // runs with a null-snapshot scan. cacheBackedFileScanTasks must keep the null-snapshot guard (empty
+        // iterable), not NPE. MUTATION: dropping the guard -> NPE on scan.snapshot() -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = planCount(manifestProvider(manifestCacheProps(), table, cache),
+                emptySession(), true);
+        Assertions.assertTrue(cached.isEmpty(), "empty (null-snapshot) count with cache enabled yields no ranges");
+    }
+
     @Test
     public void planScanManifestCacheEmptyTableReturnsNoRanges() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
