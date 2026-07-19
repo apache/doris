@@ -169,6 +169,29 @@ public class LoadCommandTest extends TestWithFeService {
         Assertions.assertEquals("", backendProperties.get("AWS_ENDPOINT"));
         Assertions.assertEquals("", backendProperties.get("AWS_REGION"));
 
+        String missingProviderSql = loadSql.replace(
+                "     \"s3.provider\" = \"AWS\", ", "");
+        IllegalArgumentException providerException = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> new NereidsParser().parseMultiple(missingProviderSql));
+        Assertions.assertTrue(providerException.getMessage().contains(
+                "S3 Express directory buckets require \"s3.provider\" = \"AWS\""));
+
+        String malformedBucketSql = loadSql.replace(
+                "analytics--usw2-az1--x-s3", "analytics--usw2-azx--x-s3");
+        IllegalArgumentException bucketException = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> new NereidsParser().parseMultiple(malformedBucketSql));
+        Assertions.assertTrue(bucketException.getMessage().contains(
+                "Invalid S3 Express directory bucket name"));
+
+        String brokerScopeSql = loadSql.replace("WITH S3(", "WITH BROKER \"broker0\" (");
+        IllegalArgumentException scopeException = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> new NereidsParser().parseMultiple(brokerScopeSql));
+        Assertions.assertTrue(scopeException.getMessage().contains(
+                "S3 Express reads are supported only by"));
+
         String ordinaryBucketSql = loadSql.replace(
                 "analytics--usw2-az1--x-s3", "ordinary-bucket");
         Assertions.assertThrows(IllegalArgumentException.class,

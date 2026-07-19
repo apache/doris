@@ -296,9 +296,26 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     .collect(Collectors.toList());
             return new RemoteObjects(objects, response.isTruncated(),
                     response.nextContinuationToken());
+        } catch (S3Exception e) {
+            if (expressRead) {
+                throw new IOException("Create S3 Express session or list directory bucket failed for "
+                        + remotePath + ": " + formatS3Exception(e), e);
+            }
+            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
         } catch (SdkException e) {
+            if (expressRead) {
+                throw new IOException("Create S3 Express session or list directory bucket failed for "
+                        + remotePath + ": " + e.getMessage(), e);
+            }
             throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
         }
+    }
+
+    private static String formatS3Exception(S3Exception exception) {
+        return "HTTP status=" + exception.statusCode()
+                + ", AWS error code=" + exception.awsErrorDetails().errorCode()
+                + ", message=" + exception.awsErrorDetails().errorMessage()
+                + ", request ID=" + exception.requestId();
     }
 
     /**

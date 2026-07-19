@@ -32,6 +32,8 @@ import org.mockito.Mockito;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
+import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -212,6 +214,85 @@ class S3ObjStorageMockTest {
         Mockito.verify(expressClient).listObjectsV2(captor.capture());
         Assertions.assertNull(captor.getValue().prefix());
         Mockito.verifyNoInteractions(regularClient);
+    }
+
+    @Test
+    void listObjects_directoryBucketS3ExceptionPreservesServiceErrorDetails() {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        S3ObjStorage expressStorage = directoryBucketStorage(
+                "", "us-west-2", false, regularClient, expressClient);
+        S3Exception failure = (S3Exception) S3Exception.builder()
+                .statusCode(403)
+                .requestId("request-123")
+                .awsErrorDetails(AwsErrorDetails.builder()
+                        .serviceName("S3")
+                        .errorCode("AccessDenied")
+                        .errorMessage("CreateSession is not allowed")
+                        .build())
+                .message("CreateSession is not allowed")
+                .build();
+        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenThrow(failure);
+
+        IOException exception = Assertions.assertThrows(IOException.class,
+                () -> expressStorage.listObjects(
+                        "s3://" + DIRECTORY_BUCKET + "/data/file.parquet", null));
+
+        Assertions.assertAll(
+                () -> Assertions.assertTrue(exception.getMessage().contains(
+                        "Create S3 Express session or list directory bucket failed")),
+                () -> Assertions.assertTrue(exception.getMessage().contains("HTTP status=403")),
+                () -> Assertions.assertTrue(exception.getMessage().contains("AWS error code=AccessDenied")),
+                () -> Assertions.assertTrue(exception.getMessage().contains(
+                        "message=CreateSession is not allowed")),
+                () -> Assertions.assertTrue(exception.getMessage().contains("request ID=request-123")),
+                () -> Assertions.assertSame(failure, exception.getCause()));
+        Mockito.verifyNoInteractions(regularClient);
+    }
+
+    @Test
+    void listObjects_directoryBucketSdkExceptionUsesCombinedOperationContext() {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        S3ObjStorage expressStorage = directoryBucketStorage(
+                "", "us-west-2", false, regularClient, expressClient);
+        SdkException failure = SdkException.builder().message("network down").build();
+        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenThrow(failure);
+
+        IOException exception = Assertions.assertThrows(IOException.class,
+                () -> expressStorage.listObjects(
+                        "s3://" + DIRECTORY_BUCKET + "/data/file.parquet", null));
+
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Create S3 Express session or list directory bucket failed"));
+        Assertions.assertTrue(exception.getMessage().contains("network down"));
+        Assertions.assertSame(failure, exception.getCause());
+        Mockito.verifyNoInteractions(regularClient);
+    }
+
+    @Test
+    void listObjects_regularBucketKeepsExistingS3ExceptionContext() {
+        S3Exception failure = (S3Exception) S3Exception.builder()
+                .statusCode(403)
+                .requestId("request-ordinary")
+                .awsErrorDetails(AwsErrorDetails.builder()
+                        .serviceName("S3")
+                        .errorCode("AccessDenied")
+                        .errorMessage("Forbidden")
+                        .build())
+                .message("Forbidden")
+                .build();
+        Mockito.when(mockS3.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenThrow(failure);
+
+        IOException exception = Assertions.assertThrows(IOException.class,
+                () -> storage.listObjects("s3://my-bucket/data/file.parquet", null));
+
+        Assertions.assertTrue(exception.getMessage().startsWith("Failed to list objects at"));
+        Assertions.assertFalse(exception.getMessage().contains("S3 Express"));
+        Assertions.assertSame(failure, exception.getCause());
     }
 
     @Test

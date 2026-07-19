@@ -138,11 +138,10 @@ public class ExternalFileTableValuedFunctionTest {
             properties.put("s3.region", "us-west-2");
             properties.put("format", "csv");
 
-            S3TableValuedFunction directTvf = new S3TableValuedFunction(properties);
-            Assert.assertFalse(directTvf.getBackendConnectProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertFalse(directTvf.getBrokerDesc().getBackendConfigProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            IllegalArgumentException directException = Assert.assertThrows(
+                    IllegalArgumentException.class, () -> new S3TableValuedFunction(properties));
+            Assert.assertTrue(directException.getMessage().contains(
+                    "S3 Express reads are supported only by"));
 
             ConnectContext context = new ConnectContext();
             StatementContext statementContext = new StatementContext(
@@ -150,10 +149,11 @@ public class ExternalFileTableValuedFunctionTest {
             context.setStatementContext(statementContext);
             context.setThreadLocalInfo();
 
-            S3TableValuedFunction unmarkedTvf = (S3TableValuedFunction) new S3(new Properties(properties))
-                    .getCatalogFunction();
-            Assert.assertFalse(unmarkedTvf.getBackendConnectProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            org.apache.doris.nereids.exceptions.AnalysisException unmarkedException = Assert.assertThrows(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new S3(new Properties(properties)).getCatalogFunction());
+            Assert.assertTrue(unmarkedException.getMessage().contains(
+                    "S3 Express reads are supported only by"));
 
             statementContext.setS3ExpressImportRead(true);
             Map<String, String> regularBucketProperties = Maps.newHashMap(properties);
@@ -167,12 +167,20 @@ public class ExternalFileTableValuedFunctionTest {
 
             Map<String, String> missingProviderProperties = Maps.newHashMap(properties);
             missingProviderProperties.remove("s3.provider");
-            S3TableValuedFunction missingProviderTvf = (S3TableValuedFunction) new S3(
-                    new Properties(missingProviderProperties)).getCatalogFunction();
-            Assert.assertFalse(missingProviderTvf.getBackendConnectProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertFalse(missingProviderTvf.getBrokerDesc().getBackendConfigProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            org.apache.doris.nereids.exceptions.AnalysisException missingProviderException = Assert.assertThrows(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new S3(new Properties(missingProviderProperties)).getCatalogFunction());
+            Assert.assertTrue(missingProviderException.getMessage().contains(
+                    "S3 Express directory buckets require \"s3.provider\" = \"AWS\""));
+
+            Map<String, String> malformedBucketProperties = Maps.newHashMap(properties);
+            malformedBucketProperties.put("uri",
+                    "s3://analytics--usw2-azx--x-s3/data/file.csv");
+            org.apache.doris.nereids.exceptions.AnalysisException malformedBucketException = Assert.assertThrows(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new S3(new Properties(malformedBucketProperties)).getCatalogFunction());
+            Assert.assertTrue(malformedBucketException.getMessage().contains(
+                    "Invalid S3 Express directory bucket name"));
 
             Map<String, String> recommendedProperties = Maps.newHashMap(properties);
             recommendedProperties.remove("s3.endpoint");
@@ -189,16 +197,18 @@ public class ExternalFileTableValuedFunctionTest {
             Assert.assertEquals("", selectTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
             Assert.assertEquals("", selectTvf.getBackendConnectProperties().get("AWS_REGION"));
 
-            FileTableValuedFunction fileTvf = (FileTableValuedFunction) new File(new Properties(properties))
-                    .getCatalogFunction();
-            Assert.assertFalse(fileTvf.getBackendConnectProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            org.apache.doris.nereids.exceptions.AnalysisException fileTvfException = Assert.assertThrows(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new File(new Properties(recommendedProperties)).getCatalogFunction());
+            Assert.assertTrue(fileTvfException.getMessage().contains(
+                    "S3 Express reads are supported only by"));
 
             statementContext.setS3ExpressImportRead(false);
-            S3TableValuedFunction streamingTvf = (S3TableValuedFunction) new S3(new Properties(properties))
-                    .getCatalogFunction();
-            Assert.assertFalse(streamingTvf.getBackendConnectProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            org.apache.doris.nereids.exceptions.AnalysisException streamingException = Assert.assertThrows(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new S3(new Properties(properties)).getCatalogFunction());
+            Assert.assertTrue(streamingException.getMessage().contains(
+                    "S3 Express reads are supported only by"));
         } finally {
             FeConstants.runningUnitTest = previousRunningUnitTest;
             ConnectContext.remove();

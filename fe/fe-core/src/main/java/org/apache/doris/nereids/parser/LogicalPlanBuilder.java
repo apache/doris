@@ -2231,13 +2231,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public LogicalPlan visitLoad(DorisParser.LoadContext ctx) {
+        List<String> allFilePaths = ctx.dataDescs.stream()
+                .flatMap(dataDesc -> dataDesc.filePaths.stream())
+                .map(Token::getText)
+                .map(path -> path.substring(1, path.length() - 1))
+                .collect(ImmutableList.toImmutableList());
+        boolean hasS3ExpressIntent = allFilePaths.stream().anyMatch(S3Properties::hasS3ExpressIntent);
+        if (hasS3ExpressIntent && (ctx.withRemoteStorageSystem() == null
+                || ctx.withRemoteStorageSystem().S3() == null)) {
+            allFilePaths.stream()
+                    .filter(S3Properties::hasS3ExpressIntent)
+                    .findFirst()
+                    .ifPresent(path -> S3Properties.validateS3ExpressImport(path, ImmutableMap.of(), false));
+        }
+
         BrokerDesc brokerDesc = null;
         if (ctx.withRemoteStorageSystem() != null) {
-            boolean s3ExpressImportRead = ctx.dataDescs.stream()
-                    .flatMap(dataDesc -> dataDesc.filePaths.stream())
-                    .map(Token::getText)
-                    .map(path -> path.substring(1, path.length() - 1))
-                    .anyMatch(S3Properties::isS3ExpressUri);
+            boolean s3ExpressImportRead = false;
+            if (hasS3ExpressIntent) {
+                Map<String, String> brokerProperties =
+                        visitPropertyItemList(ctx.withRemoteStorageSystem().brokerProperties);
+                for (String filePath : allFilePaths) {
+                    s3ExpressImportRead |= S3Properties.validateS3ExpressImport(
+                            filePath, brokerProperties, true);
+                }
+            }
             brokerDesc = visitWithRemoteStorageSystem(
                     ctx.withRemoteStorageSystem(), s3ExpressImportRead);
         }
