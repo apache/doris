@@ -130,6 +130,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
     public ConnectorTableHandle resolveWriteTargetHandle() {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         ConnectorSession session = pluginCatalog.buildConnectorSession();
+        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
         return resolveConnectorTableHandle(session, pluginCatalog.getConnector().getMetadata(session))
                 .orElseThrow(() -> new DorisConnectorException(
                         "Cannot resolve the connector table handle for write target " + getName()));

@@ -109,6 +109,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     private static void checkPluginMode(PluginDrivenExternalTable table, RowLevelDmlOp op) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         ConnectorSession session = catalog.buildConnectorSession();
+        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
         ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
         ConnectorTableHandle handle = metadata.getTableHandle(
                         session, table.getRemoteDbName(), table.getRemoteName())

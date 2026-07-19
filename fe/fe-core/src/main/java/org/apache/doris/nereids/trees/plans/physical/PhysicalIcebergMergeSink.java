@@ -300,6 +300,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
+        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
         ConnectorMetadata metadata = connector.getMetadata(session);
         // Resolve the handle first so the write provider is selected per-table (a heterogeneous gateway routes
         // iceberg-on-HMS to its sibling by the handle type); both null-degrade checks keep the non-partitioned

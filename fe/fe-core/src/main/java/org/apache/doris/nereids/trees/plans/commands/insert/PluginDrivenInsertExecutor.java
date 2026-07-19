@@ -203,6 +203,7 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
                 (PluginDrivenExternalCatalog) ((ExternalTable) table).getCatalog();
         Connector connector = catalog.getConnector();
         connectorSession = catalog.buildConnectorSession();
+        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
         writeOps = connector.getMetadata(connectorSession);
     }
 }

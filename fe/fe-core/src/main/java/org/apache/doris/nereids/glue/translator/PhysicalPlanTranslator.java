@@ -609,6 +609,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         Connector connector = catalog.getConnector();
         ConnectorSession connSession = catalog.buildConnectorSession();
+        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
         ConnectorMetadata metadata = connector.getMetadata(connSession);
 
         List<ConnectorColumn> connectorColumns = sink.getCols().stream()
@@ -657,6 +658,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Get write config from the connector
         Connector connector = catalog.getConnector();
         ConnectorSession connSession = catalog.buildConnectorSession();
+        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
         ConnectorMetadata metadata = connector.getMetadata(connSession);
 
         // Convert sink columns to connector columns for INSERT SQL generation
