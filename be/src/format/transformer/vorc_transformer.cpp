@@ -385,8 +385,13 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
 
         const iceberg::StructType& root_struct = _iceberg_schema->root_struct();
         const auto& nested_fields = root_struct.fields();
+        const orc::Type& orc_root_type = reader->getType();
         for (uint32_t i = 0; i < nested_fields.size(); i++) {
-            uint32_t orc_col_id = i + 1; // skip root struct
+            if (i >= orc_root_type.getSubtypeCount()) {
+                continue;
+            }
+            // ORC IDs are depth-first, so top-level fields after a complex field are not i + 1.
+            uint64_t orc_col_id = orc_root_type.getSubtype(i)->getColumnId();
             if (orc_col_id >= file_stats->getNumberOfColumns()) {
                 continue;
             }
