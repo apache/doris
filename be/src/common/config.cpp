@@ -75,6 +75,15 @@ DEFINE_Int32(arrow_flight_sql_port, "8050");
 // Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
 DEFINE_Bool(enable_arrow_input_validation, "true");
 
+// Max bytes of a single utf8/binary (int32-offset) column allowed in one Arrow Flight result
+// RecordBatch. Arrow utf8/binary offsets are int32, so a column's data in one batch must stay
+// below 2^31 (= INT32_MAX + 1). When a block would exceed this, the Arrow Flight readers split
+// it by rows into multiple batches so each batch stays valid. Default is the hard 2^31 limit;
+// only lower it (e.g. in tests) to exercise the split path without materializing 2GB of data.
+DEFINE_mInt64(arrow_flight_result_max_utf8_bytes, "2147483648");
+DEFINE_Validator(arrow_flight_result_max_utf8_bytes,
+                 [](const int64_t config) -> bool { return config > 0 && config <= 2147483648; });
+
 DEFINE_Int32(cdc_client_port, "9096");
 
 DEFINE_String(cdc_client_java_opts, "");

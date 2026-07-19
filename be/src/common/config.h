@@ -122,6 +122,12 @@ DECLARE_Int32(arrow_flight_sql_port);
 // Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
 DECLARE_Bool(enable_arrow_input_validation);
 
+// Max bytes of a single utf8/binary (int32-offset) column allowed in one Arrow Flight result
+// RecordBatch. Arrow utf8/binary offsets are int32, so a column's data in one batch must stay
+// below 2^31. When a block would exceed this, the Arrow Flight readers split it by rows into
+// multiple batches. Only lowered in tests to exercise the split path without materializing 2GB.
+DECLARE_mInt64(arrow_flight_result_max_utf8_bytes);
+
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
 

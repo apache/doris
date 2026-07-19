@@ -46,6 +46,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/column/column_complex.h"
@@ -635,6 +636,141 @@ TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
     };
     block_converter_test(cols, 7, true);
     block_converter_test(cols, 7, false);
+}
+
+// A utf8 column whose data exceeds the (test-lowered) int32 offset limit must be split by rows
+// into several batches, each keeping the fixed utf8 schema, and the batches must reconstruct the
+// original rows byte-for-byte in order.
+TEST(DataTypeSerDeArrowTest, ConvertToArrowBatchesSplitsUtf8ByRows) {
+    std::vector<std::string> values;
+    for (int i = 0; i < 10; ++i) {
+        std::string v(9, 'x');
+        v.push_back(static_cast<char>('0' + i)); // 10-byte distinct values
+        values.push_back(v);
+    }
+    auto strcol = ColumnString::create();
+    for (const auto& v : values) {
+        strcol->insert_data(v.data(), v.size());
+    }
+    auto block = std::make_shared<Block>();
+    block->insert(
+            ColumnWithTypeAndName(strcol->get_ptr(), std::make_shared<DataTypeString>(), "s"));
+    auto schema = arrow::schema({arrow::field("s", arrow::utf8(), false)});
+
+    // 32-byte cap => at most three 10-byte values per batch.
+    const int64_t saved = config::arrow_flight_result_max_utf8_bytes;
+    config::arrow_flight_result_max_utf8_bytes = 32;
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+    cctz::time_zone tz;
+    Status status =
+            convert_to_arrow_batches(*block, schema, arrow::default_memory_pool(), &batches, tz);
+    config::arrow_flight_result_max_utf8_bytes = saved;
+
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_GT(batches.size(), 1U) << "expected the oversized block to be split";
+
+    std::vector<std::string> restored;
+    for (const auto& batch : batches) {
+        ASSERT_EQ(batch->schema()->field(0)->type()->id(), arrow::Type::STRING);
+        ASSERT_TRUE(batch->Validate().ok());
+        auto arr = std::static_pointer_cast<arrow::StringArray>(batch->column(0));
+        ASSERT_LT(arr->value_offset(arr->length()), 32) << "a batch reached the int32 offset cap";
+        for (int64_t r = 0; r < arr->length(); ++r) {
+            restored.push_back(arr->GetString(r));
+        }
+    }
+    EXPECT_EQ(restored, values) << "split batches must reconstruct the original rows in order";
+}
+
+// Under the default (2GB) limit a small block is emitted as a single batch (no split, no cost).
+TEST(DataTypeSerDeArrowTest, ConvertToArrowBatchesNoSplitUnderLimit) {
+    auto strcol = ColumnString::create();
+    strcol->insert_data("hello", 5);
+    strcol->insert_data("world", 5);
+    auto block = std::make_shared<Block>();
+    block->insert(
+            ColumnWithTypeAndName(strcol->get_ptr(), std::make_shared<DataTypeString>(), "s"));
+    auto schema = arrow::schema({arrow::field("s", arrow::utf8(), false)});
+
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+    cctz::time_zone tz;
+    Status status =
+            convert_to_arrow_batches(*block, schema, arrow::default_memory_pool(), &batches, tz);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(batches.size(), 1U);
+    auto arr = std::static_pointer_cast<arrow::StringArray>(batches[0]->column(0));
+    ASSERT_EQ(arr->length(), 2);
+    EXPECT_EQ(arr->GetString(0), "hello");
+    EXPECT_EQ(arr->GetString(1), "world");
+}
+
+// A single value that alone exceeds the limit cannot be represented with int32 offsets; the
+// converter must return a clear error rather than crashing or corrupting data.
+TEST(DataTypeSerDeArrowTest, ConvertToArrowBatchesSingleValueExceedsLimitErrors) {
+    auto strcol = ColumnString::create();
+    strcol->insert_data("0123456789abcdef", 16); // one 16-byte value
+    auto block = std::make_shared<Block>();
+    block->insert(
+            ColumnWithTypeAndName(strcol->get_ptr(), std::make_shared<DataTypeString>(), "s"));
+    auto schema = arrow::schema({arrow::field("s", arrow::utf8(), false)});
+
+    const int64_t saved = config::arrow_flight_result_max_utf8_bytes;
+    config::arrow_flight_result_max_utf8_bytes = 8; // 16-byte value cannot fit in 8
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+    cctz::time_zone tz;
+    Status status =
+            convert_to_arrow_batches(*block, schema, arrow::default_memory_pool(), &batches, tz);
+    config::arrow_flight_result_max_utf8_bytes = saved;
+
+    ASSERT_FALSE(status.ok()) << "a single oversized value must be a clear error, not a crash";
+}
+
+// With two utf8 columns of different widths, the tighter-growing column decides each cut point.
+TEST(DataTypeSerDeArrowTest, ConvertToArrowBatchesSplitDrivenByTightestColumn) {
+    auto cola = ColumnString::create();
+    auto colb = ColumnString::create();
+    std::vector<std::string> a_vals;
+    std::vector<std::string> b_vals;
+    for (int i = 0; i < 5; ++i) {
+        std::string a(9, 'a');
+        a.push_back(static_cast<char>('0' + i)); // 10 bytes
+        std::string b(19, 'b');
+        b.push_back(static_cast<char>('0' + i)); // 20 bytes
+        a_vals.push_back(a);
+        b_vals.push_back(b);
+        cola->insert_data(a.data(), a.size());
+        colb->insert_data(b.data(), b.size());
+    }
+    auto block = std::make_shared<Block>();
+    block->insert(ColumnWithTypeAndName(cola->get_ptr(), std::make_shared<DataTypeString>(), "a"));
+    block->insert(ColumnWithTypeAndName(colb->get_ptr(), std::make_shared<DataTypeString>(), "b"));
+    auto schema = arrow::schema(
+            {arrow::field("a", arrow::utf8(), false), arrow::field("b", arrow::utf8(), false)});
+
+    const int64_t saved = config::arrow_flight_result_max_utf8_bytes;
+    config::arrow_flight_result_max_utf8_bytes = 32;
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+    cctz::time_zone tz;
+    Status status =
+            convert_to_arrow_batches(*block, schema, arrow::default_memory_pool(), &batches, tz);
+    config::arrow_flight_result_max_utf8_bytes = saved;
+
+    ASSERT_TRUE(status.ok()) << status;
+    // col b at 20 bytes/row: two rows (40) exceed 32, so each batch holds exactly one row.
+    ASSERT_EQ(batches.size(), 5U);
+    std::vector<std::string> ra;
+    std::vector<std::string> rb;
+    for (const auto& batch : batches) {
+        ASSERT_TRUE(batch->Validate().ok());
+        auto arr_a = std::static_pointer_cast<arrow::StringArray>(batch->column(0));
+        auto arr_b = std::static_pointer_cast<arrow::StringArray>(batch->column(1));
+        for (int64_t r = 0; r < arr_a->length(); ++r) {
+            ra.push_back(arr_a->GetString(r));
+            rb.push_back(arr_b->GetString(r));
+        }
+    }
+    EXPECT_EQ(ra, a_vals);
+    EXPECT_EQ(rb, b_vals);
 }
 
 } // namespace doris

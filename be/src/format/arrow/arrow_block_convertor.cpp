@@ -39,6 +39,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -193,13 +194,14 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         _cur_col = _block.get_by_position(idx).column;
         _cur_type = _block.get_by_position(idx).type;
         auto column = _cur_col->convert_to_full_column_if_const();
+        // The Arrow schema is authoritative: build each array with exactly the field's declared
+        // type. (Previously a string/binary column whose data reached 2GB was silently upgraded
+        // here to large_utf8/large_binary while the schema kept utf8/binary, producing a batch
+        // whose int64 array offsets disagreed with its int32 schema -> data corruption on generic
+        // clients and negative-length crashes on the Doris receiver. Oversized columns are now
+        // handled up front by convert_to_arrow_batches, which splits the block by rows so every
+        // batch stays within the int32 offset limit.)
         auto arrow_type = _schema->field(idx)->type();
-        if (arrow_type->id() == arrow::Type::STRING && column->byte_size() >= MAX_ARROW_UTF8) {
-            arrow_type = arrow::large_utf8();
-        } else if (arrow_type->id() == arrow::Type::BINARY &&
-                   column->byte_size() >= MAX_ARROW_UTF8) {
-            arrow_type = arrow::large_binary();
-        }
         std::unique_ptr<arrow::ArrayBuilder> builder;
         auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);
         if (!arrow_st.ok()) {
@@ -227,6 +229,11 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         }
     }
     *out = arrow::RecordBatch::Make(_schema, actual_rows, std::move(_arrays));
+    // Defense-in-depth: guarantee the batch's array types match the schema (types + lengths).
+    // After removing the silent large_utf8 upgrade this always holds; keep the check so any
+    // future schema/array divergence fails loudly here instead of silently corrupting or
+    // crashing a downstream reader.
+    RETURN_IF_ERROR(to_doris_status((*out)->Validate()));
     return Status::OK();
 }
 
@@ -268,6 +275,109 @@ Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::S
     FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj, start_row,
                                               end_row);
     return converter.convert(result);
+}
+
+namespace {
+
+// Only utf8/binary use int32 offsets and can overflow at 2^31; fixed-size and large_* cannot.
+bool is_int32_offset_binary_type(const std::shared_ptr<arrow::DataType>& type) {
+    return type->id() == arrow::Type::STRING || type->id() == arrow::Type::BINARY;
+}
+
+// Byte length written into the arrow string/binary array for `row` (0 for null), mirroring
+// DataTypeStringSerDeBase::write_column_to_arrow which appends get_data_at(row).size bytes.
+size_t arrow_value_byte_size_at(const IColumn& column, size_t row) {
+    const IColumn* data = &column;
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        if (nullable->is_null_at(row)) {
+            return 0;
+        }
+        data = &nullable->get_nested_column();
+    }
+    return data->get_data_at(row).size;
+}
+
+} // namespace
+
+Status convert_to_arrow_batches(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                                arrow::MemoryPool* pool,
+                                std::vector<std::shared_ptr<arrow::RecordBatch>>* results,
+                                const cctz::time_zone& timezone_obj) {
+    results->clear();
+    const int num_fields = schema->num_fields();
+    if (block.columns() != static_cast<size_t>(num_fields)) {
+        return Status::InvalidArgument("number fields not match");
+    }
+    const size_t num_rows = block.rows();
+    const auto max_bytes = static_cast<size_t>(config::arrow_flight_result_max_utf8_bytes);
+
+    // Fast path: O(#string cols), each byte_size() is O(1) and >= the actual arrow data size.
+    // If no int32-offset string/binary column reaches the limit, emit the whole block as one
+    // batch -- zero added cost on the normal path, and this never misses an overflow.
+    std::vector<int> big_fields;
+    for (int idx = 0; idx < num_fields; ++idx) {
+        if (is_int32_offset_binary_type(schema->field(idx)->type()) &&
+            block.get_by_position(idx).column->byte_size() >= max_bytes) {
+            big_fields.push_back(idx);
+        }
+    }
+    if (big_fields.empty() || num_rows == 0) {
+        std::shared_ptr<arrow::RecordBatch> batch;
+        RETURN_IF_ERROR(convert_to_arrow_batch(block, schema, pool, &batch, timezone_obj));
+        results->push_back(std::move(batch));
+        return Status::OK();
+    }
+
+    // Materialize the (rarely) const columns once so per-row size probing is cheap and correct.
+    std::vector<ColumnPtr> big_cols;
+    big_cols.reserve(big_fields.size());
+    for (int idx : big_fields) {
+        big_cols.push_back(block.get_by_position(idx).column->convert_to_full_column_if_const());
+    }
+
+    // Walk rows, cutting a batch right before any tracked column would reach the int32 limit;
+    // the tightest-growing column decides each cut.
+    std::vector<size_t> running(big_cols.size());
+    std::vector<size_t> row_bytes(big_cols.size());
+    size_t start = 0;
+    while (start < num_rows) {
+        running.assign(running.size(), 0);
+        size_t end = start;
+        while (end < num_rows) {
+            bool fits = true;
+            for (size_t c = 0; c < big_cols.size(); ++c) {
+                const size_t rb = arrow_value_byte_size_at(*big_cols[c], end);
+                if (rb >= max_bytes) {
+                    return Status::InternalError(
+                            "Arrow Flight cannot send column '{}': a single value at row {} is {} "
+                            "bytes, exceeding the Arrow utf8/binary int32 offset limit of {} "
+                            "bytes.",
+                            schema->field(big_fields[c])->name(), end, rb, max_bytes);
+                }
+                row_bytes[c] = rb;
+                if (running[c] + rb >= max_bytes) {
+                    fits = false;
+                    break;
+                }
+            }
+            if (!fits) {
+                break;
+            }
+            for (size_t c = 0; c < big_cols.size(); ++c) {
+                running[c] += row_bytes[c];
+            }
+            ++end;
+        }
+        // The start row always fits alone (an oversized single value would have errored above),
+        // so `end` advances by at least one and the outer loop terminates.
+        DCHECK_GT(end, start);
+        std::shared_ptr<arrow::RecordBatch> batch;
+        RETURN_IF_ERROR(
+                convert_to_arrow_batch(block, schema, pool, &batch, timezone_obj, start, end));
+        results->push_back(std::move(batch));
+        start = end;
+    }
+    return Status::OK();
 }
 
 Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,
