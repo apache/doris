@@ -312,11 +312,19 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         return textCompression;
     }
 
-    // Mirror iceberg buildHadoopConfig: BE-canonical static catalog creds from the typed fe-filesystem
-    // StorageProperties (AWS_* for object stores, dfs/hadoop for HDFS). Hive has no vended overlay.
+    // Mirror iceberg buildHadoopConfig: BE-canonical static catalog creds (AWS_* for object stores, dfs/hadoop
+    // for HDFS). Hive has no vended overlay.
     private Map<String, String> buildHadoopConfig() {
         Map<String, String> merged = new HashMap<>();
         if (context != null) {
+            // Backend properties from the catalog's parsed storage map, the SAME source the hive READ path uses
+            // (HiveScanPlanProvider.getBackendStorageProperties) and legacy HiveTableSink emitted. It carries the
+            // resolved hadoop./dfs./fs./juicefs.* passthrough, so it is the sole source of fs.<scheme>.impl for
+            // schemes whose fe-filesystem plugin has no typed bind() (jfs, oss-hdfs) — without it a jfs write ships
+            // the BE writer a config with no fs.jfs.impl and libhdfs fails "No FileSystem for scheme jfs". Emitted
+            // first so the typed getStorageProperties() overlay still wins wherever it produces a value (object
+            // stores / HDFS), keeping their behavior byte-identical.
+            merged.putAll(context.getBackendStorageProperties());
             for (StorageProperties sp : context.getStorageProperties()) {
                 sp.toBackendProperties().ifPresent(b -> merged.putAll(b.toMap()));
             }
