@@ -352,6 +352,10 @@ public:
                 const schema::external::TField& table_schema, const FieldSchema& parquet_field,
                 std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
+        static Status by_parquet_field_id_with_name_mapping(
+                const schema::external::TField& table_schema, const FieldSchema& parquet_field,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id);
+
         // for iceberg orc : Use the field id in the `table schema` and the orc file to match columns.
         static Status by_orc_field_id(const schema::external::TStructField& table_schema,
                                       const orc::Type* orc_root,

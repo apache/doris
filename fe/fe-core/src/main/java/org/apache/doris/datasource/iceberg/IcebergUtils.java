@@ -108,6 +108,10 @@ import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.mapping.MappedField;
+import org.apache.iceberg.mapping.MappedFields;
+import org.apache.iceberg.mapping.NameMapping;
+import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.TypeUtil;
@@ -1830,7 +1834,8 @@ public class IcebergUtils {
             }
             return new IcebergSnapshotCacheValue(
                     IcebergPartitionInfo.empty(),
-                    new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
+                    new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
+                    getNameMapping(icebergTable));
         }
         return getLatestSnapshotCacheValue(dorisTable);
     }
@@ -1911,9 +1916,44 @@ public class IcebergUtils {
                 icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
                         latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
             }
-            return new IcebergSnapshotCacheValue(icebergPartitionInfo, latestIcebergSnapshot);
+            return new IcebergSnapshotCacheValue(
+                    icebergPartitionInfo, latestIcebergSnapshot, getNameMapping(icebergTable));
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
+    /**
+     * Extract the Iceberg name mapping while retaining the distinction between an absent property
+     * and a valid empty mapping.
+     */
+    public static Optional<Map<Integer, List<String>>> getNameMapping(Table icebergTable) {
+        String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
+        if (nameMappingJson == null || nameMappingJson.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
+            if (mapping == null) {
+                return Optional.empty();
+            }
+            Map<Integer, List<String>> result = new HashMap<>();
+            extractMappingsFromNameMapping(mapping.asMappedFields(), result);
+            return Optional.of(result);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
+            return Optional.empty();
+        }
+    }
+
+    private static void extractMappingsFromNameMapping(
+            MappedFields mappingFields, Map<Integer, List<String>> result) {
+        if (mappingFields == null) {
+            return;
+        }
+        for (MappedField mappedField : mappingFields.fields()) {
+            result.put(mappedField.id(), new ArrayList<>(mappedField.names()));
+            extractMappingsFromNameMapping(mappedField.nestedMapping(), result);
         }
     }
 

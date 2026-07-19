@@ -96,7 +96,6 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
@@ -106,10 +105,6 @@ import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
-import org.apache.iceberg.mapping.MappedField;
-import org.apache.iceberg.mapping.MappedFields;
-import org.apache.iceberg.mapping.NameMapping;
-import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types.NestedField;
@@ -271,40 +266,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         super.doInitialize();
     }
 
-    /**
-     * Extract name mapping from Iceberg table properties.
-     * Returns a present map, possibly empty, only when the property parsed successfully.
-     */
     private Optional<Map<Integer, List<String>>> extractNameMapping() {
-        Map<Integer, List<String>> result = new HashMap<>();
-        String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
-        if (nameMappingJson == null || nameMappingJson.isEmpty()) {
-            return Optional.empty();
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+        if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
+            // The mapping must come from the same metadata generation as the pinned schema; a
+            // property-only refresh can otherwise change alias semantics within one statement.
+            return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue().getNameMapping();
         }
-        try {
-            NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
-            if (mapping == null) {
-                return Optional.empty();
-            }
-            // Optional presence is semantic here: a valid [] still disables current-name fallback.
-            extractMappingsFromNameMapping(mapping.asMappedFields(), result);
-            return Optional.of(result);
-        } catch (Exception e) {
-            // If name mapping parsing fails, continue without it
-            LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
-            return Optional.empty();
-        }
-    }
-
-    private void extractMappingsFromNameMapping(MappedFields mappingFields, Map<Integer, List<String>> result) {
-        if (mappingFields == null) {
-            return;
-        }
-        for (MappedField mappedField : mappingFields.fields()) {
-            result.put(mappedField.id(), new ArrayList<>(mappedField.names()));
-            extractMappingsFromNameMapping(mappedField.nestedMapping(), result);
-        }
-
+        return IcebergUtils.getNameMapping(icebergTable);
     }
 
     @Override

@@ -134,6 +134,9 @@ public class IcebergScanNodeTest {
         TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         Table table = Mockito.mock(Table.class);
         setIcebergTable(node, table);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+        setIcebergSource(node, source);
 
         Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
         Assert.assertFalse(extractNameMapping(node).isPresent());
@@ -143,6 +146,42 @@ public class IcebergScanNodeTest {
         Optional<Map<Integer, List<String>>> emptyMapping = extractNameMapping(node);
         Assert.assertTrue(emptyMapping.isPresent());
         Assert.assertTrue(emptyMapping.get().isEmpty());
+    }
+
+    @Test
+    public void testExtractNameMappingUsesStatementPinnedMetadataAfterPropertyRefresh() throws Exception {
+        Table refreshedTable = Mockito.mock(Table.class);
+        Mockito.when(refreshedTable.properties()).thenReturn(
+                Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, "[]"));
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(targetTable.getName()).thenReturn("tbl");
+        Mockito.when(targetTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, refreshedTable);
+        setIcebergSource(node, source);
+
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        statementContext.setSnapshot(new MvccTableInfo(targetTable), new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(1L, 11L), Optional.empty())));
+        try {
+            Assert.assertFalse(extractNameMapping(node).isPresent());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

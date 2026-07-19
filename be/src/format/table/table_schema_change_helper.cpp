@@ -182,6 +182,13 @@ std::optional<size_t> find_unique_idless_wrapper(
     return match;
 }
 
+bool parquet_subtree_has_field_id(const FieldSchema& field) {
+    if (field.field_id != -1) {
+        return true;
+    }
+    return std::ranges::any_of(field.children, parquet_subtree_has_field_id);
+}
+
 } // namespace
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
@@ -661,18 +668,18 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
     const auto& parquet_fields_schema = parquet_field_desc.get_fields_schema();
 
     std::map<int32_t, size_t> file_column_id_idx_map;
-    // Iceberg considers the schema ID-bearing when any field has an ID; requiring all IDs would
-    // discard authoritative matches merely because an unrelated sibling is ID-less.
-    bool has_field_id = false;
+    // Iceberg's hasIds predicate is file-wide. Keep this decision through recursion so an ID-less
+    // nested struct cannot switch an ID-bearing file back to alias/name matching.
+    const bool use_field_id =
+            std::ranges::any_of(parquet_fields_schema, parquet_subtree_has_field_id);
     for (size_t idx = 0; idx < parquet_fields_schema.size(); idx++) {
         if (parquet_fields_schema[idx].field_id != -1) {
-            has_field_id = true;
             file_column_id_idx_map.emplace(parquet_fields_schema[idx].field_id, idx);
         }
     }
 
     std::map<std::string, size_t> file_column_name_idx_map;
-    if (!has_field_id) {
+    if (!use_field_id) {
         file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_fields_schema);
     }
 
@@ -680,7 +687,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         const auto& table_column_name = table_field.field_ptr->name;
         size_t file_column_idx = 0;
         bool matched = false;
-        if (has_field_id) {
+        if (use_field_id) {
             auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
             if (id_it != file_column_id_idx_map.end()) {
                 file_column_idx = id_it->second;
@@ -706,7 +713,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
 
         std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
         RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
-                *table_field.field_ptr, parquet_fields_schema[file_column_idx], field_node));
+                *table_field.field_ptr, parquet_fields_schema[file_column_idx], field_node,
+                use_field_id));
         struct_node->add_children(table_column_name, parquet_fields_schema[file_column_idx].name,
                                   field_node);
     }
@@ -718,6 +726,13 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
         const schema::external::TField& table_schema, const FieldSchema& parquet_field,
         std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+    return by_parquet_field_id_with_name_mapping(table_schema, parquet_field, node,
+                                                 parquet_subtree_has_field_id(parquet_field));
+}
+
+Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+        const schema::external::TField& table_schema, const FieldSchema& parquet_field,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id) {
     switch (table_schema.type.type) {
     case TPrimitiveType::MAP: {
         if (parquet_field.data_type->get_primitive_type() != TYPE_MAP) [[unlikely]] {
@@ -737,10 +752,10 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
 
         RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
                 *table_schema.nestedField.map_field.key_field.field_ptr, parquet_field.children[0],
-                key_node));
+                key_node, use_field_id));
         RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
                 *table_schema.nestedField.map_field.value_field.field_ptr,
-                parquet_field.children[1], value_node));
+                parquet_field.children[1], value_node, use_field_id));
 
         node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
         break;
@@ -759,7 +774,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
         RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
                 *table_schema.nestedField.array_field.item_field.field_ptr,
-                parquet_field.children[0], element_node));
+                parquet_field.children[0], element_node, use_field_id));
 
         node = std::make_shared<TableSchemaChangeHelper::ArrayNode>(element_node);
         break;
@@ -774,17 +789,14 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
         std::map<int32_t, size_t> file_column_id_idx_map;
-        // Apply the same any-ID rule recursively so nested mixed-ID structs retain ID matches.
-        bool has_field_id = false;
         for (size_t idx = 0; idx < parquet_field.children.size(); idx++) {
             if (parquet_field.children[idx].field_id != -1) {
-                has_field_id = true;
                 file_column_id_idx_map.emplace(parquet_field.children[idx].field_id, idx);
             }
         }
 
         std::map<std::string, size_t> file_column_name_idx_map;
-        if (!has_field_id) {
+        if (!use_field_id) {
             file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_field.children);
         }
 
@@ -792,7 +804,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
             const auto& table_column_name = table_field.field_ptr->name;
             size_t file_column_idx = 0;
             bool matched = false;
-            if (has_field_id) {
+            if (use_field_id) {
                 auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
                 if (id_it != file_column_id_idx_map.end()) {
                     file_column_idx = id_it->second;
@@ -817,8 +829,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
 
             const auto& file_field = parquet_field.children.at(file_column_idx);
             std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
-            RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(*table_field.field_ptr,
-                                                                  file_field, field_node));
+            RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
+                    *table_field.field_ptr, file_field, field_node, use_field_id));
             struct_node->add_children(table_column_name, file_field.name, field_node);
         }
         node = struct_node;
