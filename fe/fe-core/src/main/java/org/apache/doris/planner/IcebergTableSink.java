@@ -135,6 +135,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
             schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
         }
         tSink.setSchemaJson(SchemaParser.toJson(schema));
+        tSink.setCollectColumnStats(IcebergUtils.shouldCollectColumnStats(icebergTable));
 
         // partition spec
         if (icebergTable.spec().isPartitioned()) {

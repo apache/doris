@@ -131,6 +131,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         }
         tSink.setFormatVersion(formatVersion);
         tSink.setSchemaJson(SchemaParser.toJson(schema));
+        tSink.setCollectColumnStats(IcebergUtils.shouldCollectColumnStats(icebergTable));
 
         // partition spec
         if (icebergTable.spec().isPartitioned()) {

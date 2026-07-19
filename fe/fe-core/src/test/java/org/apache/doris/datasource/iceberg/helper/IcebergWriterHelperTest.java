@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -196,6 +197,77 @@ public class IcebergWriterHelperTest {
 
         // One schema lookup is made by Iceberg's policy builder and one is captured for all files in the batch.
         Mockito.verify(table, Mockito.times(2)).schema();
+    }
+
+    @Test
+    public void testConvertToWriterResultHandlesV3RowLineageMetrics() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(Map.of(
+                TableProperties.FORMAT_VERSION, "3",
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "truncate(16)"));
+
+        int rowId = MetadataColumns.ROW_ID.fieldId();
+        ByteBuffer rowIdBound = Conversions.toByteBuffer(MetadataColumns.ROW_ID.type(), 7L);
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setLowerBounds(Map.of(rowId, rowIdBound));
+        columnStats.setUpperBounds(Map.of(rowId, rowIdBound));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/v3-data.parquet");
+        commitData.setRowCount(1);
+        commitData.setFileSize(128);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = Assertions.assertDoesNotThrow(
+                () -> IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0]);
+        Assertions.assertEquals(rowIdBound, dataFile.lowerBounds().get(rowId));
+        Assertions.assertEquals(rowIdBound, dataFile.upperBounds().get(rowId));
+    }
+
+    @Test
+    public void testConvertToWriterResultSuppressesLogicalMetricsBelowRepeatedFields() {
+        Schema repeatedSchema = new Schema(
+                Types.NestedField.optional(1, "items",
+                        Types.ListType.ofOptional(2, Types.IntegerType.get())),
+                Types.NestedField.optional(3, "attributes",
+                        Types.MapType.ofOptional(4, 5, Types.StringType.get(), Types.StringType.get())),
+                Types.NestedField.optional(6, "top_level", Types.IntegerType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(repeatedSchema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(Map.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "full"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setColumnSizes(Map.of(2, 20L, 4, 40L, 5, 50L, 6, 60L));
+        columnStats.setValueCounts(Map.of(2, 2L, 4, 4L, 5, 5L, 6, 6L));
+        columnStats.setNullValueCounts(Map.of(2, 0L, 4, 0L, 5, 0L, 6, 0L));
+        columnStats.setLowerBounds(Map.of(
+                2, Conversions.toByteBuffer(Types.IntegerType.get(), 2),
+                4, Conversions.toByteBuffer(Types.StringType.get(), "key"),
+                5, Conversions.toByteBuffer(Types.StringType.get(), "value"),
+                6, Conversions.toByteBuffer(Types.IntegerType.get(), 6)));
+        columnStats.setUpperBounds(columnStats.getLowerBounds());
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/repeated.parquet");
+        commitData.setRowCount(6);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0];
+
+        Assertions.assertEquals(Map.of(2, 20L, 4, 40L, 5, 50L, 6, 60L), dataFile.columnSizes());
+        Assertions.assertEquals(Map.of(6, 6L), dataFile.valueCounts());
+        Assertions.assertEquals(Map.of(6, 0L), dataFile.nullValueCounts());
+        Assertions.assertEquals(Map.of(6, columnStats.getLowerBounds().get(6)), dataFile.lowerBounds());
+        Assertions.assertEquals(Map.of(6, columnStats.getUpperBounds().get(6)), dataFile.upperBounds());
     }
 
     @Test

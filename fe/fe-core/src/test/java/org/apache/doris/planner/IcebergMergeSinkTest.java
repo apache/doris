@@ -74,6 +74,32 @@ public class IcebergMergeSinkTest {
                 IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL));
     }
 
+    @Test
+    public void testBindDataSinkDisablesColumnStatsWhenAllMetricsAreNone() throws Exception {
+        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, Map.of(
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none")), new DeleteCommandContext());
+
+        sink.bindDataSink(Optional.empty());
+
+        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
+        Assertions.assertTrue(thriftSink.isSetCollectColumnStats());
+        Assertions.assertFalse(thriftSink.isCollectColumnStats());
+    }
+
+    @Test
+    public void testBindDataSinkKeepsColumnStatsForMetricsOverride() throws Exception {
+        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, Map.of(
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none",
+                TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "id", "counts")),
+                new DeleteCommandContext());
+
+        sink.bindDataSink(Optional.empty());
+
+        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
+        Assertions.assertTrue(thriftSink.isSetCollectColumnStats());
+        Assertions.assertTrue(thriftSink.isCollectColumnStats());
+    }
+
     private static TIcebergRewritableDeleteFileSet buildDeleteFileSet() {
         TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
         deleteFileDesc.setPath("file:///tmp/delete.puffin");
@@ -84,6 +110,11 @@ public class IcebergMergeSinkTest {
     }
 
     private static IcebergExternalTable mockIcebergExternalTable(int formatVersion) {
+        return mockIcebergExternalTable(formatVersion, Collections.emptyMap());
+    }
+
+    private static IcebergExternalTable mockIcebergExternalTable(
+            int formatVersion, Map<String, String> metricsProperties) {
         Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
         PartitionSpec spec = PartitionSpec.unpartitioned();
         Map<String, String> properties = new HashMap<>();
@@ -91,6 +122,7 @@ public class IcebergMergeSinkTest {
         properties.put(TableProperties.DEFAULT_FILE_FORMAT, "parquet");
         properties.put(TableProperties.PARQUET_COMPRESSION, "snappy");
         properties.put(TableProperties.WRITE_DATA_LOCATION, "file:///tmp/iceberg_tbl/data");
+        properties.putAll(metricsProperties);
 
         Table icebergTable = Mockito.mock(Table.class);
         Mockito.when(icebergTable.properties()).thenReturn(properties);

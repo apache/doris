@@ -87,6 +87,9 @@ import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.MetricsConfig;
+import org.apache.iceberg.MetricsModes;
+import org.apache.iceberg.MetricsUtil;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -1959,6 +1962,15 @@ public class IcebergUtils {
     public static Schema appendRowLineageFieldsForV3(Schema schema) {
         return TypeUtil.join(schema, new Schema(
                 MetadataColumns.ROW_ID, MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER));
+    }
+
+    public static boolean shouldCollectColumnStats(Table table) {
+        Schema schema = table.schema();
+        MetricsConfig metricsConfig = MetricsConfig.forTable(table);
+        return TypeUtil.indexById(schema.asStruct()).values().stream()
+                .filter(field -> field.type().isPrimitiveType())
+                .anyMatch(field -> MetricsUtil.metricsMode(schema, metricsConfig, field.fieldId())
+                        != MetricsModes.None.get());
     }
 
     public static int getFormatVersion(Table table) {

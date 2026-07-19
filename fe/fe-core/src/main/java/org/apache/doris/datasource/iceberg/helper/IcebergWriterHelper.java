@@ -41,6 +41,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.BinaryUtil;
 import org.apache.iceberg.util.UnicodeUtil;
@@ -71,6 +72,10 @@ public class IcebergWriterHelper {
         FileFormat fileFormat = IcebergUtils.getFileFormat(table);
         MetricsConfig metricsConfig = MetricsConfig.forTable(table);
         Schema schema = table.schema();
+        if (IcebergUtils.getFormatVersion(table) >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            // Rewrite and merge writers emit v3 lineage columns that are absent from the table schema.
+            schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
+        }
 
         for (TIcebergCommitData commitData : commitDataList) {
             //get the files path
@@ -165,6 +170,7 @@ public class IcebergWriterHelper {
 
     private static Metrics buildDataFileMetrics(
             TIcebergCommitData commitData, Schema schema, MetricsConfig metricsConfig) {
+        Map<Integer, Integer> fieldParents = TypeUtil.indexParents(schema.asStruct());
         Map<Integer, Long> columnSizes = new HashMap<>();
         Map<Integer, Long> valueCounts = new HashMap<>();
         Map<Integer, Long> nullValueCounts = new HashMap<>();
@@ -192,11 +198,11 @@ public class IcebergWriterHelper {
         // Physical file stats may contain every column, but manifest metrics must honor the table's metadata policy.
         return new Metrics(commitData.getRowCount(),
                 filterDisabledMetrics(columnSizes, schema, metricsConfig),
-                filterDisabledMetrics(valueCounts, schema, metricsConfig),
-                filterDisabledMetrics(nullValueCounts, schema, metricsConfig),
+                filterLogicalMetrics(valueCounts, schema, metricsConfig, fieldParents),
+                filterLogicalMetrics(nullValueCounts, schema, metricsConfig, fieldParents),
                 null,
-                filterBounds(lowerBounds, schema, metricsConfig, true),
-                filterBounds(upperBounds, schema, metricsConfig, false));
+                filterBounds(lowerBounds, schema, metricsConfig, fieldParents, true),
+                filterBounds(upperBounds, schema, metricsConfig, fieldParents, false));
     }
 
     private static <T> Map<Integer, T> filterDisabledMetrics(
@@ -210,10 +216,28 @@ public class IcebergWriterHelper {
         return filteredMetrics;
     }
 
+    private static <T> Map<Integer, T> filterLogicalMetrics(
+            Map<Integer, T> metrics, Schema schema, MetricsConfig metricsConfig,
+            Map<Integer, Integer> fieldParents) {
+        Map<Integer, T> filteredMetrics = new HashMap<>();
+        metrics.forEach((fieldId, value) -> {
+            // Definition-level values below list/map do not represent logical element counts.
+            if (!isInRepeatedField(fieldId, schema, fieldParents)
+                    && MetricsUtil.metricsMode(schema, metricsConfig, fieldId) != MetricsModes.None.get()) {
+                filteredMetrics.put(fieldId, value);
+            }
+        });
+        return filteredMetrics;
+    }
+
     private static Map<Integer, ByteBuffer> filterBounds(
-            Map<Integer, ByteBuffer> bounds, Schema schema, MetricsConfig metricsConfig, boolean lowerBound) {
+            Map<Integer, ByteBuffer> bounds, Schema schema, MetricsConfig metricsConfig,
+            Map<Integer, Integer> fieldParents, boolean lowerBound) {
         Map<Integer, ByteBuffer> filteredBounds = new HashMap<>();
         bounds.forEach((fieldId, value) -> {
+            if (isInRepeatedField(fieldId, schema, fieldParents)) {
+                return;
+            }
             MetricsModes.MetricsMode mode = MetricsUtil.metricsMode(schema, metricsConfig, fieldId);
             if (mode == MetricsModes.None.get() || mode == MetricsModes.Counts.get()) {
                 return;
@@ -231,6 +255,18 @@ public class IcebergWriterHelper {
             }
         });
         return filteredBounds;
+    }
+
+    private static boolean isInRepeatedField(
+            int fieldId, Schema schema, Map<Integer, Integer> fieldParents) {
+        Integer parentId = fieldId;
+        while ((parentId = fieldParents.get(parentId)) != null) {
+            Types.NestedField parent = schema.findField(parentId);
+            if (parent != null && !parent.type().isStructType()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static ByteBuffer truncateBound(Type type, ByteBuffer value, int length, boolean lowerBound) {
