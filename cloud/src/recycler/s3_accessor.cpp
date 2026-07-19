@@ -430,7 +430,7 @@ int S3Accessor::init() {
                                              (long)aws_config.maxConnections);
 
         if (conf_.is_internal_bucket) {
-            set_s3_client_http_scheme(aws_config, "https");
+            set_s3_client_default_http_scheme(aws_config, "https");
         } else {
             set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
         }

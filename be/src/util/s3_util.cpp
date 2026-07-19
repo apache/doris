@@ -520,7 +520,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     }
 
     if (s3_conf.is_internal_bucket) {
-        set_s3_client_http_scheme(aws_config, "https");
+        set_s3_client_default_http_scheme(aws_config, "https");
     } else {
         set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
     }
