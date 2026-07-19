@@ -507,6 +507,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtex
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StWithin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
@@ -1086,6 +1087,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StIntersects.class, "st_intersects"),
             scalar(StDisjoint.class, "st_disjoint"),
             scalar(StTouches.class, "st_touches"),
+            scalar(StWithin.class, "st_within"),
             scalar(StLength.class, "st_length"),
             scalar(StGeometryType.class, "st_geometrytype"),
             scalar(StNumGeometries.class, "st_numgeometries"),
