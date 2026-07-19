@@ -108,14 +108,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
         if (!isRename) {
             return;
         }
-        boolean hasExist = Env.getCurrentEnv().getCatalogMgr()
-                .externalTableExistInLocal(tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
-        if (hasExist) {
-            logInfo("AlterExternalTable canceled,because tableAfter has exist, "
-                            + "catalogName:[{}],dbName:[{}],tableName:[{}]",
-                    catalogName, dbName, tableAfter.getTableName());
-            return;
-        }
+        // Keep rename application idempotent by always converging local state to
+        // "old name removed, new name registered", even when another path has
+        // already warmed the target name before this HMS event is handled.
         Env.getCurrentEnv().getCatalogMgr()
                 .unregisterExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()

@@ -187,16 +187,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return metadataOps.tableExist(dbName, tblName);
     }
 
-    @Override
-    public boolean tableExistInLocal(String dbName, String tblName) {
-        makeSureInitialized();
-        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) getDbNullable(dbName);
-        if (hmsExternalDatabase == null) {
-            return false;
-        }
-        return hmsExternalDatabase.getTable(tblName).isPresent();
-    }
-
     public HMSCachedClient getClient() {
         makeSureInitialized();
         return ((HiveMetadataOps) metadataOps).getClient();

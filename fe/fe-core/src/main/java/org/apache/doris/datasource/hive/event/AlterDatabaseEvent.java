@@ -81,12 +81,9 @@ public class AlterDatabaseEvent extends MetastoreEvent {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog Databases");
         }
-        if (catalog.getDbNullable(dbAfter.getName()) != null) {
-            logInfo("AlterExternalDatabase canceled, because dbAfter has exist, "
-                            + "catalogName:[{}],dbName:[{}]",
-                    catalogName, dbAfter.getName());
-            return;
-        }
+        // Keep rename application idempotent by always converging local state to
+        // "old name removed, new name registered", even when another path has
+        // already warmed the target database before this HMS event is handled.
         Env.getCurrentEnv().getCatalogMgr().unregisterExternalDatabase(dbBefore.getName(), catalogName);
         Env.getCurrentEnv().getCatalogMgr().registerExternalDatabaseFromEvent(dbAfter.getName(), catalogName);
 

@@ -715,17 +715,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public boolean externalTableExistInLocal(String dbName, String tableName, String catalogName) throws DdlException {
-        CatalogIf catalog = nameToCatalog.get(catalogName);
-        if (catalog == null) {
-            throw new DdlException("No catalog found with name: " + catalogName);
-        }
-        if (!(catalog instanceof ExternalCatalog)) {
-            throw new DdlException("Only support ExternalCatalog Tables");
-        }
-        return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
-    }
-
     public void registerExternalTableFromEvent(String dbName, String tableName,
             String catalogName, long updateTime,
             boolean ignoreIfExists) throws DdlException {

@@ -395,18 +395,6 @@ public abstract class ExternalCatalog
     protected abstract void initLocalObjectsImpl();
 
     /**
-     * check if the specified table exist in doris.
-     * Currently only be used for hms event handler.
-     *
-     * @param dbName
-     * @param tblName
-     * @return true if table exists, false otherwise
-     */
-    public boolean tableExistInLocal(String dbName, String tblName) {
-        throw new NotImplementedException("tableExistInLocal not implemented");
-    }
-
-    /**
      * Catalog can't be init when creating because the external catalog may depend on third system.
      * So you have to make sure the client of third system is initialized before any method was called.
      */
