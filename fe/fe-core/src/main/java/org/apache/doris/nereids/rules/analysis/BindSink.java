@@ -41,6 +41,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -670,8 +671,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         ConnectorSession session = catalog.buildConnectorSession();
-        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
-        ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
         ConnectorTableHandle handle = metadata.getTableHandle(
                         session, table.getRemoteDbName(), table.getRemoteName())
                 .orElseThrow(() -> new AnalysisException("Table not found: "
@@ -710,8 +710,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         ConnectorSession session = catalog.buildConnectorSession();
-        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
-        ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
         ConnectorTableHandle handle = metadata.getTableHandle(
                         session, table.getRemoteDbName(), table.getRemoteName())
                 .orElseThrow(() -> new AnalysisException("Table not found: "

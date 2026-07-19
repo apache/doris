@@ -44,6 +44,12 @@ public class PluginDrivenMetadataTest {
         return session;
     }
 
+    private static ConnectorSession session(long catalogId, ConnectorStatementScope scope, String user) {
+        ConnectorSession session = session(catalogId, scope);
+        Mockito.when(session.getUser()).thenReturn(user);
+        return session;
+    }
+
     private static Connector countingConnector(AtomicInteger builds) {
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenAnswer(inv -> {
@@ -100,6 +106,40 @@ public class PluginDrivenMetadataTest {
 
         Assertions.assertNotSame(c1, c2, "distinct catalogs are isolated");
         Assertions.assertEquals(2, builds.get(), "one build per distinct catalog");
+    }
+
+    @Test
+    public void sameIdentityReusesTheMemoizedInstance() {
+        // The write arm now reuses the read arm's memoized instance. Within one statement read and write are the
+        // same user, so the identity guard is satisfied and the instance is shared. MUTATION: guard throwing on a
+        // matching identity -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AtomicInteger builds = new AtomicInteger();
+        Connector connector = countingConnector(builds);
+
+        ConnectorMetadata first = PluginDrivenMetadata.get(session(7L, scope, "alice"), connector);
+        ConnectorMetadata second = PluginDrivenMetadata.get(session(7L, scope, "alice"), connector);
+
+        Assertions.assertSame(first, second, "same user in one statement -> one shared instance");
+        Assertions.assertEquals(1, builds.get(), "built once");
+    }
+
+    @Test
+    public void differentIdentityReusingTheInstanceFailsLoud() {
+        // A session=user connector bakes the querying user's delegated credential into the instance at build time.
+        // Reusing that instance under a second identity would execute one user's operation with another's
+        // credentials, so the funnel fails loud rather than serving it. MUTATION: dropping the identity guard ->
+        // the mismatched reuse silently returns the first user's instance -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AtomicInteger builds = new AtomicInteger();
+        Connector connector = countingConnector(builds);
+
+        PluginDrivenMetadata.get(session(7L, scope, "alice"), connector);
+
+        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
+                () -> PluginDrivenMetadata.get(session(7L, scope, "bob"), connector));
+        Assertions.assertTrue(ex.getMessage().contains("identity mismatch"),
+                "message names the identity mismatch: " + ex.getMessage());
     }
 
     @Test

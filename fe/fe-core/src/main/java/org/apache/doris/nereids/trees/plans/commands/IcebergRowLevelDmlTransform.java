@@ -29,6 +29,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.connector.converter.WriteConstraintExtractor;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -109,8 +110,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     private static void checkPluginMode(PluginDrivenExternalTable table, RowLevelDmlOp op) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         ConnectorSession session = catalog.buildConnectorSession();
-        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
-        ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
         ConnectorTableHandle handle = metadata.getTableHandle(
                         session, table.getRemoteDbName(), table.getRemoteName())
                 .orElseThrow(() -> new AnalysisException("Table not found: "

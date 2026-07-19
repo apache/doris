@@ -57,6 +57,7 @@ import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -609,8 +610,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         Connector connector = catalog.getConnector();
         ConnectorSession connSession = catalog.buildConnectorSession();
-        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
-        ConnectorMetadata metadata = connector.getMetadata(connSession);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(connSession, connector);
 
         List<ConnectorColumn> connectorColumns = sink.getCols().stream()
                 .map(col -> new ConnectorColumn(col.getName(),
@@ -658,8 +658,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Get write config from the connector
         Connector connector = catalog.getConnector();
         ConnectorSession connSession = catalog.buildConnectorSession();
-        // getMetadata-funnel-exempt: write path, rerouted through the funnel in the write-sharing step
-        ConnectorMetadata metadata = connector.getMetadata(connSession);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(connSession, connector);
 
         // Convert sink columns to connector columns for INSERT SQL generation
         List<ConnectorColumn> connectorColumns = connectorTableSink.getCols().stream()

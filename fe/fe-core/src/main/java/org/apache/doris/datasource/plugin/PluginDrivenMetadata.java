@@ -22,6 +22,8 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
 
+import java.util.Objects;
+
 /**
  * The single engine-side funnel through which every metadata acquisition in a statement flows, so that a
  * statement uses exactly ONE {@link ConnectorMetadata} instance per catalog: it memoizes the result of
@@ -50,7 +52,21 @@ public final class PluginDrivenMetadata {
      */
     public static ConnectorMetadata get(ConnectorSession session, Connector connector) {
         ConnectorStatementScope scope = session.getStatementScope();
-        String key = "metadata:" + session.getCatalogId();
-        return scope.getOrCreateMetadata(key, () -> connector.getMetadata(session));
+        long catalogId = session.getCatalogId();
+        // A statement resolves a catalog under exactly one identity (one statement = one user = one credential).
+        // Now that the write arm reuses the read arm's memoized instance, and a session=user connector bakes the
+        // querying user's delegated credential into that instance at getMetadata time, reusing it under a second
+        // identity would execute one user's operation with another's credentials. Pin the building identity and
+        // fail loud if a different one ever reuses the instance, turning a silent cross-user leak into a hard
+        // error. Uses the Doris principal (getUser), never a credential token, so fe-core parses no credentials.
+        // Under NONE this stores nothing, so the check is vacuously true and the factory runs on every call.
+        String user = session.getUser();
+        String builderUser = scope.computeIfAbsent("metadata-identity:" + catalogId, () -> user);
+        if (!Objects.equals(builderUser, user)) {
+            throw new IllegalStateException("Per-statement metadata identity mismatch for catalog " + catalogId
+                    + ": the instance was built for user '" + builderUser + "' but is being reused for user '"
+                    + user + "'. A statement must resolve a catalog under a single identity.");
+        }
+        return scope.getOrCreateMetadata("metadata:" + catalogId, () -> connector.getMetadata(session));
     }
 }
