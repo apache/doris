@@ -103,10 +103,29 @@ bool uses_legacy_access_path_encoding(const TColumnAccessPath& path) {
 
 namespace {
 
-// Routes descendant paths produced by ColumnIterator::_split_access_paths() to the immediate data
-// children of a nested column. Their versions have been validated, legacy paths have DATA type,
-// and every payload selected by type is non-empty. Routing never interprets or rewrites the
-// unselected compatibility payload.
+// Nested access paths are processed one container level at a time:
+//
+// 1. Each Map/Array/Struct iterator's set_access_paths() calls _prepare_nested_access_paths(). For
+//    the all-path and predicate-path channels independently, _split_access_paths() validates the
+//    wire encoding and type-selected payload, removes the current iterator name, and separates
+//    requests consumed by the current iterator from paths that still address a data descendant. A
+//    current DATA request requires all data children. Struct owns current-level NULL metadata;
+//    Map and Array own NULL and OFFSET metadata. A supported metadata-only request can stop before
+//    descendant routing and mark every data child SKIP.
+// 2. This router interprets only the first remaining component and routes the path according to
+//    the container topology:
+//    - Struct components already name fields. Select the paths for each field without rewriting.
+//    - Array `*` names its only item. Retarget `*` to the item iterator name.
+//    - Map `KEYS` and `VALUES` directly name its logical children. Map `*` creates a complete DATA
+//      path for `KEYS` and routes any trailing components through `VALUES`.
+// 3. The container forwards the routed all-path and predicate-path channels to each selected
+//    child's set_access_paths(), then finalizes that child's PREDICATE/LAZY_OUTPUT/SKIP
+//    requirement. The child repeats the same flow, which handles arbitrary Map/Array/Struct
+//    nesting.
+//
+// At this point versions have been validated, legacy paths have DATA type, and every payload
+// selected by type is non-empty. Routing never interprets or rewrites an unselected compatibility
+// payload.
 class DescendantAccessPathRouter final {
 public:
     DescendantAccessPathRouter() = delete;
