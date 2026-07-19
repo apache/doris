@@ -192,7 +192,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // The by-handle owner resolver installed by the 3-arg constructor (hive-only construction). Invoked only when
     // a NON-hive handle reaches a per-handle guard-and-forward site — which such a construction never does — so it
     // fails loud instead of NPEing.
-    private static final Function<ConnectorTableHandle, Connector> NO_SIBLING_OWNER = handle -> {
+    private static final Function<ConnectorTableHandle, SiblingOwner> NO_SIBLING_OWNER = handle -> {
         throw new DorisConnectorException("no sibling connector configured for this hive metadata");
     };
 
@@ -218,7 +218,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // guard-and-forward methods below. Backed by HiveConnector.resolveSiblingOwner (a 3-way ownsHandle dispatch
     // over the ALREADY-BUILT iceberg / hudi siblings). Used ONLY through the parent-first Connector /
     // ConnectorMetadata interfaces — the owning sibling's concrete types are never cast here (cross-loader CCE).
-    private final Function<ConnectorTableHandle, Connector> siblingOwnerResolver;
+    private final Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver;
     // Connector-owned directory-listing cache, shared with the scan provider so estimateDataSizeByListingFiles
     // (the periodic ExternalRowCountCache refresh source) reuses listings a scan warmed and vice versa. Injected
     // by HiveConnector.newMetadata as the SAME instance; the convenience constructors below build a private
@@ -232,7 +232,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
-            Function<ConnectorTableHandle, Connector> siblingOwnerResolver) {
+            Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver) {
         this(hmsClient, properties, context, icebergSiblingSupplier, hudiSiblingSupplier, siblingOwnerResolver,
                 new HiveFileListingCache(properties));
     }
@@ -240,7 +240,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
-            Function<ConnectorTableHandle, Connector> siblingOwnerResolver,
+            Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver,
             HiveFileListingCache fileListingCache) {
         this.hmsClient = hmsClient;
         this.properties = properties;
@@ -252,45 +252,68 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Obtains the sibling's {@link ConnectorMetadata} through the per-statement funnel: within one statement, the
+     * first forward for a given owner runs {@code owner.getMetadata(session)} and every later forward (read / scan
+     * / DDL / MVCC / the per-handle {@code beginTransaction} open) reuses that ONE memoized instance — mirroring
+     * fe-core's own {@code PluginDrivenMetadata} funnel for a plain connector (the sibling's heavy catalog/caches
+     * live on the single memoized sibling CONNECTOR regardless of this). The key is
+     * {@code "metadata:" + catalogId + ":" + ownerLabel}: the three connectors of a heterogeneous gateway
+     * (hive + iceberg + hudi) share ONE catalogId, so the owner label keeps their metadata entries distinct — a
+     * plain catalogId key would collapse them onto one metadata and misroute. Under a
+     * {@link org.apache.doris.connector.api.ConnectorStatementScope#NONE NONE} scope (offline / no statement) the
+     * factory runs on every call — byte-identical to the pre-funnel behavior. Only fe-connector-api types are
+     * touched, so no fe-core dependency is introduced. The returned metadata and any handle it produces are used
+     * ONLY through the parent-first SPI interfaces and MUST NOT be cast (the sibling's concrete iceberg/hudi types
+     * would CCE across the loader split).
+     */
+    private ConnectorMetadata memoizedSiblingMetadata(ConnectorSession session, Connector owner, String ownerLabel) {
+        String key = "metadata:" + session.getCatalogId() + ":" + ownerLabel;
+        return session.getStatementScope().getOrCreateMetadata(key, () -> owner.getMetadata(session));
+    }
+
+    /**
      * The embedded iceberg sibling's metadata resolved BY TYPE, for the getTableHandle ICEBERG divert only (an
-     * iceberg-detected table has no handle yet, so the sibling is force-built and asked directly). Obtained fresh
-     * per call — parity with fe-core, which acquires a ConnectorMetadata per operation; the heavy catalog/caches
-     * live on the single (memoized) sibling connector, so this is cheap. The returned metadata and any handle it
-     * produces are used ONLY through the parent-first SPI interfaces and MUST NOT be cast (the sibling's concrete
-     * iceberg types would CCE across the loader split).
+     * iceberg-detected table has no handle yet, so the sibling is force-built and asked directly). Routed through
+     * {@link #memoizedSiblingMetadata} under {@link SiblingOwner#ICEBERG_LABEL}, so the divert and the same
+     * statement's later per-handle forwards share ONE iceberg metadata instance. The returned metadata and any
+     * handle it produces are used ONLY through the parent-first SPI interfaces and MUST NOT be cast.
      *
      * <p>Package-private (not private) so HiveConnectorThreeWayRoutingTest can assert that
      * {@link HiveConnector#getMetadata} wires the iceberg by-TYPE supplier to THIS arm (the two same-typed
      * supplier args are otherwise transposable at that sole production wiring point).
      */
     ConnectorMetadata icebergSiblingMetadata(ConnectorSession session) {
-        return icebergSiblingSupplier.get().getMetadata(session);
+        return memoizedSiblingMetadata(session, icebergSiblingSupplier.get(), SiblingOwner.ICEBERG_LABEL);
     }
 
     /**
      * The embedded hudi sibling's metadata resolved BY TYPE, for the getTableHandle HUDI divert only (a
      * hudi-detected table has no handle yet, so the sibling is force-built and asked directly). Same lifecycle and
-     * casting contract as {@link #icebergSiblingMetadata}: obtained fresh per call, used ONLY through the
-     * parent-first SPI interfaces, and never cast (the sibling's concrete hudi types would CCE across the loader
-     * split).
+     * casting contract as {@link #icebergSiblingMetadata}: routed through {@link #memoizedSiblingMetadata} under
+     * {@link SiblingOwner#HUDI_LABEL}, used ONLY through the parent-first SPI interfaces, and never cast.
      *
      * <p>Package-private (not private) so HiveConnectorThreeWayRoutingTest can assert that
      * {@link HiveConnector#getMetadata} wires the hudi by-TYPE supplier to THIS arm (see
      * {@link #icebergSiblingMetadata}).
      */
     ConnectorMetadata hudiSiblingMetadata(ConnectorSession session) {
-        return hudiSiblingSupplier.get().getMetadata(session);
+        return memoizedSiblingMetadata(session, hudiSiblingSupplier.get(), SiblingOwner.HUDI_LABEL);
     }
 
     /**
      * The OWNING sibling's metadata for a foreign (non-hive) table handle, resolved BY HANDLE (3-way ownsHandle
-     * dispatch over the already-built iceberg / hudi siblings — see HiveConnector.resolveSiblingOwner). Every
-     * per-handle guard-and-forward method routes through here so a hudi handle reaches the hudi sibling and an
-     * iceberg handle the iceberg sibling. Obtained fresh per call; the handle is used ONLY through the
-     * parent-first SPI interfaces and MUST NOT be cast (cross-loader CCE).
+     * dispatch over the already-built iceberg / hudi siblings — see HiveConnector.resolveSiblingOwnerLabeled).
+     * Every per-handle guard-and-forward method (and the per-handle {@code beginTransaction} open) routes through
+     * here, so a hudi handle reaches the hudi sibling and an iceberg handle the iceberg sibling. The resolver
+     * supplies the owner label from its matched arm, and {@link #memoizedSiblingMetadata} keys the funnel by it —
+     * so a statement's forwards for one owner share ONE metadata instance, and the by-HANDLE label matches the
+     * by-TYPE label above (same owner &rarr; same key &rarr; the getTableHandle divert and these forwards reuse
+     * one instance). The handle is used ONLY through the parent-first SPI interfaces and MUST NOT be cast
+     * (cross-loader CCE).
      */
     private ConnectorMetadata siblingMetadata(ConnectorSession session, ConnectorTableHandle handle) {
-        return siblingOwnerResolver.apply(handle).getMetadata(session);
+        SiblingOwner owner = siblingOwnerResolver.apply(handle);
+        return memoizedSiblingMetadata(session, owner.connector(), owner.label());
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -425,9 +448,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // capabilities govern the table). Only hasScanCapability consumers read the marker, so a capability
             // that is not per-table-refinable (view / show-create / mvcc) is inert here. Resolve the owner ONCE
             // (getMetadata is not free) and reuse it for the schema build and the capability read.
-            Connector owner = siblingOwnerResolver.apply(handle);
-            ConnectorTableSchema siblingSchema = owner.getMetadata(session).getTableSchema(session, handle);
-            return reflectSiblingScanCapabilities(owner, siblingSchema);
+            SiblingOwner owner = siblingOwnerResolver.apply(handle);
+            ConnectorTableSchema siblingSchema = memoizedSiblingMetadata(session, owner.connector(), owner.label())
+                    .getTableSchema(session, handle);
+            return reflectSiblingScanCapabilities(owner.connector(), siblingSchema);
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         String dbName = hiveHandle.getDbName();

@@ -169,16 +169,18 @@ public class HiveConnector implements Connector {
      */
     HiveConnectorMetadata newMetadata(HmsClient client) {
         return new HiveConnectorMetadata(client, properties, context,
-                this::getOrCreateIcebergSibling, this::getOrCreateHudiSibling, this::resolveSiblingOwner,
+                this::getOrCreateIcebergSibling, this::getOrCreateHudiSibling, this::resolveSiblingOwnerLabeled,
                 fileListingCache);
     }
 
     /**
-     * Resolves which embedded sibling connector OWNS a foreign (non-hive) table handle, for the per-handle
-     * gateway seams (the connector-level {@code get*Provider(handle)} below and the ~34 guard-and-forward
-     * methods in {@link HiveConnectorMetadata}). Asks each sibling's {@link Connector#ownsHandle} — the sibling
-     * tests its OWN in-loader handle type, which is invisible to the hive loader across the plugin split, so the
-     * gateway can never {@code instanceof} the foreign handle itself.
+     * Resolves which embedded sibling connector OWNS a foreign (non-hive) table handle AND its stable owner label,
+     * for the per-handle gateway seams (the connector-level {@code get*Provider(handle)} below and the
+     * guard-and-forward methods in {@link HiveConnectorMetadata}). Asks each sibling's {@link Connector#ownsHandle}
+     * — the sibling tests its OWN in-loader handle type, which is invisible to the hive loader across the plugin
+     * split, so the gateway can never {@code instanceof} the foreign handle itself. The MATCHED ARM supplies the
+     * label ({@link SiblingOwner#ICEBERG_LABEL} / {@link SiblingOwner#HUDI_LABEL}), so a per-handle forward keys the
+     * per-statement metadata funnel by owner without a force-build or an identity comparison against the suppliers.
      *
      * <p>Consults only ALREADY-BUILT siblings (a plain field read, never {@code getOrCreate*}). The owning
      * sibling is always already built: a foreign handle can only originate from {@code getTableHandle}'s divert,
@@ -187,17 +189,26 @@ public class HiveConnector implements Connector {
      * plugin must still route its hudi handles without building an iceberg sibling. Fails loud when no built
      * sibling owns the handle (an orphan handle is a bug, not a route), naming the catalog.
      */
-    private Connector resolveSiblingOwner(ConnectorTableHandle handle) {
+    SiblingOwner resolveSiblingOwnerLabeled(ConnectorTableHandle handle) {
         Connector iceberg = icebergSibling;
         if (iceberg != null && iceberg.ownsHandle(handle)) {
-            return iceberg;
+            return new SiblingOwner(iceberg, SiblingOwner.ICEBERG_LABEL);
         }
         Connector hudi = hudiSibling;
         if (hudi != null && hudi.ownsHandle(handle)) {
-            return hudi;
+            return new SiblingOwner(hudi, SiblingOwner.HUDI_LABEL);
         }
         throw new DorisConnectorException("Cannot route a foreign table handle in catalog '"
                 + context.getCatalogName() + "': no embedded sibling connector owns it");
+    }
+
+    /**
+     * The owning sibling {@link Connector} alone (label dropped) for the connector-level per-handle provider seams
+     * ({@code get*Provider(handle)} below), which route by owner but never touch the metadata funnel. Delegates to
+     * {@link #resolveSiblingOwnerLabeled} so the 3-way ownsHandle dispatch has a single implementation.
+     */
+    private Connector resolveSiblingOwner(ConnectorTableHandle handle) {
+        return resolveSiblingOwnerLabeled(handle).connector();
     }
 
     @Override
