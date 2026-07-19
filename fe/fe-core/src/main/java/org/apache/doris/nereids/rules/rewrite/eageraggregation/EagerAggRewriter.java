@@ -92,6 +92,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
     private static final double HIGH_AGGREGATE_EFFECT_COEFFICIENT = 10;
+    private static final double SMALL_BROADCAST_REJECT_COEFFICIENT = 1000;
     private static final String JOIN_CNT = "joinCnt";
     private final StatsDerive derive = new StatsDerive(false);
 
@@ -111,9 +112,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
         ConnectContext connectContext = context.getCascadesContext().getConnectContext();
+        boolean isSmallBroadcastBottomJoin = isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join);
         if (context.isPassThroughJoinOrUnion() && connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
-                && isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join)
-                && !outputStringType(join.right())) {
+                && isSmallBroadcastBottomJoin && !outputStringType(join.right())) {
             Plan aggOnJoin = genAggregate(join, context);
             if (aggOnJoin != join) {
                 return aggOnJoin;
@@ -164,10 +165,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 context.needOutputCount(), leftFuncs);
         Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.ofNullable(context.forOneBranch(leftFuncs,
                 leftAliasMap, leftChildGroupByKeys, isPassThroughHeavyJoin(join.right(), context),
-                leftNeedOutputCount)) : Optional.empty();
+                leftNeedOutputCount, isSmallBroadcastBottomJoin)) : Optional.empty();
         Optional<PushDownAggContext> rightChildContext = toRight ? Optional.ofNullable(context.forOneBranch(rightFuncs,
                 rightAliasMap, rightChildGroupByKeys, isPassThroughHeavyJoin(join.left(), context),
-                rightNeedOutputCount)) : Optional.empty();
+                rightNeedOutputCount, false)) : Optional.empty();
 
         Plan newLeft = join.left();
         Plan newRight = join.right();
@@ -448,7 +449,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         PushDownAggContext newContext = new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughBigJoin(),
                 context.hasDecomposedAggIf, newHasCaseWhen,
-                context.getBilateralState(), context.needOutputCount(), context.isPassThroughJoinOrUnion());
+                context.getBilateralState(), context.needOutputCount(), context.isPassThroughJoinOrUnion(),
+                context.isSmallBroadcastBottomJoin());
         return newContext;
     }
 
@@ -579,7 +581,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
                     context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.hasCaseWhen,
-                    context.getBilateralState(), context.needOutputCount(), true);
+                    context.getBilateralState(), context.needOutputCount(), true, false);
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
             if (newChild != child) {
@@ -1304,6 +1306,17 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
         if (!extremelyHigh.isEmpty() && context.getGroupKeys().size() > 1) {
             return false;
+        }
+
+        if (context.isSmallBroadcastBottomJoin()) {
+            for (ColumnStatistic colStats : groupKeysStats) {
+                if (colStats.isUnKnown) {
+                    return false;
+                }
+                if (colStats.ndv * SMALL_BROADCAST_REJECT_COEFFICIENT > stats.getRowCount()) {
+                    return false;
+                }
+            }
         }
 
         double lowerCartesian = 1.0;

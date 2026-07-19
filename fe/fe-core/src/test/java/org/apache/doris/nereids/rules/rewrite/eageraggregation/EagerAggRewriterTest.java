@@ -476,7 +476,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             PushDownAggContext context = new PushDownAggContext(
                     Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(),
                     planChecker.getCascadesContext(),
-                    true, false, false, new BilateralState(), false, true);
+                    true, false, false, new BilateralState(), false, true, false);
 
             Plan rewritten = relation.accept(new EagerAggRewriter(), context);
 
@@ -640,7 +640,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
         CascadesContext cascadesContext = PlanChecker.from(connectContext).analyze("select * from t1")
                 .getCascadesContext();
         PushDownAggContext context = new PushDownAggContext(Collections.emptyList(), Collections.emptyList(),
-                Collections.emptyMap(), cascadesContext, true, false, false, new BilateralState(), true, false);
+                Collections.emptyMap(), cascadesContext, true, false, false, new BilateralState(), true, false, false);
         SlotReference leftCountSlot = new SlotReference("leftCnt", BigIntType.INSTANCE, false);
         SlotReference rightCountSlot = new SlotReference("rightCnt", BigIntType.INSTANCE, false);
 
