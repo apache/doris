@@ -1,49 +1,58 @@
-# 🤝 Session Handoff —— 每语句表加载归属者 · 移植到其它连接器
+# 🤝 Session Handoff —— 每语句表加载归属者 · 移植/重构
 
 > **滚动文档**：每 session 结束覆盖式更新，只留下一个 session 必须的上下文。
 > 开场必读顺序、模板、铁律见 [`README.md`](./README.md)；进度见 [`progress.md`](./progress.md)；状态见 [`tasklist.md`](./tasklist.md)。
 
 ---
 
-# 🆕 本轮（2026-07-19 session 1）已完成：**全部连接器 recon + 架构统一性调研 → 结论全部 🔬**
+# 🆕 本轮（2026-07-19 session 3）已完成：**定稿分期 + 落地读取键石的 C1 地基 + C2 关闭接线**
 
 ## 一句话结果
-- **逐连接器复核（双签）：没有一个连接器现在值得移植**——iceberg 独特在它是**唯一迁移了行级写（DELETE/MERGE）**的连接器；别的连接器只读 / 仅追加写，没有多臂重复加载风暴，现有跨查询缓存又已把加载压到≈1。四项全部标 🔬。
-- **"统一接口标准"其实已存在**（中性 `getStatementScope()` + `ConnectorStatementScope`，新连接器天生继承）；**推荐高度 L0**（写下约定 + 登记触发点，生产逻辑零改动）。
-- **用户拍板**：本轮先把结论记成**单独文档**（已落 `designs/recon-findings-and-trino-refactor-groundwork.md`）；**重构成 Trino 架构（L2/L3）留到下个 session 专题讨论**。
-- **未动任何产品代码**（纯 plan-doc）。
+- 用户拍板扩展范围并定**分期推进**：读写共用、缓存隔离都做，但排序 + 独立提交；后台"传句柄到后台线程"被取证证伪 → 改"读穿 + 修隐患"；缓存"list ≠ load"已确认 → 缓存隔离是**真实安全修复**。定稿见 `designs/expanded-scope-phasing-and-security-decisions.md`。
+- **已实现并提交（均编译通过 + checkstyle 0 + 单测全绿）**：
+  - **C1 地基** `5b7312f9d1f`：SPI 加 `getOrCreateMetadata`/`closeAll` 默认方法 + `ConnectorStatementScopeImpl.closeAll`(幂等) + 静态漏斗 `PluginDrivenMetadata.get`。字节中性（无生产路径接进漏斗）。
+  - **C2 关闭接线** `12f3e95239b`：**两层关闭**（主=getSplits 注册 `scope::closeAll`；兜底=`StatementContext.close` 守卫 closeAll + `proxyExecute` finally；reset closeAll-before-null；retry 每次重置）。P1 关闭仍 no-op，行为中性。
+- 取证 workflow：`wf_8b907b93-e9f`（扩展范围三块）、`wf_9250330b-e81`（关闭接线生命周期，**推翻了原"scope 创建处注册"会泄漏**）。
 
 ---
 
-# ➡️ 下一个 session = **专题讨论"重构成 Trino 架构"（L2/L3）**
+# ➡️ 下一个 session = **STEP 1 的 C3：读取侧改道 + 后台读穿纠正（本阶段最大一步，动手前先过清单 + 配对抗复核）**
 
-## 第一件事（先读，别急着给方案）
-1. 读 **`designs/recon-findings-and-trino-refactor-groundwork.md`**（本轮全部结论：逐连接器复核 §2、iceberg 为何独特 §3、统一性/Trino 参照/高度分级 §4、paimon 触发点 §5、共享 helper 落点 §6、**Trino 重构预备材料 §7**）。
-2. 读架构记忆 `iceberg-table-resolution-cache-scoping`（缓存作用域纪律 + "全高度留远期"）。
+## 第一件事（先读）
+1. 读 `designs/expanded-scope-phasing-and-security-decisions.md`（分期定稿 + §6 C1/C2 进展 + 关闭接线残留风险）。
+2. 读 `designs/P1-implementation-design.md`：§2 的 66 缝改道表（C3 的清单）；§3 扫描节点存字段；**§4 已更正为两层关闭**（C2 已实现，勿再按旧"scope 创建处注册"）。
+3. 读架构记忆 `iceberg-table-resolution-cache-scoping`。
 
-## 讨论要点（种子，详见结论文档 §7）
-- **Trino 到底要引入什么**：每语句/每事务 `ConnectorMetadata` 实例（现状是每 catalog 共享单例）+ 一个 span 生命周期管理器（Doris 现成 span 宿主=`StatementContext`）+ planner 改成经 span 取 metadata + 逐连接器把缓存迁到 per-statement 实例。
-- **必须先摆平的硬冲突**：
-  - **铁律 A**（删旧代码期 fe-core 只减不增）——L2/L3 几乎全是 fe-core 净增 + planner 改造 → 是否等删旧代码期结束？是否需用户单独签字？
-  - 读热路径刚稳定（PERF-01~06/11），per-statement metadata 会重排读热缝、回归面大。
-  - **正面收益**：per-statement 实例天然按语句/用户隔离 → 顺带解决"跨查询缓存对 session=user/vended 关闭"的历史包袱（这是 L3 相对现状的真正架构收益）。
-- **建议讨论产出**：一份"Doris 每语句/每事务 metadata 重构"的**可行性 + 分期**设计（先 span 宿主 → 逐连接器迁移 → 退役共享单例，避免一次性大爆炸）+ 明确触发条件。
+## C3 要做的（读取侧改道 + 后台纠正）
+- **读/扫描/DDL/MVCC/misc 改道**（~55 处 on-thread）：把 `connector.getMetadata(session)` 改调 `PluginDrivenMetadata.get(session, connector)`。清单见 §2 组 A/B/C/E/misc。
+- **扫描节点存字段**（组 C）：`PluginDrivenScanNode` 加懒字段 `cachedMetadata` + `metadata()`，8 处 per-method 重取改调它（`volatile` 稳态）。
+- **后台读穿纠正**（用户拍板）：7 处跨语句 loader（`listDatabaseNames`/`listTableNamesFromRemote`/`initSchema`/`getColumnStatistic`/`getChunkSizes`/`fetchRowCount`/`MetadataGenerator.dealPluginDrivenCatalog`）**显式建 NONE session 读穿**（`ConnectorSessionBuilder.withStatementScope(NONE)` 或新增 `buildCrossStatementSession()`）；**修 `fetchRowCount` 在 ANALYZE 线程（`AnalysisManager.buildAnalysisJobInfo`）被错误绑定到语句作用域的隐患**。
+- **⚠ 别误改道 `PluginDrivenExternalTable.resolveWriteTargetHandle`**（藏在读文件里的**写专用**点）——标记为写 seam，留 STEP 3。
+- 守门：一语句一表加载计数=1（对照 NONE=N）；跨 catalog/queryId 隔离。
+- **动手前**：先把 §2 改道表逐条核对当前代码行号（可能漂移），列清单给用户过一遍，并计划一轮对抗式复核（clean-room 偏好）。
 
-## 关键已知（省得重新发现）
-- **地基已就位、勿再改**：`ConnectorStatementScope` + `getStatementScope()`(fe-connector-api) + `ConnectorStatementScopeImpl` + `StatementContext` 懒建/重置 + `ConnectorSessionImpl` 构造期捕获 + `ExecuteCommand` 重置(fe-core)。
-- **目前只有 iceberg 用了该 SPI**（`IcebergStatementScope` + `IcebergWritePlanProvider`）。
-- **paimon = 唯一真实的将来 L1 候选**：写未迁移（老 JNI-writer INSERT 写栈在删旧代码期被删、未搬进新连接器）；已有胖句柄 `PaimonTableHandle.paimonTable` + 4 加载 seam；**加行级 UPDATE/DELETE 时才值得移植**，届时抽共享 helper（落 `fe-connector-api`，签名/6 处迁移见结论文档 §6）。
+## 后续步（STEP 2/3/4，详见分期定稿 §4）
+- **STEP 2 HMS 兄弟**：键含属主 label + 兄弟 getMetadata **及 beginTransaction** 进漏斗 + 异构网关 e2e。
+- **STEP 3 写入共用**：3a 无状态写点改道（含被标记的 `resolveWriteTargetHandle`）；3b `ConnectorTransaction` 归属上移 `CatalogStatementTransaction`。闸门=读写身份等价 + 保留 hive 起写刷新 + 保留 tx↔session 绑定。纠缠点：iceberg 起写复用表读 `IcebergStatementScope.sharedTable`（P2 计划删）——3b 时定"先接旧 vs 先做 iceberg 最小 P2 前置"。
+- **STEP 4 缓存隔离（安全）**：`getIdentityShardKey()` SPI → iceberg 三投影缓存分片 + fe-core 表结构缓存 bypass(先)/分片(后) + 防漂移门禁；随 STEP 2 属主键覆盖异构网关；越权 e2e + 威胁模型签字。
 
-## 铁律提醒
-- 地基勿再改；移植（若做）只写连接器侧；暴露地基缺口先停手交 review。
-- L2/L3 碰铁律 A（fe-core 净增）——**属独立立项 + 需用户签字**，不在本"纯连接器侧移植"任务的默认范围内。
-- 作用域跨用户即泄漏——凡有 session=user/凭证语义的连接器，复核共享安全（本轮已确认现有各连接器均目录级单一身份、不泄漏）。
+## 关闭接线残留风险（carry-forward，详见分期定稿 §6）
+1. 取消/超时非硬栅栏（`SplitAssignment.stop` 只置标志不 join pump）——既有共担，P1 no-op 下无实害，**关闭做实事前须硬化**。
+2. arrow-flight 异常断连 → 注册表条目留存（无 TTL）——既有共担。
+3. **待确认**：走协调器但从不走 getSplits 的外部目录查询（纯 information_schema / 某元数据 TVF）可能漏关——STEP 3/后续确认。
+4. **🔴 TCCL 自钉扎（硬前置）**：一旦连接器 `close()` 做实事（P2+），主关闭回调 + 兜底两处都须把 TCCL 钉到插件 classloader（连接器 `close()` 自钉扎首选）。
+
+## 铁律 / 闸门提醒
+- 用户 2026-07-19 已豁免铁律 A（fe-core 只减不增）——本重构的 fe-core 净增已获授权。仍守：连接器 connector-agnostic（作用域值 Object）；作用域跨用户即泄漏（STEP 4 威胁模型）。
+- **动码前探测并发活动**（git log/status + maven 进程 + 近 90s mtime），发现活跃即停手（`concurrent-sessions-shared-worktree-hazard`）。
 
 ---
 
 # 🗂 遗留 / 关联
-- 本轮全部结论：`designs/recon-findings-and-trino-refactor-groundwork.md`。
-- iceberg 蓝本任务空间：`../perf-hotpath-iceberg/`（PERF-07 权威设计/小结）。
+- 分期定稿（现行主线）：`designs/expanded-scope-phasing-and-security-decisions.md`（含 §6 进展 + 残留风险）。
+- STEP 1 蓝图：`designs/P1-implementation-design.md`（§2 改道表；§4 已更正为两层关闭）。
+- 目标架构全景：`designs/trino-parity-metadata-redesign-design.md`。
+- 蓝本 iceberg：`../perf-hotpath-iceberg/`（PERF-07）；代码范本 `IcebergStatementScope`(commit `ea7fd1f6e7a`)+地基 `97bdcd6bdbe`。
 - 架构记忆：`iceberg-table-resolution-cache-scoping`。
-- 本轮调研原始返回：workflow journal `wf_e89cf92e-ff3`（逐连接器）+ `wf_4802a3d2-1c9`（统一性三专项），路径见结论文档 §8。
-- e2e 一律留各连接器进 `SPI_READY_TYPES` 切换阶段统一补（对齐 `hms-iceberg-delegation-needs-e2e`）。
+- 本轮 workflow journal：`wf_8b907b93-e9f`（扩展范围）、`wf_9250330b-e81`（关闭接线生命周期）；前轮 `wf_72d1e505-75c`/`wf_62cc379e-c6e`/`wf_7e537094-44f`。
+- e2e 一律留连接器进 `SPI_READY_TYPES` 切换阶段统一补；异构网关 e2e 随 STEP 2/4（对齐 `hms-iceberg-delegation-needs-e2e`）。

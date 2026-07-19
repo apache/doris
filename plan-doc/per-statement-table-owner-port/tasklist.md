@@ -4,7 +4,22 @@
 > 立项流程、约束铁律、模板见 [`README.md`](./README.md)。地基（fe-core/api SPI）已就位，移植=纯连接器侧。
 > 状态图例：⏳ 待启动 · 🔍 recon 中 · 🚧 进行中 · ✅ 完成 · 🔬 复核判不必做 · ❌ 阻塞
 
-## 总览
+## ⭐ 现行主线 = Trino 式重构分期（2026-07-19 session 3 定稿）
+
+> 逐连接器移植（PORT-01~04）经复核**全部 🔬 判暂不做**；用户改为**直接重构成 Trino 式"引擎自持每语句 metadata 实例"架构**（豁免铁律 A）。定稿分期见 `designs/expanded-scope-phasing-and-security-decisions.md`。不砍任何一块，只排序 + 独立提交/验证。
+
+| ID | 步 | 状态 | 内容 | 依赖 | commit |
+|---|---|---|---|---|---|
+| RD-1 | STEP 1 读取键石 | 🚧 进行中（C1+C2 已提交，C3 待做） | C1 地基 ✅ + C2 关闭接线 ✅ + C3 读/扫描/DDL/MVCC 改道 + 扫描节点存字段 + 7 处后台 loader 显式 NONE 读穿 + 修 fetchRowCount ANALYZE 隐患（待做） | — | C1 `5b7312f9d1f` · C2 `12f3e95239b` |
+| RD-2 | STEP 2 HMS 兄弟扇出 | ⏳ 待启动 | 键=(catalogId, ownerLabel)；兄弟 getMetadata **及 beginTransaction** 进同一 funnel；异构网关 e2e | RD-1 | |
+| RD-3 | STEP 3 写入共用 | ⏳ 待启动 | 3a 无状态写点改道进 funnel；3b `ConnectorTransaction` 归属上移 `CatalogStatementTransaction` + commit/rollback vs closeAll 顺序。闸门=读写身份等价 + 保留 hive 起写刷新 + 保留 tx↔session 绑定 | RD-1,RD-2 | |
+| RD-4 | STEP 4 缓存隔离（安全 track） | ⏳ 待启动（**list≠load 已确认=真实越权**） | `getIdentityShardKey()` SPI → iceberg 三投影缓存 Key 分片 + fe-core 表结构缓存 bypass(先)/分片(后) + 防漂移门禁；随 STEP 2 属主键覆盖异构网关；越权 e2e | 威胁模型签字 + RD-2 | |
+
+> **纠缠点（RD-3b 时定）**：iceberg 起写复用表读 `IcebergStatementScope.sharedTable`，该 side-car 在 P2 计划要删 → 先接旧 vs 先做 iceberg 最小 P2 前置。
+
+---
+
+## 总览（历史 · 逐连接器移植框架，已被重构主线取代）
 
 - **蓝本 = iceberg（PERF-07 已完成）**：`ConnectorStatementScope`(fe-core/api，中性) + `IcebergStatementScope`(连接器) + 四处 `resolveTable*` 共享 + 拆胖句柄 + 删除暂存下沉 + v3 fail-loud。commits `97bdcd6bdbe`(fe-core) + `ea7fd1f6e7a`(iceberg)。
 - **本清单只跟踪"其它连接器"的移植**；每项**第一步是 recon**（可能复核判"不必做"）。
