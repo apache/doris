@@ -126,11 +126,25 @@ Status DeletionVectorReader::open() {
         return Status::OK();
     }
 
+    if (_desc.start_offset < 0 || _desc.size < 0) {
+        return Status::DataQualityError(
+                "Deletion vector range must be non-negative: path {}, offset {}, size {}",
+                _desc.path, _desc.start_offset, _desc.size);
+    }
+
     _init_system_properties();
     _init_file_description();
     RETURN_IF_ERROR(_create_file_reader());
 
-    _file_size = _file_reader->size();
+    const size_t file_size = _file_reader->size();
+    const size_t start_offset = static_cast<size_t>(_desc.start_offset);
+    const size_t range_size = static_cast<size_t>(_desc.size);
+    if (start_offset > file_size || range_size > file_size - start_offset) {
+        return Status::DataQualityError(
+                "Deletion vector range exceeds file size: path {}, offset {}, size {}, file size "
+                "{}",
+                _desc.path, _desc.start_offset, _desc.size, file_size);
+    }
     _is_opened = true;
     return Status::OK();
 }

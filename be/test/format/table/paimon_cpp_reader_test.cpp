@@ -269,7 +269,11 @@ TEST(PaimonDeletionVectorTest, ValidateDescriptorRejectsInvalidRange) {
     deletion_file.__set_length(std::numeric_limits<int64_t>::max());
     EXPECT_FALSE(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read).ok());
 
-    deletion_file.__set_length(MAX_PAIMON_DELETION_VECTOR_BYTES);
+    deletion_file.__set_length(MAX_PAIMON_DELETION_VECTOR_BYTES - 4);
+    EXPECT_TRUE(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read).ok());
+    EXPECT_EQ(static_cast<size_t>(MAX_PAIMON_DELETION_VECTOR_BYTES), bytes_read);
+
+    deletion_file.__set_length(MAX_PAIMON_DELETION_VECTOR_BYTES - 3);
     EXPECT_FALSE(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read).ok());
 
     deletion_file.__set_offset(3);

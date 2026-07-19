@@ -29,7 +29,8 @@ namespace doris {
 inline constexpr int64_t MAX_ICEBERG_DELETION_VECTOR_BYTES = 1L << 30;
 inline constexpr size_t ICEBERG_DELETION_VECTOR_BLOB_OVERHEAD_BYTES = 12;
 
-// Keep the existing Paimon serialized-size guard independent from the Iceberg capability limit.
+// Paimon v1 uses a run-optimized 32-bit Roaring bitmap whose maximum serialized size is below this
+// limit. Keep its guard independent from the Iceberg capability limit.
 inline constexpr int64_t MAX_PAIMON_DELETION_VECTOR_BYTES = 1L << 30;
 
 // A deletion vector is already a bitmap on the wire. Keep decoded DVs compressed in the

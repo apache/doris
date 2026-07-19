@@ -342,9 +342,9 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsMissingFile) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsShortRead) {
+TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorRejectsRangePastFile) {
     const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_iceberg_deletion_vector_short_read_test";
+                          "doris_iceberg_deletion_vector_range_past_file_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -362,8 +362,46 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsShortRead) {
     auto status = read_iceberg_deletion_vector(
             make_iceberg_deletion_vector(dv_path, 0, dv_size + 1), options, &rows_to_delete);
 
-    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("range exceeds file size"), std::string::npos);
+    EXPECT_NE(status.to_string().find(dv_path), std::string::npos);
     EXPECT_EQ(rows_to_delete.cardinality(), 0);
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileRange) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_deletion_vector_opened_file_range_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {1, 3});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    IcebergDeleteFileIOContext io_context(&state);
+
+    {
+        TFileRangeDesc exact_range = build_iceberg_delete_file_range(dv_path);
+        exact_range.start_offset = 4;
+        exact_range.size = dv_size - exact_range.start_offset;
+        DeletionVectorReader exact_reader(&state, &profile, scan_params, exact_range,
+                                          &io_context.io_ctx);
+        const auto exact_status = exact_reader.open();
+        EXPECT_TRUE(exact_status.ok()) << exact_status;
+
+        TFileRangeDesc oversized_range = exact_range;
+        oversized_range.size = MAX_ICEBERG_DELETION_VECTOR_BYTES;
+        DeletionVectorReader oversized_reader(&state, &profile, scan_params, oversized_range,
+                                              &io_context.io_ctx);
+        const auto oversized_status = oversized_reader.open();
+        EXPECT_TRUE(oversized_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << oversized_status;
+        EXPECT_NE(oversized_status.to_string().find("range exceeds file size"), std::string::npos);
+        EXPECT_NE(oversized_status.to_string().find(dv_path), std::string::npos);
+    }
+
     std::filesystem::remove_all(test_dir);
 }
 
