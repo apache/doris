@@ -1104,7 +1104,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         ResolvedColumnPath resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify");
         NestedField currentCol = resolvedPath.getField();
         validateCollectionPseudoFieldComment(
-                icebergTable.schema(), resolvedPath, column.getComment(), false);
+                icebergTable.schema(), resolvedPath, column.getComment(), column.isCommentSpecified());
         if (position != null) {
             validatePositionTarget(icebergTable.schema(), resolvedPath.getColumnPath(), "modify");
         }
@@ -1169,9 +1169,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private void validateCollectionPseudoFieldComment(Schema schema, ResolvedColumnPath resolvedPath,
-            String comment, boolean explicitCommentOperation) throws UserException {
+            String comment, boolean commentSpecified) throws UserException {
         if (!resolvedPath.getColumnPath().isNested()
-                || (!explicitCommentOperation && StringUtils.isEmpty(comment))) {
+                || (!commentSpecified && StringUtils.isEmpty(comment))) {
             return;
         }
         ResolvedColumnPath parentPath = resolveColumnPath(

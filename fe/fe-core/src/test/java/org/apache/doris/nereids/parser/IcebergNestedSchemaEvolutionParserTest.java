@@ -191,6 +191,30 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     @Test
+    public void testModifyColumnRoundTripPreservesCommentIntent() {
+        ModifyColumnOp omitted = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN arr.element BIGINT",
+                ModifyColumnOp.class, "arr.element");
+        Assertions.assertFalse(omitted.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isCommentSpecified());
+        Assertions.assertFalse(omitted.toSql().contains(" COMMENT "));
+
+        ModifyColumnOp reparsedOmitted = assertSingleClausePath(
+                "ALTER TABLE t " + omitted.toSql(), ModifyColumnOp.class, "arr.element");
+        Assertions.assertFalse(reparsedOmitted.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isCommentSpecified());
+
+        ModifyColumnOp empty = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN arr.element BIGINT COMMENT ''",
+                ModifyColumnOp.class, "arr.element");
+        ModifyColumnOp reparsedEmpty = assertSingleClausePath(
+                "ALTER TABLE t " + empty.toSql(), ModifyColumnOp.class, "arr.element");
+        Assertions.assertTrue(reparsedEmpty.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isCommentSpecified());
+        Assertions.assertEquals("", reparsedEmpty.getColumnDef().getComment());
+    }
+
+    @Test
     public void testModifyColumnCommentRoundTripEscapesQuotesAndBackslashes() {
         assertCommentRoundTrip(false);
         assertCommentRoundTrip(true);

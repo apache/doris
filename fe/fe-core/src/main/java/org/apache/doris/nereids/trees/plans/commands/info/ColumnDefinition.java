@@ -67,6 +67,8 @@ public class ColumnDefinition {
     private Optional<DefaultValue> defaultValue;
     private Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
     private final String comment;
+    // Distinguishes an explicit COMMENT '' clause from an omitted COMMENT clause.
+    private final boolean commentSpecified;
     private final boolean isVisible;
     private boolean aggTypeImplicit = false;
     private long autoIncInitValue = -1;
@@ -86,7 +88,7 @@ public class ColumnDefinition {
             Optional<DefaultValue> onUpdateDefaultValue, String comment,
             Optional<GeneratedColumnDesc> generatedColumnDesc) {
         this(name, type, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
-                comment, true, generatedColumnDesc);
+                comment, comment != null && !comment.isEmpty(), true, generatedColumnDesc);
     }
 
     /**
@@ -102,6 +104,7 @@ public class ColumnDefinition {
         this.nullableSpecified = true;
         this.defaultValue = defaultValue;
         this.comment = comment;
+        this.commentSpecified = comment != null && !comment.isEmpty();
         this.isVisible = isVisible;
     }
 
@@ -121,6 +124,7 @@ public class ColumnDefinition {
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
         this.comment = comment;
+        this.commentSpecified = comment != null && !comment.isEmpty();
         this.isVisible = isVisible;
     }
 
@@ -130,6 +134,18 @@ public class ColumnDefinition {
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
             ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
             Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible,
+            Optional<GeneratedColumnDesc> generatedColumnDesc) {
+        this(name, type, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
+                comment, comment != null && !comment.isEmpty(), isVisible, generatedColumnDesc);
+    }
+
+    /**
+     * constructor
+     */
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
+            ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
+            Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean commentSpecified,
+            boolean isVisible,
             Optional<GeneratedColumnDesc> generatedColumnDesc) {
         this.name = name;
         this.type = type;
@@ -142,6 +158,7 @@ public class ColumnDefinition {
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
         this.comment = comment;
+        this.commentSpecified = commentSpecified;
         this.isVisible = isVisible;
         this.generatedColumnDesc = generatedColumnDesc;
     }
@@ -214,17 +231,25 @@ public class ColumnDefinition {
         return SqlUtils.escapeQuota(comment);
     }
 
+    public boolean isCommentSpecified() {
+        return commentSpecified;
+    }
+
     /**
      * toSql
      */
     public String toSql() {
-        return toSql("`" + name + "`");
+        return toSql("`" + name + "`", true);
     }
 
     /**
      * Convert this column definition to SQL with a caller-provided column name.
      */
     public String toSql(String columnNameSql) {
+        return toSql(columnNameSql, commentSpecified);
+    }
+
+    private String toSql(String columnNameSql, boolean includeComment) {
         StringBuilder sb = new StringBuilder();
         sb.append(columnNameSql).append(" ");
         sb.append(type.toSql()).append(" ");
@@ -266,7 +291,9 @@ public class ColumnDefinition {
                 sb.append("DEFAULT ").append("NULL").append(" ");
             }
         }
-        sb.append("COMMENT ").append(LogicalPlanBuilderAssistant.quoteStringLiteral(getComment()));
+        if (includeComment) {
+            sb.append("COMMENT ").append(LogicalPlanBuilderAssistant.quoteStringLiteral(getComment()));
+        }
 
         return sb.toString();
     }
@@ -595,6 +622,7 @@ public class ColumnDefinition {
                         ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
                         .orElse(null));
         column.setNullableSpecified(nullableSpecified);
+        column.setCommentSpecified(commentSpecified);
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }

@@ -4250,7 +4250,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Optional.of(new GeneratedColumnDesc(ctx.generatedExpr.getText(), getExpression(ctx.generatedExpr)))
                 : Optional.empty();
         return new ColumnDefinition(colName, colType, isKey, aggType, nullableType, autoIncInitValue, defaultValue,
-                onUpdateDefaultValue, comment, desc);
+                onUpdateDefaultValue, comment, ctx.comment != null, true, desc);
     }
 
     @Override
@@ -4307,7 +4307,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Optional.of(new GeneratedColumnDesc(ctx.generatedExpr.getText(), getExpression(ctx.generatedExpr)))
                 : Optional.empty();
         ColumnDefinition columnDefinition = new ColumnDefinition(colName, colType, isKey, aggType, nullableType,
-                autoIncInitValue, Optional.empty(), Optional.empty(), comment, desc);
+                autoIncInitValue, Optional.empty(), Optional.empty(), comment, ctx.comment != null, true, desc);
         return new ColumnDefinitionWithPath(columnDefinition, columnPath);
     }
 

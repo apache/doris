@@ -924,6 +924,16 @@ public class IcebergMetadataOpsValidationTest {
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("m.value"),
                             new Column("value", Type.BIGINT, true, "map value comment"), null, 1L),
                     "Iceberg does not support comments on collection element or value fields: m.value");
+            Column arrayElementWithEmptyComment = new Column("element", Type.BIGINT, true, "");
+            arrayElementWithEmptyComment.setCommentSpecified(true);
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("arr.element"),
+                            arrayElementWithEmptyComment, null, 1L),
+                    "Iceberg does not support comments on collection element or value fields: arr.element");
+            Column mapValueWithEmptyComment = new Column("value", Type.BIGINT, true, "");
+            mapValueWithEmptyComment.setCommentSpecified(true);
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("m.value"),
+                            mapValueWithEmptyComment, null, 1L),
+                    "Iceberg does not support comments on collection element or value fields: m.value");
             assertUserException(() -> ops.modifyColumnComment(
                             dorisTable, ColumnPath.fromDotName("m.key"), "map key comment", 1L),
                     "Cannot modify comment MAP key nested column");

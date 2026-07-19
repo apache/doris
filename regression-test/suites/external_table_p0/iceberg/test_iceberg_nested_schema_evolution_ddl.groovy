@@ -115,6 +115,14 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
         exception "Iceberg does not support comments on collection element or value fields"
     }
     test {
+        sql """ALTER TABLE ${tableName} MODIFY COLUMN arr_scalar.element BIGINT COMMENT ''"""
+        exception "Iceberg does not support comments on collection element or value fields"
+    }
+    test {
+        sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.value BIGINT COMMENT ''"""
+        exception "Iceberg does not support comments on collection element or value fields"
+    }
+    test {
         sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.`key` COMMENT 'map key comment'"""
         exception "Cannot modify comment MAP key nested column"
     }
