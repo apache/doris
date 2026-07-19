@@ -294,4 +294,38 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("s3://my-bucket/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("s3://my-bucket.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
         Assertions.assertEquals("https://bucket-name.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("https://bucket-name.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
     }
+
+    @Test
+    public void testBackendConfigIncludesProviderOss() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "ak");
+        props.put("oss.secret_key", "sk");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        Map<String, String> backend = ossProperties.getBackendConfigProperties();
+
+        Assertions.assertEquals("OSS", backend.get("provider"));
+        Assertions.assertNotNull(backend.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("ak", backend.get("AWS_ACCESS_KEY"));
+        Assertions.assertFalse(backend.containsKey("AWS_ROLE_ARN"));
+        Assertions.assertFalse(backend.containsKey("AWS_EXTERNAL_ID"));
+    }
+
+    @Test
+    public void testBackendConfigForwardsRoleArnAndExternalId() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "ak");
+        props.put("oss.secret_key", "sk");
+        props.put("OSS_ROLE_ARN", "acs:ram::123:role/MyRole");
+        props.put("AWS_EXTERNAL_ID", "ext-id");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        Map<String, String> backend = ossProperties.getBackendConfigProperties();
+
+        Assertions.assertEquals("OSS", backend.get("provider"));
+        Assertions.assertEquals("acs:ram::123:role/MyRole", backend.get("AWS_ROLE_ARN"));
+        Assertions.assertEquals("ext-id", backend.get("AWS_EXTERNAL_ID"));
+    }
 }

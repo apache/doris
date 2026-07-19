@@ -31,6 +31,10 @@ endif()
 
 list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/libjvm_loader.cpp)
 
+if(BUILD_OSS STREQUAL "OFF")
+    list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/oss_util.cpp)
+endif()
+
 if (ENABLE_TLS)
     list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/oss/client_connection_provider.cpp)
     list(APPEND UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/../${TLS_MODULE_DIR}/client_connection_provider.cpp)

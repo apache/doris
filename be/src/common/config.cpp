@@ -1521,6 +1521,11 @@ DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 DEFINE_mBool(enable_s3_object_check_after_upload, "true");
+
+DEFINE_Bool(enable_oss_native_sdk, "false");
+DEFINE_mInt32(max_oss_client_retry, "10");
+DEFINE_mInt32(oss_read_base_wait_time_ms, "100");
+DEFINE_mInt32(oss_read_max_wait_time_ms, "800");
 DEFINE_mInt32(aws_client_request_timeout_ms, "30000");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
