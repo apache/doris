@@ -126,19 +126,18 @@ public:
         ChildAccessPaths value;
     };
 
-    // Map selectors are logical. Convert KEYS/VALUES to the actual key/value iterator names. For a
-    // wildcard, create a complete DATA path for keys and route trailing qualifiers to values.
+    // Map children use the logical KEYS/VALUES selectors as their access-path names, independent
+    // of physical child column names. Expand a wildcard to complete keys and route its trailing
+    // qualifiers to values.
     static Result<MapChildAccessPaths> route_map_paths_to_children(
-            TColumnAccessPaths all_paths, TColumnAccessPaths predicate_paths,
-            const std::string& key_name, const std::string& value_name) {
+            TColumnAccessPaths all_paths, TColumnAccessPaths predicate_paths) {
         MapChildAccessPaths child_paths;
-        auto status = distribute_map_paths(std::move(all_paths), key_name, value_name,
-                                           child_paths.key.all_paths, child_paths.value.all_paths);
+        auto status = distribute_map_paths(std::move(all_paths), child_paths.key.all_paths,
+                                           child_paths.value.all_paths);
         if (!status.ok()) {
             return ResultError(std::move(status));
         }
-        status = distribute_map_paths(std::move(predicate_paths), key_name, value_name,
-                                      child_paths.key.predicate_paths,
+        status = distribute_map_paths(std::move(predicate_paths), child_paths.key.predicate_paths,
                                       child_paths.value.predicate_paths);
         if (!status.ok()) {
             return ResultError(std::move(status));
@@ -260,14 +259,14 @@ private:
     }
 
     // Map `*` applies trailing qualifiers only to values, while locating entries still requires
-    // the complete key column as DATA. Construct a fresh key path because the source may be META,
-    // and preserve its version so child routing keeps the same legacy/typed encoding.
-    static TColumnAccessPath make_full_data_path_for_child(const TColumnAccessPath& version_source,
-                                                           const std::string& child_name) {
+    // complete KEYS as DATA. Construct a fresh key path because the source may be META, and
+    // preserve its version so child routing keeps the same legacy/typed encoding.
+    static TColumnAccessPath make_full_data_path_for_map_keys(
+            const TColumnAccessPath& version_source) {
         TColumnAccessPath child_path;
         child_path.__set_type(TAccessPathType::DATA);
         TDataAccessPath data_path;
-        data_path.__set_path({child_name});
+        data_path.__set_path({ColumnIterator::ACCESS_MAP_KEYS});
         child_path.__set_data_access_path(data_path);
         if (version_source.__isset.version) {
             child_path.__set_version(version_source.version);
@@ -295,8 +294,8 @@ private:
         return selector;
     }
 
-    static Status distribute_map_paths(TColumnAccessPaths source_paths, const std::string& key_name,
-                                       const std::string& value_name, TColumnAccessPaths& key_paths,
+    static Status distribute_map_paths(TColumnAccessPaths source_paths,
+                                       TColumnAccessPaths& key_paths,
                                        TColumnAccessPaths& value_paths) {
         for (auto& path : source_paths) {
             const auto selector = DORIS_TRY(classify_map_selector(path));
@@ -304,16 +303,15 @@ private:
             case MapSelector::WILDCARD:
                 // A wildcard needs complete keys for runtime lookup, while any remaining
                 // qualifiers apply only to the value. The value keeps its type and version.
-                key_paths.emplace_back(make_full_data_path_for_child(path, key_name));
-                RETURN_IF_ERROR(replace_selected_payload_head(path, value_name));
+                key_paths.emplace_back(make_full_data_path_for_map_keys(path));
+                RETURN_IF_ERROR(
+                        replace_selected_payload_head(path, ColumnIterator::ACCESS_MAP_VALUES));
                 value_paths.emplace_back(std::move(path));
                 break;
             case MapSelector::KEYS:
-                RETURN_IF_ERROR(replace_selected_payload_head(path, key_name));
                 key_paths.emplace_back(std::move(path));
                 break;
             case MapSelector::VALUES:
-                RETURN_IF_ERROR(replace_selected_payload_head(path, value_name));
                 value_paths.emplace_back(std::move(path));
                 break;
             case MapSelector::UNRECOGNIZED:
@@ -1088,13 +1086,11 @@ Status ColumnReader::new_map_iterator(ColumnIteratorUPtr* iterator,
             &key_iterator, tablet_column && tablet_column->get_subtype_count() > 1
                                    ? &tablet_column->get_sub_column(0)
                                    : nullptr));
-    key_iterator->set_column_name(tablet_column ? tablet_column->get_sub_column(0).name() : "");
     ColumnIteratorUPtr val_iterator;
     RETURN_IF_ERROR(_sub_readers[1]->new_iterator(
             &val_iterator, tablet_column && tablet_column->get_subtype_count() > 1
                                    ? &tablet_column->get_sub_column(1)
                                    : nullptr));
-    val_iterator->set_column_name(tablet_column ? tablet_column->get_sub_column(1).name() : "");
     ColumnIteratorUPtr offsets_iterator;
     RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&offsets_iterator, nullptr));
     auto* file_iter = static_cast<FileColumnIterator*>(offsets_iterator.release());
@@ -1298,6 +1294,10 @@ MapFileColumnIterator::MapFileColumnIterator(std::shared_ptr<ColumnReader> reade
     if (_map_reader->is_nullable()) {
         _null_iterator = std::move(null_iterator);
     }
+    // Access paths identify map children by logical selectors rather than storage/schema child
+    // names. These names are consumed by each child's _split_access_paths().
+    _key_iterator->set_column_name(ACCESS_MAP_KEYS);
+    _val_iterator->set_column_name(ACCESS_MAP_VALUES);
 }
 
 Status MapFileColumnIterator::init(const ColumnIteratorOptions& opts) {
@@ -1763,8 +1763,7 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     }
 
     auto child_paths = DORIS_TRY(DescendantAccessPathRouter::route_map_paths_to_children(
-            std::move(plan.all.descendant_paths), std::move(plan.predicate.descendant_paths),
-            _key_iterator->column_name(), _val_iterator->column_name()));
+            std::move(plan.all.descendant_paths), std::move(plan.predicate.descendant_paths)));
 
     if (!child_paths.key.empty()) {
         RETURN_IF_ERROR(_key_iterator->set_access_paths(child_paths.key.all_paths,
