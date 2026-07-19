@@ -1076,12 +1076,12 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
     };
 
     schema::external::TStructField root_field;
-    root_field.__set_fields(
-            {make_field("added_timestamp", 1, TPrimitiveType::DATETIMEV2,
-                        "2024-01-01 00:00:00.123456", -1, 6, false),
-             make_field("added_binary", 2, TPrimitiveType::VARBINARY, "AAEC/w==", 4, -1, true),
-             make_field("added_string_binary", 3, TPrimitiveType::STRING, "AAEC/w==", -1, -1,
-                        true)});
+    root_field.__set_fields({make_field("added_timestamp", 1, TPrimitiveType::DATETIMEV2,
+                                        "2024-01-01 00:00:00.123456", -1, 6, false),
+                             make_field("added_binary", 2, TPrimitiveType::VARBINARY,
+                                        "Ej5FZ+ibEtOkVkJmFBdAAA==", 16, -1, true),
+                             make_field("added_string_binary", 3, TPrimitiveType::STRING,
+                                        "AAEC/w==", -1, -1, true)});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(-1);
     current_schema.__set_root_field(root_field);
@@ -1102,7 +1102,7 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
                                 &runtime_state, cache.get());
 
     const auto timestamp_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
-    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(4));
+    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(16));
     const auto string_type = make_nullable(std::make_shared<DataTypeString>());
     Block block;
     block.insert({timestamp_type->create_column(), timestamp_type, "added_timestamp"});
@@ -1126,12 +1126,59 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
     EXPECT_EQ(timestamp_type->to_string(*block.get_by_position(0).column, 0),
               "2024-01-01 00:00:00.123456");
     EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(1).column, 0),
-              std::string("\x00\x01\x02\xff", 4));
+              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
     EXPECT_EQ(string_type->to_string(*block.get_by_position(2).column, 0),
               std::string("\x00\x01\x02\xff", 4));
     EXPECT_FALSE(is_column_const(*block.get_by_position(0).column));
     EXPECT_FALSE(is_column_const(*block.get_by_position(1).column));
     EXPECT_FALSE(is_column_const(*block.get_by_position(2).column));
+}
+
+TEST_F(IcebergReaderTest, v1_top_level_missing_binary_prefers_iceberg_initial_default) {
+    auto field = std::make_shared<schema::external::TField>();
+    field->__set_name("added_uuid");
+    field->__set_id(1);
+    field->__set_initial_default_value("Ej5FZ+ibEtOkVkJmFBdAAA==");
+    field->__set_initial_default_value_is_base64(true);
+    TColumnType thrift_type;
+    thrift_type.__set_type(TPrimitiveType::VARBINARY);
+    thrift_type.__set_len(16);
+    field->__set_type(thrift_type);
+    schema::external::TFieldPtr field_ptr;
+    field_ptr.field_ptr = std::move(field);
+    field_ptr.__isset.field_ptr = true;
+    schema::external::TStructField root_field;
+    root_field.__set_fields({std::move(field_ptr)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(std::move(root_field));
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
+                                &runtime_state, cache.get());
+
+    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(16));
+    Block block;
+    block.insert({varbinary_type->create_column(), varbinary_type, "added_uuid"});
+    std::unordered_map<std::string, uint32_t> positions = {{"added_uuid", 0}};
+    reader.TEST_set_column_name_to_block_index(&positions);
+
+    ASSERT_TRUE(reader.on_fill_missing_columns(&block, 2, {"added_uuid"}).ok());
+
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(0).column, 0),
+              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
 }
 
 TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_default) {

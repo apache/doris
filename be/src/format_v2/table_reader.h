@@ -1321,9 +1321,8 @@ protected:
             DORIS_CHECK(child_mapping != nullptr);
             if (!child_mapping->file_local_id.has_value()) {
                 child_columns.push_back(
-                        (child_mapping->initial_default_value.has_value()
-                                 ? child_mapping->table_type->create_column_const(
-                                           rows, *child_mapping->initial_default_value)
+                        (child_mapping->initial_default_column
+                                 ? child_mapping->initial_default_column->clone_resized(rows)
                                  : child_mapping->table_type
                                            ->create_column_const_with_default_value(rows))
                                 ->convert_to_full_column_if_const());

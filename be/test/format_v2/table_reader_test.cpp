@@ -41,6 +41,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -48,6 +49,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -1940,6 +1942,60 @@ TEST(TableReaderTest, AnnotateProjectedColumnUsesCurrentHistorySchemaForNestedTy
     EXPECT_EQ(context.schema_column->children[1].children[0].get_identifier_field_id(), 24);
     EXPECT_EQ(context.schema_column->children[1].children[1].name, "value");
     EXPECT_EQ(context.schema_column->children[1].children[1].get_identifier_field_id(), 25);
+}
+
+TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefaultExpr) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_top_level_binary_initial_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 7, "unused");
+
+    auto binary_field = external_schema_field("added_binary", 2);
+    binary_field.field_ptr->__set_initial_default_value("Ej5FZ+ibEtOkVkJmFBdAAA==");
+    binary_field.field_ptr->__set_initial_default_value_is_base64(true);
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(1);
+    scan_params.__set_history_schema_info({external_schema(1, {binary_field})});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto varbinary_type = std::make_shared<DataTypeVarbinary>(16);
+    auto id_column = make_table_column(-1, "id", int_type);
+    auto binary_column = make_table_column(-1, "added_binary", varbinary_type);
+    binary_column.default_expr = VExprContext::create_shared(VLiteral::create_shared(
+            binary_column.type,
+            Field::create_field<TYPE_VARBINARY>(StringView("Ej5FZ+ibEtOkVkJmFBdAAA=="))));
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader annotation_reader;
+    ASSERT_TRUE(
+            annotation_reader.annotate_projected_column(slot_info, &context, &binary_column).ok());
+    ASSERT_TRUE(binary_column.initial_default_value.has_value());
+    ASSERT_TRUE(binary_column.initial_default_value_is_base64);
+
+    std::vector<ColumnDefinition> projected_columns = {id_column, binary_column};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = projected_columns,
+                             .conjuncts = {},
+                             .format = FileFormat::PARQUET,
+                             .scan_params = &scan_params,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    EXPECT_EQ(block.get_by_position(1).column->get_data_at(0).to_string(),
+              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
 }
 
 TEST(TableReaderTest, ExplicitEmptyNameMappingDoesNotMatchCurrentFileName) {
@@ -4087,12 +4143,12 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) 
     write_struct_parquet_file(file_path, 7);
 
     const auto int_type = std::make_shared<DataTypeInt32>();
-    const auto string_type = std::make_shared<DataTypeString>();
+    const auto varbinary_type = std::make_shared<DataTypeVarbinary>(16);
     auto id_child = make_table_column(0, "id", int_type);
-    auto missing_child = make_table_column(99, "missing_child", string_type);
-    missing_child.initial_default_value = "AAEC/w==";
+    auto missing_child = make_table_column(99, "missing_child", varbinary_type);
+    missing_child.initial_default_value = "Ej5FZ+ibEtOkVkJmFBdAAA==";
     missing_child.initial_default_value_is_base64 = true;
-    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, varbinary_type},
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child, missing_child};
@@ -4126,9 +4182,10 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) 
             expect_not_null_nullable_nested_column(struct_result.get_column(0)));
     ASSERT_EQ(struct_result.size(), 1);
     EXPECT_EQ(ids.get_element(0), 7);
-    const auto& defaults = assert_cast<const ColumnString&>(
+    const auto& defaults = assert_cast<const ColumnVarbinary&>(
             expect_not_null_nullable_nested_column(struct_result.get_column(1)));
-    EXPECT_EQ(defaults.get_data_at(0).to_string(), std::string("\0\1\2\xff", 4));
+    EXPECT_EQ(defaults.get_data_at(0).to_string(),
+              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

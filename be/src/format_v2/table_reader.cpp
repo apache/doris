@@ -491,6 +491,11 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
     column->has_name_mapping = context->schema_column->has_name_mapping;
+    // Projected roots already carry a generic FE default expression, but Iceberg binary defaults
+    // need the raw Base64 marker so missing-file materialization can decode rather than copy text.
+    column->initial_default_value = context->schema_column->initial_default_value;
+    column->initial_default_value_is_base64 =
+            context->schema_column->initial_default_value_is_base64;
     return Status::OK();
 }
 

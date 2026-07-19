@@ -157,6 +157,30 @@ public:
 protected:
     // ---- Hook implementations ----
 
+    Status on_fill_missing_columns(Block* block, size_t rows,
+                                   const std::vector<std::string>& cols) override {
+        std::vector<std::string> generic_columns;
+        for (const auto& name : cols) {
+            const auto* field = _find_current_schema_field(name);
+            if (field == nullptr || !field->__isset.initial_default_value) {
+                generic_columns.push_back(name);
+                continue;
+            }
+            if (!this->col_name_to_block_idx_ref()->contains(name)) {
+                return Status::InternalError("Missing column: {} not found in block {}", name,
+                                             block->dump_structure());
+            }
+            const auto position = this->col_name_to_block_idx_ref()->at(name);
+            ColumnPtr value;
+            RETURN_IF_ERROR(_build_owned_initial_default_column(
+                    *field, block->get_by_position(position).type, rows, &value));
+            // Iceberg metadata is authoritative for pre-add rows; a generic FE expression may be
+            // the Base64 carrier rather than the logical BINARY/FIXED/UUID value.
+            block->get_by_position(position).column = value->convert_to_full_column_if_const();
+        }
+        return BaseReader::on_fill_missing_columns(block, rows, generic_columns);
+    }
+
     // Called before reading a block: expand block for equality delete columns + detect row_id
     Status on_before_read_block(Block* block) override {
         RETURN_IF_ERROR(_expand_block_if_need(block));
@@ -270,6 +294,11 @@ protected:
 
     Status _expand_block_if_need(Block* block);
     Status _shrink_block_if_need(Block* block);
+    const schema::external::TStructField* _current_schema_root() const;
+    const schema::external::TField* _find_current_schema_field(const std::string& name) const;
+    Status _build_owned_initial_default_column(const schema::external::TField& field,
+                                               const DataTypePtr& type, size_t rows,
+                                               ColumnPtr* column) const;
     Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
                                                     const DataTypePtr& delete_key_type);
     Status _materialize_missing_equality_delete_column(Block* block, const std::string& name,
@@ -665,6 +694,76 @@ Status IcebergReaderMixin<BaseReader>::_expand_block_if_need(Block* block) {
 }
 
 template <typename BaseReader>
+const schema::external::TStructField* IcebergReaderMixin<BaseReader>::_current_schema_root() const {
+    const auto& scan_params = this->get_scan_params();
+    if (!scan_params.__isset.history_schema_info || scan_params.history_schema_info.empty()) {
+        return nullptr;
+    }
+    const schema::external::TSchema* current_schema = &scan_params.history_schema_info.front();
+    if (scan_params.__isset.current_schema_id) {
+        const auto schema_it = std::ranges::find_if(
+                scan_params.history_schema_info, [&](const schema::external::TSchema& schema) {
+                    return schema.__isset.schema_id &&
+                           schema.schema_id == scan_params.current_schema_id;
+                });
+        if (schema_it == scan_params.history_schema_info.end()) {
+            return nullptr;
+        }
+        current_schema = &*schema_it;
+    }
+    return current_schema->__isset.root_field ? &current_schema->root_field : nullptr;
+}
+
+template <typename BaseReader>
+const schema::external::TField* IcebergReaderMixin<BaseReader>::_find_current_schema_field(
+        const std::string& name) const {
+    const auto* root = _current_schema_root();
+    if (root == nullptr) {
+        return nullptr;
+    }
+    const auto field = std::ranges::find_if(root->fields, [&](const auto& field_ptr) {
+        return field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
+               field_ptr.field_ptr->__isset.name && field_ptr.field_ptr->name == name;
+    });
+    return field == root->fields.end() ? nullptr : field->field_ptr.get();
+}
+
+template <typename BaseReader>
+Status IcebergReaderMixin<BaseReader>::_build_owned_initial_default_column(
+        const schema::external::TField& field, const DataTypePtr& type, size_t rows,
+        ColumnPtr* column) const {
+    DORIS_CHECK(type != nullptr);
+    DORIS_CHECK(column != nullptr);
+    DORIS_CHECK(field.__isset.initial_default_value);
+    const auto nested_type = remove_nullable(type);
+    const bool is_base64 =
+            (field.__isset.initial_default_value_is_base64 &&
+             field.initial_default_value_is_base64) ||
+            (field.__isset.type && thrift_to_type(field.type.type) == TYPE_VARBINARY);
+    Field value;
+    if (is_base64) {
+        std::string decoded;
+        if (!base64_decode(field.initial_default_value, &decoded)) {
+            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
+                                           field.name);
+        }
+        if (nested_type->get_primitive_type() == TYPE_VARBINARY) {
+            value = Field::create_field<TYPE_VARBINARY>(StringView(decoded));
+        } else {
+            DORIS_CHECK(is_string_type(nested_type->get_primitive_type()));
+            value = Field::create_field<TYPE_STRING>(decoded);
+        }
+        // Variable-width Fields borrow decoded. Materialize before it leaves scope so every V1
+        // missing-column and equality-delete boundary keeps UUID/FIXED payloads alive.
+        *column = type->create_column_const(rows, value);
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(field.initial_default_value, value));
+    *column = type->create_column_const(rows, value);
+    return Status::OK();
+}
+
+template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
         int32_t field_id, const std::string& name, const DataTypePtr& delete_key_type) {
     DORIS_CHECK(delete_key_type != nullptr);
@@ -703,33 +802,15 @@ Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
                 "Missing Iceberg schema metadata for equality-delete field id {}", field_id);
     }
 
-    Field value;
+    ColumnPtr value_column;
     if (table_field->__isset.initial_default_value) {
-        const auto nested_type = remove_nullable(delete_key_type);
-        const bool default_is_base64 = (table_field->__isset.initial_default_value_is_base64 &&
-                                        table_field->initial_default_value_is_base64) ||
-                                       (table_field->__isset.type &&
-                                        thrift_to_type(table_field->type.type) == TYPE_VARBINARY);
-        if (default_is_base64) {
-            std::string decoded_default;
-            if (!base64_decode(table_field->initial_default_value, &decoded_default)) {
-                return Status::InvalidArgument(
-                        "Invalid Base64 Iceberg initial default for field {}", table_field->name);
-            }
-            if (nested_type->get_primitive_type() == TYPE_VARBINARY) {
-                value = Field::create_field<TYPE_VARBINARY>(StringView(decoded_default));
-            } else {
-                DORIS_CHECK(is_string_type(nested_type->get_primitive_type()));
-                value = Field::create_field<TYPE_STRING>(decoded_default);
-            }
-        } else {
-            RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(
-                    table_field->initial_default_value, value));
-        }
+        RETURN_IF_ERROR(_build_owned_initial_default_column(*table_field, delete_key_type, 1,
+                                                            &value_column));
+    } else {
+        value_column = delete_key_type->create_column_const(1, Field());
     }
-    const bool inserted = _missing_equality_delete_values
-                                  .emplace(name, delete_key_type->create_column_const(1, value))
-                                  .second;
+    const bool inserted =
+            _missing_equality_delete_values.emplace(name, std::move(value_column)).second;
     DORIS_CHECK(inserted);
     this->register_synthesized_column_handler(
             name, [this, name](Block* block, size_t rows) -> Status {

@@ -182,7 +182,7 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testInitialDefaultMetadataUsesSnapshotSchema() throws Exception {
+    public void testInitialDefaultMetadataUsesCurrentSchemaForOrdinaryScan() throws Exception {
         Schema snapshotSchema = new Schema(Types.NestedField.optional("historical_binary")
                 .withId(7)
                 .ofType(Types.BinaryType.get())
@@ -197,6 +197,7 @@ public class IcebergScanNodeTest {
         Mockito.when(snapshot.schemaId()).thenReturn(11);
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.schemas()).thenReturn(Collections.singletonMap(11, snapshotSchema));
+        Mockito.when(table.schema()).thenReturn(currentSchema);
         TableScan snapshotScan = Mockito.mock(TableScan.class);
         Mockito.when(snapshotScan.snapshot()).thenReturn(snapshot);
         Mockito.when(snapshotScan.table()).thenReturn(table);
@@ -204,8 +205,33 @@ public class IcebergScanNodeTest {
 
         TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         node.setTableScan(snapshotScan);
+        setIcebergTable(node, table);
 
         Map<Integer, String> defaults = node.getBase64EncodedInitialDefaultsForScan();
+        Assert.assertTrue(defaults.isEmpty());
+    }
+
+    @Test
+    public void testInitialDefaultMetadataUsesSnapshotSchemaForExplicitSelection() throws Exception {
+        Schema snapshotSchema = new Schema(Types.NestedField.optional("historical_binary")
+                .withId(7)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                .build());
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(snapshot.schemaId()).thenReturn(11);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(Collections.singletonMap(11, snapshotSchema));
+        TableScan snapshotScan = Mockito.mock(TableScan.class);
+        Mockito.when(snapshotScan.snapshot()).thenReturn(snapshot);
+        Mockito.when(snapshotScan.table()).thenReturn(table);
+
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
+        node.setTableScan(snapshotScan);
+        Mockito.doReturn(Mockito.mock(IcebergTableQueryInfo.class)).when(node).getSpecifiedSnapshot();
+
+        Map<Integer, String> defaults = node.getBase64EncodedInitialDefaultsForScan();
+
         Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="), defaults);
     }
 

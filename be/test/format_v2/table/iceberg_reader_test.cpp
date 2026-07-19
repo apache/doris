@@ -495,6 +495,30 @@ void write_two_int_parquet_file(const std::string& file_path, const std::string&
                                                       builder.build()));
 }
 
+void write_recursive_idless_wrapper_parquet_file(const std::string& file_path, int32_t value) {
+    const auto leaf_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"30"});
+    auto leaf_field = arrow::field("leaf", arrow::int32(), false)->WithMetadata(leaf_metadata);
+    auto inner_result = arrow::StructArray::Make({build_int32_array({value})}, {leaf_field});
+    ASSERT_TRUE(inner_result.ok()) << inner_result.status();
+    auto inner_field = arrow::field("inner", arrow::struct_({leaf_field}), false);
+    auto outer_result = arrow::StructArray::Make({*inner_result}, {inner_field});
+    ASSERT_TRUE(outer_result.ok()) << outer_result.status();
+    const auto outer_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"10"});
+    auto outer_field = arrow::field("outer", arrow::struct_({inner_field}), false)
+                               ->WithMetadata(outer_metadata);
+    auto table = arrow::Table::Make(arrow::schema({outer_field}), {*outer_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
 void write_timestamp_int_parquet_file(const std::string& file_path,
                                       const std::vector<int64_t>& timestamps,
                                       const std::vector<int32_t>& ids) {
@@ -2245,7 +2269,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     const auto file_path = (test_dir / "split.parquet").string();
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
     write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
-    const std::string binary_default("\x00\x01\x02\xff", 4);
+    const std::string binary_default(
+            "\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16);
     write_iceberg_binary_equality_delete_parquet_file(delete_file_path, 1, binary_default,
                                                       "added_binary");
 
@@ -2254,10 +2279,10 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     auto scan_params = make_local_parquet_scan_params();
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(
-            100,
-            {external_schema_field("id", 0),
-             external_schema_field("added_binary", 1, {}, "AAEC/w==",
-                                   external_primitive_type(TPrimitiveType::VARBINARY, 4), true)})});
+            100, {external_schema_field("id", 0),
+                  external_schema_field("added_binary", 1, {}, "Ej5FZ+ibEtOkVkJmFBdAAA==",
+                                        external_primitive_type(TPrimitiveType::VARBINARY, 16),
+                                        true)})});
 
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2443,6 +2468,56 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteUsesNameMappingWithoutFileFieldId
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, ParquetRecursivelyRetainsIdlessWrapperForSelectedLeafId) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_recursive_idless_wrapper_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_recursive_idless_wrapper_parquet_file(file_path, 42);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto leaf = make_table_column(30, "leaf", int_type);
+    auto inner_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"leaf"});
+    auto inner = make_table_column(20, "inner", inner_type);
+    inner.children = {leaf};
+    auto outer_type = std::make_shared<DataTypeStruct>(DataTypes {inner_type}, Strings {"inner"});
+    auto outer = make_table_column(10, "outer", outer_type);
+    outer.children = {inner};
+    std::vector<ColumnDefinition> projected_columns = {outer};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto& outer_result =
+            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
+    const auto& inner_result = assert_cast<const ColumnStruct&>(
+            expect_not_null_nullable_nested_column(outer_result.get_column(0)));
+    const auto& leaf_result = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(inner_result.get_column(0)));
+    ASSERT_EQ(leaf_result.size(), 1);
+    EXPECT_EQ(leaf_result.get_element(0), 42);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

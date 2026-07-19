@@ -150,7 +150,9 @@ struct ColumnMapping {
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
-    std::optional<Field> initial_default_value;
+    // One-row constant owns variable-width payloads; Field<TYPE_VARBINARY> is only a borrowed
+    // StringView and cannot safely outlive the Base64 decode buffer used to construct it.
+    ColumnPtr initial_default_column;
 
     std::string debug_string() const;
 };

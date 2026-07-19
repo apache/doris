@@ -270,6 +270,26 @@ public class ExternalUtilTest {
     }
 
     @Test
+    public void testInitSchemaInfoForAllColumnSerializesNestedNonBinaryDefault() {
+        StructType structType = new StructType(
+                new StructField("added_int", Type.INT, "nested default", true));
+        Column structColumn = new Column("s", structType, true);
+        structColumn.setUniqueId(10);
+        Column child = structColumn.getChildren().get(0);
+        child.setUniqueId(11);
+        child.setDefaultValueInfo(new Column("added_int", Type.INT, false, null, true, "7", ""));
+        TFileScanRangeParams params = new TFileScanRangeParams();
+
+        ExternalUtil.initSchemaInfoForAllColumn(
+                params, 1L, Collections.singletonList(structColumn), Collections.emptyMap());
+
+        TField childField = params.getHistorySchemaInfo().get(0).getRootField().getFields().get(0)
+                .getFieldPtr().getNestedField().getStructField().getFields().get(0).getFieldPtr();
+        Assert.assertEquals("7", childField.getInitialDefaultValue());
+        Assert.assertFalse(childField.isSetInitialDefaultValueIsBase64());
+    }
+
+    @Test
     public void testInitSchemaInfoForAllColumnPreservesPartialNameMapping() {
         TFileScanRangeParams params = new TFileScanRangeParams();
         Column mappedColumn = new Column("a", Type.INT, true);

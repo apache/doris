@@ -1115,8 +1115,18 @@ public class IcebergUtils {
         return epochSecond * 1_000_000L + microSecond;
     }
 
-    private static void updateIcebergColumnUniqueId(Column column, Types.NestedField icebergField) {
+    private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField,
+            boolean enableMappingTimestampTz) {
         column.setUniqueId(icebergField.fieldId());
+        if (icebergField.initialDefault() != null) {
+            String serializedDefault = serializeInitialDefault(
+                    icebergField.type(), icebergField.initialDefault(), enableMappingTimestampTz);
+            // Column constructs complex children without Iceberg field metadata. Copy through the
+            // public default-info API so recursive fields retain their logical pre-add value.
+            Column defaultCarrier = new Column(column.getName(), column.getType(), false, null,
+                    column.isAllowNull(), serializedDefault, "");
+            column.setDefaultValueInfo(defaultCarrier);
+        }
         List<NestedField> icebergFields = Lists.newArrayList();
         switch (icebergField.type().typeId()) {
             case LIST:
@@ -1135,7 +1145,8 @@ public class IcebergUtils {
         if (column.getChildren() != null) {
             List<Column> childColumns = column.getChildren();
             for (int idx = 0; idx < childColumns.size(); idx++) {
-                updateIcebergColumnUniqueId(childColumns.get(idx), icebergFields.get(idx));
+                updateIcebergColumnMetadata(
+                        childColumns.get(idx), icebergFields.get(idx), enableMappingTimestampTz);
             }
         }
     }
@@ -1192,7 +1203,7 @@ public class IcebergUtils {
             Column column = new Column(field.name(),
                     IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
                     true, null, true, initialDefault, field.doc(), true, -1);
-            updateIcebergColumnUniqueId(column, field);
+            updateIcebergColumnMetadata(column, field, enableMappingTimestampTz);
             if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
                 Types.TimestampType timestampType = (Types.TimestampType) field.type();
                 if (timestampType.shouldAdjustToUTC()) {

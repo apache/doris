@@ -58,9 +58,9 @@ namespace doris::format {
 
 namespace {
 
-Status parse_initial_default(const ColumnDefinition& column, std::optional<Field>* value) {
+Status build_initial_default_column(const ColumnDefinition& column, ColumnPtr* value) {
     DORIS_CHECK(value != nullptr);
-    value->reset();
+    *value = nullptr;
     if (!column.initial_default_value.has_value()) {
         return Status::OK();
     }
@@ -76,11 +76,27 @@ Status parse_initial_default(const ColumnDefinition& column, std::optional<Field
         parsed = nested_type->get_primitive_type() == TYPE_VARBINARY
                          ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
                          : Field::create_field<TYPE_STRING>(decoded);
+        // Variable-width Fields borrow their input. Materialize while decoded is alive so the
+        // resulting column owns the payload before it crosses a mapping/literal boundary.
+        *value = column.type->create_column_const(1, parsed);
+        return Status::OK();
     } else {
         RETURN_IF_ERROR(
                 nested_type->get_serde()->from_fe_string(*column.initial_default_value, parsed));
     }
-    *value = std::move(parsed);
+    *value = column.type->create_column_const(1, parsed);
+    return Status::OK();
+}
+
+Status build_initial_default_literal(const ColumnDefinition& column, VExprContextSPtr* literal) {
+    DORIS_CHECK(literal != nullptr);
+    ColumnPtr owned_value;
+    RETURN_IF_ERROR(build_initial_default_column(column, &owned_value));
+    DORIS_CHECK(static_cast<bool>(owned_value));
+    Field value;
+    owned_value->get(0, value);
+    // VLiteral copies the borrowed Field into its own column while owned_value is still alive.
+    *literal = VExprContext::create_shared(VLiteral::create_shared(column.type, value));
     return Status::OK();
 }
 
@@ -1817,15 +1833,15 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         // Doris internal Iceberg row locator is never a physical Iceberg data column. It is built
         // from file path, row position and partition metadata for delete/update/merge.
         mapping->virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
+    } else if (table_column.initial_default_value.has_value()) {
+        VExprContextSPtr initial_default;
+        RETURN_IF_ERROR(build_initial_default_literal(table_column, &initial_default));
+        // Iceberg metadata is the authoritative logical value for files written before the field
+        // existed; the generic FE expression may still contain its Base64 transport text.
+        _set_constant_mapping(mapping, std::move(initial_default));
     } else if (table_column.default_expr != nullptr) {
         // Missing schema-evolution column with an explicit default expression.
         _set_constant_mapping(mapping, table_column.default_expr);
-    } else if (table_column.initial_default_value.has_value()) {
-        std::optional<Field> initial_default;
-        RETURN_IF_ERROR(parse_initial_default(table_column, &initial_default));
-        DORIS_CHECK(initial_default.has_value());
-        _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
-                                               table_column.type, *initial_default)));
     } else {
         if (table_column.is_partition_key) {
             return Status::InvalidArgument(
@@ -2195,6 +2211,13 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
             const auto* file_child =
                     find_file_child_for_mapping(table_child, file_field, _options.mode,
                                                 table_child_idx, synthesized_table_children);
+            if (file_child == nullptr && !synthesized_table_children &&
+                _options.mode == TableColumnMappingMode::BY_FIELD_ID &&
+                _options.allow_idless_complex_wrapper_projection) {
+                // Parquet can retain an ID-less wrapper at any depth when a selected descendant
+                // has an ID; apply the same opt-in fallback used for root lookup recursively.
+                file_child = _find_file_field(table_child, file_field.children);
+            }
             if (synthesized_table_children && file_child != nullptr) {
                 const auto file_child_id = file_child->file_local_id();
                 if (std::ranges::find(synthesized_used_file_child_ids, file_child_id) !=
@@ -2222,8 +2245,8 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
                 // A missing nested field still has its Iceberg initial-default value in every row
                 // written before the field was added; carry it into recursive materialization.
-                RETURN_IF_ERROR(
-                        parse_initial_default(table_child, &child_mapping.initial_default_value));
+                RETURN_IF_ERROR(build_initial_default_column(
+                        table_child, &child_mapping.initial_default_column));
                 mapping->child_mappings.push_back(std::move(child_mapping));
                 continue;
             }

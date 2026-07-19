@@ -124,6 +124,10 @@ static Status build_orc_initial_default_column(
         value = nested_type->get_primitive_type() == TYPE_VARBINARY
                         ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
                         : Field::create_field<TYPE_STRING>(decoded);
+        // StringView borrows decoded for payloads longer than 12 bytes. Build the owning column
+        // before the decode buffer leaves scope (UUID/FIXED defaults routinely exceed that size).
+        *column = type->create_column_const(rows, value)->convert_to_full_column_if_const();
+        return Status::OK();
     } else {
         RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(metadata->value, value));
     }

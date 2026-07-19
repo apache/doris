@@ -552,12 +552,16 @@ public class IcebergScanNode extends FileQueryScanNode {
             // schema that produced source.getTargetTable().getColumns() to keep defaults aligned.
             return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
         }
+        IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
+        if (selectedSnapshot == null) {
+            // A schema-only update does not create a data snapshot. Ordinary scans expose current
+            // table columns, so their default metadata must come from that same current schema.
+            return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
+        }
         TableScan tableScan = createTableScan();
         Snapshot snapshot = tableScan.snapshot();
-        // TableScan.schema() starts from the table's current schema even for useSnapshot/useRef.
-        // Resolve the selected snapshot's schema id explicitly so this metadata describes the same
-        // snapshot as source.getTargetTable().getColumns(). Otherwise a later type change can make
-        // BE decode a historical non-binary default as Base64, or fail to decode a binary default.
+        // Explicit time travel and ref scans expose the selected snapshot schema rather than the
+        // current table schema, so resolve its schema id instead of using TableScan.schema().
         Schema scanSchema = snapshot == null
                 ? tableScan.schema()
                 : tableScan.table().schemas().get(snapshot.schemaId());
