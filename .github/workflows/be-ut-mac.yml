@@ -96,5 +96,8 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+          # macos-15 runners are Apple Silicon (arm64), so the JDK env var is
+          # JAVA_HOME_17_arm64. Fall back to the x64 variable for Intel runners.
+          JAVA_HOME="${JAVA_HOME_17_arm64:-${JAVA_HOME_17_X64}}"
+          export JAVA_HOME="${JAVA_HOME%\/}"
           ./run-be-ut.sh --run -j "$(nproc)" --clean
