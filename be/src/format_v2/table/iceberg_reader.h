@@ -57,7 +57,7 @@ public:
     Status prepare_split(const format::SplitReadOptions& options) override;
     std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
-        return !_data_reader.file_schema.empty() && _has_field_id(_data_reader.file_schema)
+        return !_data_reader.file_schema.empty() && _has_any_field_id(_data_reader.file_schema)
                        ? format::TableColumnMappingMode::BY_FIELD_ID
                        : format::TableColumnMappingMode::BY_NAME;
     }
@@ -77,24 +77,21 @@ protected:
 private:
     struct EqualityDeleteFilter;
 
-    bool _has_field_id(const std::vector<format::ColumnDefinition>& schema) const {
+    bool _has_any_field_id(const std::vector<format::ColumnDefinition>& schema) const {
         for (const auto& field : schema) {
-            // TopN lazy materialization asks the file reader to synthesize GLOBAL_ROWID in the
-            // first-phase scan. That virtual column is not an Iceberg data field and therefore has
-            // no Iceberg field id. Do not let it downgrade schema-evolution reads to BY_NAME,
-            // otherwise old data files whose physical names predate a rename (for example,
-            // table column `new_new_id` stored as file column `id`) are materialized as defaults.
+            // Iceberg's hasIds contract is existential. Ignore synthesized columns and keep ID
+            // projection as soon as any real field (including a nested field) carries an ID.
             if (field.column_type != format::ColumnType::DATA_COLUMN) {
                 continue;
             }
-            if (!field.has_identifier_field_id()) {
-                return false;
+            if (field.has_identifier_field_id()) {
+                return true;
             }
-            if (!_has_field_id(field.children)) {
-                return false;
+            if (_has_any_field_id(field.children)) {
+                return true;
             }
         }
-        return true;
+        return false;
     }
     static constexpr int MIN_SUPPORT_DELETE_FILES_VERSION = 2;
     static constexpr int POSITION_DELETE = 1;

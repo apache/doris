@@ -1945,6 +1945,7 @@ TEST(TableReaderTest, AnnotateProjectedColumnUsesCurrentHistorySchemaForNestedTy
 TEST(TableReaderTest, ExplicitEmptyNameMappingDoesNotMatchCurrentFileName) {
     auto unmapped_field = external_schema_field("b", 2);
     unmapped_field.field_ptr->__set_name_mapping({});
+    unmapped_field.field_ptr->__set_name_mapping_is_authoritative(true);
     TFileScanRangeParams scan_params;
     scan_params.__set_current_schema_id(1);
     scan_params.__set_history_schema_info({external_schema(1, {unmapped_field})});
@@ -1963,6 +1964,30 @@ TEST(TableReaderTest, ExplicitEmptyNameMappingDoesNotMatchCurrentFileName) {
             mapper.create_mapping({table_column}, {}, {make_file_column(0, "b", int_type)}).ok());
     ASSERT_EQ(mapper.mappings().size(), 1);
     EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
+}
+
+TEST(TableReaderTest, LegacyFeEmptyNameMappingStillMatchesCurrentFileName) {
+    auto legacy_field = external_schema_field("b", 2);
+    legacy_field.field_ptr->__set_name_mapping({});
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(1);
+    scan_params.__set_history_schema_info({external_schema(1, {legacy_field})});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    ColumnDefinition table_column = make_table_column(-1, "b", int_type);
+    ProjectedColumnBuildContext context;
+    context.scan_params = &scan_params;
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &table_column).ok());
+    ASSERT_FALSE(table_column.has_name_mapping);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(
+            mapper.create_mapping({table_column}, {}, {make_file_column(0, "b", int_type)}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_TRUE(mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_EQ(*mapper.mappings()[0].file_local_id, 0);
 }
 
 TEST(TableReaderTest, ComplexRematerializeCastsScalarChildToTableType) {

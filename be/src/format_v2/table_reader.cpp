@@ -189,7 +189,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
                     field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
-            .has_name_mapping = field.__isset.name_mapping,
+            .has_name_mapping = field.__isset.name_mapping_is_authoritative &&
+                                field.name_mapping_is_authoritative,
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,

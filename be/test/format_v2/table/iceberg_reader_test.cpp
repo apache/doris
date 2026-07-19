@@ -1843,9 +1843,9 @@ TEST(IcebergV2ReaderTest, IcebergMappingModeIgnoresGlobalRowIdVirtualColumn) {
               TableColumnMappingMode::BY_FIELD_ID);
 }
 
-// Covers the fallback side of the previous case. Only synthesized columns are ignored; a real data
-// column without an Iceberg field id still disables field-id mapping.
-TEST(IcebergV2ReaderTest, IcebergMappingModeRequiresFieldIdsForDataColumns) {
+// Iceberg treats a schema as ID-bearing when any physical data field has an ID. Keeping ID mode
+// preserves authoritative matches even when a sibling was written without an ID.
+TEST(IcebergV2ReaderTest, IcebergMappingModeUsesAnyDataColumnFieldId) {
     IcebergTableReaderMappingModeTestHelper reader;
     std::vector<ColumnDefinition> file_schema {
             make_file_column(1, "id", std::make_shared<DataTypeInt32>()),
@@ -1854,8 +1854,13 @@ TEST(IcebergV2ReaderTest, IcebergMappingModeRequiresFieldIdsForDataColumns) {
     };
     file_schema[1].identifier = Field {};
 
+    EXPECT_EQ(reader.mapping_mode_for_schema(file_schema), TableColumnMappingMode::BY_FIELD_ID);
+
+    file_schema[0].identifier = Field {};
+    file_schema[0].children.emplace_back(
+            make_file_column(3, "nested", std::make_shared<DataTypeInt32>()));
     EXPECT_EQ(reader.mapping_mode_for_schema(std::move(file_schema)),
-              TableColumnMappingMode::BY_NAME);
+              TableColumnMappingMode::BY_FIELD_ID);
 }
 
 TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDelete) {

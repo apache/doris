@@ -255,6 +255,7 @@ public class ExternalUtilTest {
         Assert.assertEquals(col1.isAllowNull(), field1.isIsOptional());
         Assert.assertEquals(col1.getType().toColumnTypeThrift(), field1.getType());
         Assert.assertEquals(Arrays.asList("m_c1"), field1.getNameMapping());
+        Assert.assertTrue(field1.isNameMappingIsAuthoritative());
         Assert.assertEquals("7", field1.getInitialDefaultValue());
         Assert.assertFalse(field1.isSetInitialDefaultValueIsBase64());
 
@@ -263,6 +264,7 @@ public class ExternalUtilTest {
         Assert.assertEquals(col2.isAllowNull(), field2.isIsOptional());
         Assert.assertEquals(col2.getType().toColumnTypeThrift(), field2.getType());
         Assert.assertEquals(Arrays.asList("m_c2_a", "m_c2_b"), field2.getNameMapping());
+        Assert.assertTrue(field2.isNameMappingIsAuthoritative());
         Assert.assertEquals("AAEC/w==", field2.getInitialDefaultValue());
         Assert.assertTrue(field2.isInitialDefaultValueIsBase64());
     }
@@ -282,8 +284,10 @@ public class ExternalUtilTest {
 
         List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
         Assert.assertEquals(Collections.singletonList("a"), fields.get(0).getFieldPtr().getNameMapping());
+        Assert.assertTrue(fields.get(0).getFieldPtr().isNameMappingIsAuthoritative());
         Assert.assertTrue(fields.get(1).getFieldPtr().isSetNameMapping());
         Assert.assertTrue(fields.get(1).getFieldPtr().getNameMapping().isEmpty());
+        Assert.assertTrue(fields.get(1).getFieldPtr().isNameMappingIsAuthoritative());
     }
 
     @Test
@@ -297,6 +301,7 @@ public class ExternalUtilTest {
         TField absentField = absentParams.getHistorySchemaInfo().get(0)
                 .getRootField().getFields().get(0).getFieldPtr();
         Assert.assertFalse(absentField.isSetNameMapping());
+        Assert.assertFalse(absentField.isSetNameMappingIsAuthoritative());
 
         TFileScanRangeParams emptyParams = new TFileScanRangeParams();
         ExternalUtil.initSchemaInfoForAllColumn(emptyParams, 701L,
@@ -305,5 +310,6 @@ public class ExternalUtilTest {
                 .getRootField().getFields().get(0).getFieldPtr();
         Assert.assertTrue(emptyField.isSetNameMapping());
         Assert.assertTrue(emptyField.getNameMapping().isEmpty());
+        Assert.assertTrue(emptyField.isNameMappingIsAuthoritative());
     }
 }

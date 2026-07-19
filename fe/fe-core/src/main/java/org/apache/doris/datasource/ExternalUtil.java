@@ -190,10 +190,11 @@ public class ExternalUtil {
         }
 
         if (hasNameMapping) {
-            // An empty per-field mapping is authoritative and prevents BE from matching a legacy
-            // file column by its current name when the table has an Iceberg name mapping.
+            // The explicit capability keeps old-FE plans on legacy fallback while making an empty
+            // per-field mapping authoritative for plans produced by a compatible FE.
             root.setNameMapping(new ArrayList<>(
                     nameMapping.getOrDefault(dorisColumn.getUniqueId(), Collections.emptyList())));
+            root.setNameMappingIsAuthoritative(true);
         }
 
         TNestedField nestedField = new TNestedField();

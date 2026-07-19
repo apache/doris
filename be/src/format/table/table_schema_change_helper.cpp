@@ -73,9 +73,12 @@ bool find_file_field_idx_by_name_mapping(
                 return true;
             }
         }
-        // An explicit empty or unmatched Iceberg mapping means the legacy field is absent;
-        // falling back to its current name would bind an unrelated physical column.
-        return false;
+        if (table_field.__isset.name_mapping_is_authoritative &&
+            table_field.name_mapping_is_authoritative) {
+            // Only a compatible FE can make the mapping authoritative; older FE plans must retain
+            // their legacy current-name fallback throughout a rolling BE upgrade.
+            return false;
+        }
     }
 
     return table_field.__isset.name && try_match(table_field.name);
@@ -559,17 +562,18 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
     const auto& parquet_fields_schema = parquet_field_desc.get_fields_schema();
 
     std::map<int32_t, size_t> file_column_id_idx_map;
-    bool all_have_field_id = true;
+    // Iceberg considers the schema ID-bearing when any field has an ID; requiring all IDs would
+    // discard authoritative matches merely because an unrelated sibling is ID-less.
+    bool has_field_id = false;
     for (size_t idx = 0; idx < parquet_fields_schema.size(); idx++) {
-        if (parquet_fields_schema[idx].field_id == -1) {
-            all_have_field_id = false;
-            break;
+        if (parquet_fields_schema[idx].field_id != -1) {
+            has_field_id = true;
+            file_column_id_idx_map.emplace(parquet_fields_schema[idx].field_id, idx);
         }
-        file_column_id_idx_map.emplace(parquet_fields_schema[idx].field_id, idx);
     }
 
     std::map<std::string, size_t> file_column_name_idx_map;
-    if (!all_have_field_id) {
+    if (!has_field_id) {
         file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_fields_schema);
     }
 
@@ -577,7 +581,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         const auto& table_column_name = table_field.field_ptr->name;
         size_t file_column_idx = 0;
         bool matched = false;
-        if (all_have_field_id) {
+        if (has_field_id) {
             auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
             if (id_it != file_column_id_idx_map.end()) {
                 file_column_idx = id_it->second;
@@ -663,17 +667,17 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
         std::map<int32_t, size_t> file_column_id_idx_map;
-        bool all_have_field_id = true;
+        // Apply the same any-ID rule recursively so nested mixed-ID structs retain ID matches.
+        bool has_field_id = false;
         for (size_t idx = 0; idx < parquet_field.children.size(); idx++) {
-            if (parquet_field.children[idx].field_id == -1) {
-                all_have_field_id = false;
-                break;
+            if (parquet_field.children[idx].field_id != -1) {
+                has_field_id = true;
+                file_column_id_idx_map.emplace(parquet_field.children[idx].field_id, idx);
             }
-            file_column_id_idx_map.emplace(parquet_field.children[idx].field_id, idx);
         }
 
         std::map<std::string, size_t> file_column_name_idx_map;
-        if (!all_have_field_id) {
+        if (!has_field_id) {
             file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_field.children);
         }
 
@@ -681,7 +685,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
             const auto& table_column_name = table_field.field_ptr->name;
             size_t file_column_idx = 0;
             bool matched = false;
-            if (all_have_field_id) {
+            if (has_field_id) {
                 auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
                 if (id_it != file_column_id_idx_map.end()) {
                     file_column_idx = id_it->second;
@@ -828,19 +832,19 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
     auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
     std::map<int32_t, size_t> file_column_id_idx_map;
-    bool all_have_field_id = true;
+    // ORC follows Iceberg's any-ID projection rule just like Parquet.
+    bool has_field_id = false;
     for (size_t idx = 0; idx < orc_root->getSubtypeCount(); idx++) {
-        if (!orc_root->getSubtype(idx)->hasAttributeKey(field_id_attribute_key)) {
-            all_have_field_id = false;
-            break;
+        if (orc_root->getSubtype(idx)->hasAttributeKey(field_id_attribute_key)) {
+            has_field_id = true;
+            auto field_id =
+                    std::stoi(orc_root->getSubtype(idx)->getAttributeValue(field_id_attribute_key));
+            file_column_id_idx_map.emplace(field_id, idx);
         }
-        auto field_id =
-                std::stoi(orc_root->getSubtype(idx)->getAttributeValue(field_id_attribute_key));
-        file_column_id_idx_map.emplace(field_id, idx);
     }
 
     std::map<std::string, size_t> file_column_name_idx_map;
-    if (!all_have_field_id) {
+    if (!has_field_id) {
         file_column_name_idx_map = build_lowercase_orc_field_name_idx_map(orc_root);
     }
 
@@ -848,7 +852,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         const auto& table_column_name = table_field.field_ptr->name;
         size_t file_field_idx = 0;
         bool matched = false;
-        if (all_have_field_id) {
+        if (has_field_id) {
             auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
             if (id_it != file_column_id_idx_map.end()) {
                 file_field_idx = id_it->second;
