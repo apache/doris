@@ -142,7 +142,11 @@ public:
 
     void release_scratch(size_t max_retained_bytes) override {
         release_vector_if_oversized(&_values, max_retained_bytes);
-        release_vector_if_oversized(&_delta_bit_widths, max_retained_bytes);
+        // The bit-width table drives later miniblock transitions, so it is reclaimable only after
+        // the page is exhausted; _values contains completed batch output and is always disposable.
+        if (_total_values_remaining == 0) {
+            release_vector_if_oversized(&_delta_bit_widths, max_retained_bytes);
+        }
     }
     size_t retained_scratch_bytes() const override {
         return _values.capacity() * sizeof(T) + _delta_bit_widths.capacity() * sizeof(uint8_t);
@@ -462,9 +466,13 @@ public:
         release_vector_if_oversized(&_buffered_data, max_retained_bytes);
         _prefix_len_decoder.release_scratch(max_retained_bytes);
         _suffix_decoder.release_scratch(max_retained_bytes);
-        if (_last_value.capacity() > max_retained_bytes) std::string().swap(_last_value);
-        if (_last_value_in_previous_page.capacity() > max_retained_bytes) {
-            std::string().swap(_last_value_in_previous_page);
+        // Prefix reconstruction crosses batch boundaries, so the previous value remains semantic
+        // decoder state until every value in the current page has been consumed.
+        if (_num_valid_values == 0) {
+            if (_last_value.capacity() > max_retained_bytes) std::string().swap(_last_value);
+            if (_last_value_in_previous_page.capacity() > max_retained_bytes) {
+                std::string().swap(_last_value_in_previous_page);
+            }
         }
     }
     size_t retained_scratch_bytes() const override {

@@ -1526,6 +1526,75 @@ TEST(ParquetV2NativeDecoderTest, DecoderOwnedHighWaterScratchIsReleased) {
     EXPECT_LE(decoder->retained_scratch_bytes(), 64UL << 10);
 }
 
+TEST(ParquetV2NativeDecoderTest, DeltaByteArrayScratchReleasePreservesPrefixState) {
+    const std::vector<std::string> values {std::string(4096, 'x'), "shared-prefix-a",
+                                           "shared-prefix-b", "shared-prefix-c"};
+    std::vector<::parquet::ByteArray> byte_arrays;
+    for (const auto& value : values) {
+        byte_arrays.emplace_back(static_cast<uint32_t>(value.size()),
+                                 reinterpret_cast<const uint8_t*>(value.data()));
+    }
+    auto byte_descriptor = descriptor(::parquet::Type::BYTE_ARRAY);
+    auto encoder = ::parquet::MakeTypedEncoder<::parquet::ByteArrayType>(
+            ::parquet::Encoding::DELTA_BYTE_ARRAY, false, byte_descriptor.get());
+    encoder->Put(byte_arrays.data(), static_cast<int>(byte_arrays.size()));
+    auto encoded = encoder->FlushValues();
+
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::BYTE_ARRAY,
+                                     tparquet::Encoding::DELTA_BYTE_ARRAY, decoder)
+                        .ok());
+    decoder->set_expected_values(values.size());
+    Slice slice(encoded->data(), encoded->size());
+    ASSERT_TRUE(decoder->set_data(&slice).ok());
+    CaptureBinaryConsumer consumer;
+    ASSERT_TRUE(decoder->decode_binary_values(1, consumer).ok());
+    ASSERT_TRUE(decoder->decode_binary_values(1, consumer).ok());
+    decoder->release_scratch(64);
+    ASSERT_TRUE(decoder->decode_binary_values(2, consumer).ok());
+    ASSERT_EQ(consumer.refs.size(), 2);
+    EXPECT_EQ(consumer.refs[0].to_string_view(), values[2]);
+    EXPECT_EQ(consumer.refs[1].to_string_view(), values[3]);
+}
+
+TEST(ParquetV2NativeDecoderTest, DeltaBitPackScratchReleasePreservesMiniblockState) {
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::DELTA_BINARY_PACKED,
+                                     decoder)
+                        .ok());
+
+    std::vector<uint8_t> outlier_header(64);
+    uint8_t* cursor = outlier_header.data();
+    cursor = encode_varint32(cursor, 512); // values per block
+    cursor = encode_varint32(cursor, 16);  // miniblocks per block
+    cursor = encode_varint32(cursor, 2);   // total values
+    cursor = encode_varint32(cursor, 0);   // first value, zig-zag encoded
+    cursor = encode_varint32(cursor, 0);   // minimum delta, zig-zag encoded
+    memset(cursor, 0, 16);                 // one zero bit width per miniblock
+    cursor += 16;
+    outlier_header.resize(cursor - outlier_header.data());
+    decoder->set_expected_values(2);
+    Slice outlier_slice(outlier_header.data(), outlier_header.size());
+    ASSERT_TRUE(decoder->set_data(&outlier_slice).ok());
+    CaptureFixedConsumer consumer;
+    ASSERT_TRUE(decoder->decode_fixed_values(1, consumer).ok());
+
+    std::vector<int32_t> values(40);
+    std::iota(values.begin(), values.end(), 0);
+    auto int_descriptor = descriptor(::parquet::Type::INT32);
+    auto encoder = ::parquet::MakeTypedEncoder<::parquet::Int32Type>(
+            ::parquet::Encoding::DELTA_BINARY_PACKED, false, int_descriptor.get());
+    encoder->Put(values.data(), static_cast<int>(values.size()));
+    auto encoded = encoder->FlushValues();
+    decoder->set_expected_values(values.size());
+    Slice slice(encoded->data(), encoded->size());
+    ASSERT_TRUE(decoder->set_data(&slice).ok());
+    ASSERT_TRUE(decoder->decode_fixed_values(1, consumer).ok());
+    decoder->release_scratch(8);
+    ASSERT_TRUE(decoder->decode_fixed_values(values.size() - 1, consumer).ok());
+    EXPECT_EQ(consumer.values<int32_t>().size(), values.size() + 1);
+}
+
 TEST(ParquetV2NativeDecoderTest, PageHeaderRejectsSignedAndV2LevelSizeCorruption) {
     auto parse_header = [](tparquet::PageHeader header) {
         std::vector<uint8_t> bytes;
