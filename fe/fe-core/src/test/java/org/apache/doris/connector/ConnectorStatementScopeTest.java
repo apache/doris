@@ -17,14 +17,23 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.connector.api.ConnectorWriteOps;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.datasource.plugin.CatalogStatementTransaction;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -113,6 +122,38 @@ public class ConnectorStatementScopeTest {
 
         Assertions.assertEquals(1, closes.get(),
                 "each closeable value is closed exactly once across repeated closeAll (idempotent)");
+    }
+
+    @Test
+    public void closeAllFinalizesTransactionsBeforeClosingMetadata() {
+        // Two-pass teardown: the scope must finalize (roll back an orphaned) write transaction BEFORE it closes
+        // the shared metadata instance the transaction was minted from, so the transaction is never left holding a
+        // closed instance. MUTATION: single-pass close (or closing metadata first) -> the recorded order flips
+        // -> red.
+        List<String> order = new ArrayList<>();
+        PluginDrivenTransactionManager mgr = new PluginDrivenTransactionManager();
+        ConnectorTransaction tx = Mockito.mock(ConnectorTransaction.class);
+        Mockito.when(tx.getTransactionId()).thenReturn(90001L);
+        Mockito.doAnswer(inv -> {
+            order.add("txn-rollback");
+            return null;
+        }).when(tx).rollback();
+        ConnectorWriteOps ops = Mockito.mock(ConnectorWriteOps.class);
+        Mockito.when(ops.beginTransaction(Mockito.any(), Mockito.any())).thenReturn(tx);
+
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        // The statement's shared metadata: a closeable that records the moment it is closed.
+        AutoCloseable metadata = () -> order.add("metadata-close");
+        scope.computeIfAbsent("metadata:1", () -> metadata);
+        CatalogStatementTransaction holder =
+                new CatalogStatementTransaction(ops, Mockito.mock(ConnectorSession.class), mgr);
+        scope.computeIfAbsent("txn:1", () -> holder);
+        holder.begin(new ConnectorTableHandle() { }); // active orphan: the executor never committed it
+
+        scope.closeAll();
+
+        Assertions.assertEquals(Arrays.asList("txn-rollback", "metadata-close"), order,
+                "the transaction is finalized before the shared metadata is closed");
     }
 
     @Test

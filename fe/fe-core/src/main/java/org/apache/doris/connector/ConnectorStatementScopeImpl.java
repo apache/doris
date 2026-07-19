@@ -18,6 +18,7 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.datasource.plugin.CatalogStatementTransaction;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,11 +51,15 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
     }
 
     /**
-     * Closes every {@link AutoCloseable} value once, at statement end. Idempotent: guarded by {@code closed} so a
-     * second trigger (the query-finish callback vs. a reused prepared statement's per-execution reset) is a
-     * harmless no-op and no value is double-closed. Best-effort per value — a failure closing one does not abort
-     * the rest — mirroring the isolation of the engine's query-finish callback registry. Runs after the scan
-     * off-thread pumps have quiesced, so it does not race a concurrent {@code computeIfAbsent}.
+     * Tears the statement's scoped values down at statement end, in two ordered passes. Pass 1 finalizes any
+     * {@link CatalogStatementTransaction} (rolling back a transaction the executor never committed — only a
+     * mid-flight abort leaves one active); pass 2 closes every remaining {@link AutoCloseable} value (the
+     * memoized metadata, etc.). Transactions are finalized BEFORE the metadata they were minted from is closed.
+     * Idempotent: guarded by {@code closed} so a second trigger (the query-finish callback vs. a reused prepared
+     * statement's per-execution reset) is a harmless no-op and no value is double-closed. Best-effort per value —
+     * a failure on one does not abort the rest — mirroring the isolation of the engine's query-finish callback
+     * registry. Runs after the scan off-thread pumps have quiesced, so it does not race a concurrent
+     * {@code computeIfAbsent}.
      */
     @Override
     public synchronized void closeAll() {
@@ -62,7 +67,24 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
             return;
         }
         closed = true;
+        // Pass 1: finalize the statement's write transaction(s) first, so a transaction aborted mid-flight is
+        // rolled back / released before pass 2 closes the shared metadata instance it was minted from. On every
+        // normal path the executor already finished the transaction, so this is a no-op.
         for (Object value : cache.values()) {
+            if (value instanceof CatalogStatementTransaction) {
+                try {
+                    ((CatalogStatementTransaction) value).finalizeAtStatementEnd();
+                } catch (Exception e) {
+                    LOG.warn("failed to finalize per-statement transaction; continuing", e);
+                }
+            }
+        }
+        // Pass 2: close every remaining AutoCloseable value once (the transaction holders handled above are
+        // skipped here).
+        for (Object value : cache.values()) {
+            if (value instanceof CatalogStatementTransaction) {
+                continue;
+            }
             if (value instanceof AutoCloseable) {
                 try {
                     ((AutoCloseable) value).close();

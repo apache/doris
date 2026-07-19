@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorWriteOps;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.CatalogStatementTransaction;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
@@ -87,8 +88,19 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
         // downcasts; a single-format connector ignores the handle (the SPI default delegates to the no-arg
         // beginTransaction). resolveWriteTargetHandle fails loud rather than handing the gateway a null handle.
         ConnectorTableHandle writeHandle = ((PluginDrivenExternalTable) table).resolveWriteTargetHandle();
-        connectorTx = writeOps.beginTransaction(connectorSession, writeHandle);
-        txnId = ((PluginDrivenTransactionManager) transactionManager).begin(connectorTx);
+        // Co-hold the transaction with the statement's one shared metadata (writeOps) + session on the statement
+        // scope, so read and write share one instance and the scope deterministically rolls back a transaction
+        // aborted mid-flight at statement end -- before it closes that shared metadata. begin() still mints from
+        // writeOps and registers with the manager (global lookup for the BE block-allocation RPC / commit-data
+        // feedback), returning the transaction for the sink-session binding in finalizeSink. Under NONE the scope
+        // stores nothing, so the holder is transient and the executor's own commit/rollback remains the only
+        // lifecycle (byte-identical to the pre-co-holder path).
+        CatalogStatementTransaction stmtTxn = (CatalogStatementTransaction) connectorSession.getStatementScope()
+                .computeIfAbsent("txn:" + connectorSession.getCatalogId(),
+                        () -> new CatalogStatementTransaction(writeOps, connectorSession,
+                                (PluginDrivenTransactionManager) transactionManager));
+        connectorTx = stmtTxn.begin(writeHandle);
+        txnId = connectorTx.getTransactionId();
     }
 
     @Override
