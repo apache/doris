@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.Objects;
@@ -85,7 +86,8 @@ public class StructField {
     public String toSql() {
         return name + ":" + dataType.toSql()
                 + (nullable ? "" : " NOT NULL")
-                + (comment.isEmpty() ? "" : " COMMENT " + comment);
+                + (comment.isEmpty() ? "" : " COMMENT "
+                        + SqlLiteralUtils.quoteStringLiteral(comment));
     }
 
     @Override

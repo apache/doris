@@ -1096,6 +1096,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -3752,7 +3753,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
-        String s = LogicalPlanBuilderAssistant.parseStringLiteral(ctx.STRING_LITERAL().getText());
+        String s = SqlLiteralUtils.parseStringLiteral(ctx.STRING_LITERAL().getText());
         int strLength = Utils.containChinese(s) ? s.length() * StringLikeLiteral.CHINESE_CHAR_BYTE_LENGTH : s.length();
         if (strLength > ScalarType.MAX_VARCHAR_LENGTH) {
             return new StringLiteral(s);
@@ -4232,7 +4233,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         String comment = ctx.comment != null
-                ? LogicalPlanBuilderAssistant.parseStringLiteral(ctx.comment.getText()) : "";
+                ? SqlLiteralUtils.parseStringLiteral(ctx.comment.getText()) : "";
         long autoIncInitValue = -1;
         if (ctx.AUTO_INCREMENT() != null) {
             if (ctx.autoIncInitValue != null) {
@@ -4291,7 +4292,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         String comment = ctx.comment != null
-                ? LogicalPlanBuilderAssistant.parseStringLiteral(ctx.comment.getText()) : "";
+                ? SqlLiteralUtils.parseStringLiteral(ctx.comment.getText()) : "";
         long autoIncInitValue = -1;
         if (ctx.AUTO_INCREMENT() != null) {
             if (ctx.autoIncInitValue != null) {
@@ -5494,13 +5495,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public StructField visitComplexColType(ComplexColTypeContext ctx) {
-        String comment;
-        if (ctx.commentSpec() != null) {
-            comment = ctx.commentSpec().STRING_LITERAL().getText();
-            comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
-        } else {
-            comment = "";
-        }
+        String comment = ctx.commentSpec() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(
+                        ctx.commentSpec().STRING_LITERAL().getText());
         return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true, comment);
     }
 
@@ -6548,7 +6545,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public AlterTableOp visitModifyColumnCommentClause(ModifyColumnCommentClauseContext ctx) {
         ColumnPath columnPath = parseColumnPath(ctx.name, visitQualifiedName(ctx.name));
-        String comment = LogicalPlanBuilderAssistant.parseStringLiteral(ctx.STRING_LITERAL().getText());
+        String comment = SqlLiteralUtils.parseStringLiteral(ctx.STRING_LITERAL().getText());
         return new ModifyColumnCommentOp(columnPath, comment);
     }
 

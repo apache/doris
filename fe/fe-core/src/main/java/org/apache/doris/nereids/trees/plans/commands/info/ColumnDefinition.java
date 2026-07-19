@@ -27,7 +27,6 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -40,6 +39,7 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
@@ -292,7 +292,7 @@ public class ColumnDefinition {
             }
         }
         if (includeComment) {
-            sb.append("COMMENT ").append(LogicalPlanBuilderAssistant.quoteStringLiteral(getComment()));
+            sb.append("COMMENT ").append(SqlLiteralUtils.quoteStringLiteral(getComment()));
         }
 
         return sb.toString();

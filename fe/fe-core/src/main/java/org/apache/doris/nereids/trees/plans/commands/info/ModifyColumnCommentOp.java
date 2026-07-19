@@ -21,7 +21,7 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -90,7 +90,7 @@ public class ModifyColumnCommentOp extends AlterTableOp {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY COLUMN ").append(columnPath.toSql());
-        sb.append(" COMMENT ").append(LogicalPlanBuilderAssistant.quoteStringLiteral(comment));
+        sb.append(" COMMENT ").append(SqlLiteralUtils.quoteStringLiteral(comment));
         return sb.toString();
     }
 

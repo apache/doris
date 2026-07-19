@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.qe.SqlModeHelper;
 
 import org.junit.jupiter.api.Assertions;
@@ -230,6 +231,32 @@ public class IcebergNestedSchemaEvolutionParserTest {
     public void testRegularColumnDefinitionCommentRoundTripEscapesQuotesAndBackslashes() {
         assertRegularColumnDefinitionCommentRoundTrip(false);
         assertRegularColumnDefinitionCommentRoundTrip(true);
+    }
+
+    @Test
+    public void testStructMemberCommentRoundTripEscapesQuotesAndBackslashes() {
+        assertStructMemberCommentRoundTrip(false);
+        assertStructMemberCommentRoundTrip(true);
+    }
+
+    private void assertStructMemberCommentRoundTrip(boolean noBackslashEscapes) {
+        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
+            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
+
+            String sqlPath = noBackslashEscapes ? "C:\\tmp\\" : "C:\\\\tmp\\\\";
+            String expectedComment = "owner's \"field\" C:\\tmp\\";
+            ModifyColumnOp modify = assertSingleClausePath(
+                    "ALTER TABLE t MODIFY COLUMN info.payload "
+                            + "STRUCT<name:STRING COMMENT 'owner''s \"field\" " + sqlPath + "'>",
+                    ModifyColumnOp.class, "info.payload");
+            StructType structType = (StructType) modify.getColumnDef().getType();
+            Assertions.assertEquals(expectedComment, structType.getFields().get(0).getComment());
+
+            ModifyColumnOp reparsedModify = assertSingleClausePath(
+                    "ALTER TABLE t " + modify.toSql(), ModifyColumnOp.class, "info.payload");
+            StructType reparsedType = (StructType) reparsedModify.getColumnDef().getType();
+            Assertions.assertEquals(expectedComment, reparsedType.getFields().get(0).getComment());
+        }
     }
 
     private void assertRegularColumnDefinitionCommentRoundTrip(boolean noBackslashEscapes) {

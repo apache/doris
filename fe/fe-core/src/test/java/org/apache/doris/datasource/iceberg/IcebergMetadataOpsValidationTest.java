@@ -267,6 +267,33 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testComplexModifyPersistsDecodedStructMemberComment() throws Throwable {
+        Schema schema = new Schema(Types.NestedField.optional(1, "info", Types.StructType.of(
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "name", Types.StringType.get(), "old comment"))))));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        String decodedComment = "owner's \"field\" C:\\tmp\\";
+        Column column = new Column("payload", new StructType(
+                new StructField("name", Type.STRING, decodedComment, true)), true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.payload"), column, null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumnDoc("info.payload.name", decodedComment);
+        Mockito.verify(updateSchema).commit();
+    }
+
+    @Test
     public void testPrimitiveModifyPreservesRequiredNestedField() throws Throwable {
         Schema schema = requiredNestedSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
