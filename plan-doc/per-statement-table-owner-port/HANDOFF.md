@@ -1,36 +1,49 @@
 # 🤝 Session Handoff —— 每语句表加载归属者 · 移植到其它连接器
 
 > **滚动文档**：每 session 结束覆盖式更新，只留下一个 session 必须的上下文。
-> 开场必读顺序、模板、铁律见 [`README.md`](./README.md)；进度见 [`tasklist.md`](./tasklist.md)。
+> 开场必读顺序、模板、铁律见 [`README.md`](./README.md)；进度见 [`progress.md`](./progress.md)；状态见 [`tasklist.md`](./tasklist.md)。
 
 ---
 
-# 🆕 本空间刚建立（2026-07-19），下一个 session = **起步：确认范围 + 逐候选 recon**
+# 🆕 本轮（2026-07-19 session 1）已完成：**全部连接器 recon + 架构统一性调研 → 结论全部 🔬**
 
-## 第一件事（**不是动码**）
-1. 读 `README.md`（尤其"已就位地基"+"连接器侧移植模板 5 步"+"候选连接器表"）。
-2. 读 iceberg 蓝本：`../perf-hotpath-iceberg/designs/FIX-PERF-07-unified-per-statement-table-owner-summary.md` + 代码 `fe-connector-iceberg/.../IcebergStatementScope.java`（唯一现成范本）。
-3. **向用户复述范围并确认**：候选 = paimon(高) / hive-hms(中-高) / hudi(中)；maxcompute/es/jdbc/trino 大概率排除（0 metastore loadTable fan-out）。先定"做哪几个、从哪个起"。
-4. 选定第一个连接器后，按 README「单连接器立项流程」step 1 = **recon**（数一条 DML 加载同表几次 / 现有缓存边界 / 有无胖句柄+跨臂暂存），产出现状图，再写设计交用户确认，再动码。
+## 一句话结果
+- **逐连接器复核（双签）：没有一个连接器现在值得移植**——iceberg 独特在它是**唯一迁移了行级写（DELETE/MERGE）**的连接器；别的连接器只读 / 仅追加写，没有多臂重复加载风暴，现有跨查询缓存又已把加载压到≈1。四项全部标 🔬。
+- **"统一接口标准"其实已存在**（中性 `getStatementScope()` + `ConnectorStatementScope`，新连接器天生继承）；**推荐高度 L0**（写下约定 + 登记触发点，生产逻辑零改动）。
+- **用户拍板**：本轮先把结论记成**单独文档**（已落 `designs/recon-findings-and-trino-refactor-groundwork.md`）；**重构成 Trino 架构（L2/L3）留到下个 session 专题讨论**。
+- **未动任何产品代码**（纯 plan-doc）。
+
+---
+
+# ➡️ 下一个 session = **专题讨论"重构成 Trino 架构"（L2/L3）**
+
+## 第一件事（先读，别急着给方案）
+1. 读 **`designs/recon-findings-and-trino-refactor-groundwork.md`**（本轮全部结论：逐连接器复核 §2、iceberg 为何独特 §3、统一性/Trino 参照/高度分级 §4、paimon 触发点 §5、共享 helper 落点 §6、**Trino 重构预备材料 §7**）。
+2. 读架构记忆 `iceberg-table-resolution-cache-scoping`（缓存作用域纪律 + "全高度留远期"）。
+
+## 讨论要点（种子，详见结论文档 §7）
+- **Trino 到底要引入什么**：每语句/每事务 `ConnectorMetadata` 实例（现状是每 catalog 共享单例）+ 一个 span 生命周期管理器（Doris 现成 span 宿主=`StatementContext`）+ planner 改成经 span 取 metadata + 逐连接器把缓存迁到 per-statement 实例。
+- **必须先摆平的硬冲突**：
+  - **铁律 A**（删旧代码期 fe-core 只减不增）——L2/L3 几乎全是 fe-core 净增 + planner 改造 → 是否等删旧代码期结束？是否需用户单独签字？
+  - 读热路径刚稳定（PERF-01~06/11），per-statement metadata 会重排读热缝、回归面大。
+  - **正面收益**：per-statement 实例天然按语句/用户隔离 → 顺带解决"跨查询缓存对 session=user/vended 关闭"的历史包袱（这是 L3 相对现状的真正架构收益）。
+- **建议讨论产出**：一份"Doris 每语句/每事务 metadata 重构"的**可行性 + 分期**设计（先 span 宿主 → 逐连接器迁移 → 退役共享单例，避免一次性大爆炸）+ 明确触发条件。
 
 ## 关键已知（省得重新发现）
-- **地基已就位、勿再改**：`ConnectorStatementScope` + `ConnectorSession.getStatementScope()`（fe-connector-api）+ `ConnectorStatementScopeImpl` + `StatementContext` 懒建/重置 + `ConnectorSessionImpl` 构造期捕获 + `ExecuteCommand` 重置（fe-core）。**移植=纯连接器侧、免 fe-core 两段验**。
-- **目前只有 iceberg 用了该 SPI**（`grep -rln getStatementScope fe/fe-connector/*/src/main/java` 只出 iceberg + api）。
-- **初摸数据**（2026-07-19，`loadTable`/`getTable` 触点文件数）：paimon 4 / hive 3 / hudi 1 / maxcompute·es·jdbc·trino 0。写路径连接器：hive、iceberg、jdbc、maxcompute、hudi 有 `getWritePlanProvider`/写面；**paimon 未在连接器层 override `getWritePlanProvider`**（写路径结构待确认）。
-
-## 起步须与用户确认的点
-- **范围**：只做 catalog-backed 三家（paimon/hive/hudi），还是也看读-only 连接器？（建议：先只做多载明显的，读-only 复核后排除）。
-- **顺序**：建议从 **paimon** 起（多载最像 iceberg、`fe-connector-cache` 框架副本已在），或从写路径最清晰的 **hive** 起。
-- **hive 网关特殊性**：hms 网关按 handle 选 sibling provider（委派 iceberg/hudi），且 hms 休眠（未进 `SPI_READY_TYPES`）——设计时要专门处理"网关自身 vs 委派 sibling"的作用域归属。
+- **地基已就位、勿再改**：`ConnectorStatementScope` + `getStatementScope()`(fe-connector-api) + `ConnectorStatementScopeImpl` + `StatementContext` 懒建/重置 + `ConnectorSessionImpl` 构造期捕获 + `ExecuteCommand` 重置(fe-core)。
+- **目前只有 iceberg 用了该 SPI**（`IcebergStatementScope` + `IcebergWritePlanProvider`）。
+- **paimon = 唯一真实的将来 L1 候选**：写未迁移（老 JNI-writer INSERT 写栈在删旧代码期被删、未搬进新连接器）；已有胖句柄 `PaimonTableHandle.paimonTable` + 4 加载 seam；**加行级 UPDATE/DELETE 时才值得移植**，届时抽共享 helper（落 `fe-connector-api`，签名/6 处迁移见结论文档 §6）。
 
 ## 铁律提醒
-- 地基勿再改；移植只写连接器侧；暴露地基缺口先停手交 review。
-- 作用域跨用户即泄漏——凡有 session=user/凭证语义的连接器，复核共享安全（iceberg 判据：授权在 load 调用里，缓存命中绕过它）。
-- surgical：模板里"拆胖句柄""下沉暂存"仅当该连接器真有对应物才做。
+- 地基勿再改；移植（若做）只写连接器侧；暴露地基缺口先停手交 review。
+- L2/L3 碰铁律 A（fe-core 净增）——**属独立立项 + 需用户签字**，不在本"纯连接器侧移植"任务的默认范围内。
+- 作用域跨用户即泄漏——凡有 session=user/凭证语义的连接器，复核共享安全（本轮已确认现有各连接器均目录级单一身份、不泄漏）。
 
 ---
 
 # 🗂 遗留 / 关联
+- 本轮全部结论：`designs/recon-findings-and-trino-refactor-groundwork.md`。
 - iceberg 蓝本任务空间：`../perf-hotpath-iceberg/`（PERF-07 权威设计/小结）。
 - 架构记忆：`iceberg-table-resolution-cache-scoping`。
+- 本轮调研原始返回：workflow journal `wf_e89cf92e-ff3`（逐连接器）+ `wf_4802a3d2-1c9`（统一性三专项），路径见结论文档 §8。
 - e2e 一律留各连接器进 `SPI_READY_TYPES` 切换阶段统一补（对齐 `hms-iceberg-delegation-needs-e2e`）。

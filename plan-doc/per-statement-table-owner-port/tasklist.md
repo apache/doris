@@ -11,10 +11,10 @@
 
 | ID | 连接器 | 候选度 | 状态 | 备注 | commit |
 |---|---|---|---|---|---|
-| PORT-01 | paimon | 高 | ⏳ 待 recon | loadTable 触点最多(4)；写路径结构待确认 | |
-| PORT-02 | hive / hms | 中-高 | ⏳ 待 recon | plain-hive 读写活；hms 网关委派 sibling(休眠)——网关按 handle 选 provider 的特殊性要单独设计 | |
-| PORT-03 | hudi | 中 | ⏳ 待 recon | 读为主(MTMV)；写臂/多载程度待确认 | |
-| PORT-04 | maxcompute / es / jdbc / trino | 低 | ⏳ 待判定 | 0 个 metastore loadTable fan-out；大概率**排除**，下 session 确认后标 🔬 | |
+| PORT-01 | paimon | 高 | 🔬 复核判暂不做（**将来候选**） | recon 双签：写未迁移→只读，DML=0；加载已被 transient 胖句柄+SDK CachingCatalog 压到≈1。**触发点=paimon 加行级 UPDATE/DELETE**（届时复现风暴，且是抽共享 helper 的正确时机）。详见 designs 复核结论文档 §2/§5 | |
+| PORT-02 | hive / hms | 中-高 | 🔬 复核判不必做 | recon 双签：仅 INSERT/OVERWRITE 无行级写；跨查询 `CachingHmsClient.tableCache` 已把加载压到≈0~1（作用域的超集）；无胖句柄/暂存；网关只做 1 次探测加载后委派兄弟，兄弟自带作用域 | |
+| PORT-03 | hudi | 中 | 🔬 复核判不必做 | recon 双签：Doris 侧只读（写全拒）；5 步 4 步空操作；唯一读侧成本=未缓存 metaClient 重建，形状不对+可变+鉴权上下文错配，非本模式 | |
+| PORT-04 | maxcompute / es / jdbc / trino | 低 | 🔬 排除 | recon 双签：均无行级 DML（es/trino 只读、jdbc/maxcompute 仅 INSERT-append）；无暂存/胖句柄。**trino 读侧重解析最贵**=另立"读侧去重"议题的占位，不属本模板 | |
 
 ---
 
@@ -23,3 +23,10 @@
 - iceberg 本身**不在本清单**（已由 PERF-07 完成，见 `plan-doc/perf-hotpath-iceberg/`）。
 - 各连接器完成后建各自 `designs/PORT-<connector>-{design,summary}.md`（不预建）。
 - **不立项**的连接器（复核判不必做）标 🔬 + 一句原因，保留占位。
+
+## 本轮结论（2026-07-19 · recon 全部完成）
+
+- **四项全部 🔬**：无连接器现在值得移植——iceberg 独特在它是**唯一迁移了行级写（DELETE/MERGE）**的连接器，别的连接器只读/仅追加写，没有多臂重复加载风暴，现有跨查询缓存又已把加载压到≈1。
+- **统一接口标准已存在**：中性 SPI `getStatementScope()` + `ConnectorStatementScope`（新连接器天生继承）。缺的只是"更强的强制/便利外壳"，现在做=单用户过早抽象。
+- **推荐高度 L0**（写下约定 + 登记 paimon-加写触发点，生产逻辑零改动）；L1（抽共享 helper）留到 paimon 加写；**L2/L3（Trino 式重构）下个 session 专题讨论**。
+- 全部依据：`designs/recon-findings-and-trino-refactor-groundwork.md`。
