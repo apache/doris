@@ -5,60 +5,54 @@
 
 ---
 
-# 🆕 本轮（2026-07-19 session 6）已完成：**HMS 异构网关兄弟元数据每语句去重（读取键石之后的第二大步）完全落地**
+# 🆕 本轮（2026-07-19 session 7）已完成：**写入共用一个每语句元数据实例 + 事务归属上移（读写共用步骤完全落地）**
 
 ## 一句话结果
-- **背景**：一个 HMS 目录同时管 Hive/Iceberg/Hudi 三类表，Hive 连接器充当网关、把 Iceberg/Hudi 表的操作转发给内嵌"兄弟连接器"。此前网关**每转发一次就新建一个兄弟元数据外壳**（一条 SELECT 扫一张 HMS-Iceberg 表要重建十几次）。本轮把兄弟元数据也纳入"每语句一实例"。
-- **grounding 纠偏**：整个 hive 连接器"取兄弟元数据"仅 **4 处**（3 个 helper + `getTableSchema` 旁路）；文档"~43 处 per-handle 改道"实为误导——40+ 处转发 + `beginTransaction(session,handle)` 全穿第三个 helper、改动零行。
-- **已落地（全绿，commit `5fd55d0a32a`）**：
-  - 新增 `SiblingOwner{connector,label}`（`ICEBERG_LABEL`/`HUDI_LABEL` 常量单一真源）；`HiveConnector.resolveSiblingOwnerLabeled` 命中臂带标签、`resolveSiblingOwner` 委派它（3 个 provider seam 字节不变）。
-  - `HiveConnectorMetadata.memoizedSiblingMetadata` key=`metadata:<catalogId>:<label>`（三连接器共享 catalogId，靠标签区分，否则塌成一个派错）；3 helper + 旁路收口；`beginTransaction` 免费覆盖。NONE 下工厂每调 = 字节等价；仅用 fe-connector-api 类型（不 import fe-core）；兄弟只作 `Connector`/`ConnectorMetadata` 持有、绝不 cast。
-  - **e2e 时机**：用户拍板"随后续统一补"——本步只做连接器单测锁死机制，异构网关 e2e 留切换阶段统一补。
-- **验证**：全模块 348 单测全过（含 5 新去重断言）；checkstyle 0 违规；fe-core 漏斗门禁 + 连接器 import 门禁 exit 0；对抗复审（2 视角 + 逐条核验）**零 finding**。
-- **carry-forward（非本轮引入）**：`listFileSizes` 已正确走漏斗、但未列入 `HiveConnectorMetadataSiblingDelegationTest.EXPECTED_METHODS` 转发面锁——留作后续测试硬化。
+- **背景**：一条写语句（INSERT/DELETE/MERGE）此前在多个环节各自向连接器“要一次元数据外壳”（8 处），与读取路径的“每语句一实例”割裂。本轮把写入也纳入同一收口，让**读和写在同一条语句里共用同一个元数据实例**（对齐 Trino `CatalogTransaction`：一 metadata + 一事务/语句/目录），并把写事务上移成语句级共持体。
+- **grounding 纠偏**：8 写缝精确（7 纯只读外壳 + 1 开事务）；事务本就**从 metadata 实例上铸出**→共享 metadata 即共享事务父；**异构网关开事务上一步已免费覆盖**；side-car 与本步**正交**；**闸门1 旧表述纠正**——hive 起写取表走 `CachingHmsClient` 缓存(与读同对象)、非“更新鲜快照”，吃重的是写鉴权取 + 原始参数拒 ACID + 提交期唯一把关。
+- **已落地（全绿）**：
+  - **3a 改道 + 身份闸门**（commit `f208036f3c5`）：8 处写裸调 → `PluginDrivenMetadata.get` + 删 8 `getMetadata-funnel-exempt` 标记（门禁自动 100% 无例外）；收口加 `session.getUser()` 身份一致 **fail-loud 断言**（一语句一用户恒成立、永不触发、守铁律不解析令牌）。
+  - **3b 事务共持体**（commit `a03b88b0d80`）：新增 `CatalogStatementTransaction`（co-hold 共享 writeOps+session+懒建事务；`begin` 铸事务+全局注册；`finalizeAtStatementEnd` 仅 `isActive`(孤儿)才回滚）；执行器经 `scope.computeIfAbsent("txn:"+catalogId,…)` 开事务；`ConnectorStatementScopeImpl.closeAll` 改**两趟**(先 finalize 事务、再关 metadata)；`PluginDrivenTransactionManager` 加 `isActive`（map 即已了结状态源 → 兜底幂等、绝不撤已提交）。NONE 下瞬态、字节等价。
+  - **保留**：闸门1(hive 起写自取表) 天然满足、闸门2(身份) 断言守、tx↔session 绑定、全局事务注册(BE RPC)、执行器 onComplete/onFail 提交/回滚时机。
+- **验证**：**103 目标单测全绿**（7 新）；checkstyle 0；fe-core 收口门禁 exit 0（写入零裸调）+ 自测 PASS；连接器 import 门禁 exit 0。异构网关 e2e 沿用“择机统一补”。
+- **未动**：iceberg 表 side-car（正交，保持现状；删除留远期连接器内部重构）。
 
 ---
 
-# ➡️ 下一个 session = **写入共用一个元数据实例（RD-3 / STEP 3）**
+# ➡️ 下一个 session = **缓存隔离（RD-4 / STEP 4，独立安全 track）**
 
 ## 第一件事（先读）
-1. 读 `designs/expanded-scope-phasing-and-security-decisions.md` **§1**（读写共用忠实 Trino：`CatalogTransaction` 单实例读写共用；两条正确性闸门）+ **§4 表 STEP 3**（拆 3a/3b + 闸门 + 纠缠点）。
-2. 读 `designs/P1-implementation-design.md` §6（read-vs-write 复用决策，写侧当时留后续）。
-3. 读架构记忆 `iceberg-table-resolution-cache-scoping`（写侧去重收益薄、真价值=架构连贯 + stash 下单例；碰铁律 A 的高度问题待用户定）、`plugindriven-mvcc-table-is-live-not-dormant`、`catalog-spi-plugin-tccl-classloader-gotcha`。
+1. 读 `designs/expanded-scope-phasing-and-security-decisions.md` **§3**（缓存隔离：确认 list≠load=真实越权、两轴切分、`getIdentityShardKey()` SPI、iceberg 三投影缓存、fe-core 表结构缓存 bypass/分片、异构网关最尖洞、防漂移门禁、Trino 对齐、待签字点）+ **§4 表 STEP 4**。
+2. 读架构记忆 `iceberg-table-resolution-cache-scoping`（缓存作用域五条纪律）、`catalog-spi-plugin-tccl-classloader-gotcha`、`hms-iceberg-delegation-needs-e2e`、`catalog-spi-history-schema-info-lowercase-nested-names`。
+3. 读本轮 `designs/P3-write-sharing-implementation-design.md`（读写共用 as-built，STEP 4 与之正交）。
 
-## A. 动码前先 grounding + 出中文方案待确认（本任务铁律：设计先行）
-- **写臂 8 处 `getMetadata` 现在仍裸调**（带 `getMetadata-funnel-exempt` 标记豁免于 fe-core 漏斗门禁）。STEP 3a 把它们改道进 `PluginDrivenMetadata.get`（fe-core 统一入口）并**删对应标记 → 门禁自动收紧**。这 8 处（行号会漂移，须逐处对当前代码核实）：
-  - `PhysicalPlanTranslator.visitPhysicalConnectorTableSink`（INSERT）/ `buildPluginRowLevelDmlSink`（DELETE/MERGE）
-  - `PluginDrivenInsertExecutor.ensureConnectorSetup`
-  - `PluginDrivenExternalTable.resolveWriteTargetHandle`（藏在"读"文件里的写专用点）
-  - `BindSink.checkConnectorStaticPartitions` / `checkConnectorWritePartitionNames`
-  - `IcebergRowLevelDmlTransform.checkPluginMode`
-  - `PhysicalIcebergMergeSink.buildInsertPartitionFieldsFromConnector`
-- **注意与 STEP 2 的差别**：STEP 3 主要改**fe-core**（不像 STEP 2 全在连接器内）——用户 2026-07-19 已豁免铁律 A，但 3b 若要新增 fe-core SPI（`CatalogStatementTransaction`）须先向用户确认高度（见记忆 `iceberg-table-resolution-cache-scoping` 末：全高度重写留远期）。
-- 出中文方案（不引任务代号）：读写为何可共用一个实例（对齐 Trino `CatalogTransaction`）、两条闸门怎么守、3a/3b 怎么拆、纠缠点怎么定。**待用户确认后再改代码。**
+## A. 动码前先 grounding + 出中文方案待确认（本任务铁律：设计先行 + 安全签字）
+- **STEP 4 是真实越权修复**（用户已确认 list ≠ load）：“能列举但无权加载”的用户会经缓存命中读到别人授权才见的表结构/快照/分区。**须威胁模型签字**（授权新鲜度：TTL 内远端撤权仍命中，Trino 同性质，可接受但须签字；manifestCache 默认 OFF，开启须分片或声明与 session=user 不兼容）。
+- **影响面小**：只涉及 **iceberg 三投影缓存 + fe-core 表结构缓存**；hive/paimon/hudi 无 SUPPORTS_USER_SESSION、无按用户授权轴，不动。
+- 出中文方案（不引任务代号）：为何 list≠load 是越权、两轴切分（授权敏感投影按身份分片 vs 含凭证原始表永不跨语句缓存）、`getIdentityShardKey()` 放哪、异构网关怎么随属主键覆盖、防漂移门禁形态。**待用户确认（含威胁模型签字）后再改代码。**
 
-## B. 实现要点（§1 + §4 STEP 3）
-1. **3a 无状态写点改道**：8 处改走统一入口（读写在同一语句共用那**一个** memoized 元数据实例）；删对应 funnel-exempt 标记，门禁自动把这些点纳入。
-2. **两条必守闸门（正确性，非性能）**：
-   - **按连接器保留"起写刷新"**：hive 起写必须保留 `HiveConnectorTransaction.beginWrite` 当场 `hmsClient.getTable`（ACID 事务表拒绝 + 权威起始快照）——**别换成扫描缓存表**；iceberg 靠 `newTransaction()` refresh。
-   - **读写身份一致性**：iceberg 接 REST、session=user 时 metadata 烤进 per-user 委派操作；读/写同语句本是同一用户，但须**显式断言身份指纹相等**再共用（`IcebergConnector.getMetadata` 的 `newCatalogBackedOps`）。
-3. **3b 事务归属上移**：把首次写懒建的 `ConnectorTransaction` 并入语句级共持体（范本 `ConnectorRewriteDriver` co-hold metadata/session + beginTransaction + commit/rollback）；定 **commit/rollback vs `closeAll` 顺序**（语句末确定性收尾未提交事务 + 幂等）；保留 tx↔session 绑定（`setCurrentTransaction`，不统一两个 session）。
-4. **纠缠点（3b 时请用户定）**：iceberg 起写复用读的 `IcebergStatementScope.sharedTable` side-car，而该 side-car 在 P2 计划里要删 → 先接旧 side-car、P2 再搬 **vs** 先做个 iceberg 最小 P2 前置。
+## B. 实现要点（§3 + §4 STEP 4）
+1. **新 SPI `ConnectorSession.getIdentityShardKey()`**：默认取 `getUser()`（Doris 主体非令牌字节 → fe-core 不解析凭证，守铁律）；off-thread loader 也读它防指纹漂移。
+2. **iceberg 三投影缓存 Key 分片**：`latestSnapshotCache`/`partitionCache`/`formatCache`（`IcebergConnector` cache 块）Key 加 shard key，**仅 `isUserSessionEnabled()` 时填充**（否则常量→非 session=user 目录字节不变）；关残留泄漏（`beginQuerySnapshot` 命中跳过 per-user loadTable）。
+3. **fe-core 表结构缓存**（`SchemaCacheKey` 仅按 nameMapping）：**分层**——(a) 先 `shouldBypassSchemaCache(SessionContext)`，session=user + 委派凭证下绕缓存现读（镜像已安全的库/表名缓存 bypass）；(b) 后续按需再把 identityShardKey 织入 Key。
+4. **异构网关是最尖的洞**：hive 前门（无 SUPPORTS_USER_SESSION → fe-core 名字缓存 bypass 不触发）委派给 session=user 的 iceberg 兄弟时会泄漏；shard key 与 Key 选择须按**有效属主连接器身份**、经兄弟 getMetadata 路由传播（复用 STEP 2 已建的属主键收口）。
+5. **防漂移门禁**：授权敏感的跨语句缓存 Key 在 session=user 下**必须**含 `getIdentityShardKey()`，把“加了新缓存忘分片”从静默泄漏变构建失败。
+6. **原始表缓存保持 OFF**（`tableCache` 两条件 null 门维持）；语句内复用仍靠 iceberg 表 side-car（本步不删）。
 
-## 后续步（详见分期定稿 §4）
-- **STEP 4 缓存隔离（安全 track，可与 3 并行启动）**：`getIdentityShardKey()` SPI → iceberg 三投影缓存 Key 分片 + fe-core 表结构缓存 bypass(先)/分片(后) + 防漂移门禁；**随本轮 STEP 2 的属主键覆盖异构网关**（异构网关是最尖的越权洞）；越权 e2e + 威胁模型签字。
+## 后续 / 关联
+- **越权 e2e**：can-list-cannot-load 用户命中不泄漏 + 异构网关 e2e（落 `external_table_p2/refactor_catalog_param`，与读写共用步骤欠的异构网关 e2e 一并统一补）。
+- 读写共用 as-built：`designs/P3-write-sharing-implementation-design.md`。
 
 ## 铁律 / 闸门提醒
-- 用户 2026-07-19 已豁免铁律 A（fe-core 只减不增）。仍守：连接器 connector-agnostic（作用域值 Object）；作用域跨用户即泄漏；**fe-connector-* 不得 import fe-core**（门禁）。
+- 用户 2026-07-19 已豁免铁律 A（fe-core 只减不增）。仍守：连接器 connector-agnostic（作用域值 Object）；作用域/缓存跨用户即泄漏；**fe-connector-* 不得 import fe-core**（门禁）；**新 SPI 用 `getUser()`/主体字节，不解析凭证令牌**。
 - **动码前探测并发活动**（git log/status + maven 进程 + 近 90s mtime），发现活跃即停手（`concurrent-sessions-shared-worktree-hazard`）。
-- 本任务设计先行：调研设计阶段结束、正式改代码前，先把方案用中文详述待用户确认；e2e 沿用"择机统一补"（异构网关 e2e 随 STEP 3/4 统一补）。
+- 本任务设计先行 + 安全签字：STEP 4 调研设计结束、正式改代码前，先把方案用中文详述 + **威胁模型签字**待用户确认；e2e 沿用“择机统一补”。
 
 ---
 
 # 🗂 遗留 / 关联
-- 分期定稿（现行主线）：`designs/expanded-scope-phasing-and-security-decisions.md`（§1 读写共用、§4 分期 STEP 3、§6 残留风险）。
-- STEP 1 蓝图 + read-vs-write：`designs/P1-implementation-design.md`（§5 HMS sibling 已落地；§6 写侧留后续=现在做）。
-- STEP 2 grounding/复审 workflow：`wf_62fa5a7f-07a`（grounding）、`wf_e55f3a51-561`（对抗复审，零 finding）。
-- 门禁：`tools/check-fecore-metadata-funnel.sh`（STEP 3a 删 8 处 `getMetadata-funnel-exempt` 标记后自动收紧）、`tools/check-connector-imports.sh`。
-- 架构记忆：`iceberg-table-resolution-cache-scoping`、`catalog-spi-plugin-tccl-classloader-gotcha`、`hms-iceberg-delegation-needs-e2e`、`hudi-mtmv-freshness-real-instant`。
-- e2e：异构网关 e2e（INSERT/DELETE/MERGE/ALTER/EXECUTE 对比独立 iceberg 目录）落 `regression-test/suites/external_table_p2/refactor_catalog_param`，随后续统一补。
+- 分期定稿（现行主线）：`designs/expanded-scope-phasing-and-security-decisions.md`（§3 缓存隔离、§4 分期 STEP 4、§6 残留风险）。
+- 读写共用 as-built：`designs/P3-write-sharing-implementation-design.md`（3a 改道+身份闸门、3b 共持体+两趟 closeAll、side-car 正交）。
+- 门禁：`tools/check-fecore-metadata-funnel.sh`（读写侧现均无例外）、`tools/check-connector-imports.sh`；STEP 4 新增缓存分片防漂移门禁。
+- 架构记忆：`iceberg-table-resolution-cache-scoping`、`catalog-spi-plugin-tccl-classloader-gotcha`、`hms-iceberg-delegation-needs-e2e`。
+- e2e：异构网关 e2e（INSERT/DELETE/MERGE + can-list-cannot-load 越权）落 `regression-test/suites/external_table_p2/refactor_catalog_param`，随 STEP 4 统一补。

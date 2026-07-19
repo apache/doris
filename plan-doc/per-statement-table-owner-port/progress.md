@@ -94,3 +94,13 @@
 - **测试**：5 个新去重断言（多转发+写事务共 1 建 / NONE 每调重建 / by-TYPE==by-HANDLE 同 key / 跨 catalogId 隔离 / iceberg-hudi 按标签隔离）；既有兄弟套件改传 NONE 作用域会话（转发路径现解引用作用域），无断言弱化；复制 `TestStatementScope` + 新增 `ScopeSession` 到 hive 测试树（连接器测试不能 import fe-core/iceberg）。
 - **验证**：全模块 **348 单测全过**；checkstyle **0 违规**；fe-core 漏斗门禁 + 连接器 import 门禁均 **exit 0**；改动后整个 hive 模块只剩 **1 处** `owner.getMetadata(session)`（就在漏斗工厂内）。**对抗复审（workflow `wf_e55f3a51-561`，correctness + tests 两视角 + 逐条对抗核验）零 finding**；唯一非阻塞观察 = `listFileSizes` 未列入 `EXPECTED_METHODS` 转发面锁（**既有、非本轮引入**，留作后续测试硬化的 carry-forward）。
 - **下一步**：见 HANDOFF —— 下一大步 = 写入共用（RD-3：无状态写点改道进入口 + `ConnectorTransaction` 归属上移）。
+
+## 2026-07-19 — session 7：写入共用落地（读写共享一实例 + 事务归属上移，RD-3 完成）
+
+- **动码前设计先行 + grounding**（workflow `wf_1a053ce4-b22`，6 读者：写缝普查 / 事务生命周期 / 闸门1 hive 起写 / 闸门2 iceberg 身份 / 纠缠点 side-car / 兄弟写路由；末段 verify agent 因大 JSON 输入撞结构化输出重试上限失败，但 6 读者全产出，事务生命周期与身份闸门二区自读核实补齐）。核实结论：**8 写缝精确**(7 纯只读外壳 + 1 开事务)、事务本就从 metadata 铸出→共享 metadata 即共享事务父、**异构网关开事务上一步已免费覆盖**、闸门1 是前瞻约束(改道天然不违反)、side-car 与本步**正交**。**纠正闸门1 旧表述**：hive 起写取表走 `CachingHmsClient` 缓存(与读同对象)、非“更新鲜快照”，吃重的是写鉴权取 + 原始参数拒 ACID + 提交期唯一把关。
+- **中文方案 + 高度决策交用户**（不引任务代号）：先讲清读写为何可共用一实例(对齐 Trino `CatalogTransaction`)、两闸门、3a/3b 拆分、side-car 处理；就“事务归属上移的高度”给三选项，**用户选“完整共持体”**（新增 fe-core `CatalogStatementTransaction` + 执行器经它开/收事务 + 统一 commit/rollback vs closeAll 顺序）。详细方案二次确认后开写。
+- **第一步 改道 + 身份闸门**（commit `f208036f3c5`）：8 处写裸调 → `PluginDrivenMetadata.get` + 删 8 豁免标记(门禁自动 100% 无例外)；收口加 `getUser()` 身份一致 fail-loud 断言(一语句一用户恒成立、永不触发、守铁律不解析令牌)；hive 起写未触。三写路径套件补 NONE 作用域桩 + 2 新身份断言测试。
+- **第二步 事务归属上移**（commit `a03b88b0d80`）：新增 `CatalogStatementTransaction`(co-hold 共享 writeOps+session+懒建事务；`begin` 从共享实例铸事务+全局注册；`finalizeAtStatementEnd` 仅 `isActive`(孤儿)才回滚)；执行器 `beginTransaction` 经 `scope.computeIfAbsent("txn:"+catalogId,...)` 取共持体开事务；`ConnectorStatementScopeImpl.closeAll` 改**两趟**(先 finalize 事务、再关 metadata)；`PluginDrivenTransactionManager` 加 `isActive`(map 即已了结状态源→兜底幂等、绝不撤已提交)。NONE 下共持体瞬态、字节等价。5 新共持体测试 + 1 两趟顺序测试。
+- **验证**：**103 目标单测全绿**(7 新)；checkstyle **0 违规**；fe-core 收口门禁 exit 0(写入零裸调)+ 自测 PASS；连接器 import 门禁 exit 0。异构网关 e2e 沿用“择机统一补”。
+- **iceberg 表 side-car 未动**（正交、保持现状；删除留远期连接器内部重构）。定稿 → `designs/P3-write-sharing-implementation-design.md`。
+- **下一步**：见 HANDOFF —— 下一大步 = 缓存隔离（RD-4 / STEP 4，独立安全 track：`getIdentityShardKey()` SPI + iceberg 三投影缓存 Key 分片 + fe-core 表结构缓存 bypass/分片 + 防漂移门禁 + 越权 e2e；随属主键覆盖异构网关；威胁模型签字）。

@@ -12,10 +12,10 @@
 |---|---|---|---|---|---|
 | RD-1 | STEP 1 读取键石 | ✅ 完成 | C1 地基 ✅ + C2 关闭接线 ✅ + C3 读/扫描/DDL/MVCC 改道（49 处）✅ + 扫描节点存字段 ✅ + 后台 loader 显式 NONE 读穿（9 处，含名字映射两缝）✅ + 修 fetchRowCount ANALYZE 隐患 ✅ + `buildCrossStatementSession` 助手 ✅ + 守门测试 ✅（247+18 绿、checkstyle 0）+ **防漂移门禁**（bash grep，读取侧零例外、写入 8 处 `getMetadata-funnel-exempt` 标记豁免；自测+validate exec）✅ | — | C1 `5b7312f9d1f` · C2 `12f3e95239b` · C3 `eecb390c4ac` · 门禁 `b2d147998d1` |
 | RD-2 | STEP 2 HMS 兄弟扇出 | ✅ 完成（e2e 随后统一补） | 4 处取元数据点(3 helper by-TYPE/by-HANDLE + `getTableSchema` 旁路)收口 `memoizedSiblingMetadata`，key=(catalogId, ownerLabel)；兄弟 getMetadata **及 `beginTransaction(session,handle)`** 同入口(后者免费覆盖)；`SiblingOwner` 命中臂带标签(拒 force-build supplier 比对)；5 新去重单测(1建/NONE每调/by-TYPE==by-HANDLE/跨catalog/iceberg-hudi标签隔离)；348 全绿+门禁 exit0+对抗复审零 finding。异构网关 e2e 择机统一补 | RD-1 | `5fd55d0a32a` |
-| RD-3 | STEP 3 写入共用 | ⏳ 待启动 | 3a 无状态写点改道进 funnel；3b `ConnectorTransaction` 归属上移 `CatalogStatementTransaction` + commit/rollback vs closeAll 顺序。闸门=读写身份等价 + 保留 hive 起写刷新 + 保留 tx↔session 绑定 | RD-1,RD-2 | |
+| RD-3 | STEP 3 写入共用 | ✅ 完成 | 3a 8 处无状态写点改道进 funnel + 删 8 豁免标记(门禁 100% 无例外) + 收口身份一致 fail-loud 断言(getUser)；3b 新增 `CatalogStatementTransaction` 共持体(begin 从共享 metadata 铸事务+全局注册) + 执行器经它开事务 + 两趟 closeAll(先 finalize 事务再关 metadata) + 管理器 `isActive` 幂等兜底(绝不撤已提交)。闸门1(hive 起写自取表)天然满足、闸门2(身份)断言守、tx↔session 绑定/全局注册/提交时机全保留。103 单测绿(7 新)+ checkstyle 0 + 双门禁 exit 0。异构网关写/开事务上一步已免费覆盖，e2e 随后统一补 | RD-1,RD-2 | 3a `f208036f3c5` · 3b `a03b88b0d80` |
 | RD-4 | STEP 4 缓存隔离（安全 track） | ⏳ 待启动（**list≠load 已确认=真实越权**） | `getIdentityShardKey()` SPI → iceberg 三投影缓存 Key 分片 + fe-core 表结构缓存 bypass(先)/分片(后) + 防漂移门禁；随 STEP 2 属主键覆盖异构网关；越权 e2e | 威胁模型签字 + RD-2 | |
 
-> **纠缠点（RD-3b 时定）**：iceberg 起写复用表读 `IcebergStatementScope.sharedTable`，该 side-car 在 P2 计划要删 → 先接旧 vs 先做 iceberg 最小 P2 前置。
+> **纠缠点（RD-3b 已定=保持现状）**：grounding 核实 iceberg 表 side-car `IcebergStatementScope.sharedTable` 与本步**正交**——改道只动 fe-core `getMetadata`、事务上移只动 fe-core 事务生命周期，均不碰起写读表路径，起写照旧从 side-car 读表零改动。side-car 删除属更远期连接器内部重构(表→实例字段)，本步不做。
 
 ---
 
