@@ -507,6 +507,21 @@ public class HiveConnector implements Connector {
                                 "Cannot serve iceberg-on-HMS tables in catalog '" + context.getCatalogName()
                                         + "': the iceberg connector plugin is not available");
                     }
+                    // Fail-loud invariant guard for the cache-isolation security track: the hive gateway FRONT
+                    // DOOR never declares SUPPORTS_USER_SESSION, so fe-core keys its per-user schema/name cache
+                    // bypass off THIS (front-door) connector's capabilities and would NOT bypass for a delegated
+                    // sibling. The iceberg sibling is forced iceberg.catalog.type=hms (IcebergSiblingProperties
+                    // .synthesize) and can never be REST session=user, so this must hold today. If a future change
+                    // ever let the sibling be session=user, the front-door-only bypass would silently leak
+                    // cross-user metadata — fail here instead.
+                    if (sibling.getCapabilities().contains(ConnectorCapability.SUPPORTS_USER_SESSION)) {
+                        throw new DorisConnectorException(
+                                "iceberg-on-HMS sibling in catalog '" + context.getCatalogName()
+                                        + "' unexpectedly declares SUPPORTS_USER_SESSION: the hive gateway front "
+                                        + "door is not session=user, so fe-core's per-user schema/name cache bypass "
+                                        + "would not trigger and cross-user metadata would leak. The sibling must "
+                                        + "stay iceberg.catalog.type=hms (never REST session=user).");
+                    }
                     icebergSibling = sibling;
                 }
             }
