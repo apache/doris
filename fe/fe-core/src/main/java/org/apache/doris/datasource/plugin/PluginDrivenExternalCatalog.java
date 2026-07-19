@@ -1201,6 +1201,18 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         return supportsUserSession() && ctx != null && ctx.hasDelegatedCredential();
     }
 
+    /**
+     * Schema-level analog of {@link #shouldBypassTableNameCache}: under a session=user connector with a per-request
+     * credential the remote {@code loadTable} returns PER-USER schema (and authorizes per user), so the shared
+     * name-keyed schema cache is bypassed to avoid serving one user's schema to another who could list but not
+     * load the table (the "list != load" disclosure). Same capability + credential gate; a session with no
+     * credential keeps the shared cache and the fail-closed rejection happens connector-side.
+     */
+    @Override
+    protected boolean shouldBypassSchemaCache(SessionContext ctx) {
+        return supportsUserSession() && ctx != null && ctx.hasDelegatedCredential();
+    }
+
     @Override
     protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String remoteDbName, String localDbName,
             long dbId, InitCatalogLog.Type logType, boolean checkExists) {
