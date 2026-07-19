@@ -746,6 +746,37 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("jni", props.get("file_format_type"));
     }
 
+    @Test
+    public void planSystemTableScanProjectsRequestedColumnsExcludingReadableMetrics() {
+        // WHY (regression — External Regression build 1000131, test_iceberg_system_table_projection): a
+        // $data_files/$files sys scan MUST be projected to only the requested columns. Without the
+        // scan.select(...) projection in doPlanSystemTableScan the iceberg SDK materialises EVERY metadata
+        // column per row — including readable_metrics, whose bound conversion
+        // (MetricsUtil.readableMetricsStruct -> Conversions.fromByteBuffer) throws BufferUnderflowException on
+        // complex/boolean bound columns — even when the query selects only a scalar such as file_size_in_bytes.
+        // The projected schema travels INSIDE the serialized FileScanTask that BE's IcebergSysTableJniScanner
+        // deserializes and iterates (asDataTask().rows()). MUTATION: dropping scan.select(projectedColumns) in
+        // doPlanSystemTableScan -> readable_metrics stays in the task schema -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "data_files", -1L, null, -1L),
+                Collections.singletonList(new IcebergColumnHandle("file_size_in_bytes", 1)), Optional.empty());
+
+        Assertions.assertEquals(1, ranges.size(), "one data file -> one metadata split");
+        FileScanTask task = SerializationUtil.deserializeFromBase64(
+                ((IcebergScanRange) ranges.get(0)).getSerializedSplit());
+        Assertions.assertNotNull(task.schema().findField("file_size_in_bytes"),
+                "the requested column must survive in the projected task schema");
+        Assertions.assertNull(task.schema().findField("readable_metrics"),
+                "readable_metrics must NOT be in the projected task schema: its bound conversion "
+                        + "BufferUnderflows on complex/boolean bound columns when materialised unrequested");
+    }
+
     // ---------------------------------------------------------------------
     // $position_deletes (upstream #65135 port): the ONE sys table BE reads with a native reader
     // ---------------------------------------------------------------------

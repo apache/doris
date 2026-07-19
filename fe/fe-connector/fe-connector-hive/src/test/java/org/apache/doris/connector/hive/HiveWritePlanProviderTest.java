@@ -488,6 +488,27 @@ public class HiveWritePlanProviderTest {
                 planSink(client, ctx, handle()).getHadoopConfig().get("AWS_ACCESS_KEY"));
     }
 
+    @Test
+    public void planWriteHadoopConfigIncludesBackendStoragePropertiesForUntypedFsSchemes() {
+        // C1 regression (External Regression build 1000131, test_jfs_hms_catalog_read): the jfs/oss-hdfs
+        // fe-filesystem plugins have no typed bind(), so getStorageProperties() is EMPTY for a jfs catalog and
+        // fs.jfs.impl (+ juicefs.*) would be dropped from the BE writer hadoopConfig -> libhdfs fails
+        // "No FileSystem for scheme jfs" on INSERT. buildHadoopConfig must ALSO merge
+        // getBackendStorageProperties() — the SAME source the hive READ path (HiveScanPlanProvider) uses, which
+        // carries the fs./juicefs.* passthrough. MUTATION: dropping the getBackendStorageProperties() merge from
+        // buildHadoopConfig -> fs.jfs.impl absent -> red.
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().build();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        // Typed storageProperties intentionally EMPTY (models a jfs catalog whose plugin has no typed binding);
+        // the fs.<scheme>.impl passthrough is available only via the backend-storage source.
+        ctx.backendStorageProperties = Collections.singletonMap("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
+
+        Assertions.assertEquals("io.juicefs.JuiceFileSystem",
+                planSink(client, ctx, handle()).getHadoopConfig().get("fs.jfs.impl"),
+                "the backend-storage passthrough (fs.<scheme>.impl) must reach the BE writer hadoopConfig");
+    }
+
     // ───────────────────────────── no transaction ─────────────────────────────
 
     @Test

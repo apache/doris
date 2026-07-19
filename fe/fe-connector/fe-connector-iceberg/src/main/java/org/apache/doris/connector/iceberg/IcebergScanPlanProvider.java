@@ -747,6 +747,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return doPlanPositionDeletesSystemTableScan(handle, metadataTable, columns, filter, session);
         }
         TableScan scan = buildScan(metadataTable, handle, filter, session);
+        // Project the metadata-table scan to ONLY the requested columns (legacy IcebergScanNode parity: FE keeps
+        // the fields requested by BE in the projection). Without it the iceberg SDK materialises EVERY metadata
+        // column per row for the $files/$data_files family — including readable_metrics, whose bound conversion
+        // (MetricsUtil.readableMetricsStruct -> Conversions.fromByteBuffer) throws BufferUnderflowException on
+        // boolean/complex bound columns — even when the query selects only a scalar such as file_size_in_bytes.
+        // BE's IcebergSysTableJniScanner resolves required_fields by name against this projected task schema.
+        List<String> projectedColumns = requestedLowerNames(columns);
+        if (!projectedColumns.isEmpty()) {
+            scan = scan.select(projectedColumns);
+        }
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
             for (FileScanTask task : tasks) {
