@@ -1611,14 +1611,28 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         TableIdentifier id = TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName());
-        IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache.getOrLoad(id, () -> {
-            Table table = loadTable(session, iceHandle);
-            Snapshot current = table.currentSnapshot();
-            return new IcebergLatestSnapshotCache.CachedSnapshot(
-                    current == null ? -1L : current.snapshotId(), table.schema().schemaId());
-        });
+        // A null latestSnapshotCache (iceberg.rest.session=user, where a shared table-keyed hit would bypass the
+        // per-user loadTable authorization) reads live per-user every call, so authorization runs every time (no
+        // stale-authz window); mirrors resolveTableForRead's tableCache null-fallback. A disabled cache (ttl<=0)
+        // is a non-null cache that reads live internally.
+        IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache != null
+                ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
+                : loadLatestSnapshotPin(session, iceHandle);
         return Optional.of(
                 ConnectorMvccSnapshot.builder().snapshotId(pin.snapshotId).schemaId(pin.schemaId).build());
+    }
+
+    /**
+     * Loads the table live and pins its latest snapshot id (or {@code -1} for an empty table) plus its LATEST
+     * schema id — the {@link #beginQuerySnapshot} loader, extracted so the per-user (null-cache) path can reuse
+     * the exact same pin logic without a cache round-trip.
+     */
+    private IcebergLatestSnapshotCache.CachedSnapshot loadLatestSnapshotPin(
+            ConnectorSession session, IcebergTableHandle iceHandle) {
+        Table table = loadTable(session, iceHandle);
+        Snapshot current = table.currentSnapshot();
+        return new IcebergLatestSnapshotCache.CachedSnapshot(
+                current == null ? -1L : current.snapshotId(), table.schema().schemaId());
     }
 
     /**

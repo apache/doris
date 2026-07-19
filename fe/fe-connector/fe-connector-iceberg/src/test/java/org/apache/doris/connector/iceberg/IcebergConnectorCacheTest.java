@@ -129,6 +129,48 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
+    public void latestSnapshotCacheDisabledForSessionUser() {
+        // The latest-snapshot cache is an AUTHORIZATION-sensitive projection (snapshotId/schemaId) that
+        // beginQuerySnapshot reads WITHOUT a preceding per-user loadTable, so a shared hit would bypass the
+        // per-user authorization. It is disabled (null) under iceberg.rest.session=user (kept otherwise, incl.
+        // vended-credentials, since a snapshot id carries no token). MUTATION: dropping the session=user gate ->
+        // non-null for session -> red.
+        Assertions.assertNotNull(
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext())
+                        .latestSnapshotCacheForTest(),
+                "a plain catalog builds the latest-snapshot cache");
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        Assertions.assertNotNull(
+                new IcebergConnector(vended, new RecordingConnectorContext()).latestSnapshotCacheForTest(),
+                "a vended-credentials catalog still builds the latest-snapshot cache (an id carries no token)");
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        Assertions.assertNull(
+                new IcebergConnector(session, new RecordingConnectorContext()).latestSnapshotCacheForTest(),
+                "a session=user catalog must NOT build the latest-snapshot cache (per-user authz bypass)");
+    }
+
+    @Test
+    public void invalidateHooksAreNoThrowForSessionUserWithNulledCaches() {
+        // Under session=user the latest-snapshot / partition / format caches are all null. The REFRESH hooks must
+        // still be no-throw (the invalidate* methods null-guard each cache). MUTATION: an unguarded invalidate call
+        // on a nulled cache -> NPE -> red.
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        IcebergConnector connector = new IcebergConnector(session, new RecordingConnectorContext());
+        Assertions.assertNull(connector.latestSnapshotCacheForTest());
+        Assertions.assertNull(connector.partitionCacheForTest());
+        Assertions.assertNull(connector.formatCacheForTest());
+        Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db1", "t1"));
+        Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db1"));
+        Assertions.assertDoesNotThrow(connector::invalidateAll);
+    }
+
+    @Test
     public void refreshCatalogInvalidateAllDropsManifestCache() {
         // H-5: REFRESH CATALOG -> Connector.invalidateAll() must drop the connector's OWN manifest cache too
         // (legacy catalog-wide group.invalidateAll parity), not just the latest-snapshot cache. REFRESH TABLE
@@ -239,17 +281,21 @@ public class IcebergConnectorCacheTest {
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
     }
 
-    // ==================== PERF-02: partition-view cache (no gate) + invalidation ====================
+    // ============ PERF-02: partition-view cache (session=user gated) + invalidation ============
 
     private static IcebergPartitionCache.Key partKey(String db, String tbl, long snapshotId) {
         return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId);
     }
 
     @Test
-    public void partitionCacheBuiltForAllCatalogsIncludingCredentialGatedOnes() {
-        // The partition-view cache stores pure metadata (no FileIO/credential), so unlike the table cache it is
-        // built for EVERY catalog -- including per-user session and REST vended-credentials, which disable the
-        // table cache. MUTATION: gating the partition cache on the credential flags -> null here -> red.
+    public void partitionCacheBuiltUnlessSessionUser() {
+        // The partition-view cache stores pure metadata (no FileIO/credential), so unlike the table cache it stays
+        // built for a REST vended-credentials catalog (a partition list carries no token). But under
+        // iceberg.rest.session=user it is an AUTHORIZATION-sensitive projection -- a shared (no user dimension) hit
+        // would disclose one user's partitions to a "can-list-cannot-load" principal -- so it is disabled (null)
+        // there, holding the "session=user => no live cross-query metadata cache" invariant.
+        // MUTATION: dropping the session=user gate -> non-null for session -> red; gating on the vended flag ->
+        // null for vended -> red.
         Assertions.assertNotNull(
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).partitionCacheForTest(),
                 "a plain catalog builds the partition cache");
@@ -262,9 +308,9 @@ public class IcebergConnectorCacheTest {
         Map<String, String> session = new HashMap<>();
         session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
         session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
-        Assertions.assertNotNull(
+        Assertions.assertNull(
                 new IcebergConnector(session, new RecordingConnectorContext()).partitionCacheForTest(),
-                "a per-user session catalog still builds the partition cache");
+                "a session=user catalog must NOT build the partition cache (per-user authz must not be bypassed)");
     }
 
     @Test
@@ -298,10 +344,12 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
-    public void formatCacheBuiltForAllCatalogsIncludingCredentialGatedOnes() {
+    public void formatCacheBuiltUnlessSessionUser() {
         // The inferred-format cache stores a pure metadata format-name string (no FileIO/credential), so like the
-        // partition cache it is built for EVERY catalog -- including per-user session and REST vended-credentials,
-        // which disable the table cache. MUTATION: gating the format cache on the credential flags -> null -> red.
+        // partition cache it stays built for a REST vended-credentials catalog. But under iceberg.rest.session=user
+        // it is an AUTHORIZATION-sensitive projection, so it is disabled (null) there (same treatment as the
+        // partition cache). MUTATION: dropping the session=user gate -> non-null for session -> red; gating on the
+        // vended flag -> null for vended -> red.
         Assertions.assertNotNull(
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).formatCacheForTest(),
                 "a plain catalog builds the format cache");
@@ -314,9 +362,9 @@ public class IcebergConnectorCacheTest {
         Map<String, String> session = new HashMap<>();
         session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
         session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
-        Assertions.assertNotNull(
+        Assertions.assertNull(
                 new IcebergConnector(session, new RecordingConnectorContext()).formatCacheForTest(),
-                "a per-user session catalog still builds the format cache");
+                "a session=user catalog must NOT build the format cache (per-user authz must not be bypassed)");
     }
 
     @Test
