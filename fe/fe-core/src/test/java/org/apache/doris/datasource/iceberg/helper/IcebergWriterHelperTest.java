@@ -21,6 +21,7 @@ import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
@@ -30,15 +31,18 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -200,21 +204,23 @@ public class IcebergWriterHelperTest {
     }
 
     @Test
-    public void testConvertToWriterResultHandlesV3RowLineageMetrics() {
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.schema()).thenReturn(schema);
-        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
-        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
-        Mockito.when(table.properties()).thenReturn(Map.of(
+    public void testConvertToWriterResultHandlesV3TransactionTableLineageMetrics(@TempDir Path tempDir) {
+        HadoopTables tables = new HadoopTables(new Configuration());
+        Table baseTable = tables.create(schema, unpartitionedSpec, SortOrder.unsorted(), Map.of(
                 TableProperties.FORMAT_VERSION, "3",
                 TableProperties.DEFAULT_FILE_FORMAT, "parquet",
-                TableProperties.DEFAULT_WRITE_METRICS_MODE, "truncate(16)"));
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "truncate(16)"),
+                tempDir.resolve("table").toUri().toString());
+        Table transactionTable = baseTable.newTransaction().table();
 
         int rowId = MetadataColumns.ROW_ID.fieldId();
+        int sequenceNumberId = MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.fieldId();
         ByteBuffer rowIdBound = Conversions.toByteBuffer(MetadataColumns.ROW_ID.type(), 7L);
+        ByteBuffer sequenceNumberBound = Conversions.toByteBuffer(
+                MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.type(), 3L);
         TIcebergColumnStats columnStats = new TIcebergColumnStats();
-        columnStats.setLowerBounds(Map.of(rowId, rowIdBound));
-        columnStats.setUpperBounds(Map.of(rowId, rowIdBound));
+        columnStats.setLowerBounds(Map.of(rowId, rowIdBound, sequenceNumberId, sequenceNumberBound));
+        columnStats.setUpperBounds(Map.of(rowId, rowIdBound, sequenceNumberId, sequenceNumberBound));
 
         TIcebergCommitData commitData = new TIcebergCommitData();
         commitData.setFilePath("/path/to/v3-data.parquet");
@@ -223,9 +229,12 @@ public class IcebergWriterHelperTest {
         commitData.setColumnStats(columnStats);
 
         DataFile dataFile = Assertions.assertDoesNotThrow(
-                () -> IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0]);
+                () -> IcebergWriterHelper.convertToWriterResult(
+                        transactionTable, List.of(commitData)).dataFiles()[0]);
         Assertions.assertEquals(rowIdBound, dataFile.lowerBounds().get(rowId));
         Assertions.assertEquals(rowIdBound, dataFile.upperBounds().get(rowId));
+        Assertions.assertEquals(sequenceNumberBound, dataFile.lowerBounds().get(sequenceNumberId));
+        Assertions.assertEquals(sequenceNumberBound, dataFile.upperBounds().get(sequenceNumberId));
     }
 
     @Test

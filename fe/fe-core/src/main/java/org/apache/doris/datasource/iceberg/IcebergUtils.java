@@ -79,10 +79,10 @@ import com.google.common.collect.Sets;
 import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
@@ -1975,8 +1975,9 @@ public class IcebergUtils {
 
     public static int getFormatVersion(Table table) {
         int formatVersion = 2; // default format version : 2
-        if (table instanceof BaseTable) {
-            formatVersion = ((BaseTable) table).operations().current().formatVersion();
+        if (table instanceof HasTableOperations) {
+            // TransactionTable exposes the real format version through operations, not table properties.
+            formatVersion = ((HasTableOperations) table).operations().current().formatVersion();
         } else if (table != null && table.properties() != null) {
             String version = table.properties().get(TableProperties.FORMAT_VERSION);
             if (version != null) {
