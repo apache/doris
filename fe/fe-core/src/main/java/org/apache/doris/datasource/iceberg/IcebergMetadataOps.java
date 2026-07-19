@@ -1042,21 +1042,22 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
-        modifyTopLevelColumn(dorisTable, column, position, updateTime, true);
+        modifyTopLevelColumn(dorisTable, ColumnPath.of(column.getName()), column, position, updateTime, true);
     }
 
-    private void modifyTopLevelColumn(ExternalTable dorisTable, Column column, ColumnPosition position,
-            long updateTime, boolean legacyMode) throws UserException {
+    private void modifyTopLevelColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column,
+            ColumnPosition position, long updateTime, boolean legacyMode) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        validateRowLineageColumnMutation(icebergTable, column.getName(), "modify");
-        NestedField currentCol = icebergTable.schema().caseInsensitiveFindField(column.getName());
+        validateRowLineageColumnMutation(icebergTable, columnPath.getTopLevelName(), "modify");
+        NestedField currentCol = icebergTable.schema().asStruct()
+                .caseInsensitiveField(columnPath.getTopLevelName());
         if (currentCol == null) {
-            throw new UserException("Column " + column.getName() + " does not exist");
+            throw new UserException("Column " + columnPath.getTopLevelName() + " does not exist");
         }
-        ResolvedColumnPath columnPath = new ResolvedColumnPath(ColumnPath.of(currentCol.name()),
+        ResolvedColumnPath resolvedPath = new ResolvedColumnPath(ColumnPath.of(currentCol.name()),
                 currentCol.type(), currentCol);
 
-        validateModifyColumnMetadata(column, columnPath.getFullPath(), !legacyMode);
+        validateModifyColumnMetadata(column, resolvedPath.getFullPath(), !legacyMode);
         org.apache.iceberg.types.Type targetType;
         if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol);
@@ -1064,24 +1065,24 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } else {
             validateForModifyColumn(column, currentCol);
             targetType = resolvePrimitiveTypeForModify(
-                    currentCol.type(), column.getType(), columnPath.getFullPath());
+                    currentCol.type(), column.getType(), resolvedPath.getFullPath());
         }
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
         if (column.getType().isComplexType()) {
-            applyComplexTypeChange(updateSchema, columnPath.getFullPath(), currentCol.type(),
+            applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(),
                     column.getType(), legacyMode);
             if (!Objects.equals(currentCol.doc(), column.getComment())) {
-                updateSchema.updateColumnDoc(columnPath.getFullPath(), column.getComment());
+                updateSchema.updateColumnDoc(resolvedPath.getFullPath(), column.getComment());
             }
         } else {
-            applyPrimitiveColumnChange(updateSchema, columnPath.getFullPath(), currentCol,
+            applyPrimitiveColumnChange(updateSchema, resolvedPath.getFullPath(), currentCol,
                     targetType.asPrimitiveType(), column.getComment());
         }
-        applyExplicitNullableChange(updateSchema, columnPath.getFullPath(), column, legacyMode);
+        applyExplicitNullableChange(updateSchema, resolvedPath.getFullPath(), column, legacyMode);
 
         if (position != null) {
-            applyPosition(updateSchema, position, columnPath.getColumnPath(), icebergTable.schema(), "modify");
+            applyPosition(updateSchema, position, resolvedPath.getColumnPath(), icebergTable.schema(), "modify");
         }
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());
@@ -1096,7 +1097,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void modifyColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column, ColumnPosition position,
             long updateTime) throws UserException {
         if (!columnPath.isNested()) {
-            modifyTopLevelColumn(dorisTable, column, position, updateTime, false);
+            modifyTopLevelColumn(dorisTable, columnPath, column, position, updateTime, false);
             return;
         }
 

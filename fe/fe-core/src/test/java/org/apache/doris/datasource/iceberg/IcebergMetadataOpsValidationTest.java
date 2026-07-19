@@ -346,6 +346,50 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testTopLevelModifyDoesNotResolveQuotedComponentAsNestedPath() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "a", Types.StructType.of(
+                        Types.NestedField.optional(2, "b", Types.IntegerType.get()))),
+                Types.NestedField.optional(3, "b", Types.IntegerType.get()));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("a.b"),
+                            new Column("a.b", Type.BIGINT, true), null, 1L),
+                    "Column a.b does not exist");
+        }
+
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
+    }
+
+    @Test
+    public void testTopLevelModifyPreservesDottedTopLevelName() throws Throwable {
+        Schema schema = new Schema(Types.NestedField.optional(1, "a.b", Types.IntegerType.get()));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.of("a.b"),
+                    new Column("a.b", Type.BIGINT, true), null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumn("a.b", Types.LongType.get(), "");
+        Mockito.verify(updateSchema).commit();
+    }
+
+    @Test
     public void testPrimitiveModifyPreservesActualTypeWhenMappingDisabled() throws Throwable {
         Schema schema = mappedPrimitiveSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);

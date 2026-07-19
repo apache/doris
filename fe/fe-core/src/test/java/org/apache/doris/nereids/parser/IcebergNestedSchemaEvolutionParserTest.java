@@ -121,6 +121,11 @@ public class IcebergNestedSchemaEvolutionParserTest {
 
     @Test
     public void testQuotedNestedIdentifiersAreNormalized() {
+        ModifyColumnOp dottedTopLevel = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN `a.b` BIGINT",
+                ModifyColumnOp.class, "a.b");
+        Assertions.assertFalse(dottedTopLevel.getColumnPath().isNested());
+
         assertSingleClausePath("ALTER TABLE t MODIFY COLUMN info.`Metric` BIGINT",
                 ModifyColumnOp.class, "info.Metric");
         assertSingleClausePath("ALTER TABLE t MODIFY COLUMN m_scalar.`key` BIGINT",
@@ -143,6 +148,27 @@ public class IcebergNestedSchemaEvolutionParserTest {
         RenameColumnOp reparsedRename = assertSingleClausePath(
                 "ALTER TABLE t " + rename.toSql(), RenameColumnOp.class, "info.Metric`Name");
         Assertions.assertEquals("New`Metric", reparsedRename.getNewColName());
+    }
+
+    @Test
+    public void testStructMemberIdentifiersRoundTrip() {
+        AddColumnOp add = assertSingleClausePath(
+                "ALTER TABLE t ADD COLUMN info.payload "
+                        + "STRUCT<`key`:INT,`Metric``Name`:STRING> NULL",
+                AddColumnOp.class, "info.payload");
+        assertStructMemberNames((StructType) add.getColumnDef().getType());
+        AddColumnOp reparsedAdd = assertSingleClausePath(
+                "ALTER TABLE t " + add.toSql(), AddColumnOp.class, "info.payload");
+        assertStructMemberNames((StructType) reparsedAdd.getColumnDef().getType());
+
+        ModifyColumnOp modify = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN info.payload "
+                        + "STRUCT<`key`:INT,`Metric``Name`:STRING>",
+                ModifyColumnOp.class, "info.payload");
+        assertStructMemberNames((StructType) modify.getColumnDef().getType());
+        ModifyColumnOp reparsedModify = assertSingleClausePath(
+                "ALTER TABLE t " + modify.toSql(), ModifyColumnOp.class, "info.payload");
+        assertStructMemberNames((StructType) reparsedModify.getColumnDef().getType());
     }
 
     @Test
@@ -257,6 +283,11 @@ public class IcebergNestedSchemaEvolutionParserTest {
             StructType reparsedType = (StructType) reparsedModify.getColumnDef().getType();
             Assertions.assertEquals(expectedComment, reparsedType.getFields().get(0).getComment());
         }
+    }
+
+    private void assertStructMemberNames(StructType structType) {
+        Assertions.assertEquals("key", structType.getFields().get(0).getName());
+        Assertions.assertEquals("metric`name", structType.getFields().get(1).getName());
     }
 
     private void assertRegularColumnDefinitionCommentRoundTrip(boolean noBackslashEscapes) {

@@ -126,7 +126,7 @@ suite("test_array_function_doc", "p0") {
 
     test {
         sql """ SELECT ARRAYS_OVERLAP(array_struct, array_struct) from ${tableName}; """
-        exception "arrays_overlap does not support types: ARRAY<STRUCT<id:INT,name:TEXT>>"
+        exception "arrays_overlap does not support types: ARRAY<STRUCT<`id`:INT,`name`:TEXT>>"
     }
 
     test {
@@ -400,7 +400,7 @@ suite("test_array_function_doc", "p0") {
     
     test {
         sql """ SELECT ARRAY_UNION(array_struct, array_struct) from ${tableName}; """
-        exception "array_union does not support types: ARRAY<STRUCT<id:INT,name:TEXT>>"
+        exception "array_union does not support types: ARRAY<STRUCT<`id`:INT,`name`:TEXT>>"
     }
 
     test {
