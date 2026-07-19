@@ -152,11 +152,19 @@ public class IcebergNestedSchemaEvolutionParserTest {
                 "ALTER TABLE t MODIFY COLUMN info.`` BIGINT",
                 "ALTER TABLE t MODIFY COLUMN info.`` COMMENT 'comment'",
                 "ALTER TABLE t DROP COLUMN info.``",
-                "ALTER TABLE t RENAME COLUMN info.`` TO renamed")) {
+                "ALTER TABLE t RENAME COLUMN info.`` TO renamed",
+                "ALTER TABLE t ORDER BY (id, ``)")) {
             ParseException exception = Assertions.assertThrows(ParseException.class,
                     () -> parser.parseSingle(sql), sql);
             Assertions.assertTrue(exception.getMessage().contains("Quoted identifier cannot be empty"), sql);
         }
+    }
+
+    @Test
+    public void testEmptyQuotedIdentifiersOutsideColumnPathsKeepExistingParserSemantics() {
+        Assertions.assertDoesNotThrow(() -> parser.parseSingle("ALTER TABLE t CREATE BRANCH ``"));
+        Assertions.assertDoesNotThrow(
+                () -> parser.parseSingle("GRANT SELECT_PRIV ON `internal`.``.`` TO 'user1'"));
     }
 
     @Test

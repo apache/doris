@@ -243,6 +243,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         }
         if (alterTableOp instanceof ModifyColumnOp
                 && (columnDefinition.hasDefaultValue() || columnDefinition.hasOnUpdateDefaultValue())) {
+            columnDefinition.validateComplexTypeDefaultValue();
             throw new AnalysisException("Modifying default values is not supported for Iceberg columns: "
                     + ((ModifyColumnOp) alterTableOp).getColumnPath().getFullPath());
         }

@@ -626,10 +626,10 @@ public class IcebergMetadataOpsValidationTest {
                     "Modify column type from complex to primitive is not supported: info.child");
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("top_long"),
                             new Column("top_long", Type.INT, true), null, 1L),
-                    "Cannot change Iceberg column top_long type from long to int");
+                    "Cannot change column type: top_long: long -> int");
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
                             new Column("metric", Type.INT, true), null, 1L),
-                    "Cannot change Iceberg column info.metric type from long to int");
+                    "Cannot change column type: info.metric: long -> int");
         }
 
         Mockito.verify(icebergTable, Mockito.never()).updateSchema();

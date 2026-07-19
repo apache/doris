@@ -289,6 +289,13 @@ public class AlterTableCommandTest {
                     .contains("Modifying default values is not supported for Iceberg columns"));
         }
 
+        org.apache.doris.nereids.exceptions.AnalysisException complexDefaultException = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(
+                        "ALTER TABLE t MODIFY COLUMN st STRUCT<v: INT> DEFAULT 'x'").getOps()));
+        Assertions.assertTrue(complexDefaultException.getMessage()
+                .contains("Struct type column default value just support null"));
+
         AnalysisException onUpdateException = Assertions.assertThrows(AnalysisException.class,
                 () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(
                         "ALTER TABLE t ADD COLUMN ts DATETIME NULL DEFAULT CURRENT_TIMESTAMP "

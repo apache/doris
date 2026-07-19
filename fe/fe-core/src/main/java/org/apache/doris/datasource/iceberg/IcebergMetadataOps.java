@@ -1182,8 +1182,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         org.apache.iceberg.types.Type.PrimitiveType targetType =
                 toIcebergTypeForSchemaChange(requestedDorisType, columnPath).asPrimitiveType();
         if (!currentType.equals(targetType) && !TypeUtil.isPromotionAllowed(currentType, targetType)) {
-            throw new UserException("Cannot change Iceberg column " + columnPath + " type from "
-                    + currentType + " to " + targetType);
+            throw new UserException("Cannot change column type: " + columnPath + ": "
+                    + currentType + " -> " + targetType);
         }
         return targetType;
     }

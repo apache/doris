@@ -1166,6 +1166,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
+    private static String requireNonEmptyColumnIdentifier(ParserRuleContext ctx, String identifier) {
+        if (identifier.isEmpty()) {
+            throw new ParseException("Quoted identifier cannot be empty", ctx);
+        }
+        return identifier;
+    }
+
+    private static ColumnPath parseColumnPath(ParserRuleContext ctx, List<String> parts) {
+        parts.forEach(part -> requireNonEmptyColumnIdentifier(ctx, part));
+        return ColumnPath.of(parts);
+    }
+
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
     private final Map<Token, Placeholder> tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
@@ -4245,10 +4257,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public ColumnDefinitionWithPath visitColumnDefWithPath(ColumnDefWithPathContext ctx) {
         if (ctx.columnDef() != null) {
             ColumnDefinition columnDefinition = visitColumnDef(ctx.columnDef());
-            return new ColumnDefinitionWithPath(columnDefinition, ColumnPath.of(columnDefinition.getName()));
+            ColumnPath columnPath = parseColumnPath(ctx, Collections.singletonList(columnDefinition.getName()));
+            return new ColumnDefinitionWithPath(columnDefinition, columnPath);
         }
 
-        ColumnPath columnPath = ColumnPath.of(ctx.colNames.stream()
+        ColumnPath columnPath = parseColumnPath(ctx, ctx.colNames.stream()
                 .map(RuleContext::getText)
                 .collect(Collectors.toList()));
         String colName = columnPath.getLeafName();
@@ -6198,7 +6211,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public AlterTableOp visitDropColumnClause(DropColumnClauseContext ctx) {
-        ColumnPath columnPath = ColumnPath.of(visitQualifiedName(ctx.name));
+        ColumnPath columnPath = parseColumnPath(ctx.name, visitQualifiedName(ctx.name));
         String rollupName = ctx.fromRollup() != null ? ctx.fromRollup().rollup.getText() : null;
         Map<String, String> properties = ctx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.properties))
@@ -6228,6 +6241,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public AlterTableOp visitReorderColumnsClause(ReorderColumnsClauseContext ctx) {
         List<String> columnsByPos = visitIdentifierList(ctx.identifierList());
+        columnsByPos.forEach(column -> requireNonEmptyColumnIdentifier(ctx.identifierList(), column));
         String rollupName = ctx.fromRollup() != null ? ctx.fromRollup().rollup.getText() : null;
         Map<String, String> properties = ctx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.properties))
@@ -6425,7 +6439,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public AlterTableOp visitRenameColumnClause(RenameColumnClauseContext ctx) {
-        return new RenameColumnOp(ColumnPath.of(visitQualifiedName(ctx.name)), ctx.newName.getText());
+        return new RenameColumnOp(parseColumnPath(ctx.name, visitQualifiedName(ctx.name)), ctx.newName.getText());
     }
 
     @Override
@@ -6533,7 +6547,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public AlterTableOp visitModifyColumnCommentClause(ModifyColumnCommentClauseContext ctx) {
-        ColumnPath columnPath = ColumnPath.of(visitQualifiedName(ctx.name));
+        ColumnPath columnPath = parseColumnPath(ctx.name, visitQualifiedName(ctx.name));
         String comment = LogicalPlanBuilderAssistant.parseStringLiteral(ctx.STRING_LITERAL().getText());
         return new ModifyColumnCommentOp(columnPath, comment);
     }
