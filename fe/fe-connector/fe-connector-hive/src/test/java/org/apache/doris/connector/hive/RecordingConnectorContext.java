@@ -48,6 +48,11 @@ final class RecordingConnectorContext implements ConnectorContext {
      * {@code sp.toBackendProperties().toMap()}); default none. */
     List<StorageProperties> storageProperties = Collections.emptyList();
 
+    /** BE-canonical backend props the fake returns from {@link #getBackendStorageProperties()} — the read-path
+     * source that carries the {@code fs./juicefs.*} passthrough for untyped fe-filesystem schemes (jfs, oss-hdfs)
+     * whose typed {@link #getStorageProperties()} binding is empty; default none. */
+    Map<String, String> backendStorageProperties = Collections.emptyMap();
+
     /** Broker addresses the fake returns from {@link #getBrokerAddresses()}; default none, so a FILE_BROKER
      * write fails loud ("No alive broker.") unless a test populates it. */
     List<ConnectorBrokerAddress> brokerAddresses = Collections.emptyList();
@@ -83,6 +88,11 @@ final class RecordingConnectorContext implements ConnectorContext {
     @Override
     public List<StorageProperties> getStorageProperties() {
         return storageProperties;
+    }
+
+    @Override
+    public Map<String, String> getBackendStorageProperties() {
+        return backendStorageProperties;
     }
 
     @Override
