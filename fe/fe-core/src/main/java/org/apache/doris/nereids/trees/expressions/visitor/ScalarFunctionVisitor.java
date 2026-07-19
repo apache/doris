@@ -521,6 +521,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtex
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StWithin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
@@ -2401,6 +2402,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStTouches(StTouches stTouches, C context) {
         return visitScalarFunction(stTouches, context);
+    }
+
+    default R visitStWithin(StWithin stWithin, C context) {
+        return visitScalarFunction(stWithin, context);
     }
 
     default R visitStLength(StLength stLength, C context) {
