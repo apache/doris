@@ -30,6 +30,7 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -98,6 +99,77 @@ public class IcebergWriterHelperTest {
         Assertions.assertTrue(dataFile.nullValueCounts() == null || dataFile.nullValueCounts().isEmpty());
         Assertions.assertTrue(dataFile.lowerBounds() == null || dataFile.lowerBounds().isEmpty());
         Assertions.assertTrue(dataFile.upperBounds() == null || dataFile.upperBounds().isEmpty());
+    }
+
+    @Test
+    public void testConvertToWriterResultCountsModeOmitsBounds() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(Map.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "counts"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setColumnSizes(Map.of(2, 128L));
+        columnStats.setValueCounts(Map.of(2, 10L));
+        columnStats.setNullValueCounts(Map.of(2, 0L));
+        columnStats.setLowerBounds(Map.of(
+                2, Conversions.toByteBuffer(Types.StringType.get(), "abcdefgh")));
+        columnStats.setUpperBounds(Map.of(
+                2, Conversions.toByteBuffer(Types.StringType.get(), "ijklmnop")));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.parquet");
+        commitData.setRowCount(10);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0];
+
+        Assertions.assertEquals(Map.of(2, 128L), dataFile.columnSizes());
+        Assertions.assertEquals(Map.of(2, 10L), dataFile.valueCounts());
+        Assertions.assertEquals(Map.of(2, 0L), dataFile.nullValueCounts());
+        Assertions.assertTrue(dataFile.lowerBounds() == null || dataFile.lowerBounds().isEmpty());
+        Assertions.assertTrue(dataFile.upperBounds() == null || dataFile.upperBounds().isEmpty());
+    }
+
+    @Test
+    public void testConvertToWriterResultTruncatesStringAndBinaryBounds() {
+        Schema boundsSchema = new Schema(
+                Types.NestedField.optional(1, "text", Types.StringType.get()),
+                Types.NestedField.optional(2, "payload", Types.BinaryType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(boundsSchema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(Map.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "truncate(3)"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setLowerBounds(Map.of(
+                1, Conversions.toByteBuffer(Types.StringType.get(), "abcdef"),
+                2, ByteBuffer.wrap(new byte[] {1, 2, 3, 4})));
+        columnStats.setUpperBounds(Map.of(
+                1, Conversions.toByteBuffer(Types.StringType.get(), "uvwxyz"),
+                2, ByteBuffer.wrap(new byte[] {1, 2, 3, 4})));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.parquet");
+        commitData.setRowCount(10);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0];
+
+        Assertions.assertEquals("abc", Conversions.fromByteBuffer(
+                Types.StringType.get(), dataFile.lowerBounds().get(1)).toString());
+        Assertions.assertEquals("uvx", Conversions.fromByteBuffer(
+                Types.StringType.get(), dataFile.upperBounds().get(1)).toString());
+        Assertions.assertEquals(ByteBuffer.wrap(new byte[] {1, 2, 3}), dataFile.lowerBounds().get(2));
+        Assertions.assertEquals(ByteBuffer.wrap(new byte[] {1, 2, 4}), dataFile.upperBounds().get(2));
     }
 
     @Test

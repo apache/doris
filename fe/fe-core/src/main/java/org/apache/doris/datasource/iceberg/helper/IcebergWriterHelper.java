@@ -39,7 +39,11 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.BinaryUtil;
+import org.apache.iceberg.util.UnicodeUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -191,8 +195,8 @@ public class IcebergWriterHelper {
                 filterDisabledMetrics(valueCounts, schema, metricsConfig),
                 filterDisabledMetrics(nullValueCounts, schema, metricsConfig),
                 null,
-                filterDisabledMetrics(lowerBounds, schema, metricsConfig),
-                filterDisabledMetrics(upperBounds, schema, metricsConfig));
+                filterBounds(lowerBounds, schema, metricsConfig, true),
+                filterBounds(upperBounds, schema, metricsConfig, false));
     }
 
     private static <T> Map<Integer, T> filterDisabledMetrics(
@@ -204,6 +208,46 @@ public class IcebergWriterHelper {
             }
         });
         return filteredMetrics;
+    }
+
+    private static Map<Integer, ByteBuffer> filterBounds(
+            Map<Integer, ByteBuffer> bounds, Schema schema, MetricsConfig metricsConfig, boolean lowerBound) {
+        Map<Integer, ByteBuffer> filteredBounds = new HashMap<>();
+        bounds.forEach((fieldId, value) -> {
+            MetricsModes.MetricsMode mode = MetricsUtil.metricsMode(schema, metricsConfig, fieldId);
+            if (mode == MetricsModes.None.get() || mode == MetricsModes.Counts.get()) {
+                return;
+            }
+
+            ByteBuffer filteredValue = value;
+            if (mode instanceof MetricsModes.Truncate) {
+                Type type = schema.findType(fieldId);
+                int length = ((MetricsModes.Truncate) mode).length();
+                // Truncated upper bounds must round up so file pruning cannot exclude matching values.
+                filteredValue = truncateBound(type, value, length, lowerBound);
+            }
+            if (filteredValue != null) {
+                filteredBounds.put(fieldId, filteredValue);
+            }
+        });
+        return filteredBounds;
+    }
+
+    private static ByteBuffer truncateBound(Type type, ByteBuffer value, int length, boolean lowerBound) {
+        switch (type.typeId()) {
+            case STRING:
+                String stringValue = Conversions.fromByteBuffer(type, value).toString();
+                String truncatedString = lowerBound
+                        ? UnicodeUtil.truncateStringMin(stringValue, length)
+                        : UnicodeUtil.truncateStringMax(stringValue, length);
+                return truncatedString == null ? null : Conversions.toByteBuffer(type, truncatedString);
+            case BINARY:
+                return lowerBound
+                        ? BinaryUtil.truncateBinaryMin(value, length)
+                        : BinaryUtil.truncateBinaryMax(value, length);
+            default:
+                return value;
+        }
     }
 
     /**
