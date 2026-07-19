@@ -133,10 +133,10 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
         exception "Cannot reduce struct fields"
     }
 
-    // Iceberg does not support SMALLINT, including nested types
+    // Nested type downgrade is not allowed
     test {
         sql """ALTER TABLE ${table_name} MODIFY COLUMN arr_i ARRAY<SMALLINT>"""
-        exception "Type array<smallint> is not supported for Iceberg column arr_i"
+        exception "Cannot change int to smallint in nested types"
     }
 
     // Array element type promotions
