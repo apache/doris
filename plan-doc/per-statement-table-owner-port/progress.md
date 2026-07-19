@@ -85,3 +85,12 @@
 - **读取键石（RD-1 / STEP 1）至此完全收官**：C1 地基 + C2 关闭 + C3 改道 + 扫描存字段 + 后台读穿 + 防漂移门禁全落地。
 - **未提交的第三方无关文件不动**（stray untracked `fe/.mvn/maven.config` 等非本轮产物，只 stage 本轮 9 文件）。
 - **下一步**：见 HANDOFF —— 下一大步 = HMS 异构网关兄弟扇出（RD-2 / STEP 2），动码前先按分期定稿 §1/§2 + P1-design §5 对当前代码做 grounding recon 并把方案用中文详述待用户确认。
+
+## 2026-07-19 — session 6：HMS 异构网关兄弟元数据每语句去重落地（RD-2 主体）
+
+- **动码前设计先行 + grounding**（workflow `wf_62fa5a7f-07a`，5 读者 + 1 对抗完整性核验，并自行 clean-room 读码交叉核对）。核实结论比文档预想**小很多、也更集中**：整个 fe-connector-hive 模块"取兄弟元数据"仅 **4 处**（3 个 helper `icebergSiblingMetadata`/`hudiSiblingMetadata` by-TYPE + `siblingMetadata` by-HANDLE，加 `getTableSchema` 旁路）；文档"~43 处 per-handle 改道"实为误导——那 40+ 处 per-handle 转发 + `beginTransaction(session,handle)` 全穿第三个 helper，**改动零行**。catalogId 经 `session.getCatalogId()` 可达（无需新布线）；连接器侧直用 `session.getStatementScope().getOrCreateMetadata`（不 import fe-core，且该 key 形态早在 SPI 注释预声明）。
+- **中文方案交用户确认**（不引任务代号）：4 处收口 + 属主标签从解析器**命中臂**取（拒绝会 force-build 的 supplier 身份比对——否则 hudi-only 目录会平白建 iceberg 兄弟）+ 旁路收回 + beginTransaction 免费覆盖 + closeAll 免额外接线。用户确认整体方案；**e2e 时机拍板 = 随后续统一补**（本步只做连接器单测锁死机制，异构网关 e2e 留切换阶段统一补，对齐 `hms-iceberg-delegation-needs-e2e`）。
+- **落地（commit `5fd55d0a32a`）**：新增 `SiblingOwner{connector,label}`（`ICEBERG_LABEL`/`HUDI_LABEL` 常量作单一真源）；`HiveConnector.resolveSiblingOwnerLabeled` 命中臂带标签、`resolveSiblingOwner` 委派它（3 个 provider seam 字节不变）；`HiveConnectorMetadata.memoizedSiblingMetadata` key=`metadata:<catalogId>:<label>`，3 helper + 旁路收口，beginTransaction 免费覆盖。NONE 下工厂每调 = 字节等价；仅用 fe-connector-api 类型；兄弟只作 `Connector`/`ConnectorMetadata` 持有、绝不 cast。
+- **测试**：5 个新去重断言（多转发+写事务共 1 建 / NONE 每调重建 / by-TYPE==by-HANDLE 同 key / 跨 catalogId 隔离 / iceberg-hudi 按标签隔离）；既有兄弟套件改传 NONE 作用域会话（转发路径现解引用作用域），无断言弱化；复制 `TestStatementScope` + 新增 `ScopeSession` 到 hive 测试树（连接器测试不能 import fe-core/iceberg）。
+- **验证**：全模块 **348 单测全过**；checkstyle **0 违规**；fe-core 漏斗门禁 + 连接器 import 门禁均 **exit 0**；改动后整个 hive 模块只剩 **1 处** `owner.getMetadata(session)`（就在漏斗工厂内）。**对抗复审（workflow `wf_e55f3a51-561`，correctness + tests 两视角 + 逐条对抗核验）零 finding**；唯一非阻塞观察 = `listFileSizes` 未列入 `EXPECTED_METHODS` 转发面锁（**既有、非本轮引入**，留作后续测试硬化的 carry-forward）。
+- **下一步**：见 HANDOFF —— 下一大步 = 写入共用（RD-3：无状态写点改道进入口 + `ConnectorTransaction` 归属上移）。

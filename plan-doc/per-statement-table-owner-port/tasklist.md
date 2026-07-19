@@ -11,7 +11,7 @@
 | ID | 步 | 状态 | 内容 | 依赖 | commit |
 |---|---|---|---|---|---|
 | RD-1 | STEP 1 读取键石 | ✅ 完成 | C1 地基 ✅ + C2 关闭接线 ✅ + C3 读/扫描/DDL/MVCC 改道（49 处）✅ + 扫描节点存字段 ✅ + 后台 loader 显式 NONE 读穿（9 处，含名字映射两缝）✅ + 修 fetchRowCount ANALYZE 隐患 ✅ + `buildCrossStatementSession` 助手 ✅ + 守门测试 ✅（247+18 绿、checkstyle 0）+ **防漂移门禁**（bash grep，读取侧零例外、写入 8 处 `getMetadata-funnel-exempt` 标记豁免；自测+validate exec）✅ | — | C1 `5b7312f9d1f` · C2 `12f3e95239b` · C3 `eecb390c4ac` · 门禁 `b2d147998d1` |
-| RD-2 | STEP 2 HMS 兄弟扇出 | ⏳ 待启动 | 键=(catalogId, ownerLabel)；兄弟 getMetadata **及 beginTransaction** 进同一 funnel；异构网关 e2e | RD-1 | |
+| RD-2 | STEP 2 HMS 兄弟扇出 | ✅ 完成（e2e 随后统一补） | 4 处取元数据点(3 helper by-TYPE/by-HANDLE + `getTableSchema` 旁路)收口 `memoizedSiblingMetadata`，key=(catalogId, ownerLabel)；兄弟 getMetadata **及 `beginTransaction(session,handle)`** 同入口(后者免费覆盖)；`SiblingOwner` 命中臂带标签(拒 force-build supplier 比对)；5 新去重单测(1建/NONE每调/by-TYPE==by-HANDLE/跨catalog/iceberg-hudi标签隔离)；348 全绿+门禁 exit0+对抗复审零 finding。异构网关 e2e 择机统一补 | RD-1 | `5fd55d0a32a` |
 | RD-3 | STEP 3 写入共用 | ⏳ 待启动 | 3a 无状态写点改道进 funnel；3b `ConnectorTransaction` 归属上移 `CatalogStatementTransaction` + commit/rollback vs closeAll 顺序。闸门=读写身份等价 + 保留 hive 起写刷新 + 保留 tx↔session 绑定 | RD-1,RD-2 | |
 | RD-4 | STEP 4 缓存隔离（安全 track） | ⏳ 待启动（**list≠load 已确认=真实越权**） | `getIdentityShardKey()` SPI → iceberg 三投影缓存 Key 分片 + fe-core 表结构缓存 bypass(先)/分片(后) + 防漂移门禁；随 STEP 2 属主键覆盖异构网关；越权 e2e | 威胁模型签字 + RD-2 | |
 
