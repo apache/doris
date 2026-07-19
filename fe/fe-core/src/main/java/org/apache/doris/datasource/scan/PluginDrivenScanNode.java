@@ -33,6 +33,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
@@ -1206,6 +1207,18 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         String readTxnQueryId = connectorSession.getQueryId();
         QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId,
                 buildReadTransactionReleaseCallback(scanProvider, readTxnQueryId));
+
+        // Deterministic close of the per-statement metadata scope, on the SAME query-finish hook and the SAME
+        // query-id key as the read-transaction release above. This is the PRIMARY close: getSplits runs only for
+        // coordinated scans, all of which reach unregisterQuery, so it fires after off-thread pump quiescence and
+        // leaves no dangling registry entry. Object-capture (scope::closeAll binds THIS scope instance) so a retry
+        // / prepared-EXECUTE that swaps the StatementContext field can never let this callback touch a successor
+        // scope. Skip NONE (off-thread / no-ConnectContext builds carry NONE and hold nothing to close). Non-scan
+        // statements (DDL / SHOW / EXPLAIN via Command.run) never reach here and are closed by StatementContext.
+        ConnectorStatementScope statementScope = connectorSession.getStatementScope();
+        if (statementScope != ConnectorStatementScope.NONE) {
+            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId, statementScope::closeAll);
+        }
 
         // Push the Nereids partition-pruning result down to the connector so the read session
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,

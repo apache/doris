@@ -19,9 +19,11 @@ package org.apache.doris.connector;
 
 import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -111,5 +113,61 @@ public class ConnectorStatementScopeTest {
 
         Assertions.assertEquals(1, closes.get(),
                 "each closeable value is closed exactly once across repeated closeAll (idempotent)");
+    }
+
+    @Test
+    public void resetClosesTheDroppedScopeBeforeStartingFresh() {
+        // A prepared EXECUTE / retry reuses one StatementContext and calls resetConnectorStatementScope() at the
+        // start of each execution/attempt. Reset must CLOSE the outgoing scope's closeable values (else the prior
+        // execution's tables/FileIO leak once close() does real work) and then drop it so the next starts fresh.
+        // MUTATION: reset only nulling (not closing) -> closes==0 -> red.
+        StatementContext ctx = new StatementContext();
+        ConnectorStatementScope s1 = ctx.getOrCreateConnectorStatementScope();
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable closeable = () -> closes.incrementAndGet();
+        s1.computeIfAbsent("k", () -> closeable);
+
+        ctx.resetConnectorStatementScope();
+
+        Assertions.assertEquals(1, closes.get(), "reset closes the dropped scope's closeable values before dropping it");
+        Assertions.assertNotSame(s1, ctx.getOrCreateConnectorStatementScope(),
+                "reset drops the scope so the next execution/attempt starts fresh");
+    }
+
+    @Test
+    public void closeClosesScopeWhenReturningResultLocally() {
+        // A statement that never reaches the query-finish callback (external DDL / SHOW via Command.run) is
+        // closed by StatementContext.close(), the fallback ConnectProcessor runs in its per-statement finally.
+        // It fires only when the result is produced locally. MUTATION: close() not closing the scope -> red.
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.isReturnResultFromLocal()).thenReturn(true);
+        StatementContext ctx = new StatementContext(connectContext, null);
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable closeable = () -> closes.incrementAndGet();
+        scope.computeIfAbsent("k", () -> closeable);
+
+        ctx.close();
+
+        Assertions.assertEquals(1, closes.get(), "close() closes the scope for a locally-returned statement");
+    }
+
+    @Test
+    public void closeDefersScopeCloseForAsyncResult() {
+        // An arrow-flight statement returns results asynchronously (isReturnResultFromLocal == false) and defers
+        // scope cleanup to its own query-finish close; StatementContext.close() must NOT close it early here, or an
+        // in-flight fetch would touch a closed scope. MUTATION: dropping the guard -> closes==1 -> red.
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.isReturnResultFromLocal()).thenReturn(false);
+        StatementContext ctx = new StatementContext(connectContext, null);
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable closeable = () -> closes.incrementAndGet();
+        scope.computeIfAbsent("k", () -> closeable);
+
+        ctx.close();
+
+        Assertions.assertEquals(0, closes.get(),
+                "close() defers to the query-finish callback for async (arrow-flight) results");
     }
 }
