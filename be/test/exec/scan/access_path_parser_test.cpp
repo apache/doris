@@ -397,4 +397,21 @@ TEST(AccessPathParserTest, MapAccessPathMatrix) {
     }
 }
 
+TEST(AccessPathParserTest, PreservesNestedInitialDefaultMetadata) {
+    auto binary_type = std::make_shared<DataTypeString>();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {binary_type}, Strings {"data"});
+    auto defaulted_child = field(101, "data", binary_type);
+    defaulted_child.initial_default_value = "AAEC/w==";
+    defaulted_child.initial_default_value_is_base64 = true;
+    auto schema = field(100, "s", struct_type, {defaulted_child});
+
+    auto column = root_column(100, "s", struct_type);
+    auto status = AccessPathParser::build_nested_children(
+            &column, std::vector<TColumnAccessPath> {data_access_path({"s", "data"})}, &schema);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(column.children.size(), 1);
+    EXPECT_EQ(column.children[0].initial_default_value, std::optional<std::string>("AAEC/w=="));
+    EXPECT_TRUE(column.children[0].initial_default_value_is_base64);
+}
+
 } // namespace doris

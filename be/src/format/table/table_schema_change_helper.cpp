@@ -55,6 +55,30 @@ std::map<std::string, size_t> build_lowercase_orc_field_name_idx_map(const orc::
     return file_column_name_idx_map;
 }
 
+bool orc_subtree_has_field_id(const orc::Type* type, const std::string& attribute) {
+    if (type->hasAttributeKey(attribute)) {
+        return true;
+    }
+    for (uint64_t idx = 0; idx < type->getSubtypeCount(); ++idx) {
+        if (orc_subtree_has_field_id(type->getSubtype(idx), attribute)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::optional<TableSchemaChangeHelper::InitialDefaultValue> initial_default_value(
+        const schema::external::TField& field) {
+    if (!field.__isset.initial_default_value) {
+        return std::nullopt;
+    }
+    return TableSchemaChangeHelper::InitialDefaultValue {
+            .value = field.initial_default_value,
+            .is_base64 = field.__isset.initial_default_value_is_base64 &&
+                         field.initial_default_value_is_base64,
+    };
+}
+
 bool find_file_field_idx_by_name_mapping(
         const schema::external::TField& table_field,
         const std::map<std::string, size_t>& file_column_name_idx_map, size_t* file_column_idx) {
@@ -540,7 +564,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
                                                     exist_field_id));
                 struct_node->add_children(table_column_name, file_field.name, field_node);
             } else {
-                struct_node->add_not_exist_children(table_column_name);
+                struct_node->add_not_exist_children(table_column_name,
+                                                    initial_default_value(*table_field.field_ptr));
             }
         }
         node = struct_node;
@@ -593,7 +618,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         }
 
         if (!matched) {
-            struct_node->add_not_exist_children(table_column_name);
+            struct_node->add_not_exist_children(table_column_name,
+                                                initial_default_value(*table_field.field_ptr));
             continue;
         }
 
@@ -697,7 +723,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
             }
 
             if (!matched) {
-                struct_node->add_not_exist_children(table_column_name);
+                struct_node->add_not_exist_children(table_column_name,
+                                                    initial_default_value(*table_field.field_ptr));
                 continue;
             }
 
@@ -832,11 +859,11 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
     auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
     std::map<int32_t, size_t> file_column_id_idx_map;
-    // ORC follows Iceberg's any-ID projection rule just like Parquet.
-    bool has_field_id = false;
+    // Iceberg ORC builds projection by ID for the entire subtree. An ID-less wrapper containing
+    // an ID-bearing child is therefore absent rather than rebound by its physical name.
+    bool has_field_id = orc_subtree_has_field_id(orc_root, field_id_attribute_key);
     for (size_t idx = 0; idx < orc_root->getSubtypeCount(); idx++) {
         if (orc_root->getSubtype(idx)->hasAttributeKey(field_id_attribute_key)) {
-            has_field_id = true;
             auto field_id =
                     std::stoi(orc_root->getSubtype(idx)->getAttributeValue(field_id_attribute_key));
             file_column_id_idx_map.emplace(field_id, idx);
@@ -864,7 +891,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         }
 
         if (!matched) {
-            struct_node->add_not_exist_children(table_column_name);
+            struct_node->add_not_exist_children(table_column_name,
+                                                initial_default_value(*table_field.field_ptr));
             continue;
         }
 

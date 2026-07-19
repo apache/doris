@@ -90,6 +90,10 @@ void inherit_schema_metadata(format::ColumnDefinition* column,
     // The presence bit is part of the mapping contract: an explicit empty mapping must remain
     // authoritative after access-path pruning instead of enabling current-name fallback.
     column->has_name_mapping = schema_column->has_name_mapping;
+    // Initial defaults describe the logical value of fields absent from older files. Nested
+    // access-path pruning must retain them just like it retains rename metadata.
+    column->initial_default_value = schema_column->initial_default_value;
+    column->initial_default_value_is_base64 = schema_column->initial_default_value_is_base64;
 }
 
 const format::ColumnDefinition* find_schema_child_by_path(

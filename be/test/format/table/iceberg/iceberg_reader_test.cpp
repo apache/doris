@@ -1299,17 +1299,16 @@ TEST_F(IcebergReaderTest, v1_orc_equality_delete_matches_missing_initial_default
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_parquet_partial_id_equality_delete_ignores_stale_field_id) {
+TEST_F(IcebergReaderTest, v1_parquet_mixed_ids_prefer_existing_equality_field_id) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_v1_parquet_partial_id_equality_delete_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto data_file = (test_dir / "data.parquet").string();
     const auto delete_file = (test_dir / "equality-delete.parquet").string();
-    // The id-less columns put the complete Parquet file in BY_NAME mode. The unrelated
-    // stale_added column deliberately retains field id 1, which must not override the historical
-    // alias selected for the hidden added_column equality key.
-    write_iceberg_three_int_parquet_file(data_file, "id", std::nullopt, {1, 2, 3}, "legacy_added",
+    // Iceberg's hasIds rule is existential: once any physical field has an ID, equality keys bind
+    // to that authoritative ID instead of an ID-less historical alias.
+    write_iceberg_three_int_parquet_file(data_file, "id", 0, {1, 2, 3}, "legacy_added",
                                          std::nullopt, {5, 7, 9}, "stale_added", 1, {70, 70, 70});
     write_iceberg_int_equality_delete_parquet_file(delete_file, "added_column", 1, 7);
 
@@ -1387,26 +1386,26 @@ TEST_F(IcebergReaderTest, v1_parquet_partial_id_equality_delete_ignores_stale_fi
     bool eof = false;
     const auto status = reader.get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(read_rows, 2);
-    ASSERT_EQ(block.rows(), 2);
+    ASSERT_EQ(read_rows, 3);
+    ASSERT_EQ(block.rows(), 3);
     EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 0), "1");
-    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "3");
+    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "2");
+    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 2), "3");
 
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_orc_partial_id_equality_delete_ignores_stale_field_id) {
+TEST_F(IcebergReaderTest, v1_orc_mixed_ids_prefer_existing_equality_field_id) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_v1_orc_partial_id_equality_delete_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto data_file = (test_dir / "data.orc").string();
     const auto delete_file = (test_dir / "equality-delete.orc").string();
-    // One id-less column switches the whole file to BY_NAME. The hidden current key is physically
-    // stored as its id-less historical alias, while an unrelated migrated column still carries
-    // the key's stale field id. Equality-delete binding must select legacy_added, not stale_added.
-    write_iceberg_three_int_orc_file(data_file, "id", std::nullopt, {1, 2, 3}, "legacy_added",
-                                     std::nullopt, {5, 7, 9}, "stale_added", 1, {70, 70, 70});
+    // Mixed ORC schemas also stay in ID projection when any field has an ID; the key with ID 1 is
+    // authoritative even though an ID-less historical alias is present.
+    write_iceberg_three_int_orc_file(data_file, "id", 0, {1, 2, 3}, "legacy_added", std::nullopt,
+                                     {5, 7, 9}, "stale_added", 1, {70, 70, 70});
     write_iceberg_int_orc_file(delete_file, "added_column", 1, {7});
 
     schema::external::TStructField root_field;
@@ -1478,10 +1477,11 @@ TEST_F(IcebergReaderTest, v1_orc_partial_id_equality_delete_ignores_stale_field_
     bool eof = false;
     const auto status = reader.get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(read_rows, 2);
-    ASSERT_EQ(block.rows(), 2);
+    ASSERT_EQ(read_rows, 3);
+    ASSERT_EQ(block.rows(), 3);
     EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 0), "1");
-    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "3");
+    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "2");
+    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 2), "3");
 
     std::filesystem::remove_all(test_dir);
 }

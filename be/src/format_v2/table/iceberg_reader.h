@@ -63,6 +63,10 @@ public:
     }
 
 protected:
+    void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
+        options->allow_idless_complex_wrapper_projection = _format == FileFormat::PARQUET;
+    }
+
     Status materialize_virtual_columns(Block* table_block) override;
 
     Status customize_file_scan_request(format::FileScanRequest* file_request) override;

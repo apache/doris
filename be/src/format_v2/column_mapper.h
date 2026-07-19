@@ -150,12 +150,14 @@ struct ColumnMapping {
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
+    std::optional<Field> initial_default_value;
 
     std::string debug_string() const;
 };
 
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
+    bool allow_idless_complex_wrapper_projection = false;
 
     std::string debug_string() const;
 };

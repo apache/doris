@@ -2448,7 +2448,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteUsesNameMappingWithoutFileFieldId
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(IcebergV2ReaderTest, IcebergEqualityDeleteByNameIgnoresStaleFileFieldId) {
+TEST(IcebergV2ReaderTest, IcebergEqualityDeletePrefersExistingFieldIdInMixedSchema) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_iceberg_equality_delete_stale_field_id_test";
     std::filesystem::remove_all(test_dir);
@@ -2456,8 +2456,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteByNameIgnoresStaleFileFieldId) {
 
     const auto file_path = (test_dir / "split.parquet").string();
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
-    // The real key has no id and is mapped by its historical name. A different physical column
-    // carries the stale id 0, forcing the entire split into BY_NAME mode.
+    // Iceberg's existential hasIds contract makes the physical field carrying ID 0 authoritative;
+    // an ID-less alias cannot switch a mixed schema back to name projection.
     write_two_int_parquet_file(file_path, "legacy_id", {1, 2, 3}, std::nullopt, "stale_key",
                                {100, 200, 300}, 0);
     write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2, "current_id");
@@ -2482,7 +2482,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteByNameIgnoresStaleFileFieldId) {
     split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
             file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
-    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({100, 200, 300}));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

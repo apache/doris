@@ -253,6 +253,43 @@ TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
     }
 }
 
+TEST(ColumnMapperTest, ParquetRetainsIdlessComplexWrapperWithNestedFieldId) {
+    auto table_child = field_id_col("a", 1, i32());
+    auto table_struct = struct_col("s", 10, {table_child});
+    auto file_child = field_id_col("legacy_a", 1, i32(), 0);
+    auto file_struct = struct_name_col("s", {file_child}, 0);
+
+    TableColumnMapper parquet_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID,
+                                      .allow_idless_complex_wrapper_projection = true});
+    ASSERT_TRUE(parquet_mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    ASSERT_EQ(parquet_mapper.mappings().size(), 1);
+    ASSERT_TRUE(parquet_mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_EQ(*parquet_mapper.mappings()[0].file_local_id, 0);
+    ASSERT_EQ(parquet_mapper.mappings()[0].child_mappings.size(), 1);
+    ASSERT_TRUE(parquet_mapper.mappings()[0].child_mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*parquet_mapper.mappings()[0].child_mappings[0].file_local_id, 0);
+
+    TableColumnMapper orc_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(orc_mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    EXPECT_FALSE(orc_mapper.mappings()[0].file_local_id.has_value());
+}
+
+TEST(ColumnMapperTest, MissingNestedChildRetainsBinaryInitialDefault) {
+    auto defaulted_child = field_id_col("data", 2, str());
+    defaulted_child.initial_default_value = "AAEC/w==";
+    defaulted_child.initial_default_value_is_base64 = true;
+    auto table_struct = struct_col("s", 10, {field_id_col("a", 1, i32()), defaulted_child});
+    auto file_struct = struct_col("s", 10, {field_id_col("a", 1, i32(), 0)}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
+    const auto& missing = mapper.mappings()[0].child_mappings[1];
+    ASSERT_TRUE(missing.initial_default_value.has_value());
+    EXPECT_EQ(missing.initial_default_value->get_type(), TYPE_STRING);
+    EXPECT_EQ(missing.initial_default_value->get<TYPE_STRING>(), std::string("\0\1\2\xff", 4));
+}
+
 void expect_mapping(const ColumnMapping& mapping, size_t global_index,
                     const std::string& table_name, int32_t file_local_id,
                     const std::string& file_name, const DataTypePtr& file_type,

@@ -4077,7 +4077,7 @@ TEST(TableReaderTest, ProjectedColumnsFillMissingParquetColumnWithDefault) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
+TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_struct_missing_child_test";
     std::filesystem::remove_all(test_dir);
@@ -4090,6 +4090,8 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
     const auto string_type = std::make_shared<DataTypeString>();
     auto id_child = make_table_column(0, "id", int_type);
     auto missing_child = make_table_column(99, "missing_child", string_type);
+    missing_child.initial_default_value = "AAEC/w==";
+    missing_child.initial_default_value_is_base64 = true;
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
@@ -4124,7 +4126,9 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
             expect_not_null_nullable_nested_column(struct_result.get_column(0)));
     ASSERT_EQ(struct_result.size(), 1);
     EXPECT_EQ(ids.get_element(0), 7);
-    expect_nullable_column_all_null(struct_result.get_column(1));
+    const auto& defaults = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(struct_result.get_column(1)));
+    EXPECT_EQ(defaults.get_data_at(0).to_string(), std::string("\0\1\2\xff", 4));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
