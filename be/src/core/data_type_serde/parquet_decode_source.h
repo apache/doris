@@ -232,16 +232,19 @@ struct ParquetMaterializationState {
     bool enable_strict_mode = false;
     IColumn::Filter* conversion_failure_null_map = nullptr;
     IColumn::Filter dictionary_conversion_failures;
+    bool capturing_dictionary_conversion_failures = false;
 
     void reset_dictionary() {
         typed_dictionary.reset();
         dictionary_indices.clear();
         dictionary_conversion_failures.clear();
+        capturing_dictionary_conversion_failures = false;
         dictionary_generation = std::numeric_limits<uint64_t>::max();
     }
 
     bool can_insert_null_on_conversion_failure() const {
-        return !enable_strict_mode && conversion_failure_null_map != nullptr;
+        return conversion_failure_null_map != nullptr &&
+               (!enable_strict_mode || capturing_dictionary_conversion_failures);
     }
 
     bool mark_conversion_failure(size_t output_row) {
@@ -255,18 +258,41 @@ struct ParquetMaterializationState {
 
     IColumn::Filter* begin_dictionary_conversion(size_t dictionary_size) {
         auto* output_null_map = conversion_failure_null_map;
-        dictionary_conversion_failures.clear();
-        if (can_insert_null_on_conversion_failure()) {
-            // Only nullable non-strict outputs may absorb a bad dictionary entry. Redirecting a
-            // non-nullable decode here would silently turn a required error into a default value.
-            dictionary_conversion_failures.resize_fill(dictionary_size, 0);
-            conversion_failure_null_map = &dictionary_conversion_failures;
-        }
+        dictionary_conversion_failures.resize_fill(dictionary_size, 0);
+        conversion_failure_null_map = &dictionary_conversion_failures;
+        capturing_dictionary_conversion_failures = true;
         return output_null_map;
     }
 
     void end_dictionary_conversion(IColumn::Filter* output_null_map) {
         conversion_failure_null_map = output_null_map;
+        capturing_dictionary_conversion_failures = false;
+    }
+
+    Status materialize_dictionary(IColumn& column) {
+        const size_t old_size = column.size();
+        for (size_t row = 0; row < dictionary_indices.size(); ++row) {
+            const auto dictionary_id = dictionary_indices[row];
+            DORIS_CHECK_LT(dictionary_id, dictionary_conversion_failures.size());
+            if (dictionary_conversion_failures[dictionary_id] != 0 &&
+                !can_insert_null_on_conversion_failure()) {
+                // A malformed dictionary entry is irrelevant until a selected row references it;
+                // failing while building the dictionary would reject otherwise valid pages.
+                return Status::DataQualityError(
+                        "Parquet dictionary entry {} cannot be converted to the target type",
+                        dictionary_id);
+            }
+        }
+        column.insert_indices_from(*typed_dictionary, dictionary_indices.data(),
+                                   dictionary_indices.data() + dictionary_indices.size());
+        if (can_insert_null_on_conversion_failure()) {
+            for (size_t row = 0; row < dictionary_indices.size(); ++row) {
+                if (dictionary_conversion_failures[dictionary_indices[row]] != 0) {
+                    mark_conversion_failure(old_size + row);
+                }
+            }
+        }
+        return Status::OK();
     }
 };
 

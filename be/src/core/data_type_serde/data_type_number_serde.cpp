@@ -619,19 +619,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_parquet(IColumn& column,
         }
         RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
         DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
-        const size_t old_size = column.size();
-        column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
-                                   state.dictionary_indices.data() + num_values);
-        if (state.can_insert_null_on_conversion_failure() &&
-            !state.dictionary_conversion_failures.empty()) {
-            for (size_t row = 0; row < num_values; ++row) {
-                if (state.dictionary_conversion_failures[state.dictionary_indices[row]] != 0) {
-                    DORIS_CHECK_LT(old_size + row, state.conversion_failure_null_map->size());
-                    (*state.conversion_failure_null_map)[old_size + row] = 1;
-                }
-            }
-        }
-        return Status::OK();
+        return state.materialize_dictionary(column);
     }
 }
 

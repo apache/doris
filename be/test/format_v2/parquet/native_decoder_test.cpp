@@ -20,6 +20,7 @@
 #include <parquet/schema.h>
 #include <parquet/types.h>
 
+#include <array>
 #include <cstring>
 #include <memory>
 #include <numeric>
@@ -2109,6 +2110,56 @@ TEST(ParquetV2NativeDecoderTest, NullableNumericOverflowIsNullOnlyOutsideStrictM
     null_map.resize_fill(1, 0);
     EXPECT_FALSE(decode(true, &column, &null_map).ok());
     EXPECT_EQ(null_map[0], 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryConversionFailureIsDeferredUntilReferenced) {
+    auto decode_dictionary_id = [](uint8_t dictionary_id, bool strict, IColumn::Filter* null_map,
+                                   MutableColumnPtr* column) {
+        const std::array<int32_t, 2> dictionary_values {1, 1000};
+        auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
+        memcpy(dictionary.get(), dictionary_values.data(), sizeof(dictionary_values));
+        std::unique_ptr<Decoder> decoder;
+        RETURN_IF_ERROR(Decoder::get_decoder(tparquet::Type::INT32,
+                                             tparquet::Encoding::RLE_DICTIONARY, decoder));
+        decoder->set_type_length(sizeof(int32_t));
+        RETURN_IF_ERROR(
+                decoder->set_dict(dictionary, sizeof(dictionary_values), dictionary_values.size()));
+        char encoded_id[] = {1, 2, static_cast<char>(dictionary_id)};
+        Slice id_slice(encoded_id, sizeof(encoded_id));
+        RETURN_IF_ERROR(decoder->set_data(&id_slice));
+
+        ParquetDecodeContext context;
+        context.physical_type = ParquetPhysicalType::INT32;
+        context.encoding = ParquetValueEncoding::DICTIONARY;
+        ParquetMaterializationState state;
+        state.enable_strict_mode = strict;
+        state.conversion_failure_null_map = null_map;
+        DataTypeInt8 type;
+        *column = type.create_column();
+        return type.get_serde()->read_column_from_parquet(**column, *decoder, context, 1, state);
+    };
+
+    for (const bool strict : {false, true}) {
+        IColumn::Filter null_map;
+        IColumn::Filter* output_null_map = nullptr;
+        if (strict) {
+            null_map.resize_fill(1, 0);
+            output_null_map = &null_map;
+        }
+
+        MutableColumnPtr column;
+        const auto unused_bad = decode_dictionary_id(0, strict, output_null_map, &column);
+        ASSERT_TRUE(unused_bad.ok()) << unused_bad;
+        ASSERT_EQ(column->size(), 1);
+        EXPECT_EQ(assert_cast<const ColumnInt8&>(*column).get_element(0), 1);
+
+        const auto referenced_bad = decode_dictionary_id(1, strict, output_null_map, &column);
+        EXPECT_TRUE(referenced_bad.is<ErrorCode::DATA_QUALITY_ERROR>()) << referenced_bad;
+        EXPECT_TRUE(column->empty());
+        if (output_null_map != nullptr) {
+            EXPECT_EQ((*output_null_map)[0], 0);
+        }
+    }
 }
 
 TEST(ParquetV2NativeDecoderTest, FixedLengthStringsAppendAsOneContiguousSpan) {

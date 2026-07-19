@@ -440,8 +440,8 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
                                const format::FileScanRequest& request,
                                const ParquetScanRange& scan_range, bool enable_bloom_filter,
                                RowGroupScanPlan* plan, const cctz::time_zone* timezone,
-                               const RuntimeState* runtime_state,
-                               ParquetFileContext* file_context) {
+                               const RuntimeState* runtime_state, ParquetFileContext* file_context,
+                               const ParquetColumnReaderProfile& column_reader_profile) {
     DORIS_CHECK(plan != nullptr && file_context != nullptr);
     plan->row_groups.clear();
     plan->pruning_stats = {};
@@ -452,7 +452,8 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     std::vector<int> metadata_selected;
     RETURN_IF_ERROR(select_row_groups_by_metadata(
             metadata.to_thrift(), file_schema, request, &scan_range_selected, &metadata_selected,
-            enable_bloom_filter, &plan->pruning_stats, timezone, runtime_state, file_context));
+            enable_bloom_filter, &plan->pruning_stats, timezone, runtime_state, file_context,
+            column_reader_profile));
     RETURN_IF_ERROR(build_native_row_group_read_plans(metadata, file_schema, request,
                                                       metadata_selected, row_group_first_rows, plan,
                                                       timezone, runtime_state, file_context));

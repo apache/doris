@@ -30,6 +30,7 @@
 #include "core/string_ref.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/selection_vector.h"
 
 namespace cctz {
@@ -128,7 +129,8 @@ Status select_row_groups_by_metadata(
         const format::FileScanRequest& request, const std::vector<int>* candidate_row_groups,
         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
-        const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr);
+        const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr,
+        const ParquetColumnReaderProfile& column_reader_profile = {});
 
 Status select_row_group_ranges_by_native_page_index(
         const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,

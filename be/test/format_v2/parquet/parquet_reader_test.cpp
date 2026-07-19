@@ -35,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -71,6 +72,7 @@
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 namespace {
@@ -910,14 +912,21 @@ void write_struct_filter_parquet_file(const std::string& file_path) {
                                                       builder.build()));
 }
 
-void write_dictionary_filter_parquet_file(const std::string& file_path) {
+void write_dictionary_filter_parquet_file(
+        const std::string& file_path,
+        ::parquet::Compression::type compression = ::parquet::Compression::UNCOMPRESSED) {
     auto schema = arrow::schema({
             arrow::field("id", arrow::int32(), false),
             arrow::field("value", arrow::utf8(), false),
     });
-    auto table =
-            arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
-                                        build_string_array({"aa", "az", "lm", "lz", "za", "zz"})});
+    const std::vector<std::string> values =
+            compression == ::parquet::Compression::UNCOMPRESSED
+                    ? std::vector<std::string> {"aa", "az", "lm", "lz", "za", "zz"}
+                    : std::vector<std::string> {std::string(4096, 'a'), std::string(4096, 'b'),
+                                                std::string(4096, 'c'), std::string(4096, 'd'),
+                                                std::string(4096, 'e'), std::string(4096, 'f')};
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array({1, 2, 3, 4, 5, 6}), build_string_array(values)});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
@@ -926,7 +935,7 @@ void write_dictionary_filter_parquet_file(const std::string& file_path) {
     ::parquet::WriterProperties::Builder builder;
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
-    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.compression(compression);
     builder.enable_dictionary("value");
     builder.disable_dictionary("id");
     builder.disable_statistics();
@@ -2512,6 +2521,47 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3}));
     EXPECT_EQ(values, std::vector<std::string>({"lm"}));
+}
+
+TEST_F(NewParquetReaderTest, DictionaryPruningPublishesColdAndWarmNativePageProfile) {
+    const double old_cache_threshold = config::parquet_page_cache_decompress_threshold;
+    config::parquet_page_cache_decompress_threshold = 100.0;
+    Defer restore_cache_threshold {
+            [&] { config::parquet_page_cache_decompress_threshold = old_cache_threshold; }};
+    write_dictionary_filter_parquet_file(_file_path, ::parquet::Compression::SNAPPY);
+
+    auto open_pruned_reader = [&](RuntimeProfile* profile) {
+        auto reader = create_reader(0, -1, profile, false, nullptr, std::nullopt, true);
+        TQueryOptions query_options;
+        query_options.__set_enable_parquet_file_page_cache(true);
+        RuntimeState state {query_options, TQueryGlobals()};
+        RETURN_IF_ERROR(reader->init(&state));
+        std::vector<format::ColumnDefinition> schema;
+        RETURN_IF_ERROR(reader->get_schema(&schema));
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(1)};
+        request->non_predicate_columns = {field_projection(0)};
+        request->conjuncts.push_back(create_string_in_conjunct(1, {"not-present"}));
+        use_schema_order_positions(request.get(), schema);
+        return reader->open(request);
+    };
+
+    RuntimeProfile cold_profile("dictionary_pruning_cold_profile");
+    ASSERT_TRUE(open_pruned_reader(&cold_profile).ok());
+    for (const auto* counter_name :
+         {"RowGroupsFilteredByDictionary", "PageReadCount", "PageCacheWriteCount",
+          "ParsePageHeaderNum", "DecompressCount", "DecodeDictTime"}) {
+        ASSERT_NE(cold_profile.get_counter(counter_name), nullptr) << counter_name;
+        EXPECT_GT(cold_profile.get_counter(counter_name)->value(), 0) << counter_name;
+    }
+
+    RuntimeProfile warm_profile("dictionary_pruning_warm_profile");
+    ASSERT_TRUE(open_pruned_reader(&warm_profile).ok());
+    for (const auto* counter_name : {"RowGroupsFilteredByDictionary", "PageReadCount",
+                                     "PageCacheHitCount", "ParsePageHeaderNum", "DecodeDictTime"}) {
+        ASSERT_NE(warm_profile.get_counter(counter_name), nullptr) << counter_name;
+        EXPECT_GT(warm_profile.get_counter(counter_name)->value(), 0) << counter_name;
+    }
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {

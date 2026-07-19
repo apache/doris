@@ -256,18 +256,7 @@ Status read_v2_int96_datetime(IColumn& column, ParquetDecodeSource& source,
     }
     RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
     DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
-    const size_t old_size = column.size();
-    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
-                               state.dictionary_indices.data() + num_values);
-    if (state.can_insert_null_on_conversion_failure()) {
-        for (size_t row = 0; row < num_values; ++row) {
-            if (!state.dictionary_conversion_failures.empty() &&
-                state.dictionary_conversion_failures[state.dictionary_indices[row]] != 0) {
-                state.mark_conversion_failure(old_size + row);
-            }
-        }
-    }
-    return Status::OK();
+    return state.materialize_dictionary(column);
 }
 
 Status read_native_or_serde(IColumn& column, const DataTypeSerDe& serde,
@@ -894,7 +883,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
                 CHECK(_block_compress_codec);
                 // Decompress cached compressed dictionary data
                 Slice dict_slice(dict_data.get(), uncompressed_size);
-                RETURN_IF_ERROR(_block_compress_codec->decompress(payload_slice, &dict_slice));
+                {
+                    SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
+                    ++_chunk_statistics.decompress_cnt;
+                    RETURN_IF_ERROR(_block_compress_codec->decompress(payload_slice, &dict_slice));
+                }
                 if (UNLIKELY(dict_slice.size != static_cast<size_t>(uncompressed_size))) {
                     return Status::Corruption(
                             "Parquet dictionary decompressed to {} bytes, expected {}",
@@ -924,7 +917,14 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
             Slice dict_slice(dict_data.get(), uncompressed_size);
             if (dict_num != 0) {
                 RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
-                RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
+                // Dictionary probes stop before data pages, so count their decompression here or
+                // metadata pruning profiles will report no codec work for the scan.
+                {
+                    SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
+                    ++_chunk_statistics.decompress_cnt;
+                    RETURN_IF_ERROR(
+                            _block_compress_codec->decompress(compressed_data, &dict_slice));
+                }
                 if (UNLIKELY(dict_slice.size != static_cast<size_t>(uncompressed_size))) {
                     return Status::Corruption(
                             "Parquet dictionary decompressed to {} bytes, expected {}",

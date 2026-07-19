@@ -398,7 +398,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.native_metadata, _state->file_schema, *request_snapshot,
             scan_range, _state->enable_bloom_filter, &row_group_plan, _state->timezone,
-            _state->runtime_state, &_state->file_context));
+            _state->runtime_state, &_state->file_context,
+            _parquet_profile.column_reader_profile()));
     if (_profile != nullptr) {
         _parquet_profile.update_pruning_stats(row_group_plan.pruning_stats);
     }

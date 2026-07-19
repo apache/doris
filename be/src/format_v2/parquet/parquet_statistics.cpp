@@ -695,7 +695,7 @@ ParquetRowGroupPruneReason native_dictionary_prune_reason(
         const tparquet::RowGroup& row_group, int row_group_idx,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, const cctz::time_zone* timezone,
-        ParquetFileContext* file_context) {
+        ParquetFileContext* file_context, const ParquetColumnReaderProfile& column_reader_profile) {
     if (file_context == nullptr || file_context->native_metadata == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
@@ -728,11 +728,13 @@ ParquetRowGroupPruneReason native_dictionary_prune_reason(
         std::unique_ptr<ParquetColumnReader> reader;
         const std::vector<RowRange> ranges {{0, row_group.num_rows}};
         const std::unordered_map<int, tparquet::OffsetIndex> offset_indexes;
+        // Metadata pruning uses the real native reader, so its page work must be attributed to the
+        // scan profile even when the row group is eliminated before execution readers are built.
         const auto status = NativeColumnReader::create(
                 *column_schema, projection, file_context->native_file,
                 file_context->native_metadata, row_group_idx, ranges, offset_indexes, timezone,
                 file_context->native_io_ctx, nullptr, file_context->native_page_cache_enabled,
-                file_context->native_page_cache_file_key, true, {}, &reader);
+                file_context->native_page_cache_file_key, true, column_reader_profile, &reader);
         if (!status.ok() || reader == nullptr) {
             continue;
         }
@@ -844,7 +846,8 @@ Status select_row_groups_by_metadata(
         const format::FileScanRequest& request, const std::vector<int>* candidate_row_groups,
         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
-        const RuntimeState* runtime_state, ParquetFileContext* file_context) {
+        const RuntimeState* runtime_state, ParquetFileContext* file_context,
+        const ParquetColumnReaderProfile& column_reader_profile) {
     int64_t timer_sink = 0;
     SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
                                               : &pruning_stats->row_group_filter_time);
@@ -871,8 +874,9 @@ Status select_row_groups_by_metadata(
             prune_reason = ParquetRowGroupPruneReason::STATISTICS;
         }
         if (prune_reason == ParquetRowGroupPruneReason::NONE) {
-            prune_reason = native_dictionary_prune_reason(row_group, row_group_idx, file_schema,
-                                                          request, timezone, file_context);
+            prune_reason =
+                    native_dictionary_prune_reason(row_group, row_group_idx, file_schema, request,
+                                                   timezone, file_context, column_reader_profile);
         }
         if (prune_reason == ParquetRowGroupPruneReason::NONE && enable_bloom_filter) {
             prune_reason = native_bloom_filter_prune_reason(row_group, file_schema, request,

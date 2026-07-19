@@ -73,6 +73,7 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/buffered_reader.h"
 #include "io/io_common.h"
@@ -6701,13 +6702,13 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     ASSERT_EQ(result_rows, 200);
     ASSERT_TRUE(reader->close().ok());
 
-    ASSERT_NE(profile.get_counter("RowGroupsFiltered"), nullptr);
-    ASSERT_NE(profile.get_counter("RowGroupsFilteredByMinMax"), nullptr);
-    ASSERT_NE(profile.get_counter("RowGroupsReadNum"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredRowsByGroup"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredBytes"), nullptr);
-    ASSERT_NE(profile.get_counter("FileNum"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFiltered"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFilteredByMinMax"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcRowGroupsReadNum"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcFilteredRowsByGroup"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcFilteredRowsByLazyRead"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcFilteredBytes"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcFileNum"), nullptr);
     const std::array<std::string_view, 13> orc_reader_metric_counters {
             "ReaderCall",
             "ReaderInclusiveLatencyUs",
@@ -6726,17 +6727,61 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     for (const auto counter_name : orc_reader_metric_counters) {
         ASSERT_NE(profile.get_counter(std::string(counter_name)), nullptr) << counter_name;
     }
-    EXPECT_EQ(profile.get_counter("RowGroupsFiltered")->value(), 2);
-    EXPECT_EQ(profile.get_counter("RowGroupsFilteredByMinMax")->value(), 2);
-    EXPECT_EQ(profile.get_counter("RowGroupsReadNum")->value(), 1);
+    EXPECT_EQ(profile.get_counter("OrcRowGroupsFiltered")->value(), 2);
+    EXPECT_EQ(profile.get_counter("OrcRowGroupsFilteredByMinMax")->value(), 2);
+    EXPECT_EQ(profile.get_counter("OrcRowGroupsReadNum")->value(), 1);
     EXPECT_EQ(profile.get_counter("SelectedRowGroupCount")->value(), 1);
     EXPECT_EQ(profile.get_counter("EvaluatedRowGroupCount")->value(), 3);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByGroup")->value(), 400);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
-    EXPECT_GT(profile.get_counter("FilteredBytes")->value(), 0);
-    EXPECT_EQ(profile.get_counter("FileNum")->value(), 1);
+    EXPECT_EQ(profile.get_counter("OrcFilteredRowsByGroup")->value(), 400);
+    EXPECT_EQ(profile.get_counter("OrcFilteredRowsByLazyRead")->value(), 0);
+    EXPECT_GT(profile.get_counter("OrcFilteredBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("OrcFileNum")->value(), 1);
     EXPECT_EQ(profile.get_counter("ReadRowCount")->value(),
               static_cast<int64_t>(file_reader_stats.read_rows));
+}
+
+TEST_F(NewOrcReaderTest, ProfileKeepsPruningCountersBelowOrcReader) {
+    RuntimeProfile profile("new_orc_reader_hierarchy_profile");
+    auto reader = create_reader(&profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes.front().child_counters_map;
+    ASSERT_TRUE(children.contains("OrcReader"));
+    EXPECT_TRUE(children.at("OrcReader").contains("OrcRowGroupsFiltered"));
+    EXPECT_TRUE(children.at("OrcReader").contains("OrcRowGroupsReadNum"));
+    EXPECT_TRUE(children.at("OrcReader").contains("OrcFilteredRowsByGroup"));
+}
+
+TEST_F(NewOrcReaderTest, ProfileCountersStayIsolatedWhenParquetInitializesFirst) {
+    RuntimeProfile profile("parquet_then_orc_profile");
+    format::parquet::ParquetProfile parquet_profile;
+    parquet_profile.init(&profile);
+    auto reader = create_reader(&profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFiltered"), nullptr);
+    ASSERT_NE(profile.get_counter("RowGroupsFiltered"), nullptr);
+    EXPECT_NE(profile.get_counter("OrcRowGroupsFiltered"),
+              profile.get_counter("RowGroupsFiltered"));
+}
+
+TEST_F(NewOrcReaderTest, ProfileCountersStayIsolatedWhenOrcInitializesFirst) {
+    RuntimeProfile profile("orc_then_parquet_profile");
+    auto reader = create_reader(&profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    format::parquet::ParquetProfile parquet_profile;
+    parquet_profile.init(&profile);
+
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFiltered"), nullptr);
+    ASSERT_NE(profile.get_counter("RowGroupsFiltered"), nullptr);
+    EXPECT_NE(profile.get_counter("OrcRowGroupsFiltered"),
+              profile.get_counter("RowGroupsFiltered"));
 }
 
 TEST_F(NewOrcReaderTest, DisableOrcFilterByMinMaxKeepsRowGroupProfileZero) {
@@ -6775,10 +6820,10 @@ TEST_F(NewOrcReaderTest, DisableOrcFilterByMinMaxKeepsRowGroupProfileZero) {
 
     ASSERT_NE(profile.get_counter("SelectedRowGroupCount"), nullptr);
     ASSERT_NE(profile.get_counter("EvaluatedRowGroupCount"), nullptr);
-    ASSERT_NE(profile.get_counter("RowGroupsFilteredByMinMax"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcRowGroupsFilteredByMinMax"), nullptr);
     EXPECT_EQ(profile.get_counter("SelectedRowGroupCount")->value(), 0);
     EXPECT_EQ(profile.get_counter("EvaluatedRowGroupCount")->value(), 0);
-    EXPECT_EQ(profile.get_counter("RowGroupsFilteredByMinMax")->value(), 0);
+    EXPECT_EQ(profile.get_counter("OrcRowGroupsFilteredByMinMax")->value(), 0);
 }
 
 TEST_F(NewOrcReaderTest, SargConjunctPrunesStripes) {

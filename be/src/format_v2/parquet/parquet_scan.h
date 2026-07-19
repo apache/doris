@@ -123,7 +123,8 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
                                const ParquetScanRange& scan_range, bool enable_bloom_filter,
                                RowGroupScanPlan* plan, const cctz::time_zone* timezone = nullptr,
                                const RuntimeState* runtime_state = nullptr,
-                               ParquetFileContext* file_context = nullptr);
+                               ParquetFileContext* file_context = nullptr,
+                               const ParquetColumnReaderProfile& column_reader_profile = {});
 
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);

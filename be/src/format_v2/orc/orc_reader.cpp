@@ -806,20 +806,22 @@ void OrcReader::_init_profile() {
             _profile, "EvaluatedRowGroupCount", TUnit::UNIT, orc_profile, 1);
     _orc_profile.read_row_count =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReadRowCount", TUnit::UNIT, orc_profile, 1);
+    // RuntimeProfile counter names are flat; format-qualified names keep ORC ownership stable when
+    // one scan profile also initializes Parquet counters in either order.
     _orc_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "RowGroupsFiltered", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+            _profile, "OrcRowGroupsFiltered", TUnit::UNIT, orc_profile, 1);
     _orc_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
-    _orc_profile.read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "RowGroupsReadNum", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+            _profile, "OrcRowGroupsFilteredByMinMax", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcRowGroupsReadNum",
+                                                                TUnit::UNIT, orc_profile, 1);
     _orc_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "FilteredRowsByGroup", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+            _profile, "OrcFilteredRowsByGroup", TUnit::UNIT, orc_profile, 1);
     _orc_profile.lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "FilteredRowsByLazyRead", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
-    _orc_profile.filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "FilteredBytes", TUnit::BYTES, file_scan_profile::FILE_READER, 1);
-    _orc_profile.open_file_num = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT,
-                                                              file_scan_profile::FILE_READER, 1);
+            _profile, "OrcFilteredRowsByLazyRead", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcFilteredBytes",
+                                                               TUnit::BYTES, orc_profile, 1);
+    _orc_profile.open_file_num =
+            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcFileNum", TUnit::UNIT, orc_profile, 1);
 }
 
 void OrcReader::_collect_profile() const {
