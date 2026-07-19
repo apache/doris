@@ -1166,18 +1166,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    private static String requireNonEmptyColumnIdentifier(ParserRuleContext ctx, String identifier) {
-        if (identifier.isEmpty()) {
-            throw new ParseException("Quoted identifier cannot be empty", ctx);
-        }
-        return identifier;
-    }
-
-    private static ColumnPath parseColumnPath(ParserRuleContext ctx, List<String> parts) {
-        parts.forEach(part -> requireNonEmptyColumnIdentifier(ctx, part));
-        return ColumnPath.of(parts);
-    }
-
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
     private final Map<Token, Placeholder> tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
@@ -1196,6 +1184,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap) {
         this.selectHintMap = selectHintMap;
+    }
+
+    private static String requireNonEmptyColumnIdentifier(ParserRuleContext ctx, String identifier) {
+        if (identifier.isEmpty()) {
+            throw new ParseException("Quoted identifier cannot be empty", ctx);
+        }
+        return identifier;
+    }
+
+    private static ColumnPath parseColumnPath(ParserRuleContext ctx, List<String> parts) {
+        parts.forEach(part -> requireNonEmptyColumnIdentifier(ctx, part));
+        return ColumnPath.of(parts);
     }
 
     @SuppressWarnings("unchecked")
