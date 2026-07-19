@@ -100,6 +100,37 @@ public class IcebergMergeSinkTest {
         Assertions.assertTrue(thriftSink.isCollectColumnStats());
     }
 
+    @Test
+    public void testBindDataSinkKeepsColumnStatsForV3LineageFields() throws Exception {
+        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(3, Map.of(
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "counts",
+                TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "id", "none")),
+                new DeleteCommandContext());
+
+        sink.bindDataSink(Optional.empty());
+
+        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
+        Assertions.assertTrue(thriftSink.isSetCollectColumnStats());
+        Assertions.assertTrue(thriftSink.isCollectColumnStats());
+    }
+
+    @Test
+    public void testBindDataSinkKeepsColumnStatsForOrcTopLevelComplexField() throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "items",
+                Types.ListType.ofOptional(2, Types.IntegerType.get())));
+        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, schema, Map.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "orc",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none",
+                TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "items", "counts")),
+                new DeleteCommandContext());
+
+        sink.bindDataSink(Optional.empty());
+
+        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
+        Assertions.assertTrue(thriftSink.isSetCollectColumnStats());
+        Assertions.assertTrue(thriftSink.isCollectColumnStats());
+    }
+
     private static TIcebergRewritableDeleteFileSet buildDeleteFileSet() {
         TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
         deleteFileDesc.setPath("file:///tmp/delete.puffin");
@@ -115,7 +146,12 @@ public class IcebergMergeSinkTest {
 
     private static IcebergExternalTable mockIcebergExternalTable(
             int formatVersion, Map<String, String> metricsProperties) {
-        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        return mockIcebergExternalTable(formatVersion,
+                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())), metricsProperties);
+    }
+
+    private static IcebergExternalTable mockIcebergExternalTable(
+            int formatVersion, Schema schema, Map<String, String> metricsProperties) {
         PartitionSpec spec = PartitionSpec.unpartitioned();
         Map<String, String> properties = new HashMap<>();
         properties.put(TableProperties.FORMAT_VERSION, String.valueOf(formatVersion));

@@ -1964,12 +1964,17 @@ public class IcebergUtils {
                 MetadataColumns.ROW_ID, MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER));
     }
 
-    public static boolean shouldCollectColumnStats(Table table) {
-        Schema schema = table.schema();
+    public static boolean shouldCollectColumnStats(Table table, Schema writerSchema) {
         MetricsConfig metricsConfig = MetricsConfig.forTable(table);
-        return TypeUtil.indexById(schema.asStruct()).values().stream()
+        if (getFileFormat(table) == FileFormat.ORC) {
+            // Match the footer collectors: ORC reports top-level collection counts, while Parquet reports leaf fields.
+            return writerSchema.columns().stream()
+                    .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
+                            != MetricsModes.None.get());
+        }
+        return TypeUtil.indexById(writerSchema.asStruct()).values().stream()
                 .filter(field -> field.type().isPrimitiveType())
-                .anyMatch(field -> MetricsUtil.metricsMode(schema, metricsConfig, field.fieldId())
+                .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
                         != MetricsModes.None.get());
     }
 
