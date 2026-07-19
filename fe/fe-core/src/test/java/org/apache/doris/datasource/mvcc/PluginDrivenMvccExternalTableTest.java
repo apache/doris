@@ -32,6 +32,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -394,6 +395,7 @@ public class PluginDrivenMvccExternalTableTest {
 
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         TestablePluginCatalog catalog = new TestablePluginCatalog(metadata, session);
         Connector connector = catalog.getConnector();
         ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
@@ -551,6 +553,7 @@ public class PluginDrivenMvccExternalTableTest {
         // valid empty pin instead of NPE-ing and aborting the whole metadata query (CI 973411 test_mysql_mtmv
         // collateral). MUTATION: dropping the null-connector guard in materializeLatest -> NPE -> red.
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         PluginDrivenExternalCatalog droppedCatalog = new TestablePluginCatalog((Connector) null, session);
         ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
         PluginDrivenMvccExternalTable table =
@@ -1363,6 +1366,7 @@ public class PluginDrivenMvccExternalTableTest {
                 Type partitionColType) {
             ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
             ConnectorSession session = Mockito.mock(ConnectorSession.class);
+            Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
             ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
             ConnectorTableHandle pinnedHandle = Mockito.mock(ConnectorTableHandle.class);
             TestablePluginCatalog catalog = new TestablePluginCatalog(metadata, session);
@@ -1475,6 +1479,11 @@ public class PluginDrivenMvccExternalTableTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return session;
+        }
+
+        @Override
+        public ConnectorSession buildCrossStatementSession() {
+            return buildConnectorSession();
         }
 
         @Override

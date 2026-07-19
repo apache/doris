@@ -57,6 +57,7 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
@@ -182,6 +183,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Volatile so the concurrent partition-batch appendBatch threads read a self-consistent (handle, provider).
     private volatile ResolvedScanProvider resolvedScanProvider;
 
+    // This node's per-statement ConnectorMetadata. The funnel already memoizes it in the statement scope
+    // (keyed by catalogId); cached here as well so the per-method resolvers don't re-hit the scope map.
+    // Volatile mirrors resolvedScanProvider — keeps an off-path metadata() read race-free.
+    private volatile ConnectorMetadata cachedMetadata;
+
     public PluginDrivenScanNode(PlanNodeId id, TupleDescriptor desc,
             boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext, Connector connector,
@@ -190,6 +196,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         this.connector = connector;
         this.connectorSession = connectorSession;
         this.currentHandle = tableHandle;
+    }
+
+    // Lazily resolves this node's ConnectorMetadata through the per-statement funnel and caches it, so the
+    // per-method resolvers below share one instance for the statement instead of rebuilding it each time.
+    private ConnectorMetadata metadata() {
+        ConnectorMetadata m = cachedMetadata;
+        if (m == null) {
+            m = PluginDrivenMetadata.get(connectorSession, connector);
+            cachedMetadata = m;
+        }
+        return m;
     }
 
     /**
@@ -202,7 +219,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             PluginDrivenExternalTable table) {
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         String dbName = table.getDb() != null ? table.getDb().getRemoteName() : "";
         // Resolve through the table's sys-aware seam (NOT raw metadata.getTableHandle): for a normal
         // table this is identical to getTableHandle(session, dbName, remoteName), but for a
@@ -802,7 +819,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (conjuncts == null || conjuncts.isEmpty()) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(connectorSession, currentHandle, constraint);
@@ -842,7 +859,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (limit <= 0) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         Optional<LimitApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyLimit(connectorSession, currentHandle, limit);
         if (result.isPresent()) {
@@ -861,7 +878,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (columns.isEmpty()) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         Optional<ProjectionApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyProjection(connectorSession, currentHandle, columns);
         if (result.isPresent()) {
@@ -906,7 +923,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * split path and the serialized-table path read at the pinned snapshot.
      */
     private void pinMvccSnapshot() throws UserException {
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         // Version-aware lookup: a statement mixing main and @branch/@tag (or FOR-TIME) of the SAME table
         // pins one snapshot per reference; resolve THIS scan's reference by its own selector so it reads
         // its own snapshot (not whichever reference loaded first). getQueryTableSnapshot()/getScanParams()
@@ -1051,7 +1068,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (scope == null || scope.isEmpty()) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         currentHandle = applyRewriteFileScopePin(metadata, connectorSession, currentHandle, scope);
     }
 
@@ -1070,7 +1087,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (!hasTopnLazyMaterializeSlot(desc.getSlots())) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         currentHandle = metadata.applyTopnLazyMaterialization(connectorSession, currentHandle);
     }
 
@@ -1898,7 +1915,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * enabling optimized column selection (e.g., SELECT col1, col2 instead of SELECT *).
      */
     private List<ConnectorColumnHandle> buildColumnHandles() {
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         Map<String, ConnectorColumnHandle> allHandles =
                 metadata.getColumnHandles(connectorSession, currentHandle);
         if (allHandles.isEmpty()) {
@@ -1935,7 +1952,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return Optional.empty();
         }
         List<Expr> pushableConjuncts = conjuncts;
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         if (!metadata.supportsCastPredicatePushdown(connectorSession)) {
             filteredToOriginalIndex = new ArrayList<>();
             pushableConjuncts = new ArrayList<>();

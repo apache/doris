@@ -45,6 +45,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
@@ -140,7 +141,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                     Collections.emptyMap(), Collections.emptyMap());
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
 
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
@@ -355,7 +356,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         String dbName = db != null ? db.getRemoteName() : "";
         String tableName = getRemoteName();
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
@@ -722,7 +723,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             return Optional.empty();
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         return handleOpt.map(handle -> new FreshnessProbe(session, metadata, handle));
     }

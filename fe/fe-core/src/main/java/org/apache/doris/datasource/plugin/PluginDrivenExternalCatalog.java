@@ -40,6 +40,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
@@ -291,8 +292,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     protected List<String> listDatabaseNames() {
         try {
-            ConnectorSession session = buildConnectorSession();
-            return connector.getMetadata(session).listDatabaseNames(session);
+            ConnectorSession session = buildCrossStatementSession();
+            return PluginDrivenMetadata.get(session, connector).listDatabaseNames(session);
         } catch (RuntimeException e) {
             // The connector connects lazily: initLocalObjectsImpl() only constructs it, so the
             // first metastore round-trip happens here — inside the meta-cache loader, which runs
@@ -307,8 +308,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
-        ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorSession session = buildCrossStatementSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         List<String> tableNames = metadata.listTableNames(session, dbName);
         if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
             return tableNames;
@@ -329,7 +330,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         ConnectorSession session = buildConnectorSession();
-        return connector.getMetadata(session)
+        return PluginDrivenMetadata.get(session, connector)
                 .getTableHandle(session, dbName, tblName).isPresent();
     }
 
@@ -419,7 +420,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     + "' in catalog: " + getName());
         }
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         // Mirror legacy MaxComputeMetadataOps.createTableImpl:178-197 -- probe BOTH the remote
         // (connector) and the local FE cache for an existing table. On IF NOT EXISTS this lets CTAS
         // short-circuit (Env.createTable contract: return true when the table already exists), so a
@@ -498,7 +499,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             return;
         }
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         // FE-cache miss but the db may already exist REMOTELY (created on another FE / before this
         // FE's db-name cache was populated). Legacy MaxComputeMetadataOps.createDbImpl consulted
         // BOTH getDbNullable AND the remote databaseExist, and IF NOT EXISTS then no-oped. Mirror
@@ -547,7 +548,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         ConnectorSession session = buildConnectorSession();
         try {
-            connector.getMetadata(session).dropDatabase(session, db.getRemoteName(), ifExists, force);
+            PluginDrivenMetadata.get(session, connector).dropDatabase(session, db.getRemoteName(), ifExists, force);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
@@ -595,7 +596,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
         }
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         // Route a DROP on a VIEW to dropView, mirroring legacy IcebergMetadataOps.dropTableImpl's
         // viewExists -> performDropView dispatch: a connector that exposes views keeps them in a separate
         // namespace, so getTableHandle/tableExists below is false for a view and the table-handle path
@@ -667,7 +668,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             throw new DdlException("Failed to get table: '" + oldTableName + "' in database: " + dbName);
         }
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(dorisTable, session, metadata);
         try {
             metadata.renameTable(session, handle, newTableName);
@@ -711,7 +712,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         List<String> partitions = partitionNamesInfo == null ? null : partitionNamesInfo.getPartitionNames();
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(dorisTable, session, metadata);
         try {
             metadata.truncateTable(session, handle, partitions);
@@ -804,7 +805,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void addColumn(TableIf dorisTable, Column column, ColumnPosition position) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -820,7 +821,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void addColumns(TableIf dorisTable, List<Column> columns) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -835,7 +836,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void dropColumn(TableIf dorisTable, String columnName) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -850,7 +851,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void renameColumn(TableIf dorisTable, String oldName, String newName) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -865,7 +866,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void modifyColumn(TableIf dorisTable, Column column, ColumnPosition position) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -881,7 +882,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void reorderColumns(TableIf dorisTable, List<String> newOrder) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -912,7 +913,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -928,7 +929,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void createOrReplaceTag(TableIf dorisTable, CreateOrReplaceTagInfo tagInfo) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -944,7 +945,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void dropBranch(TableIf dorisTable, DropBranchInfo branchInfo) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -960,7 +961,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void dropTag(TableIf dorisTable, DropTagInfo tagInfo) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -985,7 +986,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void addPartitionField(TableIf dorisTable, AddPartitionFieldOp op) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -1000,7 +1001,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void dropPartitionField(TableIf dorisTable, DropPartitionFieldOp op) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -1015,7 +1016,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void replacePartitionField(TableIf dorisTable, ReplacePartitionFieldOp op) throws UserException {
         ExternalTable externalTable = checkExternalTable(dorisTable);
         ConnectorSession session = buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
         long updateTime = System.currentTimeMillis();
         try {
@@ -1102,14 +1103,15 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     @Override
     public String fromRemoteDatabaseName(String remoteDatabaseName) {
-        ConnectorSession session = buildConnectorSession();
-        return connector.getMetadata(session).fromRemoteDatabaseName(session, remoteDatabaseName);
+        ConnectorSession session = buildCrossStatementSession();
+        return PluginDrivenMetadata.get(session, connector).fromRemoteDatabaseName(session, remoteDatabaseName);
     }
 
     @Override
     public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
-        ConnectorSession session = buildConnectorSession();
-        return connector.getMetadata(session).fromRemoteTableName(session, remoteDatabaseName, remoteTableName);
+        ConnectorSession session = buildCrossStatementSession();
+        return PluginDrivenMetadata.get(session, connector)
+                .fromRemoteTableName(session, remoteDatabaseName, remoteTableName);
     }
 
     /**
@@ -1133,6 +1135,37 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 .withCatalogId(getId())
                 .withCatalogName(getName())
                 .withCatalogProperties(catalogProperty.getProperties())
+                .build();
+    }
+
+    /**
+     * Builds a {@link ConnectorSession} for a CROSS-STATEMENT background loader — one that fills a cache
+     * living longer than any single statement (database/table name caches, schema cache, column-statistic
+     * cache, row-count cache, the BE-driven metadata TVF). Identical to {@link #buildConnectorSession()}
+     * (same credential handling) except the per-statement scope is forced to
+     * {@link ConnectorStatementScope#NONE}. That makes the read-through a contract rather than an accident:
+     * a metadata resolved through {@link PluginDrivenMetadata#get} with this session is built fresh and never
+     * memoized into — nor closed with — some live statement's scope, even when the loader happens to run on a
+     * request/ANALYZE thread that has one (e.g. {@code fetchRowCount} reached synchronously from
+     * {@code AnalysisManager.buildAnalysisJobInfo}). Under NONE the funnel memoizes nothing, so this is
+     * byte-identical to a bare {@code getMetadata} call.
+     */
+    public ConnectorSession buildCrossStatementSession() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null) {
+            return ConnectorSessionBuilder.from(ctx)
+                    .withCatalogId(getId())
+                    .withCatalogName(getName())
+                    .withCatalogProperties(catalogProperty.getProperties())
+                    .withUserSessionCapability(supportsUserSession())
+                    .withStatementScope(ConnectorStatementScope.NONE)
+                    .build();
+        }
+        return ConnectorSessionBuilder.create()
+                .withCatalogId(getId())
+                .withCatalogName(getName())
+                .withCatalogProperties(catalogProperty.getProperties())
+                .withStatementScope(ConnectorStatementScope.NONE)
                 .build();
     }
 

@@ -20,6 +20,7 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -61,12 +62,14 @@ public class MetadataGeneratorPluginDrivenTest {
     @Test
     public void testRoutesToSpiWithRemoteNamesAndBuildsRows() throws Exception {
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
 
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
 
@@ -93,11 +96,13 @@ public class MetadataGeneratorPluginDrivenTest {
     @Test
     public void testAbsentHandleYieldsEmptyOkResult() throws Exception {
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
 
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
 

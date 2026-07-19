@@ -31,6 +31,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -496,6 +497,9 @@ public class ConnectorExecuteActionTest {
         @SuppressWarnings("unchecked")
         Fixture() {
             props.put("snapshot_id", "200");
+            // The funnel PluginDrivenMetadata.get(session, connector) reads session.getStatementScope(); a bare
+            // Mockito mock returns null (NPE), so pin the interface-default NONE scope (runs getMetadata per call).
+            Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
             Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
             Mockito.when(connector.getProcedureOps()).thenReturn(procedureOps);
             // execute() selects the ops per-handle (getProcedureOps(handle)); a Mockito mock does NOT run the
@@ -548,6 +552,11 @@ public class ConnectorExecuteActionTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return session;
+        }
+
+        @Override
+        public ConnectorSession buildCrossStatementSession() {
+            return buildConnectorSession();
         }
 
         @Override
