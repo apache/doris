@@ -747,15 +747,36 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return doPlanPositionDeletesSystemTableScan(handle, metadataTable, columns, filter, session);
         }
         TableScan scan = buildScan(metadataTable, handle, filter, session);
-        // Project the metadata-table scan to ONLY the requested columns (legacy IcebergScanNode parity: FE keeps
-        // the fields requested by BE in the projection). Without it the iceberg SDK materialises EVERY metadata
-        // column per row for the $files/$data_files family — including readable_metrics, whose bound conversion
-        // (MetricsUtil.readableMetricsStruct -> Conversions.fromByteBuffer) throws BufferUnderflowException on
-        // boolean/complex bound columns — even when the query selects only a scalar such as file_size_in_bytes.
-        // BE's IcebergSysTableJniScanner resolves required_fields by name against this projected task schema.
+        // Project the metadata-table scan to ONLY the requested columns, in the SAME order BE lists them in
+        // required_fields (== the scan slot order: buildColumnHandles iterates desc.getSlots(), BE builds
+        // required_fields from the matching file_slot_descs). This mirrors legacy IcebergScanNode
+        // .getSystemTableProjectedSchema() + scan.project(...). Two reasons the projection is mandatory AND must
+        // be order-preserving:
+        //   1. Without it the iceberg SDK materialises EVERY metadata column per row for the $files/$data_files
+        //      family -- including readable_metrics, whose bound conversion (MetricsUtil.readableMetricsStruct ->
+        //      Conversions.fromByteBuffer) throws BufferUnderflowException on boolean/complex bound columns --
+        //      even when the query selects only a scalar such as file_size_in_bytes.
+        //   2. BE's IcebergSysTableJniScanner reads the projected StaticDataTask rows POSITIONALLY (row.get(i)),
+        //      relying on the i-th projected field being the i-th required field. scan.select(names) would route
+        //      the ids through a Set and re-emit them in TABLE-schema order (TypeUtil.project), breaking that
+        //      contract; scan.project(orderedSchema) preserves the requested order, so we build the schema by
+        //      hand from the requested columns.
         List<String> projectedColumns = requestedLowerNames(columns);
         if (!projectedColumns.isEmpty()) {
-            scan = scan.select(projectedColumns);
+            Schema metadataSchema = metadataTable.schema();
+            List<NestedField> projectedFields = new ArrayList<>(projectedColumns.size());
+            Set<Integer> seenFieldIds = new HashSet<>();
+            for (String columnName : projectedColumns) {
+                NestedField field = metadataSchema.findField(columnName);
+                if (field == null) {
+                    throw new RuntimeException("Column " + columnName
+                            + " not found in iceberg system table schema " + metadataTable.name());
+                }
+                if (seenFieldIds.add(field.fieldId())) {
+                    projectedFields.add(field);
+                }
+            }
+            scan = scan.project(new Schema(projectedFields));
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
