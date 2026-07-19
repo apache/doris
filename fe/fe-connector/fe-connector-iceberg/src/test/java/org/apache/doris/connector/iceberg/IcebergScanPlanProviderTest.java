@@ -777,6 +777,55 @@ public class IcebergScanPlanProviderTest {
                         + "BufferUnderflows on complex/boolean bound columns when materialised unrequested");
     }
 
+    @Test
+    public void planSystemTableScanProjectionPreservesRequestedColumnOrderForPositionalBeRead() throws Exception {
+        // WHY (regression — External Regression build 1000283): BE's IcebergSysTableJniScanner reads the
+        // projected metadata rows POSITIONALLY (row.get(i) for i in 0..required_fields-1), relying on the i-th
+        // projected row field being the i-th BE-requested column. doPlanSystemTableScan can break that in two
+        // ways, both pinned here for a $snapshots scan whose requested order DIFFERS from table order:
+        //   1. For a metadata table whose rows() is a StructProjection ($snapshots/$refs/$history), task.schema()
+        //      stays the FULL schema while the row is narrowed. row.size() below == the requested count proves
+        //      the row is narrow, so a full-schema ordinal (e.g. operation at ordinal 3) would overrun it — that
+        //      was the ArrayIndexOutOfBoundsException. BE MUST read positionally, not by scanTask.schema() index.
+        //   2. scan.select(names) re-emits the projection in TABLE order (ids -> Set -> TypeUtil.project), so
+        //      row.get(0) would be snapshot_id, not operation. scan.project(orderedSchema) preserves the
+        //      requested order. MUTATION: swapping scan.project(...) back to scan.select(...) -> row.get(0) is
+        //      the snapshot_id, not "append" -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .commit();
+        long snapshotId = table.currentSnapshot().snapshotId();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        // $snapshots table order is committed_at, snapshot_id, parent_id, operation, ...; request operation
+        // BEFORE snapshot_id so a table-order projection would visibly disagree with the requested order.
+        List<ConnectorColumnHandle> columns = Arrays.asList(
+                new IcebergColumnHandle("operation", 4),
+                new IcebergColumnHandle("snapshot_id", 2));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                columns, Optional.empty());
+
+        Assertions.assertEquals(1, ranges.size(), "one commit -> one $snapshots metadata split");
+        FileScanTask task = SerializationUtil.deserializeFromBase64(
+                ((IcebergScanRange) ranges.get(0)).getSerializedSplit());
+        try (CloseableIterable<StructLike> rows = task.asDataTask().rows()) {
+            Iterator<StructLike> it = rows.iterator();
+            Assertions.assertTrue(it.hasNext(), "the $snapshots table must have one row");
+            StructLike row = it.next();
+            Assertions.assertEquals(2, row.size(),
+                    "the row must be narrowed to the 2 requested columns, so BE's positional read stays in "
+                            + "bounds (a full-schema ordinal would overrun it -- the build 1000283 AIOOBE)");
+            Assertions.assertEquals("append", row.get(0, Object.class).toString(),
+                    "field 0 must be the 1st REQUESTED column (operation), NOT the table-order column: "
+                            + "scan.project preserves request order, scan.select would reorder to table order");
+            Assertions.assertEquals(snapshotId, ((Number) row.get(1, Object.class)).longValue(),
+                    "field 1 must be the 2nd requested column (snapshot_id)");
+        }
+    }
+
     // ---------------------------------------------------------------------
     // $position_deletes (upstream #65135 port): the ONE sys table BE reads with a native reader
     // ---------------------------------------------------------------------
