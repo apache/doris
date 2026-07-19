@@ -284,8 +284,9 @@ bool is_int32_offset_binary_type(const std::shared_ptr<arrow::DataType>& type) {
     return type->id() == arrow::Type::STRING || type->id() == arrow::Type::BINARY;
 }
 
-// Byte length written into the arrow string/binary array for `row` (0 for null), mirroring
-// DataTypeStringSerDeBase::write_column_to_arrow which appends get_data_at(row).size bytes.
+// Byte length written into the arrow string/binary array for `row` (0 for null). Only called for
+// raw string/binary columns (see convert_to_arrow_batches), whose SerDe appends get_data_at(row)
+// verbatim, so this equals the emitted arrow payload.
 size_t arrow_value_byte_size_at(const IColumn& column, size_t row) {
     const IColumn* data = &column;
     if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
@@ -316,8 +317,20 @@ Status convert_to_arrow_batches(const Block& block, const std::shared_ptr<arrow:
     // batch -- zero added cost on the normal path, and this never misses an overflow.
     std::vector<int> big_fields;
     for (int idx = 0; idx < num_fields; ++idx) {
-        if (is_int32_offset_binary_type(schema->field(idx)->type()) &&
-            block.get_by_position(idx).column->byte_size() >= max_bytes) {
+        if (!is_int32_offset_binary_type(schema->field(idx)->type())) {
+            continue;
+        }
+        // Only raw string/binary types append get_data_at(row) verbatim, so physical byte_size
+        // equals the arrow payload and per-row splitting is exact. Transform-serde types that
+        // also map to utf8/binary (JSONB -> JSON text, Variant, largeint/date/datetime -> text)
+        // do not, and Variant's column has no get_data_at at all. They stay on the fast path and
+        // rely on their SerDe's checked size cast plus the Arrow builder capacity check to error
+        // cleanly (never silently corrupt) if a value or batch overflows int32.
+        const auto pt = remove_nullable(block.get_by_position(idx).type)->get_primitive_type();
+        if (!is_string_type(pt) && pt != TYPE_VARBINARY) {
+            continue;
+        }
+        if (block.get_by_position(idx).column->byte_size() >= max_bytes) {
             big_fields.push_back(idx);
         }
     }

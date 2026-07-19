@@ -773,4 +773,81 @@ TEST(DataTypeSerDeArrowTest, ConvertToArrowBatchesSplitDrivenByTightestColumn) {
     EXPECT_EQ(rb, b_vals);
 }
 
+// Boundary: with threshold N, a value of N-1 bytes fits in one batch (the most a batch may
+// hold); a value of exactly N bytes cannot fit int32 offsets and must error. This mirrors the
+// default threshold INT32_MAX vs the Arrow builder limit INT32_MAX - 1.
+TEST(DataTypeSerDeArrowTest, ConvertToArrowBatchesThresholdBoundary) {
+    const int64_t saved = config::arrow_flight_result_max_utf8_bytes;
+    cctz::time_zone tz;
+    auto schema = arrow::schema({arrow::field("s", arrow::utf8(), false)});
+    auto make_block = [](size_t value_len) {
+        auto strcol = ColumnString::create();
+        std::string v(value_len, 'a');
+        strcol->insert_data(v.data(), v.size());
+        auto block = std::make_shared<Block>();
+        block->insert(
+                ColumnWithTypeAndName(strcol->get_ptr(), std::make_shared<DataTypeString>(), "s"));
+        return block;
+    };
+
+    // value == threshold - 1 -> fits in a single batch.
+    {
+        auto block = make_block(15);
+        config::arrow_flight_result_max_utf8_bytes = 16;
+        std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+        Status st = convert_to_arrow_batches(*block, schema, arrow::default_memory_pool(), &batches,
+                                             tz);
+        config::arrow_flight_result_max_utf8_bytes = saved;
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(batches.size(), 1U);
+        auto arr = std::static_pointer_cast<arrow::StringArray>(batches[0]->column(0));
+        EXPECT_EQ(arr->value_offset(arr->length()), 15);
+    }
+    // value == threshold -> a single value cannot fit -> clear error.
+    {
+        auto block = make_block(16);
+        config::arrow_flight_result_max_utf8_bytes = 16;
+        std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+        Status st = convert_to_arrow_batches(*block, schema, arrow::default_memory_pool(), &batches,
+                                             tz);
+        config::arrow_flight_result_max_utf8_bytes = saved;
+        ASSERT_FALSE(st.ok()) << "value of exactly threshold bytes must error";
+    }
+}
+
+// A transform-serde type (LARGEINT -> utf8 text) must NOT be split by physical byte_size: even
+// when its physical size exceeds a lowered threshold it stays on the fast path (one batch),
+// because get_data_at() bytes are not the emitted arrow payload for such types (and calling
+// get_data_at on e.g. a Variant column would throw).
+TEST(DataTypeSerDeArrowTest, ConvertToArrowBatchesDoesNotSplitTransformType) {
+    DataTypePtr type = DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, false);
+    auto mcol = type->create_column();
+    mcol->insert(Field::create_field<TYPE_LARGEINT>(Int128(1)));
+    mcol->insert(Field::create_field<TYPE_LARGEINT>(Int128(22)));
+    mcol->insert(Field::create_field<TYPE_LARGEINT>(Int128(333)));
+    auto block = std::make_shared<Block>();
+    block->insert(ColumnWithTypeAndName(mcol->get_ptr(), type, "n"));
+
+    std::shared_ptr<arrow::Schema> schema;
+    Status sst = get_arrow_schema_from_block(*block, &schema, TimezoneUtils::default_time_zone);
+    ASSERT_TRUE(sst.ok()) << sst;
+    ASSERT_EQ(schema->field(0)->type()->id(), arrow::Type::STRING); // largeint -> utf8
+
+    const int64_t saved = config::arrow_flight_result_max_utf8_bytes;
+    config::arrow_flight_result_max_utf8_bytes = 20; // < physical byte_size (3 * 16 = 48 bytes)
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+    cctz::time_zone tz;
+    Status st =
+            convert_to_arrow_batches(*block, schema, arrow::default_memory_pool(), &batches, tz);
+    config::arrow_flight_result_max_utf8_bytes = saved;
+
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(batches.size(), 1U) << "transform type must not be split by physical byte_size";
+    auto arr = std::static_pointer_cast<arrow::StringArray>(batches[0]->column(0));
+    ASSERT_EQ(arr->length(), 3);
+    EXPECT_EQ(arr->GetString(0), "1");
+    EXPECT_EQ(arr->GetString(1), "22");
+    EXPECT_EQ(arr->GetString(2), "333");
+}
+
 } // namespace doris
