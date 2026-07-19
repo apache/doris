@@ -44,6 +44,28 @@ public interface ConnectorStatementScope {
      */
     <T> T computeIfAbsent(String key, Supplier<T> loader);
 
+    /**
+     * Typed convenience over {@link #computeIfAbsent} for the ONE {@link ConnectorMetadata} a statement uses per
+     * {@code key}. The engine's metadata funnel builds {@code key} (as {@code "metadata:" + catalogId}, plus the
+     * owning connector's label for a heterogeneous gateway) and passes a {@code factory} that calls
+     * {@code Connector#getMetadata(session)}; every read / scan / DDL / MVCC resolver of the statement then shares
+     * the single memoized instance and the factory runs at most once per statement. Under {@link #NONE} the
+     * factory runs on every call (byte-identical to building metadata every time).
+     */
+    default ConnectorMetadata getOrCreateMetadata(String key, Supplier<ConnectorMetadata> factory) {
+        return computeIfAbsent(key, factory);
+    }
+
+    /**
+     * Deterministically closes, at statement end, every value this scope holds that is {@link AutoCloseable} (a
+     * memoized {@link ConnectorMetadata} is, via {@link java.io.Closeable}). Best-effort and log-and-continue: a
+     * failure closing one value does not abort the rest. MUST be idempotent (close-once) in implementations — the
+     * engine fires it from more than one locus (the query-finish callback, and a reused prepared statement's
+     * per-execution reset). The default is a no-op, so {@link #NONE} — which memoizes nothing — stays inert.
+     */
+    default void closeAll() {
+    }
+
     /** The no-op scope: never caches; each call invokes the loader (offline / no-context / tests). */
     ConnectorStatementScope NONE = new ConnectorStatementScope() {
         @Override

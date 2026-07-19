@@ -92,4 +92,24 @@ public class ConnectorStatementScopeTest {
         Assertions.assertNotSame(memoized, s2.computeIfAbsent("k", Object::new),
                 "a prior execution's memoized value must not leak into the next execution");
     }
+
+    @Test
+    public void closeAllClosesCloseableValuesOnceAndIgnoresPlainValues() throws Exception {
+        // closeAll() closes every AutoCloseable value the statement memoized (a ConnectorMetadata is Closeable)
+        // and leaves non-closeable values (the shared table object, the scan->write delete-supply map) untouched.
+        // It must be idempotent: the engine fires it from more than one locus (the query-finish callback + a reused
+        // prepared statement's per-execution reset), so a second call must not double-close.
+        // MUTATION: dropping the close-once guard -> closes==2 -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable closeable = () -> closes.incrementAndGet();
+        scope.computeIfAbsent("closeable", () -> closeable);
+        scope.computeIfAbsent("plain", Object::new); // a non-closeable value must be ignored, not crash
+
+        scope.closeAll();
+        scope.closeAll();
+
+        Assertions.assertEquals(1, closes.get(),
+                "each closeable value is closed exactly once across repeated closeAll (idempotent)");
+    }
 }
