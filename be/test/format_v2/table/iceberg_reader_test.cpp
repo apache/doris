@@ -495,7 +495,8 @@ void write_two_int_parquet_file(const std::string& file_path, const std::string&
                                                       builder.build()));
 }
 
-void write_recursive_idless_wrapper_parquet_file(const std::string& file_path, int32_t value) {
+void write_recursive_idless_wrapper_parquet_file(const std::string& file_path, int32_t value,
+                                                 bool outer_has_field_id = true) {
     const auto leaf_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"30"});
     auto leaf_field = arrow::field("leaf", arrow::int32(), false)->WithMetadata(leaf_metadata);
     auto inner_result = arrow::StructArray::Make({build_int32_array({value})}, {leaf_field});
@@ -503,9 +504,11 @@ void write_recursive_idless_wrapper_parquet_file(const std::string& file_path, i
     auto inner_field = arrow::field("inner", arrow::struct_({leaf_field}), false);
     auto outer_result = arrow::StructArray::Make({*inner_result}, {inner_field});
     ASSERT_TRUE(outer_result.ok()) << outer_result.status();
-    const auto outer_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"10"});
-    auto outer_field = arrow::field("outer", arrow::struct_({inner_field}), false)
-                               ->WithMetadata(outer_metadata);
+    auto outer_field = arrow::field("outer", arrow::struct_({inner_field}), false);
+    if (outer_has_field_id) {
+        outer_field =
+                outer_field->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"10"}));
+    }
     auto table = arrow::Table::Make(arrow::schema({outer_field}), {*outer_result});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
@@ -2489,6 +2492,58 @@ TEST(IcebergV2ReaderTest, ParquetRecursivelyRetainsIdlessWrapperForSelectedLeafI
     auto outer_type = std::make_shared<DataTypeStruct>(DataTypes {inner_type}, Strings {"inner"});
     auto outer = make_table_column(10, "outer", outer_type);
     outer.children = {inner};
+    std::vector<ColumnDefinition> projected_columns = {outer};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto& outer_result =
+            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
+    const auto& inner_result = assert_cast<const ColumnStruct&>(
+            expect_not_null_nullable_nested_column(outer_result.get_column(0)));
+    const auto& leaf_result = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(inner_result.get_column(0)));
+    ASSERT_EQ(leaf_result.size(), 1);
+    EXPECT_EQ(leaf_result.get_element(0), 42);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, ParquetReadsIdlessWrapperWithAuthoritativeEmptyMapping) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_authoritative_empty_idless_wrapper_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_recursive_idless_wrapper_parquet_file(file_path, 42, false);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto leaf = make_table_column(30, "leaf", int_type);
+    auto inner_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"leaf"});
+    auto inner = make_table_column(20, "inner", inner_type);
+    inner.children = {leaf};
+    inner.has_name_mapping = true;
+    auto outer_type = std::make_shared<DataTypeStruct>(DataTypes {inner_type}, Strings {"inner"});
+    auto outer = make_table_column(10, "outer", outer_type);
+    outer.children = {inner};
+    outer.has_name_mapping = true;
     std::vector<ColumnDefinition> projected_columns = {outer};
 
     RuntimeProfile profile("test_profile");

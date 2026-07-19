@@ -595,6 +595,75 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetNestedMixedFieldIdsPreferExistin
     EXPECT_TRUE(default_value->is_base64);
 }
 
+TEST(MockTableSchemaChangeHelper,
+     IcebergParquetDescendantIdRetainsWrapperWithAuthoritativeEmptyMapping) {
+    TColumnType int_type;
+    int_type.__set_type(TPrimitiveType::INT);
+    TColumnType struct_type;
+    struct_type.__set_type(TPrimitiveType::STRUCT);
+
+    auto id_field = std::make_shared<schema::external::TField>();
+    id_field->__set_name("id");
+    id_field->__set_id(1);
+    id_field->__set_type(int_type);
+
+    auto child_field = std::make_shared<schema::external::TField>();
+    child_field->__set_name("a");
+    child_field->__set_id(2);
+    child_field->__set_type(int_type);
+    schema::external::TFieldPtr child_ptr;
+    child_ptr.__set_field_ptr(child_field);
+    schema::external::TStructField struct_fields;
+    struct_fields.__set_fields({child_ptr});
+
+    auto struct_field = std::make_shared<schema::external::TField>();
+    struct_field->__set_name("s");
+    struct_field->__set_id(10);
+    struct_field->__set_type(struct_type);
+    struct_field->__set_name_mapping({});
+    struct_field->__set_name_mapping_is_authoritative(true);
+    struct_field->nestedField.__set_struct_field(struct_fields);
+    struct_field->__isset.nestedField = true;
+
+    schema::external::TFieldPtr id_ptr;
+    id_ptr.__set_field_ptr(id_field);
+    schema::external::TFieldPtr struct_ptr;
+    struct_ptr.__set_field_ptr(struct_field);
+    schema::external::TStructField table_root;
+    table_root.__set_fields({id_ptr, struct_ptr});
+
+    FieldSchema file_id;
+    file_id.name = "id";
+    file_id.field_id = 1;
+    file_id.data_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    FieldSchema file_child;
+    file_child.name = "a";
+    file_child.field_id = 2;
+    file_child.data_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    FieldSchema file_struct;
+    file_struct.name = "s";
+    file_struct.field_id = -1;
+    file_struct.children = {file_child};
+    file_struct.data_type = std::make_shared<DataTypeStruct>(DataTypes {file_child.data_type},
+                                                             Strings {file_child.name});
+    FieldDescriptor parquet_field;
+    parquet_field._fields = {file_id, file_struct};
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+                        table_root, parquet_field, ans_node)
+                        .ok());
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  id (file: id)\n"
+              "    ScalarNode\n"
+              "  s (file: s)\n"
+              "    StructNode\n"
+              "      a (file: a)\n"
+              "        ScalarNode\n");
+}
+
 TEST(MockTableSchemaChangeHelper, IcebergOrcSchemaChange) {
     schema::external::TField test_field;
     TColumnType struct_type;

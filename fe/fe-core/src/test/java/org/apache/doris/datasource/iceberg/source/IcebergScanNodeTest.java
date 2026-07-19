@@ -22,12 +22,23 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
+import org.apache.doris.datasource.iceberg.IcebergSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileFormatType;
@@ -206,9 +217,58 @@ public class IcebergScanNodeTest {
         TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         node.setTableScan(snapshotScan);
         setIcebergTable(node, table);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(TableIf.class));
+        setIcebergSource(node, source);
 
         Map<Integer, String> defaults = node.getBase64EncodedInitialDefaultsForScan();
         Assert.assertTrue(defaults.isEmpty());
+    }
+
+    @Test
+    public void testInitialDefaultMetadataUsesStatementPinnedSchemaAfterCacheInvalidation() throws Exception {
+        Schema pinnedSchema = new Schema(11, List.of(Types.NestedField.optional("binary_default")
+                .withId(7)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                .build()));
+        Schema refreshedSchema = new Schema(12,
+                List.of(Types.NestedField.optional(8, "replacement", Types.IntegerType.get())));
+        Table refreshedTable = Mockito.mock(Table.class);
+        Mockito.when(refreshedTable.schema()).thenReturn(refreshedSchema);
+        Mockito.when(refreshedTable.schemas()).thenReturn(Map.of(
+                pinnedSchema.schemaId(), pinnedSchema,
+                refreshedSchema.schemaId(), refreshedSchema));
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(targetTable.getName()).thenReturn("tbl");
+        Mockito.when(targetTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, refreshedTable);
+        setIcebergSource(node, source);
+
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        statementContext.setSnapshot(new MvccTableInfo(targetTable), new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(1L, pinnedSchema.schemaId()))));
+        try {
+            Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="),
+                    node.getBase64EncodedInitialDefaultsForScan());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
@@ -263,6 +323,12 @@ public class IcebergScanNodeTest {
         Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
         icebergTableField.setAccessible(true);
         icebergTableField.set(node, table);
+    }
+
+    private static void setIcebergSource(IcebergScanNode node, IcebergSource source) throws Exception {
+        Field sourceField = IcebergScanNode.class.getDeclaredField("source");
+        sourceField.setAccessible(true);
+        sourceField.set(node, source);
     }
 
     @Test

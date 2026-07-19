@@ -2166,13 +2166,19 @@ const ColumnDefinition* TableColumnMapper::_find_file_field(
         !_options.allow_idless_complex_wrapper_projection || table_column.children.empty()) {
         return matched;
     }
-    const auto* wrapper = find_column_by_name(table_column, file_schema);
-    if (wrapper == nullptr || wrapper->has_identifier_field_id() || wrapper->children.empty() ||
-        !has_shared_descendant_field_id(table_column, *wrapper)) {
-        return nullptr;
+    const ColumnDefinition* wrapper = nullptr;
+    for (const auto& candidate : file_schema) {
+        if (candidate.has_identifier_field_id() || candidate.children.empty() ||
+            !has_shared_descendant_field_id(table_column, candidate)) {
+            continue;
+        }
+        if (wrapper != nullptr) {
+            return nullptr;
+        }
+        wrapper = &candidate;
     }
     // Iceberg Parquet's PruneColumns retains an ID-less complex wrapper when a nested field ID is
-    // selected. ORC instead synthesizes the missing parent, so this fallback is opt-in by format.
+    // selected. Descendant IDs, not aliases, identify that wrapper; ambiguity remains unmapped.
     return wrapper;
 }
 

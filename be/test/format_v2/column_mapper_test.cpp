@@ -274,6 +274,22 @@ TEST(ColumnMapperTest, ParquetRetainsIdlessComplexWrapperWithNestedFieldId) {
     EXPECT_FALSE(orc_mapper.mappings()[0].file_local_id.has_value());
 }
 
+TEST(ColumnMapperTest, ParquetDescendantIdRetainsWrapperWithAuthoritativeEmptyMapping) {
+    auto table_struct = struct_col("s", 10, {field_id_col("a", 2, i32())});
+    table_struct.has_name_mapping = true;
+    auto file_struct = struct_name_col("s", {field_id_col("a", 2, i32(), 0)}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID,
+                              .allow_idless_complex_wrapper_projection = true});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_TRUE(mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_EQ(*mapper.mappings()[0].file_local_id, 0);
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].child_mappings[0].file_local_id.has_value());
+}
+
 TEST(ColumnMapperTest, ParquetRetainsRecursiveIdlessWrapperWithNestedFieldId) {
     auto table_inner = struct_col("inner", 20, {field_id_col("leaf", 30, i32())});
     auto table_outer = struct_col("outer", 10, {table_inner});

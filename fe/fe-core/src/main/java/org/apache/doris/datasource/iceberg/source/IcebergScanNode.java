@@ -40,12 +40,15 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.EqualityDelete;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -554,9 +557,17 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
         if (selectedSnapshot == null) {
-            // A schema-only update does not create a data snapshot. Ordinary scans expose current
-            // table columns, so their default metadata must come from that same current schema.
-            return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
+            Optional<MvccSnapshot> mvccSnapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+            Schema scanSchema = icebergTable.schema();
+            if (mvccSnapshot.isPresent() && mvccSnapshot.get() instanceof IcebergMvccSnapshot) {
+                long schemaId = ((IcebergMvccSnapshot) mvccSnapshot.get())
+                        .getSnapshotCacheValue().getSnapshot().getSchemaId();
+                scanSchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
+            }
+            // The statement snapshot produced the target columns; cache invalidation must not
+            // let initial-default metadata advance to a different schema during the same scan.
+            return IcebergUtils.getBase64EncodedInitialDefaults(
+                    Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan is null"));
         }
         TableScan tableScan = createTableScan();
         Snapshot snapshot = tableScan.snapshot();

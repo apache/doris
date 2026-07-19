@@ -108,6 +108,80 @@ bool find_file_field_idx_by_name_mapping(
     return table_field.__isset.name && try_match(table_field.name);
 }
 
+bool table_subtree_contains_field_id(const schema::external::TField& field, int32_t field_id) {
+    if (field.id == field_id) {
+        return true;
+    }
+    if (!field.__isset.nestedField) {
+        return false;
+    }
+    switch (field.type.type) {
+    case TPrimitiveType::STRUCT:
+        if (field.nestedField.__isset.struct_field) {
+            for (const auto& child : field.nestedField.struct_field.fields) {
+                if (child.field_ptr != nullptr &&
+                    table_subtree_contains_field_id(*child.field_ptr, field_id)) {
+                    return true;
+                }
+            }
+        }
+        break;
+    case TPrimitiveType::ARRAY:
+        if (field.nestedField.__isset.array_field &&
+            field.nestedField.array_field.__isset.item_field &&
+            field.nestedField.array_field.item_field.field_ptr != nullptr) {
+            return table_subtree_contains_field_id(
+                    *field.nestedField.array_field.item_field.field_ptr, field_id);
+        }
+        break;
+    case TPrimitiveType::MAP:
+        if (field.nestedField.__isset.map_field) {
+            const auto& map = field.nestedField.map_field;
+            if (map.__isset.key_field && map.key_field.field_ptr != nullptr &&
+                table_subtree_contains_field_id(*map.key_field.field_ptr, field_id)) {
+                return true;
+            }
+            if (map.__isset.value_field && map.value_field.field_ptr != nullptr) {
+                return table_subtree_contains_field_id(*map.value_field.field_ptr, field_id);
+            }
+        }
+        break;
+    default:
+        break;
+    }
+    return false;
+}
+
+bool has_shared_descendant_field_id(const schema::external::TField& table_field,
+                                    const FieldSchema& file_field) {
+    for (const auto& file_child : file_field.children) {
+        if ((file_child.field_id != -1 &&
+             table_subtree_contains_field_id(table_field, file_child.field_id)) ||
+            has_shared_descendant_field_id(table_field, file_child)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::optional<size_t> find_unique_idless_wrapper(
+        const schema::external::TField& table_field,
+        const std::vector<FieldSchema>& parquet_fields_schema) {
+    std::optional<size_t> match;
+    for (size_t idx = 0; idx < parquet_fields_schema.size(); ++idx) {
+        const auto& candidate = parquet_fields_schema[idx];
+        if (candidate.field_id != -1 || candidate.children.empty() ||
+            !has_shared_descendant_field_id(table_field, candidate)) {
+            continue;
+        }
+        if (match.has_value()) {
+            return std::nullopt;
+        }
+        match = idx;
+    }
+    return match;
+}
+
 } // namespace
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
@@ -611,6 +685,13 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
             if (id_it != file_column_id_idx_map.end()) {
                 file_column_idx = id_it->second;
                 matched = true;
+            } else if (auto wrapper = find_unique_idless_wrapper(*table_field.field_ptr,
+                                                                 parquet_fields_schema);
+                       wrapper.has_value()) {
+                // Parquet may retain a selected struct without its own ID; a unique descendant-ID
+                // match is authoritative even when Iceberg name mapping intentionally has no alias.
+                file_column_idx = *wrapper;
+                matched = true;
             }
         } else {
             matched = find_file_field_idx_by_name_mapping(
@@ -715,6 +796,12 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
                 auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
                 if (id_it != file_column_id_idx_map.end()) {
                     file_column_idx = id_it->second;
+                    matched = true;
+                } else if (auto wrapper = find_unique_idless_wrapper(*table_field.field_ptr,
+                                                                     parquet_field.children);
+                           wrapper.has_value()) {
+                    // Apply the same Parquet wrapper invariant at every struct recursion depth.
+                    file_column_idx = *wrapper;
                     matched = true;
                 }
             } else {
