@@ -107,14 +107,16 @@ static Status validate_native_schema_structure(
         if (!schema.__isset.repetition_type) {
             return Status::InvalidArgument("Schema element {} has no repetition type", pos);
         }
-        if (schema.__isset.type == schema.__isset.num_children) {
-            // Every non-root node is exactly one of primitive or group. Rejecting both missing and
-            // dual kind fields prevents the parser from guessing based on a default child count.
+        const bool has_children = schema.__isset.num_children && schema.num_children > 0;
+        if (schema.__isset.type == has_children) {
+            // Some legacy parquet-cpp files explicitly encode num_children=0 on primitive nodes.
+            // Only a positive count denotes a group, preserving strict rejection of real dual-kind
+            // nodes without dropping those otherwise valid files.
             return Status::InvalidArgument("Schema element {} has ambiguous primitive/group kind",
                                            pos);
         }
-        if (schema.__isset.num_children && schema.num_children <= 0) {
-            return Status::InvalidArgument("Group schema element {} has no children", pos);
+        if (schema.__isset.num_children && schema.num_children < 0) {
+            return Status::InvalidArgument("Schema element {} has a negative child count", pos);
         }
         const int children = num_children_node(schemas[pos]);
         if (children < 0 || static_cast<size_t>(children) > schemas.size() - pos - 1) {

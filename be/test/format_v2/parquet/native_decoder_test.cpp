@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/parquet_timestamp.h"
 #include "format_v2/parquet/reader/native/byte_array_dict_decoder.h"
 #include "format_v2/parquet/reader/native/column_reader.h"
 #include "format_v2/parquet/reader/native/decoder.h"
@@ -300,6 +301,54 @@ Status load_malformed_nested_page(tparquet::PageHeader header, const std::vector
     return chunk_reader.load_page_nested_rows(rep_levels, 1, &result_rows, &cross_page);
 }
 
+Status materialize_plain_int96(const std::vector<ParquetInt96Timestamp>& values,
+                               const std::vector<uint8_t>& filter_values = {}) {
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE;
+    header.__set_compressed_page_size(values.size() * sizeof(ParquetInt96Timestamp));
+    header.__set_uncompressed_page_size(values.size() * sizeof(ParquetInt96Timestamp));
+    header.__isset.data_page_header = true;
+    header.data_page_header.__set_num_values(values.size());
+    header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    auto bytes = serialize_page(
+            header, std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(values.data()),
+                                         reinterpret_cast<const uint8_t*>(values.data()) +
+                                                 values.size() * sizeof(ParquetInt96Timestamp)));
+    MemoryBufferedReader reader(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT96);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(values.size());
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT96;
+    ParquetPageReadContext page_context(false, "");
+    ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, values.size(),
+                                                 nullptr, page_context);
+    RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.load_page_data());
+
+    DataTypeDateTimeV2 type(6);
+    auto column = type.create_column();
+    ParquetDecodeContext decode_context;
+    decode_context.physical_type = ParquetPhysicalType::INT96;
+    static const auto utc = cctz::utc_time_zone();
+    decode_context.timezone = &utc;
+    ParquetMaterializationState state;
+    state.enable_strict_mode = true;
+    FilterMap filter;
+    RETURN_IF_ERROR(filter.init(filter_values.empty() ? nullptr : filter_values.data(),
+                                filter_values.size(), false));
+    ColumnSelectVector select_vector;
+    const std::vector<uint16_t> run_length_null_map {static_cast<uint16_t>(values.size()), 0};
+    RETURN_IF_ERROR(select_vector.init(run_length_null_map, values.size(), nullptr, &filter, 0));
+    return chunk_reader.materialize_values(column, *type.get_serde(), decode_context, state,
+                                           select_vector);
+}
+
 TEST(ParquetV2NativeDecoderTest, ByteArrayDictionaryReferencesOwnedPageAndValidatesIndices) {
     int32_t dictionary_length = 0;
     auto dictionary = make_byte_array_dictionary({"alpha", "beta"}, &dictionary_length);
@@ -494,6 +543,14 @@ TEST(ParquetV2NativeDecoderTest, NonStrictLegacyTimestampsKeepDefaultOnOverflow)
     integer_field.physical_type = tparquet::Type::INT64;
     EXPECT_FALSE(preserves_timestamp_conversion_default_for_test(
             integer_field, make_nullable(std::make_shared<DataTypeInt64>()), false));
+}
+
+TEST(ParquetV2NativeDecoderTest, FastInt96RejectsInvalidNanosOfDay) {
+    EXPECT_TRUE(materialize_plain_int96({{-1, 2440588}}).is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_TRUE(materialize_plain_int96({{86400000000000LL, 2440588}})
+                        .is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_TRUE(materialize_plain_int96({{0, 2440588}, {-1, 2440588}}, {0, 1})
+                        .is<ErrorCode::DATA_QUALITY_ERROR>());
 }
 
 TEST(ParquetV2NativeDecoderTest, NonStrictLocalTimestampDefaultsBecomeNull) {
@@ -1217,7 +1274,8 @@ TEST(ParquetV2NativeDecoderTest, ByteStreamSplitRejectsPartialRowsAtPageBoundary
 Status read_scripted_map(const DataTypePtr& key_type, size_t key_rows, size_t value_rows,
                          size_t key_values, size_t value_values,
                          std::vector<level_t> key_rep_levels, std::vector<level_t> value_rep_levels,
-                         bool value_eof) {
+                         bool value_eof, std::vector<level_t> key_def_levels = {},
+                         std::vector<level_t> value_def_levels = {}) {
     auto value_type = make_nullable(std::make_shared<DataTypeInt32>());
     auto map_type = std::make_shared<DataTypeMap>(key_type, value_type);
     ColumnPtr column = map_type->create_column();
@@ -1228,12 +1286,17 @@ Status read_scripted_map(const DataTypePtr& key_type, size_t key_rows, size_t va
     field.repetition_level = 1;
     field.repeated_parent_def_level = 0;
 
-    auto key_reader = std::make_unique<ScriptedColumnReader>(key_rows, key_values, true,
-                                                             std::move(key_rep_levels),
-                                                             std::vector<level_t>(key_values, 1));
-    auto value_reader = std::make_unique<ScriptedColumnReader>(
-            value_rows, value_values, value_eof, std::move(value_rep_levels),
-            std::vector<level_t>(value_values, 1));
+    if (key_def_levels.empty()) {
+        key_def_levels.assign(key_rep_levels.size(), 1);
+    }
+    if (value_def_levels.empty()) {
+        value_def_levels.assign(value_rep_levels.size(), 1);
+    }
+    auto key_reader = std::make_unique<ScriptedColumnReader>(
+            key_rows, key_values, true, std::move(key_rep_levels), std::move(key_def_levels));
+    auto value_reader = std::make_unique<ScriptedColumnReader>(value_rows, value_values, value_eof,
+                                                               std::move(value_rep_levels),
+                                                               std::move(value_def_levels));
     MapColumnReader reader(scripted_row_ranges(), key_rows, nullptr, nullptr);
     RETURN_IF_ERROR(reader.init(std::move(key_reader), std::move(value_reader), &field));
 
@@ -1248,7 +1311,19 @@ Status read_scripted_map(const DataTypePtr& key_type, size_t key_rows, size_t va
 
 TEST(ParquetV2NativeDecoderTest, MapReaderUsesKeyShapeForNestedValues) {
     auto int_type = std::make_shared<DataTypeInt32>();
-    EXPECT_TRUE(read_scripted_map(int_type, 1, 1, 2, 2, {0, 1}, {0, 0}, true).ok());
+    EXPECT_TRUE(read_scripted_map(int_type, 1, 1, 2, 2, {0, 1}, {0, 2, 1}, true).ok());
+}
+
+TEST(ParquetV2NativeDecoderTest, MapReaderRejectsShiftedEntryDistribution) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    EXPECT_TRUE(read_scripted_map(int_type, 2, 2, 4, 4, {0, 1, 0, 1}, {0, 1, 1, 0}, true)
+                        .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, MapReaderRejectsShiftedEntryPresence) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    EXPECT_TRUE(read_scripted_map(int_type, 2, 2, 2, 2, {0, 0}, {0, 0}, true, {0, 1}, {1, 0})
+                        .is<ErrorCode::CORRUPTION>());
 }
 
 TEST(ParquetV2NativeDecoderTest, ComplexReadersRejectMalformedSiblingCounts) {
@@ -1309,6 +1384,37 @@ TEST(ParquetV2NativeDecoderTest, StructReaderRejectsShiftedRepeatedParentShape) 
             2, 3, true, std::vector<level_t> {0, 1, 0}, std::vector<level_t> {0, 0, 0});
     children["b"] = std::make_unique<ScriptedColumnReader>(
             2, 3, true, std::vector<level_t> {0, 0, 1}, std::vector<level_t> {0, 0, 0});
+    StructColumnReader reader(scripted_row_ranges(), 2, nullptr, nullptr);
+    ASSERT_TRUE(reader.init(std::move(children), &field).ok());
+    auto root = std::make_shared<NativeStructSchemaNode>();
+    root->add_child("a", "a", std::make_shared<NativeScalarSchemaNode>());
+    root->add_child("b", "b", std::make_shared<NativeScalarSchemaNode>());
+    FilterMap filter;
+    size_t read_rows = 0;
+    bool eof = false;
+    EXPECT_TRUE(
+            reader.read_column_data(column, struct_type, root, filter, 2, &read_rows, &eof, false)
+                    .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, StructReaderRejectsShiftedOptionalParentPresence) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    ColumnPtr column = struct_type->create_column();
+    NativeFieldSchema field;
+    field.name = "s";
+    field.data_type = struct_type;
+    field.definition_level = 1;
+    field.children.resize(2);
+    field.children[0].name = "a";
+    field.children[1].name = "b";
+
+    std::unordered_map<std::string, std::unique_ptr<ColumnReader>> children;
+    children["a"] = std::make_unique<ScriptedColumnReader>(2, 2, true, std::vector<level_t> {0, 0},
+                                                           std::vector<level_t> {0, 1});
+    children["b"] = std::make_unique<ScriptedColumnReader>(2, 2, true, std::vector<level_t> {0, 0},
+                                                           std::vector<level_t> {1, 0});
     StructColumnReader reader(scripted_row_ranges(), 2, nullptr, nullptr);
     ASSERT_TRUE(reader.init(std::move(children), &field).ok());
     auto root = std::make_shared<NativeStructSchemaNode>();
@@ -1739,6 +1845,46 @@ TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsIndexPageBeforeInitializingData
     ASSERT_TRUE(init_status.ok()) << init_status;
     EXPECT_EQ(chunk_reader.remaining_num_values(), 1);
     ASSERT_TRUE(chunk_reader.load_page_data().ok());
+}
+
+TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsUnknownAuxiliaryPage) {
+    tparquet::PageHeader unknown_header;
+    unknown_header.type = static_cast<tparquet::PageType::type>(127);
+    unknown_header.__set_compressed_page_size(3);
+    unknown_header.__set_uncompressed_page_size(3);
+    auto bytes = serialize_page(unknown_header, {1, 2, 3});
+
+    tparquet::PageHeader data_header;
+    data_header.type = tparquet::PageType::DATA_PAGE;
+    data_header.__set_compressed_page_size(sizeof(int32_t));
+    data_header.__set_uncompressed_page_size(sizeof(int32_t));
+    data_header.__isset.data_page_header = true;
+    data_header.data_page_header.__set_num_values(1);
+    data_header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    data_header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    data_header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    const int32_t value = 42;
+    auto data_bytes = serialize_page(
+            data_header,
+            std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(&value),
+                                 reinterpret_cast<const uint8_t*>(&value) + sizeof(value)));
+    bytes.insert(bytes.end(), data_bytes.begin(), data_bytes.end());
+
+    MemoryBufferedReader reader(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(1);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
+                                                 context);
+    const auto init_status = chunk_reader.init();
+    ASSERT_TRUE(init_status.ok()) << init_status;
+    EXPECT_EQ(chunk_reader.remaining_num_values(), 1);
 }
 
 TEST(ParquetV2NativeDecoderTest, LegacyDataPageV2OverridesFalseCompressedFlag) {

@@ -724,6 +724,10 @@ TEST(ParquetSchemaTest, NativeSchemaRejectsAmbiguousKindsAndMissingRepetition) {
     dual_kind.__set_num_children(1);
     EXPECT_FALSE(descriptor.parse_from_thrift({valid_root(), dual_kind}).ok());
 
+    auto legacy_zero_children = valid_leaf();
+    legacy_zero_children.__set_num_children(0);
+    EXPECT_TRUE(descriptor.parse_from_thrift({valid_root(), legacy_zero_children}).ok());
+
     auto missing_kind = valid_leaf();
     missing_kind.__isset.type = false;
     EXPECT_FALSE(descriptor.parse_from_thrift({valid_root(), missing_kind}).ok());

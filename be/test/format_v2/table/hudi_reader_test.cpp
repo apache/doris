@@ -24,9 +24,11 @@
 #include <parquet/arrow/writer.h>
 
 #include <filesystem>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -121,6 +123,23 @@ TTableFormatFileDesc hudi_table_format_desc(std::optional<int64_t> schema_id) {
     table_format_params.__set_hudi_params(hudi_params);
     return table_format_params;
 }
+
+class SlowInitTableReader final : public TableReader {
+public:
+    Status init(TableReadOptions&& options) override {
+        RETURN_IF_ERROR(TableReader::init(std::move(options)));
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.init_timer);
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        return Status::OK();
+    }
+
+    Status prepare_split(const SplitReadOptions&) override {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        return Status::OK();
+    }
+};
 
 // Scenario: FileScannerV2 Hudi native reader uses the split schema id to annotate the physical
 // file schema before TableColumnMapper runs. This keeps schema-evolved Hudi files on field-id
@@ -298,6 +317,48 @@ TEST(HudiHybridReaderTest, NativeCountStarReportsMetadataRowsThroughHybridReader
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(HudiHybridReaderTest, FirstNativeAndJniChildInitAreCountedOnce) {
+    RuntimeProfile profile("test_profile");
+    TFileScanRangeParams scan_params;
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    hudi::HudiHybridReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = nullptr,
+                                    .scanner_profile = &profile,
+                                    .file_slot_descs = nullptr,
+                                    .push_down_agg_type = TPushAggOp::NONE,
+                                    .condition_cache_digest = 0,
+                            })
+                        .ok());
+    reader.TEST_set_child_reader_factories([] { return std::make_unique<SlowInitTableReader>(); },
+                                           [] { return std::make_unique<SlowInitTableReader>(); });
+
+    auto* total = profile.get_counter("TableReader");
+    auto* init = profile.get_counter("InitTime");
+    ASSERT_NE(total, nullptr);
+    ASSERT_NE(init, nullptr);
+    auto verify_first_split = [&](FileFormat format, TFileFormatType::type thrift_format) {
+        SplitReadOptions split;
+        split.current_split_format = format;
+        split.current_range.__set_format_type(thrift_format);
+        const int64_t total_before = total->value();
+        const int64_t init_before = init->value();
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        const int64_t total_delta = total->value() - total_before;
+        const int64_t init_delta = init->value() - init_before;
+        EXPECT_GE(init_delta, std::chrono::milliseconds(25).count() * 1000 * 1000);
+        // A nested hybrid timer would add the 30 ms child init to total a second time.
+        EXPECT_LT(total_delta - init_delta, std::chrono::milliseconds(15).count() * 1000 * 1000);
+    };
+    verify_first_split(FileFormat::PARQUET, TFileFormatType::FORMAT_PARQUET);
+    verify_first_split(FileFormat::JNI, TFileFormatType::FORMAT_JNI);
 }
 
 } // namespace

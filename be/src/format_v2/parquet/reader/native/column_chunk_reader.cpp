@@ -143,23 +143,12 @@ namespace {
 Status append_v2_int96_datetime(ColumnDateTimeV2::Container& data,
                                 const ParquetInt96Timestamp& value,
                                 const cctz::time_zone& timezone) {
-    static constexpr int32_t JULIAN_EPOCH_OFFSET_DAYS = 2440588;
-    static constexpr int64_t MICROS_PER_DAY = 86400000000LL;
     static constexpr int64_t MICROS_PER_SECOND = 1000000LL;
 
-    // Arrow normalized out-of-day INT96 nanos before the V2 native path replaced it. Preserve that
-    // file-compatibility invariant here; rejecting the raw nanos loses otherwise valid year-0 and
-    // pre-epoch timestamps used by existing Parquet files.
-    const __int128 days = static_cast<__int128>(value.julian_day) - JULIAN_EPOCH_OFFSET_DAYS;
-    // The compatibility cast truncates the signed nanos field itself. Normalizing it to a positive
-    // time-of-day first changes negative out-of-day values by one microsecond.
-    const __int128 timestamp_micros = days * MICROS_PER_DAY + value.nanos_of_day / 1000;
-    if (timestamp_micros < std::numeric_limits<int64_t>::min() ||
-        timestamp_micros > std::numeric_limits<int64_t>::max()) {
-        return Status::DataQualityError("Parquet INT96 timestamp overflows microseconds");
-    }
-
-    const int64_t micros = static_cast<int64_t>(timestamp_micros);
+    int64_t micros = 0;
+    // Keep the fast ColumnDateTimeV2 path on the shared INT96 contract so plain, dictionary, and
+    // sparse selections cannot materialize an invalid nanos-of-day that SerDe would reject.
+    RETURN_IF_ERROR(parquet_int96_timestamp_micros(value, &micros));
     int64_t epoch_seconds = micros / MICROS_PER_SECOND;
     int64_t micros_of_second = micros % MICROS_PER_SECOND;
     if (micros_of_second < 0) {

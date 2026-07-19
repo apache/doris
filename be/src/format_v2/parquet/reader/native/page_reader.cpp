@@ -73,6 +73,10 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_validate_page_header(uint32_t h
         matching_layout = has_index && !has_v1 && !has_v2 && !has_dictionary;
         break;
     default:
+        // Forward-compatible auxiliary pages have no known page-specific member. Their bounded
+        // payload can be skipped safely; accepting a known member here would let the enum and
+        // decoder layout disagree.
+        matching_layout = !has_v1 && !has_v2 && !has_dictionary && !has_index;
         break;
     }
     if (UNLIKELY(!matching_layout)) {

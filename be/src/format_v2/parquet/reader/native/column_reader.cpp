@@ -1520,6 +1520,33 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, const DataType
         return Status::OK();
     }
 
+    const auto parent_shape = [this](const ColumnReader& reader) {
+        std::vector<std::pair<level_t, bool>> shape;
+        const auto& rep_levels = reader.get_rep_level();
+        const auto& def_levels = reader.get_def_level();
+        if (rep_levels.size() != def_levels.size()) {
+            return shape;
+        }
+        shape.reserve(rep_levels.size());
+        for (size_t slot = 0; slot < rep_levels.size(); ++slot) {
+            if (rep_levels[slot] <= _field_schema->repetition_level &&
+                def_levels[slot] >= _field_schema->repeated_parent_def_level) {
+                // MAP siblings may have child-local collections and nullness. At this boundary,
+                // only the outer entry distribution and whether that entry exists must agree.
+                shape.emplace_back(rep_levels[slot],
+                                   def_levels[slot] >= _field_schema->definition_level);
+            }
+        }
+        return shape;
+    };
+    if (UNLIKELY(_key_reader->get_rep_level().size() != _key_reader->get_def_level().size() ||
+                 _value_reader->get_rep_level().size() != _value_reader->get_def_level().size())) {
+        return Status::Corruption("Parquet map sibling level counts differ");
+    }
+    if (UNLIKELY(parent_shape(*_key_reader) != parent_shape(*_value_reader))) {
+        return Status::Corruption("Parquet map key/value outer entry shapes differ");
+    }
+
     if (UNLIKELY(key_column->size() != value_column->size())) {
         return Status::Corruption("Parquet map key/value entry counts differ: {} vs {}",
                                   key_column->size(), value_column->size());
@@ -1602,17 +1629,23 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, const DataT
     size_t not_missing_orig_column_size = 0;
     std::vector<size_t> missing_column_idxs {};
     std::vector<size_t> skip_reading_column_idxs {};
-    std::vector<level_t> reference_parent_shape;
+    std::vector<std::pair<level_t, bool>> reference_parent_shape;
 
     auto parent_shape = [this](const ColumnReader& reader) {
-        std::vector<level_t> shape;
+        std::vector<std::pair<level_t, bool>> shape;
         const auto& rep_levels = reader.get_rep_level();
+        const auto& def_levels = reader.get_def_level();
+        if (rep_levels.size() != def_levels.size()) {
+            return shape;
+        }
         shape.reserve(rep_levels.size());
-        for (const level_t rep_level : rep_levels) {
+        for (size_t slot = 0; slot < rep_levels.size(); ++slot) {
             // Deeper repetitions belong to a nested child; only starts visible at this STRUCT's
-            // repeated-parent boundary determine how sibling values are paired.
-            if (rep_level <= _field_schema->repetition_level) {
-                shape.push_back(rep_level);
+            // boundary and the optional parent's presence determine how siblings are paired.
+            if (rep_levels[slot] <= _field_schema->repetition_level &&
+                def_levels[slot] >= _field_schema->repeated_parent_def_level) {
+                shape.emplace_back(rep_levels[slot],
+                                   def_levels[slot] >= _field_schema->definition_level);
             }
         }
         return shape;
@@ -1657,6 +1690,12 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, const DataT
                     &field_rows, &field_eof, is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
+            if (UNLIKELY(_child_readers[file_name]->get_rep_level().size() !=
+                         _child_readers[file_name]->get_def_level().size())) {
+                return Status::Corruption(
+                        "Parquet struct child '{}' has mismatched repetition/definition levels",
+                        file_name);
+            }
             reference_parent_shape = parent_shape(*_child_readers[file_name]);
             /*
              * Considering the issue in the `_read_nested_column` function where data may span across pages, leading
@@ -1679,6 +1718,12 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, const DataT
                 // STRUCT siblings must advance the same logical rows before any result is exposed.
                 return Status::Corruption("Parquet struct child '{}' returned {} rows, expected {}",
                                           file_name, field_rows, *read_rows);
+            }
+            if (UNLIKELY(_child_readers[file_name]->get_rep_level().size() !=
+                         _child_readers[file_name]->get_def_level().size())) {
+                return Status::Corruption(
+                        "Parquet struct child '{}' has mismatched repetition/definition levels",
+                        file_name);
             }
             if (UNLIKELY(parent_shape(*_child_readers[file_name]) != reference_parent_shape)) {
                 return Status::Corruption(
