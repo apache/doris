@@ -31,6 +31,7 @@ import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.MTMVPartitionExpander;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -56,6 +57,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -523,6 +525,27 @@ public class MTMV extends OlapTable {
     }
 
     /**
+     * Normalize query-used base table partitions to the effective filter consumed by
+     * partition-mapping generation.
+     */
+    public Map<List<String>, Set<String>> getEffectiveQueryUsedBaseTablePartitionMap(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
+        return getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap, null);
+    }
+
+    private Map<List<String>, Set<String>> getEffectiveQueryUsedBaseTablePartitionMap(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            Map<String, PartitionItem> mvPartitionItems) throws AnalysisException {
+        if (queryUsedBaseTablePartitionMap.isEmpty()
+                || mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
+            return queryUsedBaseTablePartitionMap;
+        }
+        return MTMVPartitionExpander.expandToMvPartitionGranularity(queryUsedBaseTablePartitionMap,
+                mvPartitionItems != null ? mvPartitionItems : getAndCopyPartitionItems(),
+                mvPartitionInfo.getPctTables());
+    }
+
+    /**
      * Calculate the partition and associated partition mapping relationship of the MTMV
      * It is the result of real-time comparison calculation, so there may be some costs,
      * so it should be called with caution
@@ -530,15 +553,25 @@ public class MTMV extends OlapTable {
      * @return mvPartitionName ==> pctTable ==> pctPartitionName
      * @throws AnalysisException
      */
-    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings() throws AnalysisException {
+    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
         long start = System.currentTimeMillis();
+        // For EXPR-type partitions with RANGE base tables, expand the query-used partition
+        // filter to MV partition granularity. This ensures complete partition mappings per
+        // MV partition (needed for isSyncWithPartitions correctness) while skipping
+        // irrelevant MV partitions entirely (the performance optimization).
+        // For nested MVs where pctTable is not in the filter, the expanded map is empty,
+        // so the pipeline runs without filtering (full computation) — correct behavior.
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        Map<List<String>, Set<String>> effectiveFilter
+                = getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap, mvPartitionItems);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns());
-        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
+                        effectiveFilter);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));

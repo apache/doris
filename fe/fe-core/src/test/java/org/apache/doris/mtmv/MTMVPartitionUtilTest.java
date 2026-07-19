@@ -68,7 +68,8 @@ public class MTMVPartitionUtilTest {
 
         mtmvUtilStatic = Mockito.mockStatic(MTMVUtil.class);
         refreshContextStatic = Mockito.mockStatic(MTMVRefreshContext.class);
-        refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(Mockito.any(MTMV.class))).thenReturn(context);
+        refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(Mockito.any(MTMV.class), Mockito.anyMap()))
+                .thenReturn(context);
 
         Mockito.when(mtmv.getRelation()).thenReturn(relation);
 
