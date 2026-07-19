@@ -2003,7 +2003,8 @@ TEST_F(GeoTypesTest, within) {
     {
         // Point within Polygon with hole
         const char* wkt =
-                "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10), (20 20, 40 20, 40 40, 20 40, 20 20))";
+                "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10), (20 20, 40 20, 40 40, 20 40, 20 "
+                "20))";
         auto polygon(GeoShape::from_wkt(wkt, strlen(wkt), status));
         EXPECT_EQ(GEO_PARSE_OK, status);
         EXPECT_NE(nullptr, polygon.get());
@@ -2074,7 +2075,8 @@ TEST_F(GeoTypesTest, within) {
     }
     {
         // LineString within MultiPolygon
-        const char* wkt = "MULTIPOLYGON(((0 0, 0 10, 10 10, 10 0, 0 0)), ((15 5, 15 10, 20 10, 20 5, 15 5)))";
+        const char* wkt =
+                "MULTIPOLYGON(((0 0, 0 10, 10 10, 10 0, 0 0)), ((15 5, 15 10, 20 10, 20 5, 15 5)))";
         auto multipolygon(GeoShape::from_wkt(wkt, strlen(wkt), status));
         EXPECT_NE(nullptr, multipolygon.get());
 
@@ -2125,7 +2127,8 @@ TEST_F(GeoTypesTest, within) {
     }
     {
         // Polygon within MultiPolygon
-        const char* wkt = "MULTIPOLYGON(((0 0, 0 10, 10 10, 10 0, 0 0)), ((15 5, 15 10, 20 10, 20 5, 15 5)))";
+        const char* wkt =
+                "MULTIPOLYGON(((0 0, 0 10, 10 10, 10 0, 0 0)), ((15 5, 15 10, 20 10, 20 5, 15 5)))";
         auto multipolygon(GeoShape::from_wkt(wkt, strlen(wkt), status));
         EXPECT_NE(nullptr, multipolygon.get());
 
@@ -2166,11 +2169,13 @@ TEST_F(GeoTypesTest, within) {
     }
     {
         // MultiPolygon within MultiPolygon
-        const char* wkt_outer = "MULTIPOLYGON(((0 0, 0 10, 10 10, 10 0, 0 0)), ((15 5, 15 10, 20 10, 20 5, 15 5)))";
+        const char* wkt_outer =
+                "MULTIPOLYGON(((0 0, 0 10, 10 10, 10 0, 0 0)), ((15 5, 15 10, 20 10, 20 5, 15 5)))";
         auto outer(GeoShape::from_wkt(wkt_outer, strlen(wkt_outer), status));
         EXPECT_NE(nullptr, outer.get());
 
-        const char* wkt = "MULTIPOLYGON(((1 1, 1 9, 9 9, 9 1, 1 1)), ((16 6, 16 9, 19 9, 19 6, 16 6)))";
+        const char* wkt =
+                "MULTIPOLYGON(((1 1, 1 9, 9 9, 9 1, 1 1)), ((16 6, 16 9, 19 9, 19 6, 16 6)))";
         auto inner(GeoShape::from_wkt(wkt, strlen(wkt), status));
         EXPECT_EQ(GEO_PARSE_OK, status);
         EXPECT_TRUE(inner->within(outer.get()));
