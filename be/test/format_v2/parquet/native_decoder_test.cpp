@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "format_v2/parquet/reader/native/byte_array_dict_decoder.h"
@@ -450,6 +451,65 @@ TEST(ParquetV2NativeDecoderTest, LegacyConvertedTimestampsRemainUtcAdjusted) {
                             ->read_column_from_parquet(*column, *decoder, context, 1, state)
                             .ok());
         EXPECT_EQ(type.to_string(*column, 0), "1970-01-01 08:00:00");
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, GeospatialByteArrayAnnotationsDecodeAsRawBytes) {
+    const std::string wkb("\x01\x01\x00\x00\x00", 5);
+    for (const bool geometry : {true, false}) {
+        tparquet::LogicalType logical;
+        if (geometry) {
+            logical.__set_GEOMETRY(tparquet::GeometryType());
+        } else {
+            logical.__set_GEOGRAPHY(tparquet::GeographyType());
+        }
+
+        NativeFieldSchema field;
+        field.name = geometry ? "geometry" : "geography";
+        field.physical_type = tparquet::Type::BYTE_ARRAY;
+        field.parquet_schema.__set_logicalType(logical);
+        ParquetDecodeContext context;
+        ASSERT_TRUE(init_decode_context_for_test(field, nullptr, &context).ok());
+        EXPECT_EQ(context.physical_type, ParquetPhysicalType::BYTE_ARRAY);
+        EXPECT_EQ(context.logical_type, ParquetLogicalType::NONE);
+
+        DataTypeString type;
+        auto plain_column = type.create_column();
+        auto encoded = encode_plain_byte_arrays({wkb});
+        Slice plain_slice(encoded.data(), encoded.size());
+        std::unique_ptr<Decoder> plain_decoder;
+        ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::BYTE_ARRAY, tparquet::Encoding::PLAIN,
+                                         plain_decoder)
+                            .ok());
+        ASSERT_TRUE(plain_decoder->set_data(&plain_slice).ok());
+        ParquetMaterializationState plain_state;
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*plain_column, *plain_decoder, context, 1,
+                                                       plain_state)
+                            .ok());
+        ASSERT_EQ(plain_column->size(), 1);
+        EXPECT_EQ(plain_column->get_data_at(0).to_string_view(), wkb);
+
+        int32_t dictionary_length = 0;
+        auto dictionary = make_byte_array_dictionary({wkb, "unused"}, &dictionary_length);
+        ByteArrayDictDecoder dictionary_decoder;
+        ASSERT_TRUE(dictionary_decoder.set_dict(dictionary, dictionary_length, 2).ok());
+        char dictionary_index[] = {1, 2, 0};
+        Slice dictionary_slice(dictionary_index, sizeof(dictionary_index));
+        ASSERT_TRUE(dictionary_decoder.set_data(&dictionary_slice).ok());
+        context.encoding = ParquetValueEncoding::DICTIONARY;
+        auto dictionary_column = type.create_column();
+        ParquetMaterializationState dictionary_state;
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*dictionary_column, dictionary_decoder,
+                                                       context, 1, dictionary_state)
+                            .ok());
+        ASSERT_EQ(dictionary_column->size(), 1);
+        EXPECT_EQ(dictionary_column->get_data_at(0).to_string_view(), wkb);
+
+        field.physical_type = tparquet::Type::INT32;
+        EXPECT_TRUE(
+                init_decode_context_for_test(field, nullptr, &context).is<ErrorCode::CORRUPTION>());
     }
 }
 

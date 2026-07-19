@@ -200,6 +200,11 @@ Status validate_physical_annotation(const NativeFieldSchema& field) {
                                    schema.type_length == 2,
                            "FLOAT16");
         }
+        if (logical.__isset.GEOMETRY || logical.__isset.GEOGRAPHY) {
+            // Geospatial WKB has no Doris logical mapping here; keep its BYTE_ARRAY payload raw so
+            // reader validation preserves the physical fallback chosen by native schema inference.
+            return require(field.physical_type == tparquet::Type::BYTE_ARRAY, "geospatial");
+        }
         if (logical.__isset.UNKNOWN) {
             return Status::OK();
         }
