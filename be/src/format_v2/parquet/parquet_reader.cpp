@@ -57,68 +57,6 @@ struct ParquetReaderScanState {
     bool enable_strict_mode = false;
 };
 
-int64_t column_chunk_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
-    return column_metadata.has_dictionary_page()
-                   ? cast_set<int64_t>(column_metadata.dictionary_page_offset())
-                   : cast_set<int64_t>(column_metadata.data_page_offset());
-}
-
-Status validate_all_projected_leaves_supported(const ParquetColumnSchema& column_schema) {
-    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
-        if (!column_schema.type_descriptor.unsupported_reason.empty()) {
-            return Status::NotSupported("Unsupported parquet column '{}': {}", column_schema.name,
-                                        column_schema.type_descriptor.unsupported_reason);
-        }
-        return Status::OK();
-    }
-    for (const auto& child : column_schema.children) {
-        DORIS_CHECK(child != nullptr);
-        RETURN_IF_ERROR(validate_all_projected_leaves_supported(*child));
-    }
-    return Status::OK();
-}
-
-Status validate_projected_leaves_supported(const ParquetColumnSchema& column_schema,
-                                           const format::LocalColumnIndex& projection) {
-    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE ||
-        projection.project_all_children || projection.children.empty()) {
-        return validate_all_projected_leaves_supported(column_schema);
-    }
-    for (const auto& child_projection : projection.children) {
-        const auto child_it =
-                std::ranges::find_if(column_schema.children, [&](const auto& child_schema) {
-                    return child_schema->local_id == child_projection.local_id();
-                });
-        DORIS_CHECK(child_it != column_schema.children.end());
-        RETURN_IF_ERROR(validate_projected_leaves_supported(**child_it, child_projection));
-    }
-    return Status::OK();
-}
-
-Status validate_requested_columns_supported(
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request) {
-    auto validate_scan_column = [&](const format::LocalColumnIndex& projection) -> Status {
-        const auto local_id = projection.local_id();
-        if (local_id == format::ROW_POSITION_COLUMN_ID ||
-            local_id == format::GLOBAL_ROWID_COLUMN_ID) {
-            return Status::OK();
-        }
-        DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
-        DORIS_CHECK(file_schema[local_id] != nullptr);
-        return validate_projected_leaves_supported(*file_schema[local_id], projection);
-    };
-    for (const auto& column : request.predicate_columns) {
-        RETURN_IF_ERROR(validate_scan_column(column));
-    }
-    for (const auto& column : request.non_predicate_columns) {
-        if (!request.is_count_star_placeholder(column.column_id())) {
-            RETURN_IF_ERROR(validate_scan_column(column));
-        }
-    }
-    return Status::OK();
-}
-
 const ParquetColumnSchema& projected_root_schema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::LocalColumnIndex& projection) {
@@ -180,7 +118,7 @@ int timestamp_tz_scale(const ParquetTypeDescriptor& type_descriptor) {
 
 bool should_map_to_timestamp_tz(const ParquetColumnSchema& column_schema) {
     const auto& type_descriptor = column_schema.type_descriptor;
-    return type_descriptor.physical_type == ::parquet::Type::INT96 ||
+    return type_descriptor.physical_type == tparquet::Type::INT96 ||
            (type_descriptor.is_timestamp && type_descriptor.timestamp_is_adjusted_to_utc);
 }
 
@@ -262,8 +200,8 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
 
 static Status validate_minmax_aggregate_statistics(const ParquetColumnSchema& column_schema) {
     switch (column_schema.type_descriptor.physical_type) {
-    case ::parquet::Type::BYTE_ARRAY:
-    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
+    case tparquet::Type::BYTE_ARRAY:
+    case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
         // Arrow 17 does not expose Parquet's min/max exactness flags. Binary statistics may be
         // truncated bounds rather than values present in the file, so they are safe for pruning
         // but cannot be returned as exact aggregate results.

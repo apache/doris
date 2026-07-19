@@ -15,8 +15,6 @@
 
 #include "format_v2/parquet/parquet_scan.h"
 
-#include <parquet/encoding.h>
-
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -100,12 +98,6 @@ namespace {
 
 detail::PredicateConjunctSchedule build_predicate_conjunct_schedule(
         const format::FileScanRequest& request);
-
-int64_t column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
-    return column_metadata.has_dictionary_page()
-                   ? cast_set<int64_t>(column_metadata.dictionary_page_offset())
-                   : cast_set<int64_t>(column_metadata.data_page_offset());
-}
 
 bool is_dictionary_data_encoding(tparquet::Encoding::type encoding) {
     return encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
@@ -207,35 +199,6 @@ void collect_projected_leaf_column_ids(const ParquetColumnSchema& column_schema,
         DORIS_CHECK(child_it != column_schema.children.end());
         collect_projected_leaf_column_ids(**child_it, child_projection, leaf_column_ids);
     }
-}
-
-bool is_row_group_outside_range(const ::parquet::FileMetaData& metadata,
-                                const ParquetScanRange& scan_range, int row_group_idx) {
-    if (scan_range.size < 0) {
-        return false;
-    }
-    const int64_t range_start_offset = scan_range.start_offset;
-    const int64_t range_end_offset = range_start_offset + scan_range.size;
-    DORIS_CHECK(range_start_offset >= 0);
-    DORIS_CHECK(range_end_offset >= range_start_offset);
-    if (range_start_offset == 0 &&
-        (scan_range.file_size < 0 || range_end_offset >= scan_range.file_size)) {
-        return false;
-    }
-
-    auto row_group_metadata = metadata.RowGroup(row_group_idx);
-    DORIS_CHECK(row_group_metadata != nullptr);
-    DORIS_CHECK(row_group_metadata->num_columns() > 0);
-    const auto first_column = row_group_metadata->ColumnChunk(0);
-    const auto last_column = row_group_metadata->ColumnChunk(row_group_metadata->num_columns() - 1);
-    DORIS_CHECK(first_column != nullptr);
-    DORIS_CHECK(last_column != nullptr);
-    const int64_t row_group_start_offset = column_start_offset(*first_column);
-    const int64_t row_group_end_offset =
-            column_start_offset(*last_column) + last_column->total_compressed_size();
-    const int64_t row_group_mid_offset =
-            row_group_start_offset + (row_group_end_offset - row_group_start_offset) / 2;
-    return row_group_mid_offset < range_start_offset || row_group_mid_offset >= range_end_offset;
 }
 
 std::vector<format::LocalColumnIndex> request_scan_columns(const format::FileScanRequest& request) {
@@ -343,153 +306,6 @@ Status build_native_prefetch_ranges(
 }
 
 } // namespace detail
-
-namespace {
-
-Status select_row_groups_by_scan_range(const ::parquet::FileMetaData& metadata,
-                                       const ParquetScanRange& scan_range,
-                                       std::vector<int64_t>* row_group_first_rows,
-                                       std::vector<int>* selected_row_groups) {
-    DORIS_CHECK(row_group_first_rows != nullptr);
-    DORIS_CHECK(selected_row_groups != nullptr);
-    row_group_first_rows->assign(metadata.num_row_groups(), 0);
-    selected_row_groups->clear();
-    selected_row_groups->reserve(metadata.num_row_groups());
-    int64_t next_row_group_first_row = 0;
-    for (int row_group_idx = 0; row_group_idx < metadata.num_row_groups(); ++row_group_idx) {
-        (*row_group_first_rows)[row_group_idx] = next_row_group_first_row;
-        auto row_group_metadata = metadata.RowGroup(row_group_idx);
-        DORIS_CHECK(row_group_metadata != nullptr);
-        const int64_t row_group_rows = row_group_metadata->num_rows();
-        if (row_group_rows < 0) {
-            return Status::Corruption("Invalid negative row count in parquet row group {}",
-                                      row_group_idx);
-        }
-        next_row_group_first_row += row_group_rows;
-        if (!is_row_group_outside_range(metadata, scan_range, row_group_idx)) {
-            selected_row_groups->push_back(row_group_idx);
-        }
-    }
-    return Status::OK();
-}
-
-Status build_row_group_read_plans(
-        const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, const std::vector<int>& selected_row_groups,
-        const std::vector<int64_t>& row_group_first_rows, RowGroupScanPlan* plan,
-        const cctz::time_zone* timezone, const RuntimeState* runtime_state,
-        ParquetFileContext* file_context) {
-    DORIS_CHECK(plan != nullptr);
-    plan->row_groups.reserve(selected_row_groups.size());
-    std::unordered_set<int> requested_leaf_ids;
-    if (file_context != nullptr) {
-        for (const auto& projection : request_scan_columns(request)) {
-            const auto local_id = projection.local_id();
-            if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
-                continue;
-            }
-            collect_projected_leaf_column_ids(*file_schema[local_id], projection,
-                                              &requested_leaf_ids);
-        }
-    }
-    for (const auto row_group_idx : selected_row_groups) {
-        DORIS_CHECK(row_group_idx >= 0);
-        DORIS_CHECK(static_cast<size_t>(row_group_idx) < row_group_first_rows.size());
-        auto row_group_metadata = metadata.RowGroup(row_group_idx);
-        DORIS_CHECK(row_group_metadata != nullptr);
-        const int64_t row_group_rows = row_group_metadata->num_rows();
-        if (row_group_rows == 0) {
-            continue;
-        }
-
-        RowGroupReadPlan row_group_plan;
-        row_group_plan.row_group_id = row_group_idx;
-        row_group_plan.first_file_row = row_group_first_rows[row_group_idx];
-        row_group_plan.row_group_rows = row_group_rows;
-        if (file_context != nullptr) {
-            std::unordered_map<int, NativeParquetPageIndex> page_indexes;
-            if (can_use_parquet_page_index(request, runtime_state)) {
-                RETURN_IF_ERROR(file_context->load_native_page_indexes(
-                        row_group_idx, requested_leaf_ids, &page_indexes,
-                        &plan->pruning_stats.read_page_index_time,
-                        &plan->pruning_stats.parse_page_index_time));
-            }
-            RETURN_IF_ERROR(select_row_group_ranges_by_native_page_index(
-                    page_indexes, file_schema, request, row_group_rows,
-                    &row_group_plan.selected_ranges, &row_group_plan.page_skip_plans,
-                    &plan->pruning_stats, timezone, runtime_state));
-            for (auto& [leaf_column_id, indexes] : page_indexes) {
-                row_group_plan.offset_indexes.emplace(leaf_column_id,
-                                                      std::move(indexes.offset_index));
-            }
-        } else {
-            RETURN_IF_ERROR(select_row_group_ranges_by_page_index(
-                    file_reader, file_schema, request, row_group_idx, row_group_rows,
-                    &row_group_plan.selected_ranges, &row_group_plan.page_skip_plans,
-                    &plan->pruning_stats, timezone, runtime_state));
-        }
-        if (row_group_plan.selected_ranges.empty()) {
-            continue;
-        }
-        plan->pruning_stats.selected_row_ranges += row_group_plan.selected_ranges.size();
-        plan->row_groups.push_back(std::move(row_group_plan));
-    }
-    return Status::OK();
-}
-
-} // namespace
-
-Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
-                               ::parquet::ParquetFileReader* file_reader,
-                               const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-                               const format::FileScanRequest& request,
-                               const ParquetScanRange& scan_range, bool enable_bloom_filter,
-                               RowGroupScanPlan* plan, const cctz::time_zone* timezone,
-                               const RuntimeState* runtime_state,
-                               ParquetFileContext* file_context) {
-    DORIS_CHECK(plan != nullptr);
-    plan->row_groups.clear();
-    plan->pruning_stats = ParquetPruningStats {};
-
-    // Row-group planning flow:
-    //
-    //     parquet footer row groups
-    //              |
-    //              v
-    //     split byte-range candidates
-    //              |
-    //              v
-    //     row-group metadata pruning
-    //     statistics/ZoneMap -> dictionary -> bloom filter
-    //              |
-    //              v
-    //     page-index pruning per selected row group
-    //              |
-    //              v
-    //     RowGroupReadPlan with selected row ranges
-    //
-    // Metadata pruning removes whole row groups before readers are opened. Page index pruning runs
-    // only for remaining row groups and produces selected row ranges; the scan scheduler later skips
-    // gaps between those ranges, while row-level VExpr conjuncts still run on loaded batches for
-    // correctness.
-    std::vector<int64_t> row_group_first_rows;
-    std::vector<int> scan_range_selected_row_groups;
-    RETURN_IF_ERROR(select_row_groups_by_scan_range(metadata, scan_range, &row_group_first_rows,
-                                                    &scan_range_selected_row_groups));
-
-    std::vector<int> metadata_selected_row_groups;
-    RETURN_IF_ERROR(select_row_groups_by_metadata(
-            metadata, file_reader, file_schema, request, &scan_range_selected_row_groups,
-            &metadata_selected_row_groups, enable_bloom_filter, &plan->pruning_stats, timezone,
-            runtime_state));
-
-    RETURN_IF_ERROR(build_row_group_read_plans(metadata, file_reader, file_schema, request,
-                                               metadata_selected_row_groups, row_group_first_rows,
-                                               plan, timezone, runtime_state, file_context));
-    plan->pruning_stats.selected_row_groups = plan->row_groups.size();
-    return Status::OK();
-}
 
 namespace detail {
 

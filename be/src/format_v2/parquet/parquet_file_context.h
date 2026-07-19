@@ -15,14 +15,11 @@
 
 #pragma once
 
-#include <arrow/io/interfaces.h>
 #include <gen_cpp/parquet_types.h>
-#include <parquet/api/reader.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -72,17 +69,6 @@ struct ParquetPageCacheRange {
     int64_t end_offset() const { return offset + size; }
 };
 
-struct ParquetPageCacheReadPlanEntry {
-    // The exact cached StoragePageCache entry. The final cache key is still exact-range based:
-    // file key + cached_range.end_offset() + cached_range.offset.
-    ParquetPageCacheRange cached_range;
-    // Byte offset inside cached_range to start copying from.
-    int64_t copy_offset_in_cache = 0;
-    // Byte offset inside the current ReadAt output buffer to start writing to.
-    int64_t output_offset = 0;
-    int64_t copy_size = 0;
-};
-
 struct ParquetPageCacheStats {
     int64_t read_count = 0;
     int64_t write_count = 0;
@@ -93,39 +79,6 @@ struct ParquetPageCacheStats {
 };
 
 namespace detail {
-
-class ParquetPageCacheRangeIndex {
-public:
-    static constexpr size_t DEFAULT_MAX_RANGES = 65536;
-
-    explicit ParquetPageCacheRangeIndex(size_t max_ranges = DEFAULT_MAX_RANGES);
-
-    void insert(ParquetPageCacheRange range);
-    void erase(ParquetPageCacheRange range);
-
-    std::vector<ParquetPageCacheRange> ranges() const;
-    size_t size() const;
-
-private:
-    const size_t _max_ranges;
-    mutable std::mutex _mutex;
-    std::vector<ParquetPageCacheRange> _ranges;
-};
-
-class ParquetPageCacheRangeDirectory {
-public:
-    static constexpr size_t DEFAULT_MAX_FILES = 4096;
-
-    explicit ParquetPageCacheRangeDirectory(size_t max_files = DEFAULT_MAX_FILES);
-
-    std::shared_ptr<ParquetPageCacheRangeIndex> get_or_create(const std::string& file_key);
-    size_t size() const;
-
-private:
-    const size_t _max_files;
-    mutable std::mutex _mutex;
-    std::unordered_map<std::string, std::shared_ptr<ParquetPageCacheRangeIndex>> _indexes;
-};
 
 inline constexpr int64_t MAX_SERIALIZED_PARQUET_INDEX_BYTES = 64LL << 20;
 
@@ -140,22 +93,6 @@ std::string build_native_file_cache_key(std::string_view fs_name, std::string_vi
 bool is_serialized_index_range_safe(size_t file_size, int64_t offset, int64_t length);
 
 bool is_serialized_index_span_safe(int64_t span_offset, int64_t span_end);
-
-// Build the copy plan for a ReadAt(position, nbytes) request from the range metadata of
-// previously cached entries.
-// StoragePageCache cannot do range lookup by itself; it can only lookup an exact key. The
-// caller therefore keeps lightweight cached range metadata and uses this function to decide
-// which exact cache entries to fetch and which byte spans to copy.
-// Examples:
-// 1. Subset hit:
-//    request [120, 150), cached [100, 200) -> copy 30 bytes from cached offset 20.
-// 2. Superset hit covered by multiple cached entries:
-//    request [100, 260), cached [100, 180) and [180, 260)
-//    -> two copies: [100, 180) to output offset 0, [180, 260) to output offset 80.
-// 3. Partial overlap is a miss:
-//    request [100, 260), cached [100, 180) only -> empty plan, caller reads from file.
-std::vector<ParquetPageCacheReadPlanEntry> plan_page_cache_range_read(
-        int64_t position, int64_t nbytes, const std::vector<ParquetPageCacheRange>& cached_ranges);
 
 // Keep only byte ranges that are safe to hand to FileReader implementations. Parquet metadata is
 // expected to contain non-negative offsets and positive compressed sizes, but tests and corrupted
@@ -219,10 +156,6 @@ struct ParquetFileContext {
     // random-access behavior and simply skip prefetch.
     void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                          const io::IOContext* io_ctx);
-    // Deprecated adapter hook. Native readers use set_native_random_access_ranges().
-    bool set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
-                                  size_t avg_io_size, RuntimeProfile* profile,
-                                  int64_t merge_read_slice_size);
     // Install the v1-compatible MergeRangeFileReader on the native data-page path. Dictionary
     // probes must run before this method because their Arrow ReadAt order is independent of the
     // sequential projected chunk ranges consumed by MergeRangeFileReader.
@@ -237,7 +170,5 @@ struct ParquetFileContext {
     ParquetPageCacheStats page_cache_stats() const;
     Status close();
 };
-
-Status arrow_status_to_doris_status(const arrow::Status& status);
 
 } // namespace doris::format::parquet

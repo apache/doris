@@ -32,14 +32,6 @@
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 
-namespace parquet {
-class BloomFilter;
-class ColumnIndex;
-class FileMetaData;
-class ParquetFileReader;
-class Statistics;
-} // namespace parquet
-
 namespace cctz {
 class time_zone;
 } // namespace cctz
@@ -65,36 +57,6 @@ Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
 bool can_use_native_footer_min_max(const ParquetTypeDescriptor& type_descriptor,
                                    const tparquet::Statistics& statistics);
 } // namespace detail
-
-// ============================================================================
-// ============================================================================
-
-struct ParquetDictionaryWords {
-    std::vector<std::string> values;
-    std::vector<StringRef> refs;
-
-    void clear() {
-        values.clear();
-        refs.clear();
-    }
-
-    void build_refs() {
-        refs.clear();
-        refs.reserve(values.size());
-        for (const auto& value : values) {
-            refs.emplace_back(value.data(), value.size());
-        }
-    }
-};
-
-// Reads the PLAIN dictionary page for BYTE_ARRAY/FIXED_LEN_BYTE_ARRAY columns and owns copied
-// dictionary bytes in `values`. Both row-group pruning and row-level dictionary predicates use this
-// helper so they agree on dictionary id -> Doris string value mapping.
-bool read_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_group_idx,
-                           int leaf_column_id, const ParquetColumnSchema& column_schema,
-                           ParquetDictionaryWords* dict_words);
-
-std::vector<Field> dictionary_fields_from_words(const ParquetDictionaryWords& dict_words);
 
 // ============================================================================
 // ============================================================================
@@ -152,35 +114,13 @@ struct ParquetStatisticsUtils {
             const ParquetColumnStatistics& statistics);
 
     static ParquetColumnStatistics TransformColumnStatistics(
-            const ParquetColumnSchema& column_schema,
-            const std::shared_ptr<::parquet::Statistics>& statistics,
-            const cctz::time_zone* timezone = nullptr);
-
-    static ParquetColumnStatistics TransformColumnStatistics(
             const ParquetColumnSchema& column_schema, const tparquet::Statistics* statistics,
             int64_t column_value_count, const cctz::time_zone* timezone = nullptr);
-
-    static bool TransformColumnIndexStatistics(
-            const std::shared_ptr<::parquet::ColumnIndex>& column_index,
-            const ParquetColumnSchema& column_schema, size_t page_idx,
-            ParquetColumnStatistics* page_statistics, const cctz::time_zone* timezone = nullptr);
-
-    static bool BloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
-                                    const VExprContextSPtrs& conjuncts,
-                                    const ::parquet::BloomFilter& bloom_filter);
 
     static bool NativeBloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
                                           const VExprContextSPtrs& conjuncts,
                                           const segment_v2::BloomFilter& bloom_filter);
 };
-
-Status select_row_groups_by_metadata(
-        const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, const std::vector<int>* candidate_row_groups,
-        std::vector<int>* selected_row_groups, bool enable_bloom_filter,
-        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
-        const RuntimeState* runtime_state = nullptr);
 
 Status select_row_groups_by_metadata(
         const tparquet::FileMetaData& metadata,
@@ -189,14 +129,6 @@ Status select_row_groups_by_metadata(
         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
         const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr);
-
-Status select_row_group_ranges_by_page_index(
-        ::parquet::ParquetFileReader* file_reader,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
-        std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
-        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
-        const RuntimeState* runtime_state = nullptr);
 
 Status select_row_group_ranges_by_native_page_index(
         const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,

@@ -36,13 +36,6 @@
 #include "runtime/runtime_profile.h"
 #include "storage/segment/condition_cache.h"
 
-namespace parquet {
-class FileMetaData;
-class ParquetFileReader;
-class RowGroupMetaData;
-class RowGroupReader;
-} // namespace parquet
-
 namespace cctz {
 class time_zone;
 } // namespace cctz
@@ -123,15 +116,6 @@ struct RowGroupScanPlan {
 
 // ============================================================================
 // ============================================================================
-
-Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
-                               ::parquet::ParquetFileReader* file_reader,
-                               const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-                               const format::FileScanRequest& request,
-                               const ParquetScanRange& scan_range, bool enable_bloom_filter,
-                               RowGroupScanPlan* plan, const cctz::time_zone* timezone = nullptr,
-                               const RuntimeState* runtime_state = nullptr,
-                               ParquetFileContext* file_context = nullptr);
 
 Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
