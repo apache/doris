@@ -72,3 +72,16 @@
 - **验证**：目标测试 247 全绿（先红 130 error+30 fail → 修后 0/0）+ ConnectorSessionImplTest 18 绿 + fe-core checkstyle BUILD SUCCESS 零违规 + fe-core 主编译 BUILD SUCCESS。
 - **提交口径**：4 个逻辑子步（助手/读穿/改道/扫描存字段）在 2 个共享文件里交织，且每提交须保持绿（测试适配须随产品改动同提），逐 hunk 拆分需交互式 git（本环境不支持）→ 按 C1/C2 先例=1 个绿代码提交（含产品+测试适配+守门）+ 1 个文档提交，代码提交体内枚举 4 子步。
 - **下一步**：见 HANDOFF —— 读取键石剩防漂移门禁（形态=统一入口零例外）；下一大步 = HMS 异构网关兄弟扇出（键含属主 label + 兄弟 getMetadata/起事务进同一入口 + 异构网关 e2e）。
+
+## 2026-07-19 — session 5：防漂移门禁落地（读取键石完全收官）
+
+- **用户拍板（动码前，方案 A）**：现在就上门禁锁死读取侧、写入 8 处显式豁免（写入共用步骤再收）；否决"推迟整个门禁到写入步骤后一次落"。
+- **动手前取证**：对当前树 grep `.getMetadata(` 全域 = 21 行 = 9 处无参（`TestExternalCatalog`×8 静态 Map + `RuntimeProfile.node.getMetadata()`，均 `src/main`）+ 3 处 funnel javadoc + 1 处 funnel 真调 + **8 处写入裸调**。读取侧已"零裸调"（49 处 C3 已改道走 `PluginDrivenMetadata.get`）。
+- **落地（commit `b2d147998d1`）**：
+  - 新增 `tools/check-fecore-metadata-funnel.sh`（bash grep 门禁，仿 `check-connector-imports.sh`）+ 自测 `.test.sh`。规则：扫 `fe/fe-core/src/main/java`，禁裸 `Connector#getMetadata(session)`；**放行**=①funnel 文件 `datasource/plugin/PluginDrivenMetadata.java`（含其 javadoc）②带 `getMetadata-funnel-exempt` 标记的行（**call 行或其上一行**，兼容长行）③无参 `getMetadata()`（异方法）④注释行。正则双形匹配（同行参数 + 换行到下一行的参数），锚定调用形不误伤 `getMetadataTableRows`/API 定义。
+  - 8 处写入裸调各加一行上置标记注释（103 字，全 <120）：PhysicalPlanTranslator×2 / BindSink×2 / PluginDrivenInsertExecutor / IcebergRowLevelDmlTransform / PhysicalIcebergMergeSink / PluginDrivenExternalTable(resolveWriteTargetHandle)。删标记即自动收紧到该处。
+  - 挂入 `fe/fe-core/pom.xml` validate 阶段 exec（`${project.basedir}/../../tools/...`，与 fe-connector 门禁同深度同范式）。
+- **验证**：自测 PASS（含核心裸调、换行参数、funnel 白名单、同行/上行标记、无参跳过、`getMetadataTableRows` 边界、注释跳过、退出码、标记可承重 10 项）；门禁对真实树 exit 0，对 8 处未标记 exit 1（都证过）；fe-core checkstyle 0 违规；`mvn -pl fe-core validate` 实跑触发门禁 exec + BUILD SUCCESS。
+- **读取键石（RD-1 / STEP 1）至此完全收官**：C1 地基 + C2 关闭 + C3 改道 + 扫描存字段 + 后台读穿 + 防漂移门禁全落地。
+- **未提交的第三方无关文件不动**（stray untracked `fe/.mvn/maven.config` 等非本轮产物，只 stage 本轮 9 文件）。
+- **下一步**：见 HANDOFF —— 下一大步 = HMS 异构网关兄弟扇出（RD-2 / STEP 2），动码前先按分期定稿 §1/§2 + P1-design §5 对当前代码做 grounding recon 并把方案用中文详述待用户确认。
