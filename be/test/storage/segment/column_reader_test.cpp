@@ -742,9 +742,7 @@ TEST_F(ColumnReaderTest, LegacyDataSpecialComponentsRemainDataSelectors) {
         auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(create_test_reader()));
         auto key_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
-        key_iterator->set_column_name("key");
         auto value_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
-        value_iterator->set_column_name("value");
         auto map_iterator = std::make_unique<MapFileColumnIterator>(
                 create_test_reader(), nullptr, std::move(offsets_iterator), std::move(key_iterator),
                 std::move(value_iterator));
@@ -824,9 +822,7 @@ TEST_F(ColumnReaderTest, TypedMetaPathsRouteThroughScalarAndComplexIterators) {
         auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(create_test_reader()));
         auto key_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
-        key_iterator->set_column_name("key");
         auto value_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
-        value_iterator->set_column_name("value");
         MapFileColumnIterator map_iterator(create_test_reader(), nullptr,
                                            std::move(offsets_iterator), std::move(key_iterator),
                                            std::move(value_iterator));
@@ -883,9 +879,7 @@ TEST_F(ColumnReaderTest, TypedMetaPathsRouteThroughScalarAndComplexIterators) {
         auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(create_test_reader()));
         auto key_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
-        key_iterator->set_column_name("key");
         auto value_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
-        value_iterator->set_column_name("value");
         MapFileColumnIterator map_iterator(create_test_reader(), nullptr,
                                            std::move(offsets_iterator), std::move(key_iterator),
                                            std::move(value_iterator));
@@ -1341,18 +1335,20 @@ TEST_F(ColumnReaderTest, SplitAccessPathsClassifiesCurrentAndDescendantPaths) {
     EXPECT_EQ(iterator._read_requirement, ColumnIterator::ReadRequirement::NORMAL);
 }
 
-TEST_F(ColumnReaderTest, MapChildPathRoutingRewritesOnlySelectedPayloadAndPreservesVersion) {
+TEST_F(ColumnReaderTest, MapChildPathRoutingUsesLogicalSelectorsAndPreservesVersion) {
     auto key_iterator = std::make_unique<TrackingColumnIterator>();
-    key_iterator->set_column_name("key");
+    key_iterator->set_column_name("physical_key");
     auto* key = key_iterator.get();
     auto value_iterator = std::make_unique<TrackingColumnIterator>();
-    value_iterator->set_column_name("value");
+    value_iterator->set_column_name("physical_value");
     auto* value = value_iterator.get();
     auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(create_test_reader()));
     MapFileColumnIterator map_iterator(create_test_reader(), nullptr, std::move(offsets_iterator),
                                        std::move(key_iterator), std::move(value_iterator));
     map_iterator.set_column_name("m");
+    EXPECT_EQ(key->column_name(), ColumnIterator::ACCESS_MAP_KEYS);
+    EXPECT_EQ(value->column_name(), ColumnIterator::ACCESS_MAP_VALUES);
 
     auto path = create_meta_access_path(
             {"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET});
@@ -1371,13 +1367,15 @@ TEST_F(ColumnReaderTest, MapChildPathRoutingRewritesOnlySelectedPayloadAndPreser
     EXPECT_EQ(key_path.type, TAccessPathType::DATA);
     ASSERT_TRUE(key_path.__isset.version);
     EXPECT_EQ(key_path.version, g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
-    EXPECT_EQ(key_path.data_access_path.path, (std::vector<std::string> {"key"}));
+    EXPECT_EQ(key_path.data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
     ASSERT_EQ(key->routed_predicate_access_paths.size(), 1);
     const auto& legacy_key_path = key->routed_predicate_access_paths[0];
     EXPECT_EQ(legacy_key_path.type, TAccessPathType::DATA);
     ASSERT_TRUE(legacy_key_path.__isset.version);
     EXPECT_EQ(legacy_key_path.version, g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
-    EXPECT_EQ(legacy_key_path.data_access_path.path, (std::vector<std::string> {"key"}));
+    EXPECT_EQ(legacy_key_path.data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
 
     ASSERT_EQ(value->routed_all_access_paths.size(), 1);
     const auto& value_path = value->routed_all_access_paths[0];
@@ -1385,7 +1383,8 @@ TEST_F(ColumnReaderTest, MapChildPathRoutingRewritesOnlySelectedPayloadAndPreser
     ASSERT_TRUE(value_path.__isset.version);
     EXPECT_EQ(value_path.version, g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
     EXPECT_EQ(value_path.meta_access_path.path,
-              (std::vector<std::string> {"value", ColumnIterator::ACCESS_OFFSET}));
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_VALUES,
+                                         ColumnIterator::ACCESS_OFFSET}));
     EXPECT_EQ(value_path.data_access_path.path,
               (std::vector<std::string> {"m", ColumnIterator::ACCESS_ALL,
                                          ColumnIterator::ACCESS_OFFSET}));
@@ -1396,7 +1395,46 @@ TEST_F(ColumnReaderTest, MapChildPathRoutingRewritesOnlySelectedPayloadAndPreser
     EXPECT_EQ(legacy_value_path.version,
               g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
     EXPECT_EQ(legacy_value_path.data_access_path.path,
-              (std::vector<std::string> {"value", ColumnIterator::ACCESS_OFFSET}));
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_VALUES,
+                                         ColumnIterator::ACCESS_OFFSET}));
+}
+
+TEST_F(ColumnReaderTest, NestedMapWildcardRoutingUsesLogicalSelectorsWithoutPhysicalNames) {
+    auto inner_key_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* inner_key = inner_key_iterator.get();
+    auto inner_value_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* inner_value = inner_value_iterator.get();
+    auto inner_offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(create_test_reader()));
+    auto inner_map_iterator = std::make_unique<MapFileColumnIterator>(
+            create_test_reader(), nullptr, std::move(inner_offsets_iterator),
+            std::move(inner_key_iterator), std::move(inner_value_iterator));
+
+    auto outer_key_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* outer_key = outer_key_iterator.get();
+    auto outer_offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(create_test_reader()));
+    MapFileColumnIterator outer_map_iterator(
+            create_test_reader(), nullptr, std::move(outer_offsets_iterator),
+            std::move(outer_key_iterator), std::move(inner_map_iterator));
+    outer_map_iterator.set_column_name("m");
+
+    auto path =
+            create_meta_access_path({"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_ALL,
+                                     ColumnIterator::ACCESS_OFFSET});
+    auto st = outer_map_iterator.set_access_paths({path}, {});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ASSERT_EQ(outer_key->routed_all_access_paths.size(), 1);
+    EXPECT_EQ(outer_key->routed_all_access_paths[0].data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
+    ASSERT_EQ(inner_key->routed_all_access_paths.size(), 1);
+    EXPECT_EQ(inner_key->routed_all_access_paths[0].data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
+    ASSERT_EQ(inner_value->routed_all_access_paths.size(), 1);
+    EXPECT_EQ(inner_value->routed_all_access_paths[0].meta_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_VALUES,
+                                         ColumnIterator::ACCESS_OFFSET}));
 }
 
 TEST_F(ColumnReaderTest, ArrayItemPathRoutingRewritesOnlySelectedPayload) {
@@ -1828,10 +1866,8 @@ TEST_F(ColumnReaderTest, MapPredicateMetaPathDoesNotOverrideExistingDataNeed) {
         auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
         auto key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-        key_iter->set_column_name("key");
         auto value_iter =
                 std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
-        value_iter->set_column_name("value");
         auto map_iterator = std::make_unique<MapFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(null_iter), std::move(offsets_iter),
                 std::move(key_iter), std::move(value_iter));
@@ -1880,7 +1916,6 @@ TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
 
         auto value_struct = std::make_unique<StructFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-        value_struct->set_column_name("value");
         return value_struct;
     };
 
@@ -1888,7 +1923,6 @@ TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
     auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-    map_key_iter->set_column_name("key");
     auto map_iterator = std::make_unique<MapFileColumnIterator>(
             std::make_shared<ColumnReader>(), std::move(map_null_iter), std::move(map_offsets_iter),
             std::move(map_key_iter), make_value_struct());
@@ -2013,7 +2047,6 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPaths) {
 
         auto value_struct = std::make_unique<StructFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-        value_struct->set_column_name("value");
         return value_struct;
     };
 
@@ -2021,7 +2054,6 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPaths) {
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
     auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-    map_key_iter->set_column_name("key");
     auto map_val_iter = make_value_struct();
     auto map_iterator = std::make_unique<MapFileColumnIterator>(
             std::make_shared<ColumnReader>(), std::move(map_null_iter), std::move(map_offsets_iter),
@@ -2089,7 +2121,6 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
 
             auto value_struct = std::make_unique<StructFileColumnIterator>(
                     std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-            value_struct->set_column_name("value");
             return value_struct;
         };
 
@@ -2097,7 +2128,6 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
         auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-        map_key_iter->set_column_name("key");
         auto map_val_iter = make_value_struct();
         auto map_iterator = std::make_unique<MapFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(map_null_iter),
@@ -2384,7 +2414,6 @@ TEST_F(ColumnReaderTest, DeepNestedAccessPathsFiveLevels) {
 
         auto value_struct = std::make_unique<StructFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-        value_struct->set_column_name("value");
         return value_struct;
     };
 
@@ -2392,7 +2421,6 @@ TEST_F(ColumnReaderTest, DeepNestedAccessPathsFiveLevels) {
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
     auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-    map_key_iter->set_column_name("key");
     auto map_val_iter = make_value_struct();
     auto map_iter = std::make_unique<MapFileColumnIterator>(
             std::make_shared<ColumnReader>(), std::move(map_null_iter), std::move(map_offsets_iter),
@@ -2501,7 +2529,6 @@ TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
 
             auto value_struct = std::make_unique<StructFileColumnIterator>(
                     std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-            value_struct->set_column_name("value");
             return value_struct;
         };
 
@@ -2509,7 +2536,6 @@ TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
         auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
         auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-        map_key_iter->set_column_name("key");
         auto map_val_iter = make_value_struct();
         auto map_iterator = std::make_unique<MapFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(map_null_iter),
@@ -3045,11 +3071,9 @@ TEST_F(ColumnReaderTest, MapPredicateAccessAllWithOffsetKeepsKeysReadable) {
     auto map_reader = create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_MAP);
     auto key_iter = std::make_unique<StringFileColumnIterator>(
             create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_STRING));
-    key_iter->set_column_name("key");
     auto* key_ptr = key_iter.get();
     auto val_iter = std::make_unique<StringFileColumnIterator>(
             create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_STRING));
-    val_iter->set_column_name("value");
     auto* val_ptr = val_iter.get();
     auto offset_iterator = create_tracking_offset_iterator();
 
@@ -3157,10 +3181,8 @@ TEST_F(ColumnReaderTest, MapLazyReadByRowidsFillsSkippedKeysForValuesOnlyPath) {
     auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<RowidOffsetFileColumnIterator>());
     auto key_iter = std::make_unique<TrackingColumnIterator>();
-    key_iter->set_column_name("key");
     auto* key_ptr = key_iter.get();
     auto val_iter = std::make_unique<TrackingColumnIterator>();
-    val_iter->set_column_name("value");
     auto* val_ptr = val_iter.get();
 
     MapFileColumnIterator map_iter(map_reader, nullptr, std::move(offsets_iter),
@@ -3198,10 +3220,8 @@ TEST_F(ColumnReaderTest, MapLazyReadByRowidsPreservesPredicateKeysForValuesOnlyP
     auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<RowidOffsetFileColumnIterator>());
     auto key_iter = std::make_unique<TrackingColumnIterator>();
-    key_iter->set_column_name("key");
     auto* key_ptr = key_iter.get();
     auto val_iter = std::make_unique<TrackingColumnIterator>();
-    val_iter->set_column_name("value");
     auto* val_ptr = val_iter.get();
 
     MapFileColumnIterator map_iter(map_reader, nullptr, std::move(offsets_iter),
@@ -3251,9 +3271,7 @@ TEST_F(ColumnReaderTest, MapAccessAllWithOffsetDoesNotPropagateOffsetToKey) {
     auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
     auto key_iter = std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
-    key_iter->set_column_name("key");
     auto val_iter = std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
-    val_iter->set_column_name("value");
 
     MapFileColumnIterator map_iter(map_reader, std::move(null_iter), std::move(offsets_iter),
                                    std::move(key_iter), std::move(val_iter));
