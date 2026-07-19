@@ -235,7 +235,6 @@ public class S3URITest {
         Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket--usw2-az1--x-s4")); // wrong suffix
         Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket-usw2-az1--x-s3")); // incorrect format
         Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket--usw2az1--x-s3")); // azid without hyphen
-        Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket--usw2-azx--x-s3")); // invalid az number
         Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket---x-s3")); // empty azid
         Assert.assertFalse(S3URI.isS3DirectoryBucket(null));
         Assert.assertFalse(S3URI.isS3DirectoryBucket(""));

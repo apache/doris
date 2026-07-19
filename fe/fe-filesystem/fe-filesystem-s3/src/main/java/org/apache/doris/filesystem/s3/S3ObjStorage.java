@@ -76,13 +76,12 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -93,15 +92,8 @@ import java.util.stream.Collectors;
 public class S3ObjStorage implements ObjStorage<S3Client> {
 
     private static final Logger LOG = LogManager.getLogger(S3ObjStorage.class);
-    private static final String DIRECTORY_BUCKET_SUFFIX = "--x-s3";
-    private static final Map<String, String> S3_EXPRESS_REGIONS = Map.of(
-            "use1", "us-east-1",
-            "use2", "us-east-2",
-            "usw2", "us-west-2",
-            "aps1", "ap-south-1",
-            "apne1", "ap-northeast-1",
-            "euw1", "eu-west-1",
-            "eun1", "eu-north-1");
+    private static final Pattern DIRECTORY_BUCKET_PATTERN =
+            Pattern.compile("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--[a-z0-9-]+-az[0-9]+--x-s3$");
 
     /** Validity period for pre-signed URLs and STS tokens (seconds). */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
@@ -111,8 +103,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     /** Bucket name; may be null if not provided (listObjectsWithPrefix and related methods will fail). */
     private final String bucket;
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final Map<String, S3Client> expressClients = new HashMap<>();
     private volatile S3Client client;
+    private volatile S3Client expressClient;
 
     public S3ObjStorage(S3FileSystemProperties properties) {
         this.s3Properties = properties;
@@ -160,11 +152,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 buildCredentialsProvider(), false);
     }
 
-    protected S3Client buildExpressClient(String region) throws IOException {
+    protected S3Client buildExpressClient() throws IOException {
         return buildClient(
                 "",
-                region,
-                buildCredentialsProvider(region), true);
+                s3Properties.getRegion(),
+                buildCredentialsProvider(), true);
     }
 
     private S3Client buildClient(String endpointStr, String region,
@@ -210,33 +202,27 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return S3CredentialsProviderFactory.createClientProvider(s3Properties, this::buildStsClient);
     }
 
-    protected AwsCredentialsProvider buildCredentialsProvider(String region) {
-        return S3CredentialsProviderFactory.createClientProvider(
-                s3Properties, (sourceCredentials, ignoredUserRegion) ->
-                        buildStsClient(sourceCredentials, region));
-    }
-
     boolean usesS3ExpressRead(String requestBucket) {
         return s3Properties.isScopedAwsS3ExpressImport()
-                && getS3ExpressZoneId(requestBucket).isPresent();
+                && requestBucket != null
+                && DIRECTORY_BUCKET_PATTERN.matcher(requestBucket).matches();
     }
 
-    private S3Client getExpressClient(String requestBucket) throws IOException {
+    private S3Client getExpressClient() throws IOException {
         if (closed.get()) {
             throw new IOException("S3ObjStorage is already closed");
         }
-        String region = getS3ExpressRegion(requestBucket);
-        synchronized (expressClients) {
-            if (closed.get()) {
-                throw new IOException("S3ObjStorage is already closed");
+        if (expressClient == null) {
+            synchronized (this) {
+                if (closed.get()) {
+                    throw new IOException("S3ObjStorage is already closed");
+                }
+                if (expressClient == null) {
+                    expressClient = buildExpressClient();
+                }
             }
-            S3Client expressClient = expressClients.get(region);
-            if (expressClient == null) {
-                expressClient = buildExpressClient(region);
-                expressClients.put(region, expressClient);
-            }
-            return expressClient;
         }
+        return expressClient;
     }
 
     private AwsCredentialsProvider buildStsSourceCredentialsProvider() {
@@ -284,7 +270,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
         }
         try {
-            S3Client listClient = expressRead ? getExpressClient(uri.bucket()) : getClient();
+            S3Client listClient = expressRead ? getExpressClient() : getClient();
             ListObjectsV2Response response = listClient.listObjectsV2(builder.build());
             List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
                     .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
@@ -296,26 +282,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     .collect(Collectors.toList());
             return new RemoteObjects(objects, response.isTruncated(),
                     response.nextContinuationToken());
-        } catch (S3Exception e) {
-            if (expressRead) {
-                throw new IOException("Create S3 Express session or list directory bucket failed for "
-                        + remotePath + ": " + formatS3Exception(e), e);
-            }
-            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
         } catch (SdkException e) {
-            if (expressRead) {
-                throw new IOException("Create S3 Express session or list directory bucket failed for "
-                        + remotePath + ": " + e.getMessage(), e);
-            }
             throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
         }
-    }
-
-    private static String formatS3Exception(S3Exception exception) {
-        return "HTTP status=" + exception.statusCode()
-                + ", AWS error code=" + exception.awsErrorDetails().errorCode()
-                + ", message=" + exception.awsErrorDetails().errorMessage()
-                + ", request ID=" + exception.requestId();
     }
 
     /**
@@ -731,52 +700,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return key.substring(normalized.length());
     }
 
-    private static Optional<String> getS3ExpressZoneId(String bucketName) {
-        if (bucketName == null || !bucketName.endsWith(DIRECTORY_BUCKET_SUFFIX)) {
-            return Optional.empty();
-        }
-        String nameAndZone = bucketName.substring(
-                0, bucketName.length() - DIRECTORY_BUCKET_SUFFIX.length());
-        int zoneSeparator = nameAndZone.lastIndexOf("--");
-        if (zoneSeparator <= 0 || zoneSeparator + 2 == nameAndZone.length()) {
-            return Optional.empty();
-        }
-        String zoneId = nameAndZone.substring(zoneSeparator + 2);
-        int azSeparator = zoneId.lastIndexOf("-az");
-        if (azSeparator <= 0 || azSeparator + 3 == zoneId.length()) {
-            return Optional.empty();
-        }
-        for (int i = 0; i < azSeparator; i++) {
-            char c = zoneId.charAt(i);
-            if (!(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-') {
-                return Optional.empty();
-            }
-        }
-        for (int i = azSeparator + 3; i < zoneId.length(); i++) {
-            char c = zoneId.charAt(i);
-            if (c < '0' || c > '9') {
-                return Optional.empty();
-            }
-        }
-        return Optional.of(zoneId);
-    }
-
-    private String getS3ExpressRegion(String bucketName) throws IOException {
-        String zoneId = getS3ExpressZoneId(bucketName).orElseThrow(
-                () -> new IOException("Invalid AWS Directory Bucket name " + bucketName
-                        + "; expected <bucket-base-name>--<zone-id>--x-s3"));
-        String zonePrefix = zoneId.substring(0, zoneId.indexOf('-'));
-        String inferredRegion = S3_EXPRESS_REGIONS.get(zonePrefix);
-        if (inferredRegion != null) {
-            return inferredRegion;
-        }
-        if (StringUtils.isBlank(s3Properties.getRegion())) {
-            throw new IOException("Cannot infer AWS region from Directory Bucket zone " + zoneId
-                    + "; set s3.region for newly introduced AWS regions");
-        }
-        return s3Properties.getRegion();
-    }
-
     private static String slashTerminatedPrefix(String key) {
         if (key.isEmpty() || key.endsWith("/")) {
             return key;
@@ -792,11 +715,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 client.close();
                 client = null;
             }
-            synchronized (expressClients) {
-                for (S3Client expressClient : expressClients.values()) {
-                    expressClient.close();
-                }
-                expressClients.clear();
+            if (expressClient != null) {
+                expressClient.close();
+                expressClient = null;
             }
         }
     }

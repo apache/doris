@@ -27,7 +27,6 @@ import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.HttpProperties;
 import org.apache.doris.datasource.property.storage.LocalProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -51,7 +50,6 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     public FileTableValuedFunction(Map<String, String> properties) throws AnalysisException {
         // We don't need to parseCommonProperties because the corresponding Storage will do it
         // Map<String, String> props = super.parseCommonProperties(properties);
-        S3Properties.validateS3ExpressImport(properties, false);
         try {
             this.storageProperties = StorageProperties.createPrimary(properties);
             if (this.storageProperties instanceof AbstractS3CompatibleProperties

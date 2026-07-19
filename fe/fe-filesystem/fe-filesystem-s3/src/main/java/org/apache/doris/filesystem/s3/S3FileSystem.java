@@ -19,7 +19,6 @@ package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
@@ -52,20 +51,24 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     @Override
-    protected String globListPrefix(String bucket, String globPattern) throws IOException {
-        if (s3ObjStorage.usesS3ExpressRead(bucket)) {
+    protected String globListPrefix(String bucket, String globPattern) {
+        if (usesDirectoryBucketListing(bucket)) {
             return slashTerminatedNonGlobPrefix(globPattern);
         }
         return super.globListPrefix(bucket, globPattern);
     }
 
     @Override
-    protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix)
-            throws IOException {
-        if (s3ObjStorage.usesS3ExpressRead(bucket)) {
+    protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix) {
+        if (usesDirectoryBucketListing(bucket)) {
             return List.of(listPrefix);
         }
         return super.globListPrefixes(bucket, globPattern, listPrefix);
+    }
+
+    private boolean usesDirectoryBucketListing(String bucket) {
+        return s3ObjStorage.usesS3ExpressRead(bucket)
+                || (properties != null && properties.isDirectoryBucketEndpoint());
     }
 
     private static String slashTerminatedNonGlobPrefix(String globPattern) {

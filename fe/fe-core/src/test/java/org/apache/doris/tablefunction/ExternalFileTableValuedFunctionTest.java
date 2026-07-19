@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
@@ -24,10 +25,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Properties;
-import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -36,6 +42,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -126,7 +134,7 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
-    public void testS3ExpressMarkerIsScopedToAllowedOneShotRead() throws AnalysisException {
+    public void testS3ExpressMarkerIsScopedToOneShotInsertStatement() throws AnalysisException {
         boolean previousRunningUnitTest = FeConstants.runningUnitTest;
         ConnectContext previousContext = ConnectContext.get();
         FeConstants.runningUnitTest = true;
@@ -138,77 +146,85 @@ public class ExternalFileTableValuedFunctionTest {
             properties.put("s3.region", "us-west-2");
             properties.put("format", "csv");
 
-            IllegalArgumentException directException = Assert.assertThrows(
-                    IllegalArgumentException.class, () -> new S3TableValuedFunction(properties));
-            Assert.assertTrue(directException.getMessage().contains(
-                    "S3 Express reads are supported only by"));
+            S3TableValuedFunction directTvf = new S3TableValuedFunction(properties);
+            Assert.assertFalse(directTvf.getBackendConnectProperties()
+                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+            Assert.assertFalse(directTvf.getBrokerDesc().getBackendConfigProperties()
+                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
 
             ConnectContext context = new ConnectContext();
             StatementContext statementContext = new StatementContext(
-                    context, new OriginStatement("select * from s3(...)", 0));
+                    context, new OriginStatement("insert into t select * from s3(...)", 0));
             context.setStatementContext(statementContext);
             context.setThreadLocalInfo();
 
-            org.apache.doris.nereids.exceptions.AnalysisException unmarkedException = Assert.assertThrows(
-                    org.apache.doris.nereids.exceptions.AnalysisException.class,
-                    () -> new S3(new Properties(properties)).getCatalogFunction());
-            Assert.assertTrue(unmarkedException.getMessage().contains(
-                    "S3 Express reads are supported only by"));
+            S3TableValuedFunction queryTvf = (S3TableValuedFunction) new S3(new Properties(properties))
+                    .getCatalogFunction();
+            Assert.assertFalse(queryTvf.getBackendConnectProperties()
+                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
 
             statementContext.setS3ExpressImportRead(true);
-            Map<String, String> regularBucketProperties = Maps.newHashMap(properties);
-            regularBucketProperties.put("uri", "s3://analytics/data/file.csv");
-            S3TableValuedFunction regularBucketTvf = (S3TableValuedFunction) new S3(
-                    new Properties(regularBucketProperties)).getCatalogFunction();
-            Assert.assertFalse(regularBucketTvf.getBackendConnectProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertFalse(regularBucketTvf.getBrokerDesc().getBackendConfigProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-
-            Map<String, String> missingProviderProperties = Maps.newHashMap(properties);
-            missingProviderProperties.remove("s3.provider");
-            org.apache.doris.nereids.exceptions.AnalysisException missingProviderException = Assert.assertThrows(
-                    org.apache.doris.nereids.exceptions.AnalysisException.class,
-                    () -> new S3(new Properties(missingProviderProperties)).getCatalogFunction());
-            Assert.assertTrue(missingProviderException.getMessage().contains(
-                    "S3 Express directory buckets require \"s3.provider\" = \"AWS\""));
-
-            Map<String, String> malformedBucketProperties = Maps.newHashMap(properties);
-            malformedBucketProperties.put("uri",
-                    "s3://analytics--usw2-azx--x-s3/data/file.csv");
-            org.apache.doris.nereids.exceptions.AnalysisException malformedBucketException = Assert.assertThrows(
-                    org.apache.doris.nereids.exceptions.AnalysisException.class,
-                    () -> new S3(new Properties(malformedBucketProperties)).getCatalogFunction());
-            Assert.assertTrue(malformedBucketException.getMessage().contains(
-                    "Invalid S3 Express directory bucket name"));
-
             Map<String, String> recommendedProperties = Maps.newHashMap(properties);
             recommendedProperties.remove("s3.endpoint");
-            recommendedProperties.remove("s3.region");
-            S3TableValuedFunction selectTvf = (S3TableValuedFunction) new S3(
+            S3TableValuedFunction insertTvf = (S3TableValuedFunction) new S3(
                     new Properties(recommendedProperties))
                     .getCatalogFunction();
-            Assert.assertEquals("true", selectTvf.getBackendConnectProperties()
+            Assert.assertEquals("true", insertTvf.getBackendConnectProperties()
                     .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertEquals("true", selectTvf.getBrokerDesc().getBackendConfigProperties()
+            Assert.assertEquals("true", insertTvf.getBrokerDesc().getBackendConfigProperties()
                     .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertFalse(selectTvf.processedParams
+            Assert.assertFalse(insertTvf.processedParams
                     .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertEquals("", selectTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
-            Assert.assertEquals("", selectTvf.getBackendConnectProperties().get("AWS_REGION"));
+            Assert.assertEquals("", insertTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
+            Assert.assertEquals("us-west-2", insertTvf.getBackendConnectProperties().get("AWS_REGION"));
 
-            org.apache.doris.nereids.exceptions.AnalysisException fileTvfException = Assert.assertThrows(
-                    org.apache.doris.nereids.exceptions.AnalysisException.class,
-                    () -> new File(new Properties(recommendedProperties)).getCatalogFunction());
-            Assert.assertTrue(fileTvfException.getMessage().contains(
-                    "S3 Express reads are supported only by"));
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
 
-            statementContext.setS3ExpressImportRead(false);
-            org.apache.doris.nereids.exceptions.AnalysisException streamingException = Assert.assertThrows(
-                    org.apache.doris.nereids.exceptions.AnalysisException.class,
-                    () -> new S3(new Properties(properties)).getCatalogFunction());
-            Assert.assertTrue(streamingException.getMessage().contains(
-                    "S3 Express reads are supported only by"));
+    @Test
+    public void testS3ExpressParseFileUsesScopedFileSystemWithoutEndpointPreflight() throws Exception {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        ConnectContext previousContext = ConnectContext.get();
+        FeConstants.runningUnitTest = false;
+        String uri = "s3://analytics--usw2-az1--x-s3/data/file.csv";
+        try {
+            ConnectContext context = new ConnectContext();
+            StatementContext statementContext = new StatementContext(
+                    context, new OriginStatement("insert into t select * from s3(...)", 0));
+            statementContext.setS3ExpressImportRead(true);
+            context.setStatementContext(statementContext);
+            context.setThreadLocalInfo();
+
+            FileSystem fileSystem = Mockito.mock(FileSystem.class);
+            Mockito.when(fileSystem.globListWithLimit(
+                            Mockito.any(Location.class), Mockito.eq(""), Mockito.eq(0L), Mockito.eq(0L)))
+                    .thenReturn(new GlobListing(
+                            List.of(new FileEntry(Location.of(uri), 10L, false, 0L, List.of())),
+                            "analytics--usw2-az1--x-s3", "data/", "data/file.csv"));
+            try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class);
+                    MockedStatic<S3Util> mockedS3Util = Mockito.mockStatic(S3Util.class)) {
+                mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
+                        .thenReturn(fileSystem);
+
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put("uri", uri);
+                properties.put("s3.provider", "AWS");
+                properties.put("s3.region", "us-west-2");
+                properties.put("format", "csv");
+                S3TableValuedFunction tvf = (S3TableValuedFunction) new S3(new Properties(properties))
+                        .getCatalogFunction();
+
+                Assert.assertEquals(1, tvf.getFileStatuses().size());
+                Assert.assertEquals("true", tvf.getBackendConnectProperties()
+                        .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+                mockedS3Util.verifyNoInteractions();
+            }
         } finally {
             FeConstants.runningUnitTest = previousRunningUnitTest;
             ConnectContext.remove();

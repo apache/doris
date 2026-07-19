@@ -58,9 +58,6 @@ import java.util.stream.Stream;
 public class S3Properties extends AbstractS3CompatibleProperties {
 
     private static final Logger LOG = LogManager.getLogger(S3Properties.class);
-    private static final String S3_DIRECTORY_BUCKET_SUFFIX = "--x-s3";
-    private static final Pattern S3_EXPRESS_URI_AUTHORITY_PATTERN =
-            Pattern.compile("^[^:/?#]+://([^/?#]+)");
 
     public static final String USE_PATH_STYLE = "use_path_style";
     public static final String ENDPOINT = "s3.endpoint";
@@ -196,11 +193,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Getter
     private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
-    @Getter
-    @ConnectorProperty(names = {PROVIDER, "provider"}, required = false,
-            description = "The S3 service provider.")
-    private String s3Provider = "";
-
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
@@ -211,6 +203,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     /** Creates the trusted S3 properties used only by the scoped S3 import paths. */
     public static S3Properties createForS3ExpressImport(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
         propertiesObj.enableS3ExpressImportRead();
         propertiesObj.initNormalizeAndCheckProps();
         return propertiesObj;
@@ -218,11 +211,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     /** Returns whether the user explicitly selected AWS as the S3 provider. */
     public static boolean isAwsProvider(Map<String, String> properties) {
-        Optional<String> provider = getPropertyIgnoreCase(properties, PROVIDER);
-        if (provider.isEmpty()) {
-            provider = getPropertyIgnoreCase(properties, "provider");
-        }
-        return provider.map(String::trim).filter(value -> "AWS".equalsIgnoreCase(value)).isPresent();
+        String provider = properties.get(PROVIDER);
+        return provider != null && "AWS".equalsIgnoreCase(provider.trim());
     }
 
     /** Returns whether a scoped S3 TVF request can use SDK-managed S3 Express access. */
@@ -230,79 +220,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (!isAwsProvider(properties)) {
             return false;
         }
-        Optional<String> uri = getPropertyIgnoreCase(properties, "uri");
+        Optional<String> uri = properties.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
         if (uri.isEmpty()) {
             return false;
         }
         return isS3ExpressUri(uri.get());
-    }
-
-    /**
-     * Validates an S3 Express request after first recognizing the user's intent from the bucket suffix.
-     * Ordinary S3 URIs return false without changing their existing provider detection path.
-     */
-    public static boolean validateS3ExpressImport(Map<String, String> properties, boolean scopeAllowed) {
-        return getPropertyIgnoreCase(properties, "uri")
-                .map(uri -> validateS3ExpressImport(uri, properties, scopeAllowed))
-                .orElse(false);
-    }
-
-    /**
-     * Validates an S3 Express request whose URI is supplied separately, as in Broker Load.
-     */
-    public static boolean validateS3ExpressImport(
-            String uri, Map<String, String> properties, boolean scopeAllowed) {
-        if (!hasS3ExpressIntent(uri)) {
-            return false;
-        }
-        if (!scopeAllowed) {
-            throw new IllegalArgumentException("S3 Express reads are supported only by "
-                    + "SELECT ... FROM S3(...), INSERT INTO ... SELECT ... FROM S3(...), "
-                    + "and Broker Load WITH S3.");
-        }
-        if (!isAwsProvider(properties)) {
-            throw new IllegalArgumentException(
-                    "S3 Express directory buckets require \"s3.provider\" = \"AWS\".");
-        }
-
-        S3URI parsedUri;
-        try {
-            parsedUri = S3URI.create(uri);
-        } catch (UserException e) {
-            throw new IllegalArgumentException("Invalid S3 Express URI \"" + uri + "\"; expected "
-                    + "\"s3://<bucket-base-name>--<zone-id>--x-s3/<object-path>\".", e);
-        }
-        if (!parsedUri.useS3DirectoryBucket()) {
-            throw new IllegalArgumentException("Invalid S3 Express directory bucket name \""
-                    + parsedUri.getBucket() + "\"; expected "
-                    + "\"<bucket-base-name>--<zone-id>--x-s3\", for example "
-                    + "\"bucket-name--usw2-az1--x-s3\".");
-        }
-        return true;
-    }
-
-    /** Returns whether the URI bucket clearly carries the S3 Express suffix. */
-    public static boolean hasS3ExpressIntent(String uri) {
-        if (StringUtils.isBlank(uri)) {
-            return false;
-        }
-        try {
-            return hasS3ExpressBucketSuffix(S3URI.create(uri).getBucket());
-        } catch (UserException e) {
-            java.util.regex.Matcher matcher = S3_EXPRESS_URI_AUTHORITY_PATTERN.matcher(uri);
-            return matcher.find() && hasS3ExpressBucketSuffix(matcher.group(1));
-        }
-    }
-
-    private static boolean hasS3ExpressBucketSuffix(String bucket) {
-        return StringUtils.endsWithIgnoreCase(bucket, S3_DIRECTORY_BUCKET_SUFFIX);
-    }
-
-    private static Optional<String> getPropertyIgnoreCase(Map<String, String> properties, String propertyName) {
-        return properties.entrySet().stream()
-                .filter(entry -> entry.getKey().equalsIgnoreCase(propertyName))
-                .map(Map.Entry::getValue)
-                .findFirst();
     }
 
     /** Returns whether the URI contains a complete S3 Express directory bucket name. */
@@ -322,15 +247,20 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * - s3.dualstack.us-east-1.amazonaws.com      => region = us-east-1
      * - s3-fips.us-east-2.amazonaws.com           => region = us-east-2
      * - s3-fips.dualstack.us-east-2.amazonaws.com => region = us-east-2
+     * - s3express-control.us-west-2.amazonaws.com => region = us-west-2 (S3 Directory Bucket Regional)
+     * - s3express-usw2-az1.us-west-2.amazonaws.com => region = us-west-2 (S3 Directory Bucket Zonal)
      * <p>
-     * Group(1) captures the region part if available.
+     * Group(1), Group(2), or Group(3) in the pattern captures the region part if available.
      * <p>
      * For Glue https://docs.aws.amazon.com/general/latest/gr/glue.html
      */
     private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(
             Pattern.compile(
-                    "^(?:https?://)?s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)"
-                            + "\\.amazonaws\\.com(?:/.*)?$",
+                    "^(?:https?://)?(?:"
+                            + "s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)|" // Standard S3 endpoints
+                            + "s3express-control\\.([a-z0-9-]+)|"                  // Directory bucket regional
+                            + "s3express-[a-z0-9-]+\\.([a-z0-9-]+)"                // Directory bucket zonal
+                            + ")\\.amazonaws\\.com(?:/.*)?$",
                     Pattern.CASE_INSENSITIVE),
             Pattern.compile(
                     "^(?:https?://)?glue(?:-fips)?\\.([a-z0-9-]+)\\.(amazonaws\\.com(?:\\.cn)?|api\\.aws)$",
@@ -407,8 +337,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public Map<String, String> getBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration();
 
-        if (isS3ExpressImportRead(this) && StringUtils.isNotBlank(s3Provider)) {
-            backendProperties.put("provider", s3Provider);
+        if (isS3ExpressImportRead(this)) {
+            backendProperties.put("provider", "AWS");
         }
 
         if (StringUtils.isNotBlank(s3IAMRole)) {

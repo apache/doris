@@ -76,8 +76,11 @@ public final class S3FileSystemProperties
 
     private static final Pattern[] ENDPOINT_PATTERNS = new Pattern[] {
             Pattern.compile(
-                    "^(?:https?://)?s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)"
-                            + "\\.amazonaws\\.com(?:/.*)?$",
+                    "^(?:https?://)?(?:"
+                            + "s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)|"
+                            + "s3express-control\\.([a-z0-9-]+)|"
+                            + "s3express-[a-z0-9-]+\\.([a-z0-9-]+)"
+                            + ")\\.amazonaws\\.com(?:/.*)?$",
                     Pattern.CASE_INSENSITIVE),
             Pattern.compile(
                     "^(?:https?://)?glue(?:-fips)?\\.([a-z0-9-]+)\\.(amazonaws\\.com(?:\\.cn)?|api\\.aws)$",
@@ -210,8 +213,10 @@ public final class S3FileSystemProperties
                         "s3.external_id must be used together with s3.role_arn")
                 .check(this::hasUnsupportedCredentialsProviderType,
                         "Unsupported s3.credentials_provider_type: " + credentialsProviderType)
-                .check(() -> StringUtils.isBlank(endpoint) && StringUtils.isBlank(region)
-                                && !isScopedAwsS3ExpressImport(),
+                .check(() -> isScopedAwsS3ExpressImport() && StringUtils.isBlank(region),
+                        "s3.region must be set for S3 Express import")
+                .check(() -> !isScopedAwsS3ExpressImport()
+                                && StringUtils.isBlank(endpoint) && StringUtils.isBlank(region),
                         "Either s3.endpoint or s3.region must be set")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
@@ -335,6 +340,11 @@ public final class S3FileSystemProperties
 
     public boolean hasAssumeRole() {
         return StringUtils.isNotBlank(roleArn);
+    }
+
+    public boolean isDirectoryBucketEndpoint() {
+        return StringUtils.containsIgnoreCase(endpoint, "s3express-control.")
+                || StringUtils.containsIgnoreCase(endpoint, "s3express-");
     }
 
     boolean isS3ExpressImportReadEnabled() {

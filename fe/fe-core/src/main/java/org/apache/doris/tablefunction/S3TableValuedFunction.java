@@ -48,11 +48,11 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     public S3TableValuedFunction(Map<String, String> properties, boolean s3ExpressImportRead)
             throws AnalysisException {
+        this.s3ExpressImportRead = s3ExpressImportRead;
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
-        this.s3ExpressImportRead = S3Properties.validateS3ExpressImport(props, s3ExpressImportRead);
         try {
-            if (this.s3ExpressImportRead) {
+            if (s3ExpressImportRead && S3Properties.isS3ExpressImport(props)) {
                 this.storageProperties = S3Properties.createForS3ExpressImport(props);
             } else {
                 this.storageProperties = StorageProperties.createPrimary(props);
@@ -88,7 +88,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        if (s3ExpressImportRead) {
+        if (s3ExpressImportRead && S3Properties.isS3ExpressImport(processedParams)) {
             return BrokerDesc.createForS3ExpressImport("S3TvfBroker", processedParams);
         }
         return new BrokerDesc("S3TvfBroker", processedParams);

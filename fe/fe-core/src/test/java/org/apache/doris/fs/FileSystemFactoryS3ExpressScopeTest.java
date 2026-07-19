@@ -63,6 +63,7 @@ public class FileSystemFactoryS3ExpressScopeTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("uri", "s3://analytics--usw2-az1--x-s3/data.parquet");
         properties.put("s3.provider", "AWS");
+        properties.put("s3.region", "us-west-2");
         properties.put("s3.access_key", "ak");
         properties.put("s3.secret_key", "sk");
 
@@ -72,5 +73,7 @@ public class FileSystemFactoryS3ExpressScopeTest {
         Mockito.verify(manager).createFileSystem(captor.capture());
         Assert.assertEquals("true", captor.getValue()
                 .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+        Assert.assertEquals("us-west-2", captor.getValue().get("AWS_REGION"));
+        Assert.assertEquals("ak", captor.getValue().get("AWS_ACCESS_KEY"));
     }
 }

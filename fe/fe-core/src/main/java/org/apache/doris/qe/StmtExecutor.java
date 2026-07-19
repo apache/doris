@@ -81,7 +81,6 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundBaseExternalTableSink;
-import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -99,7 +98,6 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
@@ -776,8 +774,8 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        context.getStatementContext().setS3ExpressImportRead(
-                shouldEnableS3ExpressImportRead(logicalPlan, context.getState().isInternal()));
+        configureS3ExpressImportRead(
+                context.getStatementContext(), logicalPlan, context.getState().isInternal());
         checkSqlBlocked(logicalPlan.getClass());
         if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (isForwardToMaster()) {
@@ -980,15 +978,10 @@ public class StmtExecutor {
         }
     }
 
-    static boolean shouldEnableS3ExpressImportRead(LogicalPlan logicalPlan, boolean internal) {
-        if (internal) {
-            return false;
-        }
-        if (logicalPlan instanceof ExplainCommand) {
-            logicalPlan = ((ExplainCommand) logicalPlan).getLogicalPlan();
-        }
-        return logicalPlan.getClass() == InsertIntoTableCommand.class
-                || logicalPlan instanceof UnboundResultSink;
+    static void configureS3ExpressImportRead(
+            StatementContext statementContext, LogicalPlan logicalPlan, boolean internal) {
+        statementContext.setS3ExpressImportRead(
+                !internal && logicalPlan.getClass() == InsertIntoTableCommand.class);
     }
 
     public static void initBlockSqlAstNames() {

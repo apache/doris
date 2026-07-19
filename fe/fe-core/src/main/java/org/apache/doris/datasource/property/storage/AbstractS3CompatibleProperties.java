@@ -164,9 +164,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        // S3 Express imports use the directory bucket name and SDK endpoint rules. Keep the
-        // user endpoint and region untouched: the object client ignores endpoint, and uses
-        // region only as a fallback when the bucket Zone ID is unknown to Doris.
+        // S3 Express imports use SDK endpoint rules. Keep the configured region unchanged and
+        // do not synthesize an endpoint that the Express client would have to ignore.
         if (!s3ExpressImportRead) {
             setEndpointIfPossible();
             setRegionIfPossible();
@@ -176,7 +175,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
             throw new IllegalArgumentException("Both the access key and the secret key must be set.");
         }
-        if (!s3ExpressImportRead && StringUtils.isBlank(getRegion())) {
+        if (StringUtils.isBlank(getRegion())) {
             throw new IllegalArgumentException("Region is not set. If you are using a standard endpoint, the region "
                     + "will be detected automatically. Otherwise, please specify it explicitly."
             );

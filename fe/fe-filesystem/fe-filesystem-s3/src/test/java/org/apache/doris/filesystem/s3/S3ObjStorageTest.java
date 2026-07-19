@@ -54,13 +54,13 @@ class S3ObjStorageTest {
     void buildExpressClient_usesSdkZonalEndpointAndVirtualHostedAddressing() throws Exception {
         Map<String, String> props = new HashMap<>();
         props.put("AWS_ENDPOINT", "https://endpoint-is-ignored.example.com");
-        props.put("AWS_REGION", "us-east-1");
+        props.put("AWS_REGION", "us-west-2");
         props.put("AWS_ACCESS_KEY", "ak");
         props.put("AWS_SECRET_KEY", "sk");
         props.put("use_path_style", "true");
 
         S3ObjStorage storage = new S3ObjStorage(props);
-        try (S3Client client = storage.buildExpressClient("us-west-2")) {
+        try (S3Client client = storage.buildExpressClient()) {
             URL url = client.utilities().getUrl(GetUrlRequest.builder()
                     .bucket("analytics--usw2-az1--x-s3")
                     .key("data.parquet")

@@ -868,13 +868,20 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
     }
 
-    protected String globListPrefix(String bucket, String globPattern) throws IOException {
+    protected String globListPrefix(String globPattern) {
         return longestNonGlobPrefix(globPattern);
     }
 
-    protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix)
-            throws IOException {
+    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
         return expandedGlobListPrefixes(globPattern);
+    }
+
+    protected String globListPrefix(String bucket, String globPattern) {
+        return globListPrefix(globPattern);
+    }
+
+    protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix) {
+        return globListPrefixes(globPattern, listPrefix);
     }
 
     private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {

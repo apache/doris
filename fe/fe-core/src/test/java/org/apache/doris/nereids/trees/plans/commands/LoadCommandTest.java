@@ -34,18 +34,31 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class LoadCommandTest extends TestWithFeService {
+
+    private static final String S3_EXPRESS_LOAD_SQL = "LOAD LABEL customer_s3_express_test( "
+            + "     DATA INFILE(\"s3://analytics--usw2-az1--x-s3/customer/*.parquet\") "
+            + "     INTO TABLE customer"
+            + "  ) "
+            + "  WITH S3(  "
+            + "     \"s3.provider\" = \"AWS\", "
+            + "     \"s3.region\" = \"us-west-2\", "
+            + "     \"s3.access_key\" = \"AK\", "
+            + "     \"s3.secret_key\" = \"SK\", "
+            + "     \"use_path_style\" = \"false\");";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -147,18 +160,9 @@ public class LoadCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testS3ExpressLoadWithoutEndpointAndRegion() {
-        String loadSql = "LOAD LABEL customer_s3_express_test( "
-                + "     DATA INFILE(\"s3://analytics--usw2-az1--x-s3/customer/*.parquet\") "
-                + "     INTO TABLE customer"
-                + "  ) "
-                + "  WITH S3(  "
-                + "     \"s3.provider\" = \"AWS\", "
-                + "     \"s3.access_key\" = \"AK\", "
-                + "     \"s3.secret_key\" = \"SK\", "
-                + "     \"use_path_style\" = \"false\");";
-
-        List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(loadSql);
+    public void testS3ExpressLoadWithExplicitRegion() {
+        List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser()
+                .parseMultiple(S3_EXPRESS_LOAD_SQL);
         Assertions.assertFalse(statements.isEmpty());
 
         LoadCommand command = (LoadCommand) statements.get(0).first;
@@ -167,35 +171,25 @@ public class LoadCommandTest extends TestWithFeService {
                 backendProperties.get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
         Assertions.assertEquals("AWS", backendProperties.get("provider"));
         Assertions.assertEquals("", backendProperties.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("", backendProperties.get("AWS_REGION"));
+        Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
 
-        String missingProviderSql = loadSql.replace(
-                "     \"s3.provider\" = \"AWS\", ", "");
-        IllegalArgumentException providerException = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> new NereidsParser().parseMultiple(missingProviderSql));
-        Assertions.assertTrue(providerException.getMessage().contains(
-                "S3 Express directory buckets require \"s3.provider\" = \"AWS\""));
-
-        String malformedBucketSql = loadSql.replace(
-                "analytics--usw2-az1--x-s3", "analytics--usw2-azx--x-s3");
-        IllegalArgumentException bucketException = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> new NereidsParser().parseMultiple(malformedBucketSql));
-        Assertions.assertTrue(bucketException.getMessage().contains(
-                "Invalid S3 Express directory bucket name"));
-
-        String brokerScopeSql = loadSql.replace("WITH S3(", "WITH BROKER \"broker0\" (");
-        IllegalArgumentException scopeException = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> new NereidsParser().parseMultiple(brokerScopeSql));
-        Assertions.assertTrue(scopeException.getMessage().contains(
-                "S3 Express reads are supported only by"));
-
-        String ordinaryBucketSql = loadSql.replace(
+        String ordinaryBucketSql = S3_EXPRESS_LOAD_SQL.replace(
                 "analytics--usw2-az1--x-s3", "ordinary-bucket");
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> new NereidsParser().parseMultiple(ordinaryBucketSql));
+        LoadCommand ordinaryCommand = (LoadCommand) new NereidsParser()
+                .parseMultiple(ordinaryBucketSql).get(0).first;
+        Assertions.assertFalse(ordinaryCommand.getBrokerDesc().getBackendConfigProperties()
+                .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+    }
+
+    @Test
+    public void testS3ExpressLoadRunSkipsEndpointConnectivityCheck() throws Exception {
+        LoadCommand command = (LoadCommand) new NereidsParser()
+                .parseMultiple(S3_EXPRESS_LOAD_SQL).get(0).first;
+        LoadCommand commandSpy = Mockito.spy(command);
+        Mockito.doNothing().when(commandSpy)
+                .handleLoadCommand(Mockito.any(), Mockito.any());
+
+        commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class));
     }
 
     @Test

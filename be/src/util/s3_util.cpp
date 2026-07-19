@@ -115,38 +115,9 @@ std::optional<std::string_view> get_s3_express_zone_id(std::string_view bucket) 
     return zone_id;
 }
 
-std::optional<std::string_view> infer_s3_express_region(std::string_view zone_id) {
-    // Unknown zone prefixes deliberately fall back to the user-provided region below, so newly
-    // introduced AWS regions do not require Doris-side validation before the SDK can use them.
-    static constexpr std::pair<std::string_view, std::string_view> region_mappings[] = {
-            {"use1", "us-east-1"},  {"use2", "us-east-2"},       {"usw2", "us-west-2"},
-            {"aps1", "ap-south-1"}, {"apne1", "ap-northeast-1"}, {"euw1", "eu-west-1"},
-            {"eun1", "eu-north-1"},
-    };
-    const auto separator = zone_id.find('-');
-    const auto zone_prefix = zone_id.substr(0, separator);
-    for (const auto& [prefix, region] : region_mappings) {
-        if (zone_prefix == prefix) {
-            return region;
-        }
-    }
-    return std::nullopt;
-}
-
 bool use_s3_express_client(const S3ClientConf& conf) {
     return conf.enable_s3_express_read && conf.provider == io::ObjStorageType::AWS &&
            get_s3_express_zone_id(conf.bucket).has_value();
-}
-
-std::string_view effective_s3_region(const S3ClientConf& conf) {
-    if (use_s3_express_client(conf)) {
-        if (const auto zone_id = get_s3_express_zone_id(conf.bucket); zone_id.has_value()) {
-            if (const auto region = infer_s3_express_region(*zone_id); region.has_value()) {
-                return *region;
-            }
-        }
-    }
-    return conf.region;
 }
 
 void configure_s3_express_import_read(const StringCaseMap<std::string>& properties,
@@ -156,11 +127,6 @@ void configure_s3_express_import_read(const StringCaseMap<std::string>& properti
     conf->enable_s3_express_read =
             express_import != properties.end() && express_import->second == "true" &&
             conf->provider == io::ObjStorageType::AWS && express_zone_id.has_value();
-    if (conf->enable_s3_express_read) {
-        if (const auto region = infer_s3_express_region(*express_zone_id); region.has_value()) {
-            conf->region = std::string(*region);
-        }
-    }
 }
 
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
@@ -168,7 +134,7 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     if (conf.endpoint.empty() && !s3_express) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
     }
-    if (effective_s3_region(conf).empty()) {
+    if (conf.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
     }
 
@@ -579,8 +545,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     if (!s3_express && s3_conf.need_override_endpoint) {
         aws_config.endpointOverride = s3_conf.endpoint;
     }
-    const auto region = effective_s3_region(s3_conf);
-    aws_config.region = Aws::String(region.data(), region.size());
+    aws_config.region = s3_conf.region;
 
     if (_ca_cert_file_path.empty()) {
         _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));

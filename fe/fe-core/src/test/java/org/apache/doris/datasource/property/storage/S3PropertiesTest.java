@@ -387,6 +387,36 @@ public class S3PropertiesTest {
     }
 
     @Test
+    public void testS3ExpressEndpointPattern() throws UserException {
+        origProps.put("s3.access_key", "myS3AccessKey");
+        origProps.put("s3.secret_key", "myS3SecretKey");
+
+        // S3 Express Control Endpoint (Regional)
+        String endpointControl = "s3express-control.us-west-2.amazonaws.com";
+        origProps.put("s3.endpoint", endpointControl);
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", s3Properties.getRegion());
+
+        // S3 Express Zonal Endpoint
+        String endpointZonal = "s3express-usw2-az1.us-west-2.amazonaws.com";
+        origProps.put("s3.endpoint", endpointZonal);
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", s3Properties.getRegion());
+
+        // Test with https scheme
+        String endpointWithScheme = "https://s3express-control.eu-central-1.amazonaws.com";
+        origProps.put("s3.endpoint", endpointWithScheme);
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("eu-central-1", s3Properties.getRegion());
+
+        // Test with path
+        String endpointWithPath = "https://s3express-control.eu-central-1.amazonaws.com/path/to/obj";
+        origProps.put("s3.endpoint", endpointWithPath);
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("eu-central-1", s3Properties.getRegion());
+    }
+
+    @Test
     public void testInvalidEndpoint() {
         origProps.put("s3.access_key", "myS3AccessKey");
         origProps.put("s3.secret_key", "myS3SecretKey");
@@ -546,71 +576,30 @@ public class S3PropertiesTest {
     @Test
     public void testS3ExpressImportAllowsSdkEndpointResolution() {
         origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
-        origProps.put("s3.provider", "AWS");
         origProps.put("s3.access_key", "myS3AccessKey");
         origProps.put("s3.secret_key", "myS3SecretKey");
 
+        Assertions.assertFalse(S3Properties.isS3ExpressImport(origProps));
+        origProps.put("s3.provider", "GCS");
+        Assertions.assertFalse(S3Properties.isS3ExpressImport(origProps));
+        origProps.remove("s3.provider");
+        origProps.put("provider", "AWS");
+        Assertions.assertFalse(S3Properties.isS3ExpressImport(origProps));
+        origProps.remove("provider");
+        origProps.put("s3.provider", "AWS");
         Assertions.assertTrue(S3Properties.isS3ExpressImport(origProps));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3Properties.createForS3ExpressImport(origProps));
+        origProps.put("s3.region", "us-west-2");
         S3Properties s3Properties = S3Properties.createForS3ExpressImport(origProps);
         Assertions.assertTrue(AbstractS3CompatibleProperties.isS3ExpressImportRead(s3Properties));
         Map<String, String> backendProperties = s3Properties.getBackendConfigProperties();
         Assertions.assertEquals("true",
                 backendProperties.get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
         Assertions.assertEquals("AWS", backendProperties.get("provider"));
+        Assertions.assertEquals("myS3AccessKey", backendProperties.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("myS3SecretKey", backendProperties.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("", backendProperties.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("", backendProperties.get("AWS_REGION"));
-    }
-
-    @Test
-    public void testS3ExpressIntentValidation() {
-        origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
-        origProps.put("s3.provider", " AWS ");
-
-        Assertions.assertTrue(S3Properties.hasS3ExpressIntent(origProps.get("uri")));
-        Assertions.assertTrue(S3Properties.validateS3ExpressImport(origProps, true));
-        Assertions.assertFalse(S3Properties.hasS3ExpressIntent(
-                "s3://ordinary-bucket/data/part--x-s3/file.parquet"));
-        Assertions.assertFalse(S3Properties.validateS3ExpressImport(
-                "s3://ordinary-bucket/data/file.parquet", origProps, true));
-
-        IllegalArgumentException scopeException = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3Properties.validateS3ExpressImport(origProps, false));
-        Assertions.assertTrue(scopeException.getMessage().contains(
-                "SELECT ... FROM S3(...), INSERT INTO ... SELECT ... FROM S3(...), and Broker Load WITH S3"));
-
-        Map<String, String> missingProvider = new HashMap<>(origProps);
-        missingProvider.remove("s3.provider");
-        IllegalArgumentException providerException = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3Properties.validateS3ExpressImport(missingProvider, true));
-        Assertions.assertEquals(
-                "S3 Express directory buckets require \"s3.provider\" = \"AWS\".",
-                providerException.getMessage());
-
-        Map<String, String> invalidBucket = new HashMap<>(origProps);
-        invalidBucket.put("uri", "s3://analytics--usw2-azx--x-s3/data/file.parquet");
-        Assertions.assertTrue(S3Properties.hasS3ExpressIntent(invalidBucket.get("uri")));
-        IllegalArgumentException bucketException = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3Properties.validateS3ExpressImport(invalidBucket, true));
-        Assertions.assertTrue(bucketException.getMessage().contains(
-                "Invalid S3 Express directory bucket name \"analytics--usw2-azx--x-s3\""));
-
-        Map<String, String> missingObjectPath = new HashMap<>(origProps);
-        missingObjectPath.put("uri", "s3://analytics--usw2-az1--x-s3");
-        Assertions.assertTrue(S3Properties.hasS3ExpressIntent(missingObjectPath.get("uri")));
-        IllegalArgumentException uriException = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3Properties.validateS3ExpressImport(missingObjectPath, true));
-        Assertions.assertTrue(uriException.getMessage().contains("Invalid S3 Express URI"));
-        Assertions.assertTrue(uriException.getMessage().contains("/<object-path>"));
-    }
-
-    @Test
-    public void testS3ExpressProviderUsesCanonicalAliasPrecedence() {
-        origProps.put("s3.provider", "S3");
-        origProps.put("provider", "AWS");
-        Assertions.assertFalse(S3Properties.isAwsProvider(origProps));
-
-        origProps.put("s3.provider", "AWS");
-        origProps.put("provider", "S3");
-        Assertions.assertTrue(S3Properties.isAwsProvider(origProps));
+        Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
     }
 }

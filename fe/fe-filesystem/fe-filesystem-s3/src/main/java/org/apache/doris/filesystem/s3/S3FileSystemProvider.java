@@ -61,10 +61,6 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        if (Boolean.parseBoolean(properties.get(S3FileSystemProperties.S3_EXPRESS_IMPORT_READ))
-                && S3FileSystemProperties.isAwsProvider(properties)) {
-            return true;
-        }
         boolean hasCredential = hasAny(properties, ACCESS_KEY_NAMES)
                 || hasAny(properties, ROLE_ARN_NAMES)
                 || hasAny(properties, CREDENTIALS_PROVIDER_TYPE_NAMES);
