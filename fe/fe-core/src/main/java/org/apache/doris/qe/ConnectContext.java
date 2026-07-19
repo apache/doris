@@ -934,6 +934,40 @@ public class ConnectContext {
         statementContext = null;
     }
 
+    // Arrow Flight SQL only.
+    // Executors of already-planned queries whose results are produced on the BE and pulled later
+    // during the DoGet phase. Their coordinators must stay alive until the BE finishes scanning:
+    // an external-table scan in batch mode lazily fetches splits from the FE (a batch SplitSource
+    // held by the coordinator's scan nodes), so closing the coordinator at the end of
+    // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
+    // with "Split source X is released". These executors are finalized when the next query starts
+    // on this connection, or when the connection is torn down. See #62259.
+    private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
+
+    public void addFlightSqlDeferredExecutor(StmtExecutor executor) {
+        synchronized (flightSqlDeferredExecutors) {
+            flightSqlDeferredExecutors.add(executor);
+        }
+    }
+
+    public void closeFlightSqlDeferredExecutors() {
+        List<StmtExecutor> toClose;
+        synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutors.isEmpty()) {
+                return;
+            }
+            toClose = new ArrayList<>(flightSqlDeferredExecutors);
+            flightSqlDeferredExecutors.clear();
+        }
+        for (StmtExecutor deferredExecutor : toClose) {
+            try {
+                deferredExecutor.finalizeArrowFlightQuery();
+            } catch (Throwable t) {
+                LOG.warn("failed to finalize deferred arrow flight executor", t);
+            }
+        }
+    }
+
     /**
      * This method is idempotent.
      */

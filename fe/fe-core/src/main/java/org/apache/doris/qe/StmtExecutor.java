@@ -199,6 +199,10 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
+    // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
+    // is skipped.
+    private volatile boolean deferredForArrowFlight = false;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
@@ -1035,6 +1039,23 @@ public class StmtExecutor {
         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
     }
 
+    public boolean isDeferredForArrowFlight() {
+        return deferredForArrowFlight;
+    }
+
+    // Finalize an Arrow Flight query whose coordinator was kept alive across the
+    // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
+    // SplitSources and the query queue slot) and then unregister the query. See #62259.
+    public void finalizeArrowFlightQuery() {
+        try {
+            if (coord != null) {
+                coord.close();
+            }
+        } finally {
+            finalizeQuery();
+        }
+    }
+
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         int retryTime = Config.max_query_retry_time;
@@ -1470,6 +1491,22 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
+                // Defer closing the coordinator to ConnectContext (closed on the next query or
+                // connection teardown) instead of in the finally block below. This gate covers
+                // every Arrow Flight query whose results are produced on the BE (coordBase ==
+                // coord) -- internal-table and external, batch or not. It is REQUIRED only for an
+                // external-table scan in batch mode, where the BE lazily fetches splits from the FE
+                // during the later DoGet phase, so closing the coordinator here would release its
+                // batch SplitSource too early and break DoGet. Other remote-result queries do not
+                // need deferral (the BE buffers their result independently) but are captured by the
+                // same gate; the trade-off is their coordinator, query queue slot and query
+                // registration stay held until the next query / teardown instead of being released
+                // at the end of GetFlightInfo. Point queries use a different coordBase (not
+                // deferred). See #62259.
+                if (coordBase == coord) {
+                    deferredForArrowFlight = true;
+                    context.addFlightSqlDeferredExecutor(this);
+                }
                 return;
             }
 
@@ -1579,7 +1616,12 @@ public class StmtExecutor {
             this.coord = null;
             throw e;
         } finally {
-            coordBase.close();
+            // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
+            // (next query / connection teardown), so the BE can still fetch splits during DoGet.
+            // See #62259.
+            if (!deferredForArrowFlight) {
+                coordBase.close();
+            }
         }
     }
 
