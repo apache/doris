@@ -760,8 +760,8 @@ TEST(DataTypeSerDeArrowTest, DateTimeV2NaivePre1970RoundTrip) {
 
         auto target_block = std::make_shared<Block>(source_block->clone_empty());
         DataTypes source_data_types = source_block->get_data_types();
-        ASSERT_TRUE(convert_from_arrow_batch(record_batch, source_data_types, &*target_block, utc)
-                            .ok())
+        ASSERT_TRUE(
+                convert_from_arrow_batch(record_batch, source_data_types, &*target_block, utc).ok())
                 << c.literal;
         CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
     }
