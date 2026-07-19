@@ -62,3 +62,13 @@
 - **C2 关闭接线**（commit `12f3e95239b`）：改为**两层关闭**——主关闭 `PluginDrivenScanNode.getSplits` 注册 `scope::closeAll`（对象捕获、跳 NONE、同 read-txn queryId 键，只对走协调器语句触发、pump 静默后）；兜底 `StatementContext.close()` 的 `isReturnResultFromLocal` 守卫 closeAll（直连 `executeQuery` finally + `proxyExecute` 新增 finally 覆盖转发主节点）；`resetConnectorStatementScope` 改 closeAll-before-null；`handleQueryWithRetry` 每重试重置。核实 `releasePlannerResources` 幂等故转发路径补 close 安全。单测 reset-先关/close-本地关/close-异步延后。P1 关闭仍 no-op，行为中性。编译 + checkstyle 0 + 11 测全绿。
 - 更正 `P1-implementation-design.md` §4（旧"scope 创建处注册"→两层关闭）；残留风险（取消非硬栅栏、arrow-flight 断连、待确认的非-getSplits 外部查询、**TCCL 自钉扎硬前置**）记入分期定稿 §6。
 - **下一步**：见 HANDOFF —— 下个 session 做 C3（读取侧改道 ~55 缝 + 扫描节点存字段 + 7 处后台读穿纠正 + 修 fetchRowCount 隐患），动手前先核行号列清单 + 配对抗复核。用户将在下个 session 开新任务。
+
+## 2026-07-19 — session 4：落地读取侧改道 + 后台读穿纠正（读取键石收官主体）
+
+- **动手前核对关（对抗复核 workflow `wf_6e2967a9-1a2`，10 agents：7 逐文件普查 + 3 对抗验证）**：把改道表逐条对当前代码行号重核。结论落 `designs/C3-read-reroute-verified-checklist.md`：fe-core 连接器 `getMetadata` 工厂缝**共 66 处**，完整切成四类，相加=66、零遗漏/零重叠/零未分类；设计命名行号零漂移（仅扫描节点尾部 +13 行位置漂移）。对抗复核 CONFIRM 写专用点 `resolveWriteTargetHandle` 唯一生产调用方是插入执行器开事务、读路径够不到，必须留后续。
+- **两处偏差交用户拍板 + 拍定**：①名字映射两缝（`fromRemoteDatabaseName`/`fromRemoteTableName`）经复核跑在离请求线程的缓存加载路径 → 归入强制 NONE 读穿（读穿 9 处、改道 49 处）；②读穿 loader 走统一入口 + 传 NONE 会话（门禁零例外）。
+- **落地（首次改产品代码，未提交前全绿）**：新增 `PluginDrivenExternalCatalog.buildCrossStatementSession()`（镜像 buildConnectorSession + 强制 NONE，保留凭证）；9 处后台 loader 改用它并走统一入口（含 `fetchRowCount` ANALYZE 隐患修复——不必单改统计模块）；49 处读/DDL/命令/多版本改道进统一入口；扫描节点加 `volatile cachedMetadata` + `metadata()` 访问器（静态 create 直调入口）。源码证实「强制 NONE 走统一入口」与裸直调**字节等价**（NONE 每次跑工厂、零留存）。
+- **测试适配（workflow `wf_fbb60841-365`，11 agents 并行修各文件）**：改道后这些路径经统一入口调 `session.getStatementScope()`，Mockito mock 默认返 null → 漏斗 NPE；按 C1 约定（测试给 NONE 作用域）逐文件补 `getStatementScope()→NONE` stub + 给测试替身补 `buildCrossStatementSession` override（不弱化任何断言/verify）。新增守门 `ConnectorSessionImplTest.explicitNoneStatementScopeWinsOverLiveContext`（活 ctx 下显式 NONE 胜出，锁 ANALYZE 隐患修复的机制）。
+- **验证**：目标测试 247 全绿（先红 130 error+30 fail → 修后 0/0）+ ConnectorSessionImplTest 18 绿 + fe-core checkstyle BUILD SUCCESS 零违规 + fe-core 主编译 BUILD SUCCESS。
+- **提交口径**：4 个逻辑子步（助手/读穿/改道/扫描存字段）在 2 个共享文件里交织，且每提交须保持绿（测试适配须随产品改动同提），逐 hunk 拆分需交互式 git（本环境不支持）→ 按 C1/C2 先例=1 个绿代码提交（含产品+测试适配+守门）+ 1 个文档提交，代码提交体内枚举 4 子步。
+- **下一步**：见 HANDOFF —— 读取键石剩防漂移门禁（形态=统一入口零例外）；下一大步 = HMS 异构网关兄弟扇出（键含属主 label + 兄弟 getMetadata/起事务进同一入口 + 异构网关 e2e）。
