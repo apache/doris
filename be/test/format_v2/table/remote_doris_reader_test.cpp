@@ -18,6 +18,7 @@
 #include "format_v2/table/remote_doris_reader.h"
 
 #include <arrow/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -41,6 +42,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format/arrow/arrow_utils.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
@@ -48,6 +50,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "util/timezone_utils.h"
 
 namespace doris::format::remote_doris {
 namespace {
@@ -312,6 +315,44 @@ TEST(RemoteDorisV2ReaderTest, BuildsSchemaFromSlotsAndProjectsRequestedColumns) 
     EXPECT_TRUE(eof);
     ASSERT_TRUE(reader->close().ok());
     EXPECT_EQ(*close_count, 1);
+}
+
+// apache/doris#65741: a timezone-aware Arrow timestamp must be decoded in its OWN advertised
+// timezone, so a remote DATETIMEV2 wall-clock round-trips even when the producer session timezone
+// differs from this reader's hard-coded +08:00 default. Before the fix both federation readers
+// passed the +08:00 default, shifting a UTC-produced value by 8 hours.
+TEST(RemoteDorisV2ReaderTest, ResolvesAwareArrowTimestampTimezone) {
+    cctz::time_zone default_ctz;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", default_ctz));
+    cctz::time_zone utc;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", utc));
+
+    // Timezone-aware timestamp -> its own advertised timezone (UTC), not the +08:00 default.
+    {
+        auto ts_type = arrow::timestamp(arrow::TimeUnit::SECOND, "UTC");
+        arrow::TimestampBuilder builder(ts_type, arrow::default_memory_pool());
+        ASSERT_TRUE(builder.Append(1782956182).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        EXPECT_TRUE(resolve_arrow_reader_timezone(*array, default_ctz) == utc);
+    }
+    // Timezone-naive timestamp -> default (the serde then reads it as UTC).
+    {
+        auto ts_type = arrow::timestamp(arrow::TimeUnit::SECOND);
+        arrow::TimestampBuilder builder(ts_type, arrow::default_memory_pool());
+        ASSERT_TRUE(builder.Append(1782956182).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        EXPECT_TRUE(resolve_arrow_reader_timezone(*array, default_ctz) == default_ctz);
+    }
+    // Non-timestamp column -> default.
+    {
+        arrow::Int32Builder builder;
+        ASSERT_TRUE(builder.Append(1).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        EXPECT_TRUE(resolve_arrow_reader_timezone(*array, default_ctz) == default_ctz);
+    }
 }
 
 TEST(RemoteDorisV2ReaderTest, BuildsComplexSchemaChildrenFromSlots) {

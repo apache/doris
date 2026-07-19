@@ -48,19 +48,29 @@ suite("test_arrow_flight_datetime_naive", "arrow_flight_sql") {
         }
     }
 
-    // With the switch ON, getString() returns the wall-clock value unchanged, in any client tz.
-    setNaive(true)
-    assertEquals("2024-07-19 12:00:00.123456", readString())
+    // Exercise both the parallel and the serial Arrow Flight result-sink code paths, since the
+    // naive schema is built independently in each (result_sink_operator.cpp prepare/init).
+    for (boolean parallelSink : [true, false]) {
+        conn.createStatement().withCloseable { st ->
+            st.execute("set enable_parallel_result_sink = " + parallelSink)
+        }
 
-    // The switch changes the wire encoding. On a non-UTC client, the timezone-aware (off) and
-    // timezone-naive (on) values differ when read as java.sql.Timestamp via getObject(). This also
-    // confirms the SET actually took effect over Arrow Flight.
-    if (java.util.TimeZone.getDefault().getRawOffset() != 0) {
-        setNaive(false)
-        def off = readObject()
+        // With the switch ON, getString() returns the wall-clock value unchanged, in any client tz.
         setNaive(true)
-        def on = readObject()
-        logger.info("arrow flight datetime getObject: off=${off}, on=${on}".toString())
-        assertTrue(off != on)
+        assertEquals("2024-07-19 12:00:00.123456", readString())
+
+        // The switch changes the wire encoding. On a non-UTC client, the timezone-aware (off) and
+        // timezone-naive (on) values differ when read as java.sql.Timestamp via getObject(). This
+        // also confirms the SET actually took effect over Arrow Flight. On a UTC client this cannot
+        // be observed via JDBC, so the wire encoding itself is asserted in the BE unit test
+        // DataTypeSerDeArrowTest.DateTimeV2ArrowTimezoneDependsOnNaiveFlag.
+        if (java.util.TimeZone.getDefault().getRawOffset() != 0) {
+            setNaive(false)
+            def off = readObject()
+            setNaive(true)
+            def on = readObject()
+            logger.info("arrow flight datetime getObject (parallelSink=${parallelSink}): off=${off}, on=${on}".toString())
+            assertTrue(off != on)
+        }
     }
 }

@@ -17,8 +17,12 @@
 
 #include "format/arrow/arrow_utils.h"
 
+#include <arrow/array.h>
 #include <arrow/pretty_print.h>
 #include <arrow/status.h>
+#include <arrow/type.h>
+
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -28,6 +32,23 @@ Status to_doris_status(const arrow::Status& status) {
     } else {
         return Status::InternalError(status.ToString());
     }
+}
+
+cctz::time_zone resolve_arrow_reader_timezone(const arrow::Array& array,
+                                              const cctz::time_zone& default_ctz) {
+    if (array.type()->id() != arrow::Type::TIMESTAMP) {
+        return default_ctz;
+    }
+    const std::string& timezone =
+            std::static_pointer_cast<arrow::TimestampType>(array.type())->timezone();
+    if (timezone.empty()) {
+        return default_ctz;
+    }
+    cctz::time_zone parsed;
+    if (TimezoneUtils::find_cctz_time_zone(timezone, parsed)) {
+        return parsed;
+    }
+    return default_ctz;
 }
 
 arrow::Status to_arrow_status(const Status& status) {

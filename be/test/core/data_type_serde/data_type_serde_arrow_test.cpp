@@ -713,4 +713,58 @@ TEST(DataTypeSerDeArrowTest, DateTimeV2NaiveRoundTripWithNonUtcReader) {
     CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
 }
 
+// apache/doris#65741: a pre-1970 DATETIMEV2 encodes as a NEGATIVE Arrow epoch on the naive Flight
+// path (e.g. datetime(3) '1969-12-31 23:59:59.500' -> raw -500). The read side must keep the epoch
+// signed and floor the sub-second remainder; a prior static_cast<UInt64> mangled it (decoding
+// '.500' as '.116000' and a garbage out-of-range date). Round-trip fractional pre-epoch values.
+TEST(DataTypeSerDeArrowTest, DateTimeV2NaivePre1970RoundTrip) {
+    struct Case {
+        int scale;
+        std::string literal;
+    };
+    const std::vector<Case> cases = {{3, "1969-12-31 23:59:59.500"},
+                                     {6, "1969-12-31 23:59:59.999999"},
+                                     {0, "1969-12-31 23:59:59"},
+                                     {6, "1930-05-06 12:34:56.654321"}};
+
+    cctz::time_zone utc;
+    TimezoneUtils::find_cctz_time_zone("UTC", utc);
+
+    for (const auto& c : cases) {
+        // One-row source block holding the exact pre-1970 value.
+        auto column = ColumnVector<TYPE_DATETIMEV2>::create();
+        DateV2Value<DateTimeV2ValueType> value;
+        {
+            CastParameters p;
+            ASSERT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {c.literal.c_str(), c.literal.size()}, value, &utc, c.scale, p))
+                    << c.literal;
+        }
+        column->insert(Field::create_field<TYPE_DATETIMEV2>(value));
+        DataTypePtr type = std::make_shared<DataTypeDateTimeV2>(c.scale);
+        auto source_block = std::make_shared<Block>();
+        source_block->insert(ColumnWithTypeAndName(column->get_ptr(), type, "dt"));
+
+        // Encode with the timezone-naive Flight schema (empty Arrow timezone -> as-if-UTC epoch).
+        std::shared_ptr<arrow::DataType> naive_type;
+        ASSERT_TRUE(convert_to_arrow_type(type, &naive_type, "UTC", /*datetime_naive=*/true).ok())
+                << c.literal;
+        ASSERT_TRUE(std::static_pointer_cast<arrow::TimestampType>(naive_type)->timezone().empty());
+        auto schema = arrow::schema({arrow::field("dt", naive_type, false)});
+
+        std::shared_ptr<arrow::RecordBatch> record_batch;
+        ASSERT_TRUE(convert_to_arrow_batch(*source_block, schema, arrow::default_memory_pool(),
+                                           &record_batch, utc)
+                            .ok())
+                << c.literal;
+
+        auto target_block = std::make_shared<Block>(source_block->clone_empty());
+        DataTypes source_data_types = source_block->get_data_types();
+        ASSERT_TRUE(convert_from_arrow_batch(record_batch, source_data_types, &*target_block, utc)
+                            .ok())
+                << c.literal;
+        CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
+    }
+}
+
 } // namespace doris

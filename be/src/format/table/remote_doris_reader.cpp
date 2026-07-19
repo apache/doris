@@ -86,10 +86,14 @@ Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bo
 
         try {
             auto block_pos = (*_col_name_to_block_idx)[column_name];
+            // Decode a timezone-aware Arrow timestamp in its own advertised timezone so a remote
+            // DATETIMEV2 wall-clock round-trips even when the producer session timezone differs
+            // from this reader's default (apache/doris#65741).
+            const cctz::time_zone col_ctz = resolve_arrow_reader_timezone(*column, _ctzz);
             RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_pos)
                                     ->get_serde()
                                     ->read_column_from_arrow(*columns[block_pos], column, 0,
-                                                             num_rows, _ctzz));
+                                                             num_rows, col_ctz));
         } catch (Exception& e) {
             return Status::InternalError(
                     "Failed to convert from arrow to block, column_name: {}, e: {}", column_name,

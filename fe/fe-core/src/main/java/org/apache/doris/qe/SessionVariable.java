@@ -1173,11 +1173,13 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFileScannerV2 = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_ARROW_FLIGHT_DATETIME_NAIVE, needForward = true, description = {
-            "开启后，Arrow Flight/ADBC 查询返回的 DATETIME/DATETIMEV2 映射为无时区(timezone-naive)的 "
-                    + "Arrow timestamp，值为墙钟本身；默认关闭，保持带会话时区的旧行为以兼容现有客户端。",
-            "When enabled, DATETIME/DATETIMEV2 returned over Arrow Flight/ADBC is mapped to a "
+            "开启后，Arrow Flight/ADBC 查询返回的 DATETIMEV2 映射为无时区(timezone-naive)的 "
+                    + "Arrow timestamp，值为墙钟本身；默认关闭，保持带会话时区的旧行为以兼容现有客户端。"
+                    + "(旧版 DATETIME v1 本就以字符串返回，不受影响。)",
+            "When enabled, DATETIMEV2 returned over Arrow Flight/ADBC is mapped to a "
                     + "timezone-naive Arrow timestamp carrying the wall-clock value. Disabled by default, "
-                    + "keeping the previous timezone-aware behavior for client compatibility."})
+                    + "keeping the previous timezone-aware behavior for client compatibility. "
+                    + "(Legacy DATETIME v1 is already returned as a string and is unaffected.)"})
     public boolean enableArrowFlightDatetimeNaive = false;
 
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)

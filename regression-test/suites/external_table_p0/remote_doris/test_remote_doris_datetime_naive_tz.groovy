@@ -16,11 +16,14 @@
 // under the License.
 
 // Regression for apache/doris#65741 (federation datetime correctness).
-// When a DATETIME / DATETIMEV2 value is read back through a type=doris catalog with
-// use_arrow_flight=true, the wall-clock value must round-trip unchanged with no timezone shift.
-// This holds under both the default timezone-aware mapping and the opt-in timezone-naive one,
-// because DataTypeDateTimeV2SerDe::read_column_from_arrow interprets the Arrow timestamp by its
-// own timezone metadata (empty -> UTC, otherwise the session timezone).
+// When a DATETIMEV2 value is read back through a type=doris catalog with use_arrow_flight=true,
+// the wall-clock value must round-trip unchanged with no timezone shift. The producer Flight query
+// runs with the DEFAULT (timezone-aware) encoding -- RemoteDorisScanNode does not enable
+// enable_arrow_flight_datetime_naive on the remote session -- so this suite validates the aware
+// federation round-trip. The naive read path (empty Arrow timezone -> UTC) is covered by the BE
+// unit test DataTypeSerDeArrowTest.DateTimeV2NaiveRoundTripWithNonUtcReader; exercising naive
+// end-to-end through federation needs the catalog to propagate the session variable to the
+// producer, which is tracked as a follow-up.
 suite("test_remote_doris_datetime_naive_tz", "p0,external") {
     String remote_doris_host = context.config.otherConfigs.get("extArrowFlightSqlHost")
     String remote_doris_arrow_port = context.config.otherConfigs.get("extArrowFlightSqlPort")

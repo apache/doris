@@ -516,9 +516,10 @@ struct TQueryOptions {
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1
 
-  // When true, DATETIME/DATETIMEV2 returned over Arrow Flight is mapped to a timezone-naive
-  // Arrow timestamp (carrying the wall-clock value); when false (default), the previous
-  // timezone-aware mapping is kept. See apache/doris#65741.
+  // When true, DATETIMEV2 returned over Arrow Flight is mapped to a timezone-naive Arrow
+  // timestamp (carrying the wall-clock value); when false (default), the previous timezone-aware
+  // mapping is kept. Legacy DATETIME v1 is returned as a string and is unaffected.
+  // See apache/doris#65741.
   1005: optional bool enable_arrow_flight_datetime_naive = false
 }
 

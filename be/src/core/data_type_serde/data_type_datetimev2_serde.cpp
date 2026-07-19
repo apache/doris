@@ -530,16 +530,22 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         for (auto value_i = start; value_i < end; ++value_i) {
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             auto date_value = unaligned_load<int64_t>(raw_byte_ptr);
-            auto utc_epoch = static_cast<UInt64>(date_value);
+            // Keep the epoch signed: a pre-1970 DATETIMEV2 (e.g. datetime(3)
+            // '1969-12-31 23:59:59.500' -> raw -500) must not be cast to unsigned, and the
+            // sub-second remainder has to be floored toward -inf, mirroring
+            // append_datetimev2_from_utc_epoch_micros() used by the INT96 path above.
+            int64_t seconds = date_value / divisor;
+            int64_t sub_second = date_value % divisor;
+            if (sub_second < 0) {
+                sub_second += divisor;
+                --seconds;
+            }
 
             DateV2Value<DateTimeV2ValueType> v;
-            // convert second
-            v.from_unixtime(utc_epoch / divisor, real_ctz);
-            // get rest time
-            // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
-            // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
-            // "2022-01-01 11:11:11.111", utc_epoch = 1641035471111, divisor = 1000, set_microsecond(111000)
-            v.set_microsecond((utc_epoch % divisor) * DIVISOR_FOR_MICRO / divisor);
+            v.from_unixtime(seconds, real_ctz);
+            // scale the sub-second remainder into microseconds (6 digits); NANO input is truncated.
+            // "2022-01-01 11:11:11.111", raw = 1641035471111, divisor = 1000, set_microsecond(111000)
+            v.set_microsecond(static_cast<uint32_t>(sub_second * DIVISOR_FOR_MICRO / divisor));
             col_data.emplace_back(v);
         }
     } else {
