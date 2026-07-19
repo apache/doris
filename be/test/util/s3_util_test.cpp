@@ -23,6 +23,7 @@
 
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 
 namespace doris {
@@ -77,29 +78,31 @@ TEST_F(S3UTILTest, hide_access_key_typical_aws_key) {
     EXPECT_EQ("xxxxxxxFODNN7xxxxxxx", result);
 }
 
-// Verifies that check_s3_rate_limiter_config_changed() rebuilds the global GET rate
-// limiter when the related configs change. This is the behavior the cloud vault refresh
-// thread relies on to apply dynamically modified s3_get_* rate limiter configs without
-// having to (re)create an S3 client.
-TEST_F(S3UTILTest, check_s3_rate_limiter_config_changed_rebuilds_limiter) {
-    auto* get_limiter = S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET);
+// Verifies that S3RateLimiterManager::refresh() rebuilds the global GET rate limiter
+// when the related configs change. This is the behavior the daemon refresh thread
+// relies on to apply dynamically modified s3_get_* rate limiter configs.
+TEST_F(S3UTILTest, refresh_rebuilds_limiter_on_config_change) {
+    auto& manager = S3RateLimiterManager::instance();
+    auto* get_limiter = manager.qps_limiter(S3RateLimitType::GET);
     ASSERT_NE(get_limiter, nullptr);
 
     // Save originals so other tests are not affected.
     const int64_t orig_tps = config::s3_get_token_per_second;
     const int64_t orig_bucket = config::s3_get_bucket_tokens;
     const int64_t orig_limit = config::s3_get_token_limit;
+    const int64_t orig_per_core = config::s3_get_qps_per_core;
 
-    // Establish a known baseline (no count limit, no throttling).
+    // Establish a known baseline (legacy path, no count limit, no throttling).
+    config::s3_get_qps_per_core = -1;
     config::s3_get_token_per_second = 1000000000;
     config::s3_get_bucket_tokens = 1000000000;
     config::s3_get_token_limit = 0;
-    check_s3_rate_limiter_config_changed();
+    manager.refresh();
 
     // Impose a hard request-count limit of 3. Since the limit value changes (0 -> 3),
     // the limiter is rebuilt with a fresh counter.
     config::s3_get_token_limit = 3;
-    check_s3_rate_limiter_config_changed();
+    manager.refresh();
 
     // The bucket/speed are huge so add() never throttles (returns 0); only the count
     // limit takes effect: the first 3 requests pass, the 4th is rejected (-1).
@@ -108,17 +111,18 @@ TEST_F(S3UTILTest, check_s3_rate_limiter_config_changed_rebuilds_limiter) {
     EXPECT_GE(get_limiter->add(1), 0);
     EXPECT_LT(get_limiter->add(1), 0);
 
-    // Raise the limit. The checker must rebuild the limiter so the exhausted counter is
+    // Raise the limit. The refresh must rebuild the limiter so the exhausted counter is
     // reset; otherwise the next request would still be rejected.
     config::s3_get_token_limit = 100;
-    check_s3_rate_limiter_config_changed();
+    manager.refresh();
     EXPECT_GE(get_limiter->add(1), 0);
 
     // Restore original configs and apply them back to the limiter.
     config::s3_get_token_per_second = orig_tps;
     config::s3_get_bucket_tokens = orig_bucket;
     config::s3_get_token_limit = orig_limit;
-    check_s3_rate_limiter_config_changed();
+    config::s3_get_qps_per_core = orig_per_core;
+    manager.refresh();
 }
 
 } // end namespace doris
