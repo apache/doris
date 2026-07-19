@@ -20,7 +20,6 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.transaction.TxnUtil;
 import org.apache.doris.common.Config;
@@ -30,8 +29,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
-import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
@@ -59,8 +56,6 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class RoutineLoadJobTest {
     @Test
@@ -381,33 +376,6 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testShowTableLookupUsesJobReadLock() {
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", 1L,
-                11L, "localhost:9092", "test_topic", UserIdentity.ADMIN);
-        ReentrantReadWriteLock lock = Deencapsulation.getField(routineLoadJob, "lock");
-
-        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
-        Database database = Mockito.mock(Database.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
-        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(database));
-        Mockito.when(database.getFullName()).thenReturn("test_db");
-        Mockito.when(database.getTable(11L)).thenAnswer(invocation -> {
-            Assert.assertTrue(lock.getReadHoldCount() > 0);
-            return Optional.of((Table) table);
-        });
-        Mockito.when(table.getName()).thenReturn("test_table");
-
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
-
-            Assert.assertEquals("test_table", routineLoadJob.getShowInfo().get(6));
-            Assert.assertTrue(routineLoadJob.getShowCreateInfo().contains(" ON test_table\n"));
-        }
-
-        Mockito.verify(database, Mockito.times(2)).getTable(11L);
-    }
-
-    @Test
     public void testParseUniqueKeyUpdateMode() {
         // Test valid mode strings
         Assert.assertEquals(TUniqueKeyUpdateMode.UPSERT,
@@ -528,46 +496,6 @@ public class RoutineLoadJobTest {
         Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, uniqueKeyUpdateMode);
         // isPartialUpdate should be false for UPDATE_FLEXIBLE_COLUMNS
         Assert.assertFalse(isPartialUpdate);
-    }
-
-    @Test
-    public void testValidateFixedPartialUpdateRequiresMowTable() {
-        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
-        OlapTable targetTable = Mockito.mock(OlapTable.class);
-        Mockito.when(targetTable.getEnableUniqueKeyMergeOnWrite()).thenReturn(false);
-
-        UserException exception = Assert.assertThrows(UserException.class,
-                () -> job.validateAlterJobProperties(targetTable, Maps.newHashMap(),
-                        TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS));
-        Assert.assertTrue(exception.getMessage().contains("PARTIAL_COLUMNS"));
-    }
-
-    @Test
-    public void testValidateFlexiblePartialUpdateUsesAlteredProperties() throws Exception {
-        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
-        OlapTable targetTable = Mockito.mock(OlapTable.class);
-        Map<String, String> currentJobProperties = Maps.newHashMap();
-        currentJobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
-        currentJobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "false");
-        currentJobProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "$.value");
-        Deencapsulation.setField(job, "jobProperties", currentJobProperties);
-
-        Map<String, String> validAlterProperties = Maps.newHashMap();
-        validAlterProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "");
-        job.validateAlterJobProperties(targetTable, validAlterProperties,
-                TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
-
-        Map<String, String> invalidAlterProperties = Maps.newHashMap();
-        invalidAlterProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "");
-        invalidAlterProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "true");
-        try {
-            job.validateAlterJobProperties(targetTable, invalidAlterProperties,
-                    TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
-            Assert.fail("Expected flexible partial update validation to reject fuzzy_parse");
-        } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("fuzzy_parse"));
-        }
-        Mockito.verify(targetTable, Mockito.times(2)).validateForFlexiblePartialUpdate();
     }
 
 }

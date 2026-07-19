@@ -17,14 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.Separator;
-import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.RoutineLoadDesc;
-import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -33,7 +27,6 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 
 public class AlterRoutineLoadJobOperationLog  implements Writable {
@@ -46,8 +39,6 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     private AbstractDataSourceProperties dataSourceProperties;
     @SerializedName(value = "targetTableId")
     private long targetTableId;
-    @SerializedName(value = "routineLoadDesc")
-    private RoutineLoadDescSnapshot routineLoadDesc;
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties) {
@@ -56,17 +47,10 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties, long targetTableId) {
-        this(jobId, jobProperties, dataSourceProperties, targetTableId, null);
-    }
-
-    public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
-            AbstractDataSourceProperties dataSourceProperties, long targetTableId,
-            RoutineLoadDesc routineLoadDesc) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;
         this.targetTableId = targetTableId;
-        this.routineLoadDesc = routineLoadDesc == null ? null : new RoutineLoadDescSnapshot(routineLoadDesc);
     }
 
     public long getJobId() {
@@ -83,69 +67,6 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
 
     public long getTargetTableId() {
         return targetTableId;
-    }
-
-    public RoutineLoadDesc getRoutineLoadDesc() {
-        return routineLoadDesc == null ? null : routineLoadDesc.toRoutineLoadDesc();
-    }
-
-    private static class RoutineLoadDescSnapshot {
-        @SerializedName("columnSeparator")
-        private SeparatorSnapshot columnSeparator;
-        @SerializedName("lineDelimiter")
-        private SeparatorSnapshot lineDelimiter;
-        @SerializedName("columnsInfo")
-        private List<ImportColumnDesc> columnsInfo;
-        @SerializedName("precedingFilter")
-        private Expr precedingFilter;
-        @SerializedName("filter")
-        private Expr filter;
-        @SerializedName("partitionNamesInfo")
-        private PartitionNamesInfo partitionNamesInfo;
-        @SerializedName("deleteCondition")
-        private Expr deleteCondition;
-        @SerializedName("mergeType")
-        private LoadTask.MergeType mergeType;
-        @SerializedName("sequenceColName")
-        private String sequenceColName;
-
-        private RoutineLoadDescSnapshot(RoutineLoadDesc routineLoadDesc) {
-            this.columnSeparator = SeparatorSnapshot.fromSeparator(routineLoadDesc.getColumnSeparator());
-            this.lineDelimiter = SeparatorSnapshot.fromSeparator(routineLoadDesc.getLineDelimiter());
-            this.columnsInfo = routineLoadDesc.getColumnsInfo();
-            this.precedingFilter = routineLoadDesc.getPrecedingFilter();
-            this.filter = routineLoadDesc.getFilter();
-            this.partitionNamesInfo = routineLoadDesc.getPartitionNamesInfo();
-            this.deleteCondition = routineLoadDesc.getDeleteCondition();
-            this.mergeType = routineLoadDesc.getMergeType();
-            this.sequenceColName = routineLoadDesc.getSequenceColName();
-        }
-
-        private RoutineLoadDesc toRoutineLoadDesc() {
-            return new RoutineLoadDesc(SeparatorSnapshot.toSeparator(columnSeparator),
-                    SeparatorSnapshot.toSeparator(lineDelimiter), columnsInfo, precedingFilter, filter,
-                    partitionNamesInfo, deleteCondition, mergeType, sequenceColName);
-        }
-    }
-
-    private static class SeparatorSnapshot {
-        @SerializedName("separator")
-        private String separator;
-        @SerializedName("oriSeparator")
-        private String oriSeparator;
-
-        private SeparatorSnapshot(Separator separator) {
-            this.separator = separator.getSeparator();
-            this.oriSeparator = separator.getOriSeparator();
-        }
-
-        private static SeparatorSnapshot fromSeparator(Separator separator) {
-            return separator == null ? null : new SeparatorSnapshot(separator);
-        }
-
-        private static Separator toSeparator(SeparatorSnapshot snapshot) {
-            return snapshot == null ? null : new Separator(snapshot.separator, snapshot.oriSeparator);
-        }
     }
 
     public static AlterRoutineLoadJobOperationLog read(DataInput in) throws IOException {

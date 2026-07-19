@@ -105,14 +105,6 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                     .add(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getName())
                     .build();
 
-    private static final ImmutableSet<String> CREATE_ONLY_MULTI_TABLE_PROPERTIES_SET =
-            new ImmutableSet.Builder<String>()
-                    .add(KafkaConfiguration.KAFKA_TABLE_NAME_LOCATION.getName())
-                    .add(KafkaConfiguration.KAFKA_TABLE_NAME_FORMAT.getName())
-                    .add(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER.getName())
-                    .add(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getName())
-                    .build();
-
     public KafkaDataSourceProperties(Map<String, String> dataSourceProperties, boolean multiLoad) {
         super(dataSourceProperties, multiLoad);
     }
@@ -139,14 +131,6 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                 .filter(entity -> !entity.startsWith(AWS_PROPERTY_PREFIX)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid kafka property or can not be set");
-        }
-        if (isAlter()) {
-            Optional<String> createOnlyProperty = originalDataSourceProperties.keySet().stream()
-                    .filter(CREATE_ONLY_MULTI_TABLE_PROPERTIES_SET::contains).findFirst();
-            if (createOnlyProperty.isPresent()) {
-                throw new AnalysisException(createOnlyProperty.get() + " can only be set when creating "
-                        + "a multi-table routine load job");
-            }
         }
 
         this.brokerList = KafkaConfiguration.KAFKA_BROKER_LIST.getParameterValue(originalDataSourceProperties
@@ -182,23 +166,9 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         //check offset
         List<String> offsets = KafkaConfiguration.KAFKA_OFFSETS.getParameterValue(originalDataSourceProperties
                 .get(KafkaConfiguration.KAFKA_OFFSETS.getName()));
-        boolean hasCustomDefaultOffset = customKafkaProperties
-                .containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
-        String defaultOffsetString = customKafkaProperties.get(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
-        boolean hasDirectDefaultOffset = originalDataSourceProperties
-                .containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
-        String directDefaultOffsetString = originalDataSourceProperties
+        String defaultOffsetString = originalDataSourceProperties
                 .get(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
-        if (hasDirectDefaultOffset) {
-            if (hasCustomDefaultOffset) {
-                throw new AnalysisException("Only one of " + KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName()
-                        + " and property." + KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName() + " can be set.");
-            }
-            defaultOffsetString = directDefaultOffsetString;
-            customKafkaProperties.put(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName(), defaultOffsetString);
-        }
-        boolean hasDefaultOffset = hasCustomDefaultOffset || hasDirectDefaultOffset;
-        if (CollectionUtils.isNotEmpty(offsets) && hasDefaultOffset) {
+        if (CollectionUtils.isNotEmpty(offsets) && StringUtils.isNotBlank(defaultOffsetString)) {
             throw new AnalysisException("Only one of " + KafkaConfiguration.KAFKA_OFFSETS.getName() + " and "
                     + KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName() + " can be set.");
         }
@@ -206,15 +176,12 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             checkAndSetMultiLoadProperties();
         }
         if (isAlter() && CollectionUtils.isNotEmpty(partitions) && CollectionUtils.isEmpty(offsets)
-                && !hasDefaultOffset) {
+                && StringUtils.isBlank(defaultOffsetString)) {
             // if this is an alter operation, the partition and (default)offset must be set together.
             throw new AnalysisException("Must set offset or default offset with partition property");
         }
         if (CollectionUtils.isNotEmpty(offsets)) {
             this.isOffsetsForTimes = analyzeKafkaOffsetProperty(offsets);
-            return;
-        }
-        if (isAlter() && CollectionUtils.isEmpty(partitions) && !hasDefaultOffset) {
             return;
         }
         this.isOffsetsForTimes = analyzeKafkaDefaultOffsetProperty();

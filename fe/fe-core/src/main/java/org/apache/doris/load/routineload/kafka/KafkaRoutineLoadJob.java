@@ -74,6 +74,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -109,8 +110,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private String brokerList;
     @SerializedName("tp")
     private String topic;
-    @SerializedName("pendingCloudProgressReset")
-    private PendingCloudProgressReset pendingCloudProgressReset;
     // optional, user want to load partitions.
     @SerializedName("cskp")
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
@@ -217,25 +216,19 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             return;
         }
 
-        Pair<Map<String, String>, String> convertedProperties = buildConvertedCustomProperties(
-                customProperties, kafkaDefaultOffSet);
-        convertedCustomProperties.clear();
-        convertedCustomProperties.putAll(convertedProperties.first);
-        kafkaDefaultOffSet = convertedProperties.second;
-    }
+        if (rebuild) {
+            convertedCustomProperties.clear();
+        }
 
-    private Pair<Map<String, String>, String> buildConvertedCustomProperties(
-            Map<String, String> sourceProperties, String currentDefaultOffset) throws DdlException {
-        Map<String, String> convertedProperties = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : sourceProperties.entrySet()) {
+        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
+        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
                 // convert FILE:file_name -> FILE:file_id:md5
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
-                SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
                 SmallFile smallFile = smallFileMgr.getSmallFile(dbId, KAFKA_FILE_CATALOG, file, true);
-                convertedProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
+                convertedCustomProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
             } else {
-                convertedProperties.put(entry.getKey(), entry.getValue());
+                convertedCustomProperties.put(entry.getKey(), entry.getValue());
             }
         }
 
@@ -244,14 +237,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // KAFKA_DEFAULT_OFFSETS, and this attribute will be converted into a timestamp during the analyzing phase,
         // thus losing some information. So we use KAFKA_ORIGIN_DEFAULT_OFFSETS to store the original datetime
         // formatted KAFKA_DEFAULT_OFFSETS value
-        String originDefaultOffset = convertedProperties
-                .remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
-        String analyzedDefaultOffset = convertedProperties
-                .remove(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
-        String convertedDefaultOffset = originDefaultOffset != null
-                ? originDefaultOffset
-                : analyzedDefaultOffset != null ? analyzedDefaultOffset : currentDefaultOffset;
-        return Pair.of(convertedProperties, convertedDefaultOffset);
+        if (convertedCustomProperties.containsKey(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName())) {
+            kafkaDefaultOffSet = convertedCustomProperties
+                    .remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
+            return;
+        }
+        if (convertedCustomProperties.containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName())) {
+            kafkaDefaultOffSet = convertedCustomProperties.remove(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
+        }
     }
 
     @Override
@@ -440,22 +433,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // For cloud mode, should update cloud progress from meta service,
         // then update progress with default offset from Kafka if necessary.
         if (Config.isCloudMode()) {
-            resetPendingCloudProgress();
             updateCloudProgress();
         }
         updateNewPartitionProgress();
-    }
-
-    @Override
-    protected void beforeTransitionToNeedSchedule(boolean isReplay) throws UserException {
-        if (pendingCloudProgressReset == null) {
-            return;
-        }
-        if (isReplay) {
-            pendingCloudProgressReset = null;
-            return;
-        }
-        resetPendingCloudProgress();
     }
 
     @Override
@@ -787,94 +767,93 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public boolean appliesRoutineLoadDescAtomically() {
-        return true;
-    }
-
-    @Override
     public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
+        Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
+        if (null != dataSourceProperties) {
+            // if the partition offset is set by timestamp, convert it to real offset
+            convertOffset(dataSourceProperties);
+        }
 
         writeLock();
         try {
             if (getState() != JobState.PAUSED) {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
-            if (command.getRoutineLoadDesc() != null && command.getLoadPropertyTableId() != tableId) {
-                throw new DdlException("Routine load target table changed while validating load properties; "
-                        + "please retry ALTER ROUTINE LOAD");
-            }
-            if (!command.hasTargetTable()) {
-                validateAlterJobPropertiesForMutation(command);
+
+            modifyPropertiesInternal(jobProperties, dataSourceProperties);
+            if (command.hasTargetTable()) {
+                tableId = command.getTargetTableId();
             }
 
-            // Kafka offset resolution may perform external I/O. Keep it outside DB/table metadata locks.
-            PreparedKafkaProperties preparedDataSourceProperties =
-                    prepareDataSourceProperties(dataSourceProperties, false);
-            unprotectApplyAlter(command, dataSourceProperties, preparedDataSourceProperties);
+            AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
+                    jobProperties, dataSourceProperties, command.getTargetTableId());
+            Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
         }
     }
 
-    private void unprotectApplyAlter(AlterRoutineLoadCommand command,
-            KafkaDataSourceProperties dataSourceProperties,
-            PreparedKafkaProperties preparedDataSourceProperties) throws UserException {
-        modifyPropertiesInternal(command.getAnalyzedJobProperties(), dataSourceProperties,
-                preparedDataSourceProperties);
-        if (command.hasTargetTable()) {
-            tableId = command.getTargetTableId();
-        }
-        setRoutineLoadDesc(command.getRoutineLoadDesc());
-        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(id,
-                command.getAnalyzedJobProperties(), dataSourceProperties, command.getTargetTableId(),
-                command.getRoutineLoadDesc());
-        Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
-    }
-
-    private List<Pair<Integer, Long>> resolveOffsets(KafkaDataSourceProperties dataSourceProperties,
-            KafkaDataSourceSnapshot dataSourceSnapshot) throws UserException {
+    private void convertOffset(KafkaDataSourceProperties dataSourceProperties) throws UserException {
         List<Pair<Integer, Long>> partitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
         if (partitionOffsets.isEmpty()) {
-            return partitionOffsets;
+            return;
         }
+        List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
-            return KafkaUtil.getOffsetsForTimes(dataSourceSnapshot.brokerList, dataSourceSnapshot.topic,
-                    dataSourceSnapshot.convertedCustomProperties, partitionOffsets);
+            newOffsets = KafkaUtil.getOffsetsForTimes(brokerList, topic, convertedCustomProperties, partitionOffsets);
+        } else {
+            newOffsets = KafkaUtil.getRealOffsets(brokerList, topic, convertedCustomProperties, partitionOffsets);
         }
-        return KafkaUtil.getRealOffsets(dataSourceSnapshot.brokerList, dataSourceSnapshot.topic,
-                dataSourceSnapshot.convertedCustomProperties, partitionOffsets);
+        dataSourceProperties.setKafkaPartitionOffsets(newOffsets);
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KafkaDataSourceProperties dataSourceProperties)
             throws UserException {
-        PreparedKafkaProperties preparedDataSourceProperties = prepareDataSourceProperties(dataSourceProperties, true);
-        modifyPropertiesInternal(jobProperties, dataSourceProperties, preparedDataSourceProperties);
-    }
-
-    private void modifyPropertiesInternal(Map<String, String> jobProperties,
-                                          KafkaDataSourceProperties dataSourceProperties,
-                                          PreparedKafkaProperties preparedDataSourceProperties)
-            throws UserException {
         if (null != dataSourceProperties) {
-            Preconditions.checkNotNull(preparedDataSourceProperties);
-            KafkaDataSourceSnapshot dataSourceSnapshot = preparedDataSourceProperties.dataSourceSnapshot;
-            List<Pair<Integer, Long>> kafkaPartitionOffsets = preparedDataSourceProperties.kafkaPartitionOffsets;
-            dataSourceProperties.setKafkaPartitionOffsets(kafkaPartitionOffsets);
+            List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+            Map<String, String> customKafkaProperties = Maps.newHashMap();
 
-            if (dataSourceSnapshot.customPropertiesChanged) {
-                this.customProperties.clear();
-                this.customProperties.putAll(dataSourceSnapshot.customProperties);
-                this.convertedCustomProperties.clear();
-                this.convertedCustomProperties.putAll(dataSourceSnapshot.convertedCustomProperties);
-                this.kafkaDefaultOffSet = dataSourceSnapshot.kafkaDefaultOffset;
+            if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
+                kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
+                customKafkaProperties = dataSourceProperties.getCustomKafkaProperties();
+            }
+
+            // convertCustomProperties and check partitions before reset progress to make modify operation atomic
+            if (!customKafkaProperties.isEmpty()) {
+                this.customProperties.putAll(customKafkaProperties);
+                convertCustomProperties(true);
+            }
+
+            if (!kafkaPartitionOffsets.isEmpty()) {
+                ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
+            }
+
+            if (Config.isCloudMode()) {
+                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+                builder.setCloudUniqueId(Config.cloud_unique_id);
+                builder.setDbId(dbId);
+                builder.setJobId(id);
+                if (!kafkaPartitionOffsets.isEmpty()) {
+                    Map<Integer, Long> partitionOffsetMap = new HashMap<>();
+                    for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
+                        // The reason why the value recorded in MS in cloud mode needs to be subtracted by one is
+                        // this value will be incremented
+                        // when pulling MS persistent progress data and updating memory
+                        // in routineLoadJob.updateCloudProgress().
+                        partitionOffsetMap.put(pair.first, pair.second - 1);
+                    }
+                    builder.putAllPartitionToOffset(partitionOffsetMap);
+                }
+                resetCloudProgress(builder);
             }
 
             // It is necessary to reset the Kafka progress cache if topic change,
             // and should reset cache before modifying partition offset.
-            if (dataSourceSnapshot.resetProgress) {
-                this.topic = dataSourceSnapshot.topic;
+            if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
+                this.topic = dataSourceProperties.getTopic();
                 this.progress = new KafkaProgress();
             }
 
@@ -884,17 +863,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
             }
 
-            mergePendingCloudProgressReset(dataSourceSnapshot, kafkaPartitionOffsets);
-
             // modify broker list
             if (!Strings.isNullOrEmpty(dataSourceProperties.getBrokerList())) {
-                this.brokerList = dataSourceSnapshot.brokerList;
+                this.brokerList = dataSourceProperties.getBrokerList();
             }
         }
         if (!jobProperties.isEmpty()) {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
-            modifyCommonJobPropertiesForKafka(copiedJobProperties);
+            modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
+            }
             if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
                 String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
                 if ("ERROR".equalsIgnoreCase(policy)) {
@@ -906,153 +886,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
                 this.id, jobProperties, dataSourceProperties);
-    }
-
-    private PreparedKafkaProperties prepareDataSourceProperties(KafkaDataSourceProperties dataSourceProperties,
-            boolean isReplay) throws UserException {
-        if (dataSourceProperties == null) {
-            return null;
-        }
-
-        KafkaDataSourceSnapshot dataSourceSnapshot = stageDataSourceProperties(dataSourceProperties);
-        List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
-        if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
-            kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
-        }
-        if (!isReplay && !kafkaPartitionOffsets.isEmpty()
-                && (!dataSourceSnapshot.resetProgress || CollectionUtils.isNotEmpty(customKafkaPartitions))) {
-            ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
-        }
-
-        if (!isReplay) {
-            kafkaPartitionOffsets = resolveOffsets(dataSourceProperties, dataSourceSnapshot);
-        }
-        return new PreparedKafkaProperties(dataSourceSnapshot, copyPartitionOffsets(kafkaPartitionOffsets));
-    }
-
-    private List<Pair<Integer, Long>> copyPartitionOffsets(List<Pair<Integer, Long>> kafkaPartitionOffsets) {
-        List<Pair<Integer, Long>> copiedPartitionOffsets = Lists.newArrayListWithCapacity(kafkaPartitionOffsets.size());
-        for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
-            copiedPartitionOffsets.add(Pair.of(partitionOffset.first, partitionOffset.second));
-        }
-        return copiedPartitionOffsets;
-    }
-
-    private void mergePendingCloudProgressReset(KafkaDataSourceSnapshot dataSourceSnapshot,
-            List<Pair<Integer, Long>> kafkaPartitionOffsets) {
-        if (!Config.isCloudMode() || (!dataSourceSnapshot.resetProgress && kafkaPartitionOffsets.isEmpty())) {
-            return;
-        }
-
-        Map<Integer, Long> partitionOffsetMap = new HashMap<>();
-        for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
-            // MS stores the last consumed offset, while FE progress stores the next offset to consume.
-            partitionOffsetMap.put(pair.first, pair.second - 1);
-        }
-        PendingCloudProgressReset newReset = new PendingCloudProgressReset(
-                dataSourceSnapshot.resetProgress, partitionOffsetMap);
-        if (pendingCloudProgressReset == null || newReset.clearProgress) {
-            pendingCloudProgressReset = newReset;
-        } else {
-            pendingCloudProgressReset.partitionToOffset.putAll(newReset.partitionToOffset);
-        }
-    }
-
-    private Cloud.ResetRLProgressRequest.Builder newResetCloudProgressRequest() {
-        Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
-                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
-        builder.setCloudUniqueId(Config.cloud_unique_id);
-        builder.setDbId(dbId);
-        builder.setJobId(id);
-        return builder;
-    }
-
-    private void resetPendingCloudProgress() throws DdlException {
-        if (pendingCloudProgressReset == null) {
-            return;
-        }
-        if (pendingCloudProgressReset.clearProgress) {
-            resetCloudProgress(newResetCloudProgressRequest());
-        }
-        if (!pendingCloudProgressReset.partitionToOffset.isEmpty()) {
-            Cloud.ResetRLProgressRequest.Builder builder = newResetCloudProgressRequest();
-            builder.putAllPartitionToOffset(pendingCloudProgressReset.partitionToOffset);
-            resetCloudProgress(builder);
-        }
-        pendingCloudProgressReset = null;
-    }
-
-    private KafkaDataSourceSnapshot stageDataSourceProperties(KafkaDataSourceProperties dataSourceProperties)
-            throws DdlException {
-        Map<String, String> stagedCustomProperties = Maps.newHashMap(customProperties);
-        Map<String, String> stagedConvertedCustomProperties = Maps.newHashMap(convertedCustomProperties);
-        String stagedKafkaDefaultOffset = kafkaDefaultOffSet;
-        Map<String, String> alteredCustomProperties = dataSourceProperties.getCustomKafkaProperties();
-        boolean customPropertiesChanged = MapUtils.isNotEmpty(alteredCustomProperties);
-        if (customPropertiesChanged) {
-            if (alteredCustomProperties.containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName())
-                    && !alteredCustomProperties.containsKey(
-                            KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName())) {
-                stagedCustomProperties.remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
-            }
-            stagedCustomProperties.putAll(alteredCustomProperties);
-            Pair<Map<String, String>, String> convertedProperties = buildConvertedCustomProperties(
-                    stagedCustomProperties, stagedKafkaDefaultOffset);
-            stagedConvertedCustomProperties = convertedProperties.first;
-            stagedKafkaDefaultOffset = convertedProperties.second;
-        }
-
-        boolean resetProgress = !Strings.isNullOrEmpty(dataSourceProperties.getTopic());
-        String stagedTopic = resetProgress ? dataSourceProperties.getTopic() : topic;
-        String stagedBrokerList = Strings.isNullOrEmpty(dataSourceProperties.getBrokerList())
-                ? brokerList : dataSourceProperties.getBrokerList();
-        return new KafkaDataSourceSnapshot(stagedBrokerList, stagedTopic, stagedCustomProperties,
-                stagedConvertedCustomProperties, stagedKafkaDefaultOffset, customPropertiesChanged, resetProgress);
-    }
-
-    private static class KafkaDataSourceSnapshot {
-        private final String brokerList;
-        private final String topic;
-        private final Map<String, String> customProperties;
-        private final Map<String, String> convertedCustomProperties;
-        private final String kafkaDefaultOffset;
-        private final boolean customPropertiesChanged;
-        private final boolean resetProgress;
-
-        private KafkaDataSourceSnapshot(String brokerList, String topic, Map<String, String> customProperties,
-                Map<String, String> convertedCustomProperties, String kafkaDefaultOffset,
-                boolean customPropertiesChanged, boolean resetProgress) {
-            this.brokerList = brokerList;
-            this.topic = topic;
-            this.customProperties = customProperties;
-            this.convertedCustomProperties = convertedCustomProperties;
-            this.kafkaDefaultOffset = kafkaDefaultOffset;
-            this.customPropertiesChanged = customPropertiesChanged;
-            this.resetProgress = resetProgress;
-        }
-    }
-
-    private static class PreparedKafkaProperties {
-        private final KafkaDataSourceSnapshot dataSourceSnapshot;
-        private final List<Pair<Integer, Long>> kafkaPartitionOffsets;
-
-        private PreparedKafkaProperties(KafkaDataSourceSnapshot dataSourceSnapshot,
-                List<Pair<Integer, Long>> kafkaPartitionOffsets) {
-            this.dataSourceSnapshot = dataSourceSnapshot;
-            this.kafkaPartitionOffsets = kafkaPartitionOffsets;
-        }
-    }
-
-    private static class PendingCloudProgressReset {
-        @SerializedName("clearProgress")
-        private boolean clearProgress;
-        @SerializedName("partitionToOffset")
-        private Map<Integer, Long> partitionToOffset = new HashMap<>();
-
-        private PendingCloudProgressReset(boolean clearProgress, Map<Integer, Long> partitionToOffset) {
-            this.clearProgress = clearProgress;
-            this.partitionToOffset.putAll(partitionToOffset);
-        }
     }
 
     private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {
@@ -1077,12 +910,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
-            modifyPropertiesInternal(log.getJobProperties(),
-                    (KafkaDataSourceProperties) log.getDataSourceProperties());
+            modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
             if (log.getTargetTableId() != 0) {
-                this.tableId = log.getTargetTableId();
+                tableId = log.getTargetTableId();
             }
-            setRoutineLoadDesc(log.getRoutineLoadDesc());
         } catch (UserException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);

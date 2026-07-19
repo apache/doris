@@ -35,7 +35,6 @@ import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
-import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -46,7 +45,6 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -97,10 +95,8 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     private final Map<String, LoadProperty> loadPropertyMap;
     private RoutineLoadDesc routineLoadDesc;
     private final Map<String, String> jobProperties;
-    private final String dataSourceType;
     private final Map<String, String> dataSourceMapProperties;
     private long targetTableId;
-    private long loadPropertyTableId;
     private boolean isPartialUpdate;
 
     // save analyzed job properties.
@@ -115,7 +111,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
                                    String targetTableName,
                                    Map<String, LoadProperty> loadPropertyMap,
                                    Map<String, String> jobProperties,
-                                   String dataSourceType,
                                    Map<String, String> dataSourceMapProperties) {
         super(PlanType.ALTER_ROUTINE_LOAD_COMMAND);
         Objects.requireNonNull(labelNameInfo, "labelNameInfo is null");
@@ -125,7 +120,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         this.targetTableName = targetTableName;
         this.loadPropertyMap = loadPropertyMap == null ? Maps.newHashMap() : loadPropertyMap;
         this.jobProperties = jobProperties;
-        this.dataSourceType = dataSourceType;
         this.dataSourceMapProperties = dataSourceMapProperties;
         this.isPartialUpdate = this.jobProperties.getOrDefault(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "false")
             .equalsIgnoreCase("true");
@@ -134,7 +128,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
                                    Map<String, String> jobProperties,
                                    Map<String, String> dataSourceMapProperties) {
-        this(labelNameInfo, null, Maps.newHashMap(), jobProperties, null, dataSourceMapProperties);
+        this(labelNameInfo, null, Maps.newHashMap(), jobProperties, dataSourceMapProperties);
     }
 
     public String getDbName() {
@@ -159,10 +153,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
 
     public long getTargetTableId() {
         return targetTableId;
-    }
-
-    public long getLoadPropertyTableId() {
-        return loadPropertyTableId;
     }
 
     public boolean hasDataSourceProperty() {
@@ -196,24 +186,21 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check load properties
-        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
-                .checkPrivAndGetJob(getDbName(), getJobName());
+        RoutineLoadJob job = hasTargetTable()
+                ? Env.getCurrentEnv().getRoutineLoadManager().checkPrivAndGetJob(getDbName(), getJobName())
+                : Env.getCurrentEnv().getRoutineLoadManager().getJob(getDbName(), getJobName());
         if (MapUtils.isNotEmpty(loadPropertyMap)) {
-            this.loadPropertyTableId = job.getTableId();
             this.routineLoadDesc = CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
                     job.getDbFullName(), job.getTableName(), job.isMultiTable(), job.getMergeType());
         }
         // check data source properties
-        checkDataSourceProperties(job);
-        TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = RoutineLoadJob.getEffectiveUniqueKeyUpdateMode(
-                job.getUniqueKeyUpdateMode(), analyzedJobProperties);
+        checkDataSourceProperties();
+        checkPartialUpdate();
         if (hasTargetTable()) {
-            validateTargetTable(ctx, job, effectiveUniqueKeyUpdateMode);
-        } else {
-            validateAlterJobProperties(job, effectiveUniqueKeyUpdateMode);
+            validateTargetTable(ctx, job);
         }
         if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)
-                && MapUtils.isEmpty(loadPropertyMap) && !hasTargetTable()) {
+                && routineLoadDesc == null && !hasTargetTable()) {
             throw new AnalysisException("No properties are specified");
         }
     }
@@ -356,40 +343,36 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
     }
 
-    private void checkDataSourceProperties(RoutineLoadJob job) throws UserException {
+    private void checkDataSourceProperties() throws UserException {
         if (MapUtils.isEmpty(dataSourceMapProperties)) {
             return;
         }
-        String effectiveDataSourceType = dataSourceType == null ? job.getDataSourceType().name() : dataSourceType;
-        if (!effectiveDataSourceType.equalsIgnoreCase(job.getDataSourceType().name())) {
-            throw new AnalysisException("The specified job type is not: " + effectiveDataSourceType);
-        }
+        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                .getJob(getDbName(), getJobName());
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
-            .createDataSource(effectiveDataSourceType, dataSourceMapProperties, job.isMultiTable());
+            .createDataSource(job.getDataSourceType().name(), dataSourceMapProperties, job.isMultiTable());
         dataSourceProperties.setAlter(true);
-        dataSourceProperties.setTimezone(analyzedJobProperties.getOrDefault(
-                CreateRoutineLoadInfo.TIMEZONE, job.getTimezone()));
+        dataSourceProperties.setTimezone(job.getTimezone());
         dataSourceProperties.analyze();
     }
 
-    private void validateAlterJobProperties(RoutineLoadJob job,
-            TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode) throws UserException {
-        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+    private void checkPartialUpdate() throws UserException {
+        if (!isPartialUpdate) {
             return;
         }
+        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                .getJob(getDbName(), getDbName());
         if (job.isMultiTable()) {
-            throw new AnalysisException("Partial update is not supported in multi-table load.");
+            throw new AnalysisException("load by PARTIAL_COLUMNS is not supported in multi-table load.");
         }
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
         Table table = db.getTableOrAnalysisException(job.getTableName());
-        job.validateAlterJobProperties((OlapTable) table, analyzedJobProperties, effectiveUniqueKeyUpdateMode);
+        if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
+        }
     }
 
-    private void validateTargetTable(ConnectContext ctx, RoutineLoadJob job,
-            TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode) throws UserException {
-        if (job.getDataSourceType() != LoadDataSourceType.KAFKA) {
-            throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports Kafka jobs");
-        }
+    private void validateTargetTable(ConnectContext ctx, RoutineLoadJob job) throws UserException {
         if (job.isMultiTable()) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
@@ -413,7 +396,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true, the olap table must be with random distribution");
         }
-        job.validateTargetTable(db, olapTable, analyzedJobProperties, effectiveUniqueKeyUpdateMode);
+        job.validateTargetTable(db, olapTable);
         this.targetTableId = olapTable.getId();
     }
 

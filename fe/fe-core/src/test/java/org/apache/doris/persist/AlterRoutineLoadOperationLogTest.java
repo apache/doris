@@ -17,16 +17,12 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.load.RoutineLoadDesc;
-import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -54,7 +50,6 @@ public class AlterRoutineLoadOperationLogTest {
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         long jobId = 1000;
-        long targetTableId = 2001;
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "5");
 
@@ -68,12 +63,8 @@ public class AlterRoutineLoadOperationLogTest {
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
-        Assert.assertEquals(0L, new AlterRoutineLoadJobOperationLog(
-                jobId, jobProperties, routineLoadDataSourceProperties).getTargetTableId());
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(new Separator("|"), null, null,
-                null, null, null, null, LoadTask.MergeType.APPEND, null);
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties, targetTableId, routineLoadDesc);
+                jobProperties, routineLoadDataSourceProperties, 2000L);
         log.write(out);
         out.flush();
         out.close();
@@ -93,40 +84,25 @@ public class AlterRoutineLoadOperationLogTest {
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
-        Assert.assertEquals(targetTableId, log2.getTargetTableId());
-        Assert.assertEquals("|", log2.getRoutineLoadDesc().getColumnSeparator().getOriSeparator());
-        Assert.assertEquals(LoadTask.MergeType.APPEND, log2.getRoutineLoadDesc().getMergeType());
+        Assert.assertEquals(2000L, log2.getTargetTableId());
 
         in.close();
     }
 
     @Test
-    public void testDeserializeAlterRoutineLoadOperationLogWithoutTargetTableId() throws Exception {
-        long jobId = 1000;
-        Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "5");
-        Map<String, String> dataSourceProperties = Maps.newHashMap();
-        dataSourceProperties.put("property.group.id", "mygroup");
-        KafkaDataSourceProperties routineLoadDataSourceProperties = new KafkaDataSourceProperties(
-                dataSourceProperties);
-        routineLoadDataSourceProperties.setAlter(true);
-        routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
-        routineLoadDataSourceProperties.analyze();
-        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties, 0L);
-        String legacyJson = GsonUtils.GSON.toJson(log).replace(",\"targetTableId\":0", "");
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        try (DataOutputStream out = new DataOutputStream(byteArrayOutputStream)) {
-            Text.writeString(out, legacyJson);
+    public void testDeserializeLogWithoutTargetTableId() throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            Text.writeString(out, "{\"jobId\":1000,\"jobProperties\":{},"
+                    + "\"dataSourceProperties\":null}");
         }
 
-        AlterRoutineLoadJobOperationLog readLog;
-        try (DataInputStream in = new DataInputStream(
-                new ByteArrayInputStream(byteArrayOutputStream.toByteArray()))) {
-            readLog = AlterRoutineLoadJobOperationLog.read(in);
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            AlterRoutineLoadJobOperationLog log = AlterRoutineLoadJobOperationLog.read(in);
+            Assert.assertEquals(1000L, log.getJobId());
+            Assert.assertEquals(0L, log.getTargetTableId());
         }
-
-        Assert.assertEquals(0L, readLog.getTargetTableId());
-        Assert.assertEquals("5", readLog.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
     }
+
+
 }

@@ -121,13 +121,6 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         return realTimeoutSec;
     }
 
-    /** Apply analyzed ALTER properties to this validation-only task. */
-    public void applyAlterPropertiesForValidation(Map<String, String> alteredJobProperties,
-            TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode) {
-        jobProperties.putAll(alteredJobProperties);
-        uniquekeyUpdateMode = effectiveUniqueKeyUpdateMode;
-    }
-
     @Override
     public int getTimeout() {
         return this.timeoutSec;

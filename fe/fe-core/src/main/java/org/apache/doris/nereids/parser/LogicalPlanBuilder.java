@@ -3752,13 +3752,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return s;
     }
 
-    private String decodeIdentifier(String txt) {
-        if (txt.charAt(0) == '`' && txt.charAt(txt.length() - 1) == '`') {
-            return txt.substring(1, txt.length() - 1).replace("``", "`");
-        }
-        return txt;
-    }
-
     @Override
     public Literal visitVarbinaryLiteral(DorisParser.VarbinaryLiteralContext ctx) {
         String txt = ctx.VARBINARY_LITERAL().getText();
@@ -9322,9 +9315,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        String dataSourceType = ctx.type == null ? null : decodeIdentifier(ctx.type.getText());
         return new AlterRoutineLoadCommand(labelNameInfo, targetTableName,
-                loadPropertyMap, properties, dataSourceType, dataSourceMapProperties);
+                loadPropertyMap, properties, dataSourceMapProperties);
     }
 
     @Override

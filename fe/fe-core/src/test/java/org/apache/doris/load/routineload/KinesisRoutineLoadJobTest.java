@@ -18,6 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
@@ -25,12 +26,19 @@ import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,6 +48,64 @@ import java.util.Set;
 import java.util.UUID;
 
 public class KinesisRoutineLoadJobTest {
+
+    @Test
+    public void testModifyTargetTableWithPropertiesAndReplay() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        101L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        KinesisProgress progress = new KinesisProgress(Maps.newHashMap());
+        Deencapsulation.setField(routineLoadJob, "progress", progress);
+
+        Map<String, String> sourceProperties = Maps.newHashMap();
+        sourceProperties.put("property.client.timeout", "1000");
+        KinesisDataSourceProperties dataSourceProperties = new KinesisDataSourceProperties(sourceProperties);
+        dataSourceProperties.setAlter(true);
+        dataSourceProperties.setTimezone("UTC");
+        dataSourceProperties.analyze();
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "10");
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.hasTargetTable()).thenReturn(true);
+        Mockito.when(command.getTargetTableId()).thenReturn(202L);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            routineLoadJob.modifyProperties(command);
+        }
+
+        Assert.assertEquals(202L, routineLoadJob.getTableId());
+        Assert.assertSame(progress, routineLoadJob.getProgress());
+        Assert.assertEquals(10L, ((Long) Deencapsulation.getField(routineLoadJob, "maxErrorNum")).longValue());
+        Assert.assertEquals("1000", routineLoadJob.getCustomProperties().get("property.client.timeout"));
+        ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+        Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+        Assert.assertEquals(202L, logCaptor.getValue().getTargetTableId());
+
+        KinesisRoutineLoadJob replayJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        303L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Map<String, String> shardPositions = Maps.newHashMap();
+        shardPositions.put("shard-0", "123");
+        KinesisProgress replayProgress = new KinesisProgress(shardPositions);
+        Deencapsulation.setField(replayJob, "progress", replayProgress);
+        replayJob.replayModifyProperties(new AlterRoutineLoadJobOperationLog(
+                1L, Maps.newHashMap(), null));
+        Assert.assertEquals(303L, replayJob.getTableId());
+        replayJob.replayModifyProperties(logCaptor.getValue());
+        Assert.assertEquals(202L, replayJob.getTableId());
+        Assert.assertSame(replayProgress, replayJob.getProgress());
+        Assert.assertEquals("123", ((KinesisProgress) replayJob.getProgress())
+                .getSequenceNumberByShard("shard-0"));
+    }
 
     @Test
     public void testRoutineLoadTaskConcurrentNum() {

@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -470,83 +471,25 @@ public abstract class RoutineLoadJob
         }
     }
 
-    public void validateTargetTable(Database db, OlapTable targetTable,
-            Map<String, String> alteredJobProperties, TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode)
-            throws UserException {
-        targetTable.readLock();
-        try {
-            unprotectedValidateTargetTable(db, targetTable, alteredJobProperties, effectiveUniqueKeyUpdateMode);
-        } finally {
-            targetTable.readUnlock();
-        }
-    }
-
-    protected void unprotectedValidateTargetTable(Database db, OlapTable targetTable,
-            Map<String, String> alteredJobProperties, TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode)
-            throws UserException {
+    public void validateTargetTable(Database db, OlapTable targetTable) throws UserException {
         if (isMultiTable) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
-        validateAlterJobProperties(targetTable, alteredJobProperties, effectiveUniqueKeyUpdateMode);
-        NereidsRoutineLoadTaskInfo taskInfo = toNereidsRoutineLoadTaskInfo();
-        taskInfo.applyAlterPropertiesForValidation(alteredJobProperties, effectiveUniqueKeyUpdateMode);
-        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable, taskInfo);
-        planner.plan(new TUniqueId(0, 0));
-    }
+        List<ImportColumnDesc> columnsInfo = null;
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
+            columnsInfo = new ArrayList<>(columnDescs.descs);
+        }
+        checkMeta(targetTable, new RoutineLoadDesc(columnSeparator, lineDelimiter, columnsInfo,
+                precedingFilter, whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol));
 
-    public void validateAlterJobProperties(OlapTable targetTable, Map<String, String> alteredJobProperties,
-            TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode) throws UserException {
-        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
-            return;
+        targetTable.readLock();
+        try {
+            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable,
+                    toNereidsRoutineLoadTaskInfo());
+            planner.plan(new TUniqueId(0, 0));
+        } finally {
+            targetTable.readUnlock();
         }
-        if (isMultiTable) {
-            throw new AnalysisException("Partial update is not supported in multi-table load.");
-        }
-        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
-            if (!targetTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
-            }
-            return;
-        }
-        Preconditions.checkState(effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
-                effectiveUniqueKeyUpdateMode);
-        validateFlexiblePartialUpdateForAlter(targetTable, alteredJobProperties);
-    }
-
-    public static TUniqueKeyUpdateMode getEffectiveUniqueKeyUpdateMode(TUniqueKeyUpdateMode currentUniqueKeyUpdateMode,
-            Map<String, String> alteredJobProperties) {
-        if (alteredJobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
-            return TUniqueKeyUpdateMode.valueOf(
-                    alteredJobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
-        }
-        if (alteredJobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)
-                && Boolean.parseBoolean(alteredJobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS))
-                && currentUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
-            return TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
-        }
-        return currentUniqueKeyUpdateMode;
-    }
-
-    protected void validateAlterJobPropertiesForMutation(AlterRoutineLoadCommand command) throws UserException {
-        Map<String, String> alteredJobProperties = command.getAnalyzedJobProperties();
-        TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(
-                uniqueKeyUpdateMode, alteredJobProperties);
-        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
-            return;
-        }
-
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-        if (db == null) {
-            throw new DdlException("Database not found: " + dbId);
-        }
-        Table table = db.getTableNullable(tableId);
-        if (table == null) {
-            throw new DdlException("Table not found: " + tableId);
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new DdlException("Partial update is only supported for OLAP tables");
-        }
-        validateAlterJobProperties((OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
     }
 
     @Override
@@ -1567,9 +1510,6 @@ public abstract class RoutineLoadJob
 
     protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
         checkStateTransform(jobState);
-        if (jobState == JobState.NEED_SCHEDULE) {
-            beforeTransitionToNeedSchedule(isReplay);
-        }
         switch (jobState) {
             case RUNNING:
                 executeRunning();
@@ -1601,9 +1541,6 @@ public abstract class RoutineLoadJob
                 Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
             }
         }
-    }
-
-    protected void beforeTransitionToNeedSchedule(boolean isReplay) throws UserException {
     }
 
     private void executeRunning() {
@@ -1774,10 +1711,11 @@ public abstract class RoutineLoadJob
     }
 
     public List<String> getShowInfo() {
+        Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
+        Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
+
         readLock();
         try {
-            Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
-            Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
             List<String> row = Lists.newArrayList();
             row.add(String.valueOf(id));
             row.add(name);
@@ -1840,15 +1778,6 @@ public abstract class RoutineLoadJob
     }
 
     public String getShowCreateInfo() {
-        readLock();
-        try {
-            return unprotectGetShowCreateInfo();
-        } finally {
-            readUnlock();
-        }
-    }
-
-    private String unprotectGetShowCreateInfo() {
         Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
         Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
         StringBuilder sb = new StringBuilder();
@@ -2135,25 +2064,12 @@ public abstract class RoutineLoadJob
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
 
-    public boolean appliesRoutineLoadDescAtomically() {
-        return false;
-    }
-
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
     public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
-        modifyCommonJobProperties(jobProperties, false);
-    }
-
-    protected void modifyCommonJobPropertiesForKafka(Map<String, String> jobProperties) throws UserException {
-        modifyCommonJobProperties(jobProperties, true);
-    }
-
-    private void modifyCommonJobProperties(Map<String, String> jobProperties,
-            boolean explicitUniqueKeyUpdateModeTakesPrecedence) throws UserException {
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
@@ -2188,17 +2104,14 @@ public abstract class RoutineLoadJob
         if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
             String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
             TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
-            if (!explicitUniqueKeyUpdateModeTakesPrecedence
-                    && newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+            // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
+            if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
                 validateFlexiblePartialUpdateForAlter();
             }
             this.uniqueKeyUpdateMode = newMode;
             this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
-            if (explicitUniqueKeyUpdateModeTakesPrecedence) {
-                jobProperties.remove(CreateRoutineLoadInfo.PARTIAL_COLUMNS);
-            }
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
@@ -2214,11 +2127,16 @@ public abstract class RoutineLoadJob
         }
     }
 
+    /**
+     * Validate flexible partial update constraints when altering routine load job.
+     */
     private void validateFlexiblePartialUpdateForAlter() throws UserException {
+        // Multi-table load does not support flexible partial update
         if (isMultiTable) {
             throw new DdlException("Flexible partial update is not supported in multi-table load");
         }
 
+        // Get the table to check table-level constraints
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             throw new DdlException("Database not found: " + dbId);
@@ -2232,49 +2150,23 @@ public abstract class RoutineLoadJob
         }
         OlapTable olapTable = (OlapTable) table;
 
+        // Validate table-level constraints (MoW, skip_bitmap, light_schema_change, variant columns)
         olapTable.validateForFlexiblePartialUpdate();
+
+        // Routine load specific validations
+        // Must use JSON format
         String format = this.jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         if (!"json".equalsIgnoreCase(format)) {
             throw new DdlException("Flexible partial update only supports JSON format, but current job uses: "
                     + format);
         }
+        // Cannot use fuzzy_parse
         if (Boolean.parseBoolean(this.jobProperties.getOrDefault(
                 JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
             throw new DdlException("Flexible partial update does not support fuzzy_parse");
         }
-        String jsonPaths = getJsonPaths();
-        if (jsonPaths != null && !jsonPaths.isEmpty()) {
-            throw new DdlException("Flexible partial update does not support jsonpaths");
-        }
-        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
-            throw new DdlException("Flexible partial update does not support COLUMNS specification");
-        }
-    }
-
-    /**
-     * Validate flexible partial update constraints when altering routine load job.
-     */
-    private void validateFlexiblePartialUpdateForAlter(OlapTable targetTable,
-            Map<String, String> alteredJobProperties) throws UserException {
-        // Validate table-level constraints (MoW, skip_bitmap, light_schema_change, variant columns)
-        targetTable.validateForFlexiblePartialUpdate();
-        Map<String, String> effectiveJobProperties = Maps.newHashMap(jobProperties);
-        effectiveJobProperties.putAll(alteredJobProperties);
-
-        // Routine load specific validations
-        // Must use JSON format
-        String format = effectiveJobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
-        if (!"json".equalsIgnoreCase(format)) {
-            throw new DdlException("Flexible partial update only supports JSON format, but current job uses: "
-                    + format);
-        }
-        // Cannot use fuzzy_parse
-        if (Boolean.parseBoolean(effectiveJobProperties.getOrDefault(
-                JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
-            throw new DdlException("Flexible partial update does not support fuzzy_parse");
-        }
         // Cannot use jsonpaths
-        String jsonPaths = effectiveJobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS);
+        String jsonPaths = getJsonPaths();
         if (jsonPaths != null && !jsonPaths.isEmpty()) {
             throw new DdlException("Flexible partial update does not support jsonpaths");
         }
