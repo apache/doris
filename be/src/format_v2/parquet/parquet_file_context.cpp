@@ -52,6 +52,8 @@
 
 namespace doris::format::parquet {
 
+constexpr size_t V2_PARQUET_FOOTER_SIZE = 8;
+
 NativeParquetMetadata::NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size)
         : _metadata(std::move(metadata)), _parsed_size(parsed_size) {
     ExecEnv::GetInstance()->parquet_meta_tracker()->consume(get_mem_size());
@@ -168,6 +170,34 @@ std::shared_ptr<ParquetPageCacheRangeIndex> ParquetPageCacheRangeDirectory::get_
 size_t ParquetPageCacheRangeDirectory::size() const {
     std::lock_guard lock(_mutex);
     return _indexes.size();
+}
+
+Status validate_native_footer_size(uint32_t serialized_size, size_t file_size,
+                                   size_t metadata_size_limit) {
+    if (file_size < V2_PARQUET_FOOTER_SIZE ||
+        serialized_size > file_size - V2_PARQUET_FOOTER_SIZE) {
+        return Status::Corruption("Parquet v2 footer size {} exceeds file size {}", serialized_size,
+                                  file_size);
+    }
+    if (serialized_size > metadata_size_limit) {
+        return Status::Corruption("Parquet v2 footer size {} exceeds metadata limit {}",
+                                  serialized_size, metadata_size_limit);
+    }
+    return Status::OK();
+}
+
+std::string build_native_file_cache_key(std::string_view fs_name, std::string_view path,
+                                        int64_t description_mtime, int64_t reader_mtime,
+                                        int64_t description_file_size, int64_t reader_file_size,
+                                        bool is_immutable) {
+    const int64_t mtime = description_mtime != 0 ? description_mtime : reader_mtime;
+    if (mtime == 0 && !is_immutable) {
+        // Unknown version is not a stable identity: an overwrite can preserve path and size while
+        // changing both footer semantics and page bytes.
+        return {};
+    }
+    const int64_t file_size = description_file_size >= 0 ? description_file_size : reader_file_size;
+    return fmt::format("{}::{}::mtime={}::size={}", fs_name, path, mtime, file_size);
 }
 
 bool is_serialized_index_range_safe(size_t file_size, int64_t offset, int64_t length) {
@@ -288,7 +318,6 @@ detail::ParquetPageCacheRangeDirectory& cached_page_range_directory() {
 }
 
 constexpr uint8_t V2_PARQUET_MAGIC[4] = {'P', 'A', 'R', '1'};
-constexpr size_t V2_PARQUET_FOOTER_SIZE = 8;
 constexpr size_t V2_INITIAL_FOOTER_READ_SIZE = 48 * 1024;
 
 Status parse_native_parquet_footer(io::FileReaderSPtr file,
@@ -320,12 +349,13 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
 
     const uint32_t serialized_size =
             decode_fixed32_le(tail.data() + tail.size() - V2_PARQUET_FOOTER_SIZE);
-    if (serialized_size > file_size - V2_PARQUET_FOOTER_SIZE) {
-        // Footer lengths are untrusted. Validate before subtraction/allocation so a malformed
-        // small file cannot redirect the v2 reader or request an oversized metadata buffer.
-        return Status::Corruption("Parquet v2 footer size {} exceeds file size {}", serialized_size,
-                                  file_size);
-    }
+    // The configured Thrift message ceiling also bounds this file-controlled allocation. Keep the
+    // check before both allocation and the optional second read so a sparse file cannot force a
+    // process-sized metadata buffer merely by advertising a large footer.
+    const size_t metadata_size_limit =
+            static_cast<size_t>(std::max(config::thrift_max_message_size, 0));
+    RETURN_IF_ERROR(
+            detail::validate_native_footer_size(serialized_size, file_size, metadata_size_limit));
     std::vector<uint8_t> serialized_metadata(serialized_size);
     if (serialized_size <= tail.size() - V2_PARQUET_FOOTER_SIZE) {
         const auto* metadata_start =
@@ -356,21 +386,10 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
 
 std::string build_page_cache_file_key(const io::FileReader& file_reader,
                                       const io::FileDescription& file_description) {
-    const int64_t mtime =
-            file_description.mtime != 0 ? file_description.mtime : file_reader.mtime();
-    if (mtime == 0 && !file_description.is_immutable) {
-        // mtime == 0 means "unknown version", not the Unix epoch. V1 historically caches such a
-        // file under path::0, but copying that behavior for every V2 file is unsafe: a mutable file
-        // can be overwritten with different bytes while retaining both its path and size, causing
-        // process-global page cache entries to return stale data. Only callers that explicitly
-        // guarantee path immutability may use the mtime=0 cache key below.
-        return {};
-    }
-    const int64_t file_size = file_description.file_size >= 0
-                                      ? file_description.file_size
-                                      : static_cast<int64_t>(file_reader.size());
-    return fmt::format("{}::{}::mtime={}::size={}", file_description.fs_name,
-                       file_reader.path().native(), mtime, file_size);
+    return detail::build_native_file_cache_key(
+            file_description.fs_name, file_reader.path().native(), file_description.mtime,
+            file_reader.mtime(), file_description.file_size,
+            static_cast<int64_t>(file_reader.size()), file_description.is_immutable);
 }
 
 class DorisRandomAccessFile final : public arrow::io::RandomAccessFile {
@@ -727,16 +746,21 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     }
     native_io_ctx = io_ctx;
 
-    // V2 owns its footer payload and cache identity. Mapping flags affect the parsed schema, and a
-    // distinct suffix prevents a v1 FileMetaData value from being cast as the v2-owned type.
+    // Footer and page bytes must use the same stable identity. In particular, fs_name separates
+    // identical HDFS paths from different nameservices, while an unknown mutable version bypasses
+    // both caches rather than reusing an overwritten file of the same size.
     auto* meta_cache = ExecEnv::GetInstance()->file_meta_cache();
-    auto meta_cache_key = FileMetaCache::get_key(native_file, file_description);
-    meta_cache_key.append("\0v2", 3);
-    // Schema mapping is part of the cached value, so both flags must participate in its identity.
-    meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
-    meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
+    auto meta_cache_key = build_page_cache_file_key(*native_file, file_description);
+    const bool has_stable_meta_cache_identity = !meta_cache_key.empty();
+    if (has_stable_meta_cache_identity) {
+        // The discriminator prevents a v1 metadata value from being cast as the v2-owned type;
+        // schema mapping flags participate because they change the cached native schema tree.
+        meta_cache_key.append("\0v2", 3);
+        meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
+        meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
+    }
     size_t native_footer_size = 0;
-    if (meta_cache != nullptr && meta_cache->enabled() &&
+    if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled() &&
         meta_cache->lookup(meta_cache_key, &native_meta_cache_handle)) {
         native_metadata = native_meta_cache_handle.data<NativeParquetMetadata>();
         ++native_footer_cache_hits;
@@ -745,7 +769,7 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
                 native_file, &native_metadata_owner, &native_footer_size, io_ctx,
                 enable_mapping_varbinary, enable_mapping_timestamp_tz));
         ++native_footer_read_calls;
-        if (meta_cache != nullptr && meta_cache->enabled()) {
+        if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled()) {
             meta_cache->insert(meta_cache_key, native_metadata_owner.release(),
                                &native_meta_cache_handle);
             native_metadata = native_meta_cache_handle.data<NativeParquetMetadata>();

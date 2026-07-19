@@ -47,6 +47,7 @@ class time_zone;
 namespace doris {
 class RuntimeState;
 namespace segment_v2 {
+class BloomFilter;
 struct ZoneMap;
 } // namespace segment_v2
 } // namespace doris
@@ -167,6 +168,10 @@ struct ParquetStatisticsUtils {
     static bool BloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
                                     const VExprContextSPtrs& conjuncts,
                                     const ::parquet::BloomFilter& bloom_filter);
+
+    static bool NativeBloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
+                                          const VExprContextSPtrs& conjuncts,
+                                          const segment_v2::BloomFilter& bloom_filter);
 };
 
 Status select_row_groups_by_metadata(

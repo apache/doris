@@ -535,6 +535,44 @@ private:
     const ::parquet::BloomFilter& _bloom_filter;
 };
 
+class NativeParquetBloomFilterAdapter final : public segment_v2::BloomFilter {
+public:
+    NativeParquetBloomFilterAdapter(const ParquetColumnSchema& column_schema,
+                                    const segment_v2::BloomFilter& bloom_filter)
+            : _column_schema(column_schema), _bloom_filter(bloom_filter) {}
+
+    void add_bytes(const char*, size_t) override { DORIS_CHECK(false); }
+
+    bool test_bytes(const char* buf, size_t size) const override {
+        if (buf == nullptr ||
+            _column_schema.type_descriptor.physical_type != ::parquet::Type::INT32) {
+            return _bloom_filter.test_bytes(buf, size);
+        }
+        const auto logical_value = load_predicate_integral_value(buf, size);
+        if (!logical_value.has_value()) {
+            return true;
+        }
+        const auto physical_value = convert_logical_integer_to_physical_int32(
+                _column_schema.type_descriptor, *logical_value);
+        if (!physical_value.has_value()) {
+            return false;
+        }
+        // Native file Bloom bytes are hashed from the Parquet physical carrier, not the wider
+        // Doris logical literal used by VExpr (for example UINT32 is exposed as BIGINT).
+        return _bloom_filter.test_bytes(reinterpret_cast<const char*>(&*physical_value),
+                                        sizeof(*physical_value));
+    }
+
+    void set_has_null(bool has_null) override { DORIS_CHECK(!has_null); }
+    bool has_null() const override { return false; }
+    void add_hash(uint64_t) override { DORIS_CHECK(false); }
+    bool test_hash(uint64_t hash) const override { return _bloom_filter.test_hash(hash); }
+
+private:
+    const ParquetColumnSchema& _column_schema;
+    const segment_v2::BloomFilter& _bloom_filter;
+};
+
 bool bloom_filter_supported(const ParquetColumnSchema& column_schema) {
     if (!bloom_logical_type_supported(column_schema)) {
         return false;
@@ -979,6 +1017,21 @@ bool ParquetStatisticsUtils::BloomFilterExcludes(const ParquetColumnSchema& colu
                                                  int slot_index, const VExprContextSPtrs& conjuncts,
                                                  const ::parquet::BloomFilter& bloom_filter) {
     return bloom_filter_excludes(column_schema, slot_index, conjuncts, bloom_filter);
+}
+
+bool ParquetStatisticsUtils::NativeBloomFilterExcludes(
+        const ParquetColumnSchema& column_schema, int slot_index,
+        const VExprContextSPtrs& conjuncts, const segment_v2::BloomFilter& bloom_filter) {
+    if (!bloom_filter_supported(column_schema)) {
+        return false;
+    }
+    NativeParquetBloomFilterAdapter adapter(column_schema, bloom_filter);
+    BloomFilterEvalContext ctx;
+    ctx.slots.emplace(slot_index, BloomFilterEvalContext::SlotBloomFilter {
+                                          .data_type = column_schema.type,
+                                          .bloom_filter = &adapter,
+                                  });
+    return VExprContext::evaluate_bloom_filter(conjuncts, ctx) == ZoneMapFilterResult::kNoMatch;
 }
 
 namespace {
@@ -1458,12 +1511,8 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
         if (!status.ok() || bloom_filter == nullptr) {
             continue;
         }
-        BloomFilterEvalContext ctx;
-        ctx.slots.emplace(slot_index, BloomFilterEvalContext::SlotBloomFilter {
-                                              .data_type = column_schema->type,
-                                              .bloom_filter = bloom_filter.get(),
-                                      });
-        if (VExprContext::evaluate_bloom_filter(conjuncts, ctx) == ZoneMapFilterResult::kNoMatch) {
+        if (ParquetStatisticsUtils::NativeBloomFilterExcludes(*column_schema, slot_index, conjuncts,
+                                                              *bloom_filter)) {
             return ParquetRowGroupPruneReason::BLOOM_FILTER;
         }
     }

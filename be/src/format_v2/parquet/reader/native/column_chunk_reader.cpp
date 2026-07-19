@@ -63,6 +63,24 @@ bool can_prepare_page_cache_payload(bool session_cache_enabled, bool storage_cac
     return session_cache_enabled && !storage_cache_disabled && cache_available && header_available;
 }
 
+Status validate_uncompressed_page_sizes(const tparquet::PageHeader& header,
+                                        tparquet::CompressionCodec::type codec,
+                                        bool data_page_v2_always_compressed) {
+    const bool is_v2 = header.__isset.data_page_header_v2;
+    const bool page_is_compressed =
+            codec != tparquet::CompressionCodec::UNCOMPRESSED &&
+            (!is_v2 || header.data_page_header_v2.is_compressed || data_page_v2_always_compressed);
+    if (!page_is_compressed &&
+        UNLIKELY(header.compressed_page_size != header.uncompressed_page_size)) {
+        // An uncompressed payload has one physical representation, so accepting two lengths makes
+        // cold reads and decompressed cache hits consume different byte boundaries.
+        return Status::Corruption(
+                "Uncompressed Parquet page sizes differ: compressed={}, uncompressed={}",
+                header.compressed_page_size, header.uncompressed_page_size);
+    }
+    return Status::OK();
+}
+
 ParquetReaderCompat parquet_reader_compat(const std::string& created_by) {
     if (created_by.empty()) {
         return {};
@@ -143,12 +161,23 @@ namespace {
 Status append_v2_int96_datetime(ColumnDateTimeV2::Container& data,
                                 const ParquetInt96Timestamp& value,
                                 const cctz::time_zone& timezone) {
+    static constexpr int32_t JULIAN_EPOCH_OFFSET_DAYS = 2440588;
+    static constexpr int64_t MICROS_PER_DAY = 86400000000LL;
     static constexpr int64_t MICROS_PER_SECOND = 1000000LL;
 
-    int64_t micros = 0;
-    // Keep the fast ColumnDateTimeV2 path on the shared INT96 contract so plain, dictionary, and
-    // sparse selections cannot materialize an invalid nanos-of-day that SerDe would reject.
-    RETURN_IF_ERROR(parquet_int96_timestamp_micros(value, &micros));
+    // Arrow normalized out-of-day INT96 nanos before the native V2 path replaced it. Preserve that
+    // legacy-writer compatibility here; rejecting the carrier loses valid pre-epoch/year-0 values
+    // already accepted by Doris external-table scans.
+    const __int128 days = static_cast<__int128>(value.julian_day) - JULIAN_EPOCH_OFFSET_DAYS;
+    // Truncate the signed nanos field before day normalization. Flooring a negative value first
+    // changes the historical result by one microsecond.
+    const __int128 timestamp_micros = days * MICROS_PER_DAY + value.nanos_of_day / 1000;
+    if (timestamp_micros < std::numeric_limits<int64_t>::min() ||
+        timestamp_micros > std::numeric_limits<int64_t>::max()) {
+        return Status::DataQualityError("Parquet INT96 timestamp overflows microseconds");
+    }
+
+    const int64_t micros = static_cast<int64_t>(timestamp_micros);
     int64_t epoch_seconds = micros / MICROS_PER_SECOND;
     int64_t micros_of_second = micros % MICROS_PER_SECOND;
     if (micros_of_second < 0) {
@@ -601,6 +630,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
 
     const tparquet::PageHeader* header = nullptr;
     RETURN_IF_ERROR(_page_reader->get_page_header(&header));
+    RETURN_IF_ERROR(validate_uncompressed_page_sizes(
+            *header, _metadata.codec, _page_read_ctx.data_page_v2_always_compressed));
     int32_t uncompressed_size = header->uncompressed_page_size;
     bool page_loaded = false;
 
@@ -833,13 +864,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
 
     // Prepare dictionary data
     int32_t uncompressed_size = header->uncompressed_page_size;
-    if (_block_compress_codec == nullptr &&
-        UNLIKELY(header->compressed_page_size != uncompressed_size)) {
-        // UNCOMPRESSED pages use the compressed size as their physical copy length.
-        return Status::Corruption(
-                "Uncompressed Parquet dictionary sizes differ: compressed={}, uncompressed={}",
-                header->compressed_page_size, uncompressed_size);
-    }
+    RETURN_IF_ERROR(validate_uncompressed_page_sizes(
+            *header, _metadata.codec, _page_read_ctx.data_page_v2_always_compressed));
     auto dict_data = make_unique_buffer<uint8_t>(uncompressed_size);
     bool dict_loaded = false;
 

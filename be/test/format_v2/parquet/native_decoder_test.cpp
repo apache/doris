@@ -245,12 +245,25 @@ std::vector<uint8_t> serialize_page(tparquet::PageHeader header,
 }
 
 Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t>& payload,
-                          tparquet::CompressionCodec::type codec) {
+                          tparquet::CompressionCodec::type codec, bool preload_page_cache = false) {
     std::vector<uint8_t> bytes;
     ThriftSerializer serializer(/*compact=*/true, 128);
     RETURN_IF_ERROR(serializer.serialize(&header, &bytes));
     bytes.insert(bytes.end(), payload.begin(), payload.end());
     const size_t chunk_size = bytes.size();
+    const std::string page_cache_file_key = "native-scripted-page-" +
+                                            std::to_string(static_cast<int>(header.type)) + "-" +
+                                            std::to_string(header.compressed_page_size) + "-" +
+                                            std::to_string(header.uncompressed_page_size);
+    if (preload_page_cache) {
+        auto* page = new DataPage(bytes.size(), true, segment_v2::DATA_PAGE);
+        memcpy(page->data(), bytes.data(), bytes.size());
+        page->reset_size(bytes.size());
+        PageCacheHandle handle;
+        StoragePageCache::instance()->insert(
+                StoragePageCache::CacheKey(page_cache_file_key, chunk_size, 0), page, &handle,
+                segment_v2::DATA_PAGE);
+    }
     MemoryBufferedReader reader(std::move(bytes));
 
     tparquet::ColumnChunk chunk;
@@ -268,7 +281,7 @@ Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t
     field.physical_type = tparquet::Type::INT32;
     field.repetition_level = 0;
     field.definition_level = 0;
-    ParquetPageReadContext context(false, "");
+    ParquetPageReadContext context(preload_page_cache, page_cache_file_key);
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
                                                  context);
     RETURN_IF_ERROR(chunk_reader.init());
@@ -545,12 +558,10 @@ TEST(ParquetV2NativeDecoderTest, NonStrictLegacyTimestampsKeepDefaultOnOverflow)
             integer_field, make_nullable(std::make_shared<DataTypeInt64>()), false));
 }
 
-TEST(ParquetV2NativeDecoderTest, FastInt96RejectsInvalidNanosOfDay) {
-    EXPECT_TRUE(materialize_plain_int96({{-1, 2440588}}).is<ErrorCode::DATA_QUALITY_ERROR>());
-    EXPECT_TRUE(materialize_plain_int96({{86400000000000LL, 2440588}})
-                        .is<ErrorCode::DATA_QUALITY_ERROR>());
-    EXPECT_TRUE(materialize_plain_int96({{0, 2440588}, {-1, 2440588}}, {0, 1})
-                        .is<ErrorCode::DATA_QUALITY_ERROR>());
+TEST(ParquetV2NativeDecoderTest, FastInt96NormalizesLegacyOutOfDayNanos) {
+    EXPECT_TRUE(materialize_plain_int96({{-1, 2440588}}).ok());
+    EXPECT_TRUE(materialize_plain_int96({{86400000000000LL, 2440588}}).ok());
+    EXPECT_TRUE(materialize_plain_int96({{0, 2440588}, {-1, 2440588}}, {0, 1}).ok());
 }
 
 TEST(ParquetV2NativeDecoderTest, NonStrictLocalTimestampDefaultsBecomeNull) {
@@ -1716,6 +1727,40 @@ TEST(ParquetV2NativeDecoderTest, UncompressedDictionaryRequiresEqualPhysicalAndL
     header.dictionary_page_header.__set_encoding(tparquet::Encoding::PLAIN);
     EXPECT_TRUE(load_scripted_page(header, std::vector<uint8_t>(8),
                                    tparquet::CompressionCodec::UNCOMPRESSED)
+                        .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, UncompressedDataPagesRequireEqualPhysicalAndLogicalSizes) {
+    for (const auto page_type : {tparquet::PageType::DATA_PAGE, tparquet::PageType::DATA_PAGE_V2}) {
+        tparquet::PageHeader header;
+        header.type = page_type;
+        header.__set_compressed_page_size(8);
+        header.__set_uncompressed_page_size(4);
+        if (page_type == tparquet::PageType::DATA_PAGE) {
+            header.__isset.data_page_header = true;
+        } else {
+            header.__isset.data_page_header_v2 = true;
+            header.data_page_header_v2.__set_is_compressed(false);
+        }
+        const std::vector<uint8_t> payload(8);
+        EXPECT_TRUE(load_scripted_page(header, payload, tparquet::CompressionCodec::UNCOMPRESSED)
+                            .is<ErrorCode::CORRUPTION>());
+        EXPECT_TRUE(
+                load_scripted_page(header, payload, tparquet::CompressionCodec::UNCOMPRESSED, true)
+                        .is<ErrorCode::CORRUPTION>());
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, LegacyV2CompressedOverrideAllowsDifferentSizes) {
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE_V2;
+    header.__set_compressed_page_size(8);
+    header.__set_uncompressed_page_size(16);
+    header.__isset.data_page_header_v2 = true;
+    header.data_page_header_v2.__set_is_compressed(false);
+    EXPECT_TRUE(validate_uncompressed_page_sizes(header, tparquet::CompressionCodec::SNAPPY, true)
+                        .ok());
+    EXPECT_TRUE(validate_uncompressed_page_sizes(header, tparquet::CompressionCodec::SNAPPY, false)
                         .is<ErrorCode::CORRUPTION>());
 }
 

@@ -67,6 +67,9 @@ bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunk
                            int64_t data_page_offset, int64_t row_count);
 bool can_prepare_page_cache_payload(bool session_cache_enabled, bool storage_cache_disabled,
                                     bool cache_available, bool header_available);
+Status validate_uncompressed_page_sizes(const tparquet::PageHeader& header,
+                                        tparquet::CompressionCodec::type codec,
+                                        bool data_page_v2_always_compressed);
 
 struct ColumnChunkReaderStatistics {
     int64_t decompress_time = 0;

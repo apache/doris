@@ -1254,7 +1254,8 @@ protected:
             RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false,
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-            bool is_immutable = false, bool enable_mapping_varbinary = false) const {
+            bool is_immutable = false, bool enable_mapping_varbinary = false,
+            std::string fs_name = {}, int64_t mtime = 0) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1263,6 +1264,8 @@ protected:
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         file_description->is_immutable = is_immutable;
+        file_description->fs_name = std::move(fs_name);
+        file_description->mtime = mtime;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
                 global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
@@ -1950,6 +1953,74 @@ TEST_F(NewParquetReaderTest, UnknownMtimeSkipsPageCacheForMutableFile) {
     ASSERT_NE(profile.get_counter("PageCacheWriteCount"), nullptr);
     EXPECT_GT(profile.get_counter("PageReadCount")->value(), 0);
     EXPECT_EQ(profile.get_counter("PageCacheWriteCount")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterCacheIdentityIncludesFilesystemAndVersion) {
+    const auto first = format::parquet::detail::build_native_file_cache_key(
+            "hdfs://nameservice-a", "/warehouse/shared.parquet", 10, 0, 1024, 1024, false);
+    const auto other_fs = format::parquet::detail::build_native_file_cache_key(
+            "hdfs://nameservice-b", "/warehouse/shared.parquet", 10, 0, 1024, 1024, false);
+    const auto replaced = format::parquet::detail::build_native_file_cache_key(
+            "hdfs://nameservice-a", "/warehouse/shared.parquet", 11, 0, 1024, 1024, false);
+    EXPECT_FALSE(first.empty());
+    EXPECT_NE(first, other_fs);
+    EXPECT_NE(first, replaced);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterCacheDoesNotCrossFilesystems) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile first_profile("native_footer_cache_nameservice_a");
+    auto first = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, false, false,
+                               "hdfs://nameservice-a", 1234567);
+    ASSERT_TRUE(first->init(&state).ok());
+    EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(first_profile.get_counter("FileFooterHitCache")->value(), 0);
+
+    RuntimeProfile second_profile("native_footer_cache_nameservice_b");
+    auto second = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false, false,
+                                "hdfs://nameservice-b", 1234567);
+    ASSERT_TRUE(second->init(&state).ok());
+    EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterCacheSkipsMutableUnknownVersion) {
+    EXPECT_TRUE(format::parquet::detail::build_native_file_cache_key("hdfs://nameservice-a",
+                                                                     "/warehouse/mutable.parquet",
+                                                                     0, 0, 1024, 1024, false)
+                        .empty());
+    EXPECT_FALSE(
+            format::parquet::detail::build_native_file_cache_key(
+                    "hdfs://nameservice-a", "/warehouse/immutable.parquet", 0, 0, 1024, 1024, true)
+                    .empty());
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterCacheDoesNotReuseMutableUnknownVersion) {
+    _file_path = (_test_dir / "mutable_footer_cache.parquet").string();
+    write_parquet_file(_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    RuntimeProfile first_profile("native_footer_cache_mutable_first");
+    auto first = create_reader(0, -1, &first_profile);
+    ASSERT_TRUE(first->init(&state).ok());
+    EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(first_profile.get_counter("FileFooterHitCache")->value(), 0);
+
+    write_parquet_file(_file_path);
+    RuntimeProfile second_profile("native_footer_cache_mutable_second");
+    auto second = create_reader(0, -1, &second_profile);
+    ASSERT_TRUE(second->init(&state).ok());
+    EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterSizeIsBoundedBeforeMetadataAllocation) {
+    constexpr size_t file_size = 256UL << 20;
+    constexpr size_t metadata_limit = 100UL << 20;
+    const auto status = format::parquet::detail::validate_native_footer_size(
+            static_cast<uint32_t>(metadata_limit + 1), file_size, metadata_limit);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("metadata limit"), std::string::npos);
 }
 
 TEST_F(NewParquetReaderTest, UnknownMtimeUsesPageCacheForImmutableFile) {

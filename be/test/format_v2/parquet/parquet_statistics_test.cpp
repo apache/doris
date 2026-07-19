@@ -47,12 +47,46 @@
 #include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_file_context.h"
+#include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
+#include "io/fs/file_reader.h"
 #include "storage/index/bloom_filter/block_split_bloom_filter.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 
 namespace doris {
 namespace {
+
+class StatisticsMemoryFileReader final : public io::FileReader {
+public:
+    explicit StatisticsMemoryFileReader(std::vector<uint8_t> bytes)
+            : _bytes(std::move(bytes)), _path("native-bloom-filter.parquet") {}
+
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _bytes.size(); }
+    bool closed() const override { return _closed; }
+    int64_t mtime() const override { return 1; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext*) override {
+        if (offset > _bytes.size() || result.size > _bytes.size() - offset) {
+            return Status::IOError("native Bloom test read exceeds memory file");
+        }
+        memcpy(result.data, _bytes.data() + offset, result.size);
+        *bytes_read = result.size;
+        return Status::OK();
+    }
+
+private:
+    std::vector<uint8_t> _bytes;
+    io::Path _path;
+    bool _closed = false;
+};
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
     std::shared_ptr<arrow::Array> array;
@@ -1065,6 +1099,99 @@ TEST(ParquetBloomFilterPruningTest, ParquetUint32BloomUsesPhysicalInt32Hash) {
                     {Field::create_field<TYPE_BIGINT>(
                             static_cast<int64_t>(std::numeric_limits<uint32_t>::max()) + 1)}),
             *bloom_filter));
+}
+
+TEST(ParquetBloomFilterPruningTest, NativeUint32BloomUsesPhysicalInt32Hash) {
+    const auto column_schema = uint32_parquet_bloom_schema();
+    format::parquet::native::BlockSplitBloomFilter bloom_filter;
+    ASSERT_TRUE(bloom_filter
+                        .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                              segment_v2::HashStrategyPB::XX_HASH_64)
+                        .ok());
+
+    const uint32_t present_value = 4000000000U;
+    int32_t physical_value;
+    memcpy(&physical_value, &present_value, sizeof(physical_value));
+    bloom_filter.add_bytes(reinterpret_cast<const char*>(&physical_value), sizeof(physical_value));
+
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::NativeBloomFilterExcludes(
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_BIGINT>(
+                                                        static_cast<int64_t>(present_value))}),
+            bloom_filter));
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::NativeBloomFilterExcludes(
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_BIGINT>(-1)}),
+            bloom_filter));
+}
+
+TEST(ParquetBloomFilterPruningTest, NativeRowGroupKeepsPresentUint32AboveInt32Max) {
+    auto column_schema =
+            std::make_unique<format::parquet::ParquetColumnSchema>(uint32_parquet_bloom_schema());
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+
+    format::parquet::native::BlockSplitBloomFilter bloom_filter;
+    ASSERT_TRUE(bloom_filter
+                        .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                              segment_v2::HashStrategyPB::XX_HASH_64)
+                        .ok());
+    const uint32_t present_value = 4000000000U;
+    int32_t physical_value;
+    memcpy(&physical_value, &present_value, sizeof(physical_value));
+    bloom_filter.add_bytes(reinterpret_cast<const char*>(&physical_value), sizeof(physical_value));
+
+    tparquet::BloomFilterAlgorithm algorithm;
+    algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+    tparquet::BloomFilterHash hash;
+    hash.__set_XXHASH(tparquet::XxHash());
+    tparquet::BloomFilterCompression compression;
+    compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+    tparquet::BloomFilterHeader bloom_header;
+    bloom_header.__set_numBytes(static_cast<int32_t>(bloom_filter.size()));
+    bloom_header.__set_algorithm(algorithm);
+    bloom_header.__set_hash(hash);
+    bloom_header.__set_compression(compression);
+    std::vector<uint8_t> bloom_bytes;
+    ThriftSerializer serializer(/*compact=*/true, 64);
+    ASSERT_TRUE(serializer.serialize(&bloom_header, &bloom_bytes).ok());
+    bloom_bytes.insert(bloom_bytes.end(), bloom_filter.data(),
+                       bloom_filter.data() + bloom_filter.size());
+
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    column_metadata.__set_num_values(1);
+    column_metadata.__set_total_compressed_size(0);
+    column_metadata.__set_data_page_offset(0);
+    column_metadata.__set_bloom_filter_offset(0);
+    column_metadata.__set_bloom_filter_length(static_cast<int32_t>(bloom_bytes.size()));
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_total_byte_size(0);
+    row_group.__set_num_rows(1);
+    tparquet::FileMetaData metadata;
+    metadata.__set_version(1);
+    metadata.__set_num_rows(1);
+    metadata.__set_row_groups({row_group});
+
+    format::parquet::ParquetFileContext file_context;
+    file_context.native_file = std::make_shared<StatisticsMemoryFileReader>(std::move(bloom_bytes));
+    auto request = request_with_bloom_conjunct(
+            column_schema->type,
+            {Field::create_field<TYPE_BIGINT>(static_cast<int64_t>(present_value))});
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+    std::vector<int> selected_row_groups;
+    format::parquet::ParquetPruningStats pruning_stats;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        metadata, schema, request, nullptr, &selected_row_groups, true,
+                        &pruning_stats, nullptr, nullptr, &file_context)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+    EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 0);
 }
 
 TEST(ParquetBloomFilterPruningTest, ParquetFixedLenByteArrayBloomUsesFlbaHash) {
