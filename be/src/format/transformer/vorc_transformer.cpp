@@ -391,11 +391,13 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
                 continue;
             }
             // ORC IDs are depth-first, so top-level fields after a complex field are not i + 1.
-            uint64_t orc_col_id = orc_root_type.getSubtype(i)->getColumnId();
-            if (orc_col_id >= file_stats->getNumberOfColumns()) {
+            const uint64_t raw_orc_col_id = orc_root_type.getSubtype(i)->getColumnId();
+            if (raw_orc_col_id >= file_stats->getNumberOfColumns()) {
                 continue;
             }
 
+            // The uint32_t column-count check above makes narrowing to the ORC API width safe.
+            const uint32_t orc_col_id = static_cast<uint32_t>(raw_orc_col_id);
             const orc::ColumnStatistics* col_stats = file_stats->getColumnStatistics(orc_col_id);
             if (col_stats == nullptr) {
                 continue;
