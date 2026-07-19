@@ -30,6 +30,7 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -89,6 +91,8 @@ public class AlterRoutineLoadCommandTest {
         Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.anyString(),
                 Mockito.anyString(), Mockito.anyString(), Mockito.any())).thenReturn(true);
         Mockito.when(routineLoadManager.getJob(Mockito.anyString(), Mockito.anyString())).thenReturn(routineLoadJob);
+        Mockito.when(routineLoadManager.checkPrivAndGetJob(Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(routineLoadJob);
         Mockito.when(routineLoadJob.getDbFullName()).thenReturn("testDb");
         Mockito.when(routineLoadJob.getTableName()).thenReturn("testTable");
         Mockito.when(routineLoadJob.getDbId()).thenReturn(1000L);
@@ -284,16 +288,57 @@ public class AlterRoutineLoadCommandTest {
     }
 
     @Test
-    public void testValidateTargetTableRejectsWithoutLoadPrivilege() throws Exception {
+    public void testValidateUnauthorizedTargetDoesNotResolveMetadata() throws Exception {
         runBefore();
-        mockTargetTable(currentTable);
         Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.anyString(),
-                Mockito.eq("testDb"), Mockito.eq("testTable2"), Mockito.any())).thenReturn(false);
+                Mockito.eq("testDb"), Mockito.eq("testTable2"), Mockito.eq(PrivPredicate.LOAD))).thenReturn(false);
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
                 "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
 
         Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
                 .getMessage().contains("LOAD"));
+        Mockito.verify(routineLoadManager).checkPrivAndGetJob("testDb", "label1");
+        Mockito.verify(accessManager).checkTblPriv(connectContext, InternalCatalog.INTERNAL_CATALOG_NAME,
+                "testDb", "testTable2", PrivPredicate.LOAD);
+        Mockito.verify(catalog, Mockito.never()).getDbOrAnalysisException(Mockito.anyString());
+        Mockito.verify(db, Mockito.never()).getTableOrAnalysisException(Mockito.anyString());
+        Mockito.verify(routineLoadJob, Mockito.never()).validateTargetTable(
+                Mockito.any(Database.class), Mockito.any(OlapTable.class), Mockito.anyMap(),
+                Mockito.any(TUniqueKeyUpdateMode.class));
+    }
+
+    @Test
+    public void testValidateTargetTableRejectsUnauthorizedJobBeforeTargetLookup() throws Exception {
+        runBefore();
+        Mockito.when(routineLoadManager.checkPrivAndGetJob("testDb", "label1"))
+                .thenThrow(new AnalysisException("access denied"));
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
+
+        Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
+                .getMessage().contains("access denied"));
+        Mockito.verify(accessManager, Mockito.never()).checkTblPriv(
+                Mockito.any(ConnectContext.class), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.any());
+        Mockito.verify(catalog, Mockito.never()).getDbOrAnalysisException(Mockito.anyString());
+        Mockito.verify(db, Mockito.never()).getTableOrAnalysisException(Mockito.anyString());
+    }
+
+    @Test
+    public void testValidateTargetTableAuthorizesBeforeMetadataLookup() throws Exception {
+        runBefore();
+        mockTargetTable(currentTable);
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
+
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+
+        InOrder inOrder = Mockito.inOrder(routineLoadManager, accessManager, catalog, db);
+        inOrder.verify(routineLoadManager).checkPrivAndGetJob("testDb", "label1");
+        inOrder.verify(accessManager).checkTblPriv(connectContext, InternalCatalog.INTERNAL_CATALOG_NAME,
+                "testDb", "testTable2", PrivPredicate.LOAD);
+        inOrder.verify(catalog).getDbOrAnalysisException("testDb");
+        inOrder.verify(db).getTableOrAnalysisException("testTable2");
     }
 
     @Test

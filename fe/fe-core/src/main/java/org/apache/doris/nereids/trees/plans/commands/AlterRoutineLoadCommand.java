@@ -197,7 +197,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         checkJobProperties();
         // check load properties
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
-                .getJob(getDbName(), getJobName());
+                .checkPrivAndGetJob(getDbName(), getJobName());
         if (MapUtils.isNotEmpty(loadPropertyMap)) {
             this.loadPropertyTableId = job.getTableId();
             this.routineLoadDesc = CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
@@ -393,7 +393,13 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         if (job.isMultiTable()) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
+        String dbFullName = job.getDbFullName();
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                dbFullName, targetTableName, PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(), dbFullName + ": " + targetTableName);
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbFullName);
         Table table = db.getTableOrAnalysisException(targetTableName);
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table only supports OLAP table");
@@ -401,11 +407,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         OlapTable olapTable = (OlapTable) table;
         if (olapTable.isTemporary()) {
             throw new AnalysisException("Do not support load for temporary table " + olapTable.getDisplayName());
-        }
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
-                job.getDbFullName(), targetTableName, PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ctx.getQualifiedUser(), ctx.getRemoteIP(), job.getDbFullName() + ": " + targetTableName);
         }
         if (job.isLoadToSingleTablet()
                 && !(olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
