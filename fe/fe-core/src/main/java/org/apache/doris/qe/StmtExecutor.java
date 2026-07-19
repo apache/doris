@@ -81,6 +81,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundBaseExternalTableSink;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -91,7 +92,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -987,8 +987,8 @@ public class StmtExecutor {
         if (logicalPlan instanceof ExplainCommand) {
             logicalPlan = ((ExplainCommand) logicalPlan).getLogicalPlan();
         }
-        return logicalPlan instanceof InsertIntoTableCommand
-                && logicalPlan.getType() == PlanType.INSERT_INTO_TABLE_COMMAND;
+        return logicalPlan.getClass() == InsertIntoTableCommand.class
+                || logicalPlan instanceof UnboundResultSink;
     }
 
     public static void initBlockSqlAstNames() {

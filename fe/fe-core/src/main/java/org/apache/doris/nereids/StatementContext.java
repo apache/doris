@@ -314,7 +314,7 @@ public class StatementContext implements Closeable {
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
-    // Trusted statement-scope marker for one-shot INSERT SELECT from the internal S3 TVF.
+    // Trusted statement-scope marker for one-shot SELECT/INSERT reads from the internal S3 TVF.
     private boolean s3ExpressImportRead = false;
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
