@@ -80,13 +80,24 @@ DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
 // falls back to one full recompute (the scan node's own async sync still brings
 // the view up for the actual scan). A healthy sync is milliseconds, far under
 // this, so it only trips under real meta-service degradation and leaves the
-// steady-state incremental path unchanged. A value <= 0 makes the wait expire
-// immediately, so the decision falls back to a full recompute whenever a sync
-// is still in flight (a fan-out that already finished -- every tablet a no-op
-// -- still proceeds correctly): that disables cloud incremental merge under any
-// real sync latency rather than blocking, a fail-safe, not a useful setting.
-// Cloud only.
+// steady-state incremental path unchanged. A value <= 0 disables cloud
+// incremental merge outright: the decision skips the pre-sync fan-out entirely
+// (launching nothing) and falls every scanned tablet back to a full recompute,
+// a fail-safe rather than a useful setting. Cloud only.
 DECLARE_mInt32(query_cache_decision_sync_timeout_ms);
+
+// The dedicated, bounded thread pool that runs the query-cache incremental
+// decision's per-tablet rowset pre-sync (CloudStorageEngine owns it, created at
+// construction and drained in stop()). It is deliberately NOT the shared
+// SyncLoadForTabletsThreadPool: that pool is on the FE-driven warmup path, and
+// giving the decision fan-out its own pool keeps a meta-service brownout from
+// coupling the two. `query_cache_delta_sync_thread` bounds the concurrent
+// syncs; `query_cache_delta_sync_max_pending_tasks` caps the queue so a brownout
+// (every sync stalls in retry_rpc while new stale queries keep enqueuing) cannot
+// grow the backlog without bound -- a submit that would exceed the cap fails
+// fast and that tablet falls back to a full recompute. Cloud only.
+DECLARE_Int32(query_cache_delta_sync_thread);
+DECLARE_Int32(query_cache_delta_sync_max_pending_tasks);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);

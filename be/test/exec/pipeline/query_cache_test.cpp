@@ -53,6 +53,7 @@
 #include "testutil/column_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/threadpool.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -415,6 +416,151 @@ TEST_F(QueryCacheTest, runtime_decision_hit) {
     EXPECT_EQ(DorisMetrics::instance()->query_cache_stale_hit_total->value(), stale_before);
     EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
               fallback_before);
+}
+
+// (c) query_cache_decision_sync_timeout_ms <= 0 disables cloud incremental
+// merge: the presync must spawn NO sync work and fall every scanned tablet back.
+// No storage engine is installed, so the <= 0 guard returning cleanly (before
+// to_cloud()) is itself proof nothing launched -- any launch would have
+// dereferenced the absent engine. The sync-point counter double-confirms zero
+// sync_rowsets calls.
+TEST_F(QueryCacheTest, presync_skips_launch_when_timeout_non_positive) {
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::atomic<int> sync_calls {0};
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [&](auto&&) { sync_calls.fetch_add(1); });
+    Defer sp_defer {[sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto saved = config::query_cache_decision_sync_timeout_ms;
+    config::query_cache_decision_sync_timeout_ms = 0;
+    Defer cfg_defer {[&] { config::query_cache_decision_sync_timeout_ms = saved; }};
+
+    auto scan_ranges = make_scan_ranges(101, "100");
+    auto reasons = QueryCacheRuntime::presync_cloud_delta_tablets_for_test(scan_ranges, 100);
+
+    ASSERT_EQ(reasons.count(101), 1);
+    EXPECT_EQ(reasons[101], "cloud incremental sync disabled");
+    EXPECT_EQ(sync_calls.load(), 0);
+}
+
+// (a) A stopped engine must bail before launching: positive budget, but
+// stopped() is true, so no sync_rowsets runs and every tablet falls back. The
+// stopped() check precedes the pool access, so an un-opened engine's null pool
+// is never touched.
+TEST_F(QueryCacheTest, presync_bails_when_engine_stopped) {
+    auto engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
+    engine->stop(); // sets _stopped = true; safe on an un-opened engine.
+    ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+    Defer eng_defer {[] { ExecEnv::GetInstance()->set_storage_engine(nullptr); }};
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::atomic<int> sync_calls {0};
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [&](auto&&) { sync_calls.fetch_add(1); });
+    Defer sp_defer {[sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto saved = config::query_cache_decision_sync_timeout_ms;
+    config::query_cache_decision_sync_timeout_ms = 2000; // positive: would launch if not stopped.
+    Defer cfg_defer {[&] { config::query_cache_decision_sync_timeout_ms = saved; }};
+
+    auto scan_ranges = make_scan_ranges(42, "100");
+    auto reasons = QueryCacheRuntime::presync_cloud_delta_tablets_for_test(scan_ranges, 100);
+
+    ASSERT_EQ(reasons.count(42), 1);
+    EXPECT_EQ(reasons[42], "be is stopping, sync skipped");
+    EXPECT_EQ(sync_calls.load(), 0);
+}
+
+// (finding 1) is_cloud_mode() can flip true on a live LOCAL deployment (the
+// mutable cloud_unique_id), leaving a local StorageEngine installed. Reaching
+// the fan-out then must degrade gracefully, not abort in the hard CHECK inside
+// to_cloud(): the engine-type dynamic_cast fails, so every tablet falls back
+// with "storage engine is not cloud" and no sync is issued.
+TEST_F(QueryCacheTest, presync_falls_back_on_non_cloud_engine) {
+    auto saved_mode = config::deploy_mode;
+    config::deploy_mode = "cloud"; // is_cloud_mode() true while the engine stays local
+    ExecEnv::GetInstance()->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
+    Defer eng_defer {[&] {
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        config::deploy_mode = saved_mode;
+    }};
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::atomic<int> sync_calls {0};
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [&](auto&&) { sync_calls.fetch_add(1); });
+    Defer sp_defer {[sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto saved = config::query_cache_decision_sync_timeout_ms;
+    config::query_cache_decision_sync_timeout_ms =
+            2000; // positive: would launch on a cloud engine.
+    Defer cfg_defer {[&] { config::query_cache_decision_sync_timeout_ms = saved; }};
+
+    auto scan_ranges = make_scan_ranges(42, "100");
+    auto reasons = QueryCacheRuntime::presync_cloud_delta_tablets_for_test(scan_ranges, 100);
+
+    ASSERT_EQ(reasons.count(42), 1);
+    EXPECT_EQ(reasons[42], "storage engine is not cloud");
+    EXPECT_EQ(sync_calls.load(), 0);
+}
+
+// The dedicated pre-sync pool refuses work (here: shut down, the same rejection a
+// full bounded queue gives) while the engine itself is still live, so the fan-out
+// is reached rather than short-cut by the stopped() guard. Every submit_func then
+// fails, and the inline submit-failure path must fall each tablet back AND release
+// its own latch slot via finish_slot so the bounded wait still settles instead of
+// hanging on a slot no task will ever count down. Two tablets prove the latch
+// reaches N purely through the inline claim. No sync RPC is issued (rejected before
+// enqueue, so the closure never runs).
+TEST_F(QueryCacheTest, presync_falls_back_when_pool_rejects_submit) {
+    auto saved_mode = config::deploy_mode;
+    config::deploy_mode = "cloud";
+    auto engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
+    auto* engine_ptr = engine.get();
+    ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+    Defer eng_defer {[&] {
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        config::deploy_mode = saved_mode;
+    }};
+    // Shut the pool so do_submit rejects before enqueue; the engine stays live
+    // (not stopped()), so the fan-out is entered and hits the inline fallback.
+    engine_ptr->query_cache_delta_sync_pool().shutdown();
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::atomic<int> sync_calls {0};
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [&](auto&&) { sync_calls.fetch_add(1); });
+    Defer sp_defer {[sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto saved = config::query_cache_decision_sync_timeout_ms;
+    config::query_cache_decision_sync_timeout_ms = 2000; // positive: a healthy pool would launch.
+    Defer cfg_defer {[&] { config::query_cache_decision_sync_timeout_ms = saved; }};
+
+    auto scan_ranges = make_scan_ranges(42, "100");
+    scan_ranges.push_back(make_scan_ranges(43, "100").front());
+    auto reasons = QueryCacheRuntime::presync_cloud_delta_tablets_for_test(scan_ranges, 100);
+
+    ASSERT_EQ(reasons.count(42), 1);
+    ASSERT_EQ(reasons.count(43), 1);
+    EXPECT_EQ(reasons[42], "cloud rowset sync not scheduled");
+    EXPECT_EQ(reasons[43], "cloud rowset sync not scheduled");
+    EXPECT_EQ(sync_calls.load(), 0);
 }
 
 TEST_F(QueryCacheTest, runtime_decision_force_refresh) {
@@ -1040,10 +1186,12 @@ TEST_F(QueryCacheIncrementalTest, fallback_on_partial_capture) {
 }
 
 TEST_F(QueryCacheIncrementalTest, mismatched_engine_falls_back) {
-    // is_cloud_mode() can flip on a live local deployment (cloud_unique_id is
-    // a mutable config): ExecEnv::get_tablet then still hands out a plain
-    // local Tablet, and the decision must degrade the misconfiguration to a
-    // full recompute instead of dereferencing the failed CloudTablet cast.
+    // is_cloud_mode() can flip on a live local deployment (cloud_unique_id is a
+    // mutable config) while the installed engine stays a local StorageEngine. The
+    // decision must degrade the misconfiguration to a full recompute instead of
+    // aborting in the hard CHECK inside to_cloud(): the pre-sync's engine-type
+    // dynamic_cast fails first, so every scanned tablet falls back with "storage
+    // engine is not cloud" (earlier and more precise than the per-tablet cast).
     create_tablet(TKeysType::DUP_KEYS, false, {{0, 50}, {51, 100}});
     std::string saved_deploy_mode = config::deploy_mode;
     config::deploy_mode = "cloud";
@@ -1051,7 +1199,7 @@ TEST_F(QueryCacheIncrementalTest, mismatched_engine_falls_back) {
     config::deploy_mode = saved_deploy_mode;
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
     EXPECT_TRUE(decision->key_valid);
-    EXPECT_EQ(decision->incremental_fallback_reason, "tablet is not a cloud tablet");
+    EXPECT_EQ(decision->incremental_fallback_reason, "storage engine is not cloud");
 }
 
 TEST_F(QueryCacheIncrementalTest, concurrent_racers_share_one_decision) {
@@ -1229,8 +1377,7 @@ protected:
                 "CloudMetaMgr::sync_tablet_rowsets",
                 [this, versions = std::move(versions), decision_sync_result,
                  decision_sync_installs = std::move(decision_sync_installs),
-                 decision_sync_bitmap_marks =
-                         std::move(decision_sync_bitmap_marks)](auto&& args) {
+                 decision_sync_bitmap_marks = std::move(decision_sync_bitmap_marks)](auto&& args) {
                     auto* tablet = try_any_cast<CloudTablet*>(args[0]);
                     const auto* options = try_any_cast<const SyncOptions*>(args[1]);
                     auto* ret = try_any_cast_ret<Status>(args);
@@ -1452,10 +1599,12 @@ TEST_F(QueryCacheCloudIncrementalTest, newer_entry_rejected_before_tablet_access
 
 TEST_F(QueryCacheCloudIncrementalTest, presync_tablet_load_failure_falls_back) {
     // The pre-sync fan-out issues the first ExecEnv::get_tablet; a meta-service
-    // failure injected there fails that load, so _presync_cloud_delta_tablets
-    // takes its !tablet_res skip (records no reason, leaving the miss for the
-    // capture loop to report), and the capture loop's own get_tablet then falls
-    // the query back to a full recompute with "tablet not found". This exercises
+    // failure injected there fails that load on the WORKER thread, and the task
+    // publishes "cloud tablet load failed" into its slot. The capture loop must
+    // consume that reason and fall back WITHOUT retrying the cache-miss load on
+    // the admission thread: during a brownout (the one situation where this
+    // load fails slowly) a capture-side retry would repeat the slow RPC on the
+    // bounded admission pool, outside the fast-fail deadline. This exercises
     // the one pre-sync branch the other cloud tests never reach: they all load
     // the tablet successfully before syncing.
     std::atomic<int> meta_loads {0};
@@ -1471,16 +1620,15 @@ TEST_F(QueryCacheCloudIncrementalTest, presync_tablet_load_failure_falls_back) {
     EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
               fallbacks_before + 1);
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
-    EXPECT_EQ(decision->incremental_fallback_reason, "tablet not found");
+    EXPECT_EQ(decision->incremental_fallback_reason, "cloud tablet load failed");
     // The pre-sync get_tablet failed before any sync, so no meta-service rowset
     // sync RPC was ever issued.
     EXPECT_EQ(_sync_calls.load(), 0);
-    // Discriminating witness that the PRE-SYNC skip branch actually ran (not
-    // that the pre-sync was bypassed and only the capture loop reported "tablet
-    // not found", which would give the same mode/reason/_sync_calls): the
-    // pre-sync fan-out and the capture loop each attempt their own get_tablet,
-    // so the load is tried twice. A bypassed pre-sync would attempt it once.
-    EXPECT_EQ(meta_loads.load(), 2);
+    // Exactly ONE load: the worker's. Two would mean the capture loop retried
+    // the failed load on the admission thread (the pre-fix behavior); the
+    // published reason above is the second witness of the same ordering (a
+    // capture-side retry would report its own "tablet not found" instead).
+    EXPECT_EQ(meta_loads.load(), 1);
 }
 
 TEST_F(QueryCacheCloudIncrementalTest, unique_non_mow_rejected_before_decision_sync) {
@@ -1523,8 +1671,8 @@ TEST_F(QueryCacheCloudIncrementalTest, mow_decision_sync_brings_bitmap_detects_r
     // no-op and the mark was hand-placed.
     intercept_tablet_load({{0, 50}}, Status::OK(), TKeysType::UNIQUE_KEYS,
                           /*enable_merge_on_write=*/true,
-                          /*decision_sync_installs=*/{{51, 100}},
-                          /*decision_sync_bitmap_marks=*/{{0, 60}});
+                          /*decision_sync_installs=*/ {{51, 100}},
+                          /*decision_sync_bitmap_marks=*/ {{0, 60}});
     int64_t fallbacks_before =
             DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     auto decision = make_stale_decision();
@@ -1550,8 +1698,8 @@ TEST_F(QueryCacheCloudIncrementalTest, mow_cloud_cached_side_not_pinnable_falls_
     // is now shared, not cloud-early-returned) and would fire if the gapless
     // invariant were ever broken: the cached-side pin walks only [0,40] and the
     // endpoint check -- short of cached version 50 -- rejects it (not emptiness).
-    intercept_tablet_load({{0, 40}, {51, 80}, {81, 100}}, Status::OK(),
-                          TKeysType::UNIQUE_KEYS, /*enable_merge_on_write=*/true);
+    intercept_tablet_load({{0, 40}, {51, 80}, {81, 100}}, Status::OK(), TKeysType::UNIQUE_KEYS,
+                          /*enable_merge_on_write=*/true);
     int64_t fallbacks_before =
             DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     auto decision = make_stale_decision();
@@ -1575,7 +1723,7 @@ TEST_F(QueryCacheCloudIncrementalTest, mow_decision_sync_clean_bitmap_stays_incr
     // path, no mark, no fallback.
     intercept_tablet_load({{0, 50}}, Status::OK(), TKeysType::UNIQUE_KEYS,
                           /*enable_merge_on_write=*/true,
-                          /*decision_sync_installs=*/{{51, 100}});
+                          /*decision_sync_installs=*/ {{51, 100}});
     auto decision = make_stale_decision();
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::INCREMENTAL);
     EXPECT_TRUE(decision->incremental_fallback_reason.empty());
@@ -1607,9 +1755,8 @@ TEST_F(QueryCacheCloudIncrementalTest, presync_fans_out_across_tablets_and_merge
         TTabletSchema schema;
         schema.keys_type = TKeysType::DUP_KEYS;
         auto meta = std::make_shared<TabletMeta>(
-                1, 2, tid, 15674, 4, 5, schema, 6,
-                std::unordered_map<uint32_t, uint32_t> {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, 0, false);
+                1, 2, tid, 15674, 4, 5, schema, 6, std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, 0, false);
         meta->set_tablet_state(TABLET_RUNNING);
         *try_any_cast<TabletMetaSharedPtr*>(args[1]) = std::move(meta);
         try_any_cast_ret<Status>(args)->second = true;
@@ -1681,6 +1828,39 @@ TEST_F(QueryCacheCloudIncrementalTest, presync_fans_out_across_tablets_and_merge
     EXPECT_EQ(calls[kTabletId2], 2);
 }
 
+TEST_F(QueryCacheCloudIncrementalTest, pool_rejection_skips_admission_tablet_load) {
+    // Composition of two degradations: the dedicated pre-sync pool refuses the
+    // sync (here: shut down, the same inline rejection a full bounded queue
+    // gives) AND the tablet is absent from the local tablet cache (nothing --
+    // loader or pre-sync, whose closure never ran -- ever loaded it). The
+    // decision must consume the recorded "not scheduled" reason BEFORE touching
+    // the tablet: the capture loop's get_tablet would otherwise take the
+    // synchronous cache-miss meta-service load on the admission thread -- the
+    // blocking window the fast-fail budget exists to cap -- to fetch a tablet
+    // whose decision is already a known fallback. The meta-load counter proves
+    // the admission path stayed load-free; a regression in the consumption
+    // order shows up twice (a nonzero count, and the weaker "tablet not found"
+    // reason from the failed load displacing the pool's).
+    std::atomic<int> meta_loads {0};
+    _sp->set_call_back("CloudMetaMgr::get_tablet_meta", [&](auto&& args) {
+        meta_loads.fetch_add(1);
+        auto* ret = try_any_cast_ret<Status>(args);
+        ret->first = Status::InternalError<false>("meta service unreachable");
+        ret->second = true;
+    });
+    _engine->query_cache_delta_sync_pool().shutdown();
+
+    int64_t fallbacks_before =
+            DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
+    auto decision = make_stale_decision();
+    EXPECT_EQ(DorisMetrics::instance()->query_cache_incremental_fallback_total->value(),
+              fallbacks_before + 1);
+    EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
+    EXPECT_EQ(decision->incremental_fallback_reason, "cloud rowset sync not scheduled");
+    EXPECT_EQ(meta_loads.load(), 0);
+    EXPECT_EQ(_sync_calls.load(), 0);
+}
+
 TEST_F(QueryCacheCloudIncrementalTest, decision_sync_timeout_falls_back) {
     // A meta-service brownout: the decision's rowset sync stalls past the
     // fast-fail budget (query_cache_decision_sync_timeout_ms). The decision must
@@ -1700,10 +1880,10 @@ TEST_F(QueryCacheCloudIncrementalTest, decision_sync_timeout_falls_back) {
     _sp->set_call_back("CloudMetaMgr::get_tablet_meta", [](auto&& args) {
         TTabletSchema schema;
         schema.keys_type = TKeysType::DUP_KEYS;
-        auto meta = std::make_shared<TabletMeta>(
-                1, 2, kTabletId, 15674, 4, 5, schema, 6,
-                std::unordered_map<uint32_t, uint32_t> {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, 0, false);
+        auto meta = std::make_shared<TabletMeta>(1, 2, kTabletId, 15674, 4, 5, schema, 6,
+                                                 std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                 UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                 TCompressionType::LZ4F, 0, false);
         meta->set_tablet_state(TABLET_RUNNING);
         *try_any_cast<TabletMetaSharedPtr*>(args[1]) = std::move(meta);
         try_any_cast_ret<Status>(args)->second = true;

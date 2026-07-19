@@ -420,6 +420,9 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
             TQueryCacheParam dupTwoPhase = getQueryCacheParam(
                     "select k2, sum(v1) as v from db1.part1 group by k2");
             Assertions.assertTrue(dupTwoPhase.allow_incremental);
+            // A DUP table is not merge-on-write: the flag BE reads for its cloud
+            // write-back gate stays false.
+            Assertions.assertFalse(dupTwoPhase.is_merge_on_write);
 
             // One-phase aggregation finalizes inside the cached fragment: its
             // output has no downstream merge, so emitting cached and delta
@@ -436,12 +439,17 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
             TQueryCacheParam uniqueMow = getQueryCacheParam(
                     "select v1, count(*) as v from db1.uniq_mow group by v1");
             Assertions.assertTrue(uniqueMow.allow_incremental);
+            // FE reports the merge-on-write table type so BE can keep the cloud
+            // write-back for a prefer-only MOW read (which stays version-exact).
+            Assertions.assertTrue(uniqueMow.is_merge_on_write);
 
             // UNIQUE merge-on-read resolves duplicates by merging across
             // rowsets at read time: a delta-only scan cannot stand alone.
             TQueryCacheParam uniqueMor = getQueryCacheParam(
                     "select v1, count(*) as v from db1.uniq_mor group by v1");
             Assertions.assertFalse(uniqueMor.allow_incremental);
+            // Merge-on-read UNIQUE is not merge-on-write: the flag is false.
+            Assertions.assertFalse(uniqueMor.is_merge_on_write);
 
             // AGG_KEYS merges rows inside the storage layer.
             TQueryCacheParam aggKeys = getQueryCacheParam(
@@ -478,6 +486,11 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                 TQueryCacheParam withFreshness = getQueryCacheParam(
                         "select k2, sum(v1) as v from db1.part1 group by k2");
                 Assertions.assertFalse(withFreshness.allow_incremental);
+                // Freshness has no merge-on-write carve-out (cloud honors it for
+                // every table type), so it blocks incremental for MOW as well.
+                TQueryCacheParam mowWithFreshness = getQueryCacheParam(
+                        "select v1, count(*) as v from db1.uniq_mow group by v1");
+                Assertions.assertFalse(mowWithFreshness.allow_incremental);
             } finally {
                 connectContext.getSessionVariable().queryFreshnessToleranceMs = -1;
             }
@@ -493,6 +506,16 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                 TQueryCacheParam withPreferCached = getQueryCacheParam(
                         "select k2, sum(v1) as v from db1.part1 group by k2");
                 Assertions.assertFalse(withPreferCached.allow_incremental);
+                // Cloud ignores prefer-cached-rowset for a merge-on-write table
+                // (its read stays version-exact), so incremental remains allowed
+                // for MOW under prefer -- the carve-out keys on table type, and
+                // being mode-agnostic it holds in the local harness too. The
+                // is_merge_on_write flag is what BE also uses to keep the fill's
+                // write-back for such a query.
+                TQueryCacheParam mowWithPreferCached = getQueryCacheParam(
+                        "select v1, count(*) as v from db1.uniq_mow group by v1");
+                Assertions.assertTrue(mowWithPreferCached.allow_incremental);
+                Assertions.assertTrue(mowWithPreferCached.is_merge_on_write);
             } finally {
                 connectContext.getSessionVariable().enablePreferCachedRowset = false;
             }

@@ -361,6 +361,14 @@ public:
         std::lock_guard<std::mutex> lock(_lock);
         _decisions[cache_key] = std::move(decision);
     }
+
+    // Exercise the cloud presync fan-out (a private static) directly, so unit
+    // tests can assert the <= 0 skip-launch and the engine-stopped bail without
+    // standing up a full fragment.
+    static std::unordered_map<int64_t, std::string> presync_cloud_delta_tablets_for_test(
+            const std::vector<TScanRangeParams>& scan_ranges, int64_t current_version) {
+        return _presync_cloud_delta_tablets(scan_ranges, current_version);
+    }
 #endif
 
 private:

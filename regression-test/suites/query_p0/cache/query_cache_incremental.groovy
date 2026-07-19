@@ -79,22 +79,38 @@ suite("query_cache_incremental") {
     // merged incrementally (Mode::INCREMENTAL), not recomputed: only the
     // incremental path increases query_cache_stale_hit_total, and no
     // concurrent suite touches it because the session switch defaults to off.
-    // Residual caveat (here and in checkIncrementalFallback): a
-    // memory-pressure prune evicting the entry inside the tiny fill-to-assert
-    // window surfaces as a plain MISS and would fail the assertion; accepted
-    // as rare, and a rerun re-establishes the counters from fresh deltas. The
-    // one channel that is NOT left to chance is compaction: every table here
-    // sets disable_auto_compaction, so no background compaction can merge the
-    // delta away mid-window and turn the expected incremental hit into a
-    // fallback (this matters most on cloud, where compaction is driven
-    // externally rather than by the querying BE).
-    // On cloud two more channels surface the same way and fail only
-    // checkStaleIncremental (checkIncrementalFallback is immune: any
-    // non-empty reason still counts): a transient meta-service hiccup during
-    // the decision's view sync, and the tablet rebalancer routing the stale
-    // query to a BE that holds no entry. Both equally rare inside this window,
-    // same remedy.
+    // Compaction is kept out of the way in every mode: every table here sets
+    // disable_auto_compaction, so no background compaction can merge the delta
+    // away mid-window and turn the expected incremental hit into a fallback
+    // (this matters most on cloud, where compaction is driven externally).
+    //
+    // The stale_hit assertion runs on non-cloud only. Summed across BEs it is a
+    // deterministic INCREMENTAL signal solely when the fill and the reuse land
+    // on the same BE, which holds on the single-BE local cluster but not on
+    // multi-BE cloud. Two cloud channels flip it with no product-correctness
+    // meaning: a transient meta-service hiccup during the decision's view sync
+    // turns the expected stale hit into a full-recompute fallback (stale_hit
+    // stays flat, the fallback counter moves instead), and because the entry is
+    // BE-local a query routed to a BE that does not hold it recomputes in full
+    // there. A retry repairs neither: a fallback re-bases nothing, and a
+    // no-entry BE fills at the current version so its later runs are exact hits,
+    // never the stale hit. Cloud still exercises the whole incremental flow
+    // through checkConsistency (end-to-end result correctness on a real cloud
+    // cluster); that the cloud decision truly reaches Mode::INCREMENTAL is
+    // proven deterministically by the BE unit tests (QueryCacheCloudIncremental
+    // Test), which drive the cloud sync-then-capture path without cluster
+    // routing in play. A local memory-pressure prune evicting the entry inside
+    // the tiny fill-to-assert window is the one accepted residual (rare; a rerun
+    // re-establishes the counters).
     def checkStaleIncremental = { String sqlText ->
+        // On cloud the metric endpoints are not even sampled: a slow or briefly
+        // unreachable BE metrics port would hang or throw in sumBeMetric before
+        // a merely gated assertion, re-introducing the very topology-dependent
+        // flakiness this gate exists to remove (and the samples would go unused).
+        if (isCloudMode()) {
+            checkConsistency(sqlText)
+            return
+        }
         def before = sumBeMetric("query_cache_stale_hit_total")
         checkConsistency(sqlText)
         def after = sumBeMetric("query_cache_stale_hit_total")
@@ -102,8 +118,21 @@ suite("query_cache_incremental") {
                 "expected a stale incremental cache hit, but query_cache_stale_hit_total stayed at ${before}")
     }
 
-    // Prove that a designed fallback phase really took the fallback path.
+    // Prove that a designed fallback phase really took the fallback path. Like the
+    // stale_hit assertion, the metric check is restricted to non-cloud: the entry
+    // is BE-local, so on a multi-BE cloud cluster the query can route to a BE that
+    // does not hold the stale entry, take a plain MISS (which is not a fallback,
+    // so the counter does not move), and spuriously fail. Cloud still verifies the
+    // fallback phase's result correctness through checkConsistency; that the cloud
+    // fallback classification itself fires is proven deterministically by the BE
+    // unit tests (QueryCacheCloudIncrementalTest.mow_history_rewrite_falls_back,
+    // fallback_on_sync_failure, and the delete-predicate/version-gap cases).
     def checkIncrementalFallback = { String sqlText ->
+        // Cloud skips the sampling too, for the same reason as above.
+        if (isCloudMode()) {
+            checkConsistency(sqlText)
+            return
+        }
         def before = sumBeMetric("query_cache_incremental_fallback_total")
         checkConsistency(sqlText)
         def after = sumBeMetric("query_cache_incremental_fallback_total")
@@ -259,10 +288,10 @@ suite("query_cache_incremental") {
     sql "INSERT INTO test_query_cache_incremental_mow VALUES ('2026-01-01',1,100)"
     checkIncrementalFallback(uniqueQuerySql)
     // After the re-base, pure appends take the incremental path again. Left as
-    // a correctness-only check (not metric-asserted): the earlier rounds
-    // already pin the incremental path through the metric, and on cloud the
-    // residual meta-service/rebalance channels noted above could still flip a
-    // single stale-hit assertion to a spurious MISS.
+    // a correctness-only check (not metric-asserted): the earlier rounds already
+    // pin the incremental path through the metric on non-cloud, so repeating a
+    // stale_hit assertion here would add nothing while carrying the same cloud
+    // caveats that already make checkStaleIncremental result-only there.
     sql "INSERT INTO test_query_cache_incremental_mow VALUES ('2026-01-06',200,7)"
     checkConsistency(uniqueQuerySql)
     order_qt_mow_final "${uniqueQuerySql}"
@@ -326,8 +355,9 @@ suite("query_cache_incremental") {
     // The first query after the idle stretch must still take the incremental
     // path on both deployment modes and agree with the uncached result.
     // Auto-compaction is disabled on the table, so the 30-rowset delta stays
-    // intact and no boundary-crossing compaction can turn this into a fallback;
-    // on cloud the residual rare meta-service/rebalance channels noted at
-    // checkStaleIncremental still apply and are handled the same way (rerun).
+    // intact and no boundary-crossing compaction can turn this into a fallback.
+    // checkStaleIncremental asserts the stale_hit metric on non-cloud (where it
+    // is deterministic) and verifies result consistency on cloud, so no
+    // cluster-routing or transient-sync flake reaches this assertion.
     checkStaleIncremental(dormantQuerySql)
 }

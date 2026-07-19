@@ -100,6 +100,7 @@ public class QueryCacheNormalizer implements Normalizer {
         queryCacheParam.setEntryMaxBytes(sessionVariable.getQueryCacheEntryMaxBytes());
         queryCacheParam.setEntryMaxRows(sessionVariable.getQueryCacheEntryMaxRows());
         queryCacheParam.setAllowIncremental(computeAllowIncremental(cachePoint, sessionVariable));
+        queryCacheParam.setIsMergeOnWrite(computeIsMergeOnWrite(cachePoint));
 
         queryCacheParam.setOutputSlotMapping(
                 cachePoint.cacheRoot.getOutputTupleIds()
@@ -179,33 +180,6 @@ public class QueryCacheNormalizer implements Normalizer {
         if (!sessionVariable.getEnableQueryCacheIncremental()) {
             return false;
         }
-        // Freshness tolerance and prefer-cached-rowset (both cloud-only in
-        // effect) trade exactness for speed and locality: the scan may read a
-        // warmed-up layout that stops below the queried version (freshness
-        // halts at the warmed boundary) or reaches beyond it (neither walk
-        // clips an edge spanning it). An incremental merge would defeat both knobs,
-        // because the delta capture always targets the exact queried version
-        // (it must, to keep the merged entry correct): under freshness
-        // tolerance it would force the wait for un-warmed data the query
-        // explicitly chose to skip, and under prefer-cached-rowset it would
-        // ignore the layout preference the user set. So exclude incremental
-        // for such queries and let them take their cheap path. Correctness
-        // against their version-inexact reads does NOT rest on this per-query
-        // gate (an entry filled by such a read could still be reused by a
-        // different, knob-free query sharing the cache key): on cloud, the
-        // only mode where these reads occur, the BE suppresses their cache
-        // write-back, so no entry whose content mismatches its version stamp
-        // exists in the first place. These knobs are inert on local storage,
-        // so gating them in any mode only forgoes incremental for a query
-        // that opted into a cloud trade-off; the gate stays mode-agnostic on
-        // purpose, because a mode-conditioned gate cannot be exercised by the
-        // local FE unit-test harness (planning under a flipped cloud flag casts
-        // SystemInfoService to CloudSystemInfoService and fails), so it would
-        // ship an untestable branch for no correctness gain.
-        if (sessionVariable.getQueryFreshnessToleranceMs() > 0
-                || sessionVariable.getEnablePreferCachedRowset()) {
-            return false;
-        }
         // The cache point is always an aggregation node (see doComputeCachePoint).
         if (((AggregationNode) cachePoint.cacheRoot).isNeedsFinalize()) {
             return false;
@@ -225,20 +199,86 @@ public class QueryCacheNormalizer implements Normalizer {
         long selectIndexId = scanNode.getSelectedIndexId() == -1
                 ? olapTable.getBaseIndexId()
                 : scanNode.getSelectedIndexId();
-        // Note: judged on the selected index, not the base table: a DUP table
-        // may serve the query from an aggregated materialized view, whose data
-        // is no longer append-only.
+        // The scanned index must be append-only, guaranteeing "cached snapshot +
+        // delta rowsets == new snapshot". Note: judged on the selected index, not
+        // the base table -- a DUP table may serve the query from an aggregated
+        // materialized view, whose data is no longer append-only.
+        //
+        // DUP_KEYS is always append-only. A merge-on-write UNIQUE index is
+        // append-only as long as a load does not touch pre-existing keys, which
+        // covers the common "hourly append plus occasional backfill" pattern: BE
+        // verifies per tablet through the delete bitmap of the delta window and
+        // falls back to a full recompute for the rare load that rewrites history.
+        // A merge-on-read UNIQUE index resolves duplicates by merging across
+        // rowsets at read time, so a delta-only scan cannot stand alone there;
+        // AGG tables merge rows inside the storage layer likewise.
         KeysType keysType = olapTable.getKeysTypeByIndexId(selectIndexId);
-        if (keysType == KeysType.DUP_KEYS) {
-            return true;
+        boolean mergeOnWrite =
+                keysType == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite();
+        if (keysType != KeysType.DUP_KEYS && !mergeOnWrite) {
+            return false;
         }
-        // A merge-on-write UNIQUE index is append-only as long as a load does
-        // not touch pre-existing keys, which covers the common "hourly append
-        // plus occasional backfill" pattern: BE verifies per tablet through
-        // the delete bitmap of the delta window and falls back to a full
-        // recompute for the rare load that rewrites history. A merge-on-read
-        // UNIQUE index resolves duplicates by merging across rowsets at read
-        // time, so a delta-only scan cannot stand alone there.
+        // Freshness tolerance and prefer-cached-rowset (both cloud-only in
+        // effect) trade exactness for speed and locality: the scan may read a
+        // warmed-up layout that stops below the queried version (freshness halts
+        // at the warmed boundary) or reaches beyond it (neither walk clips an
+        // edge spanning it). An incremental merge would defeat such a knob,
+        // because the delta capture always targets the exact queried version (it
+        // must, to keep the merged entry correct), forcing the un-warmed reads
+        // the query explicitly chose to skip. Correctness against version-inexact
+        // reads does NOT rest on this per-query gate (an entry filled by such a
+        // read could still be reused by a different, knob-free query sharing the
+        // cache key): on cloud, the only mode where these reads occur, the BE
+        // suppresses their cache write-back, so no entry whose content mismatches
+        // its version stamp exists in the first place. The gate stays mode-
+        // agnostic (no is_cloud_mode): the knobs are inert on local storage, so
+        // excluding incremental there only forgoes it for a query that opted into
+        // a cloud trade-off, and a mode-conditioned gate cannot be exercised by
+        // the local FE unit-test harness (planning under a flipped cloud flag
+        // casts SystemInfoService to CloudSystemInfoService and fails).
+        if (sessionVariable.getQueryFreshnessToleranceMs() > 0) {
+            return false;
+        }
+        // Prefer-cached-rowset is honored by the storage layer only for non-MOW
+        // tables: CloudTablet::capture_consistent_versions_unlocked guards the
+        // prefer branch on !enable_unique_key_merge_on_write(), so a MOW query
+        // reads the exact queried version regardless of the knob. Its delta
+        // capture is therefore version-exact and safe to merge incrementally, so
+        // only non-MOW tables are excluded here. This carve-out keys on table
+        // type, not mode, so the FE unit test can exercise it directly; it is
+        // sound in both modes because the read is version-exact for MOW whether
+        // the knob is inert (local) or explicitly ignored (cloud). Freshness
+        // above has no such MOW guard on the storage side, so it excludes
+        // incremental for every table type.
+        if (sessionVariable.getEnablePreferCachedRowset() && !mergeOnWrite) {
+            return false;
+        }
+        return true;
+    }
+
+    // Whether the selected index of the cache point's scan is a merge-on-write
+    // UNIQUE table. BE consumes this in the cloud cache write-back gate: cloud
+    // ignores enable_prefer_cached_rowset for a MOW table, so a prefer-only MOW
+    // read is version-exact and its fill must not be suppressed. Reported
+    // independently of allow_incremental because the write-back gate also applies
+    // to a MISS (a MOW MISS under prefer must still be cached). Determined on the
+    // selected index, mirroring computeAllowIncremental. False when the cache
+    // point has no direct OlapScanNode child (a nested-agg shape, never
+    // incrementally cacheable), which leaves BE at its safe suppress default: such
+    // a shape over a MOW scan also forgoes the prefer-cached-rowset write-back,
+    // a deliberate over-suppression (the safe direction, it never caches a
+    // version-inexact entry) rather than threading scan resolution through the
+    // aggregation chain for a cache point whose incremental merge is already off.
+    private boolean computeIsMergeOnWrite(CachePoint cachePoint) {
+        if (!(cachePoint.cacheRoot.getChild(0) instanceof OlapScanNode)) {
+            return false;
+        }
+        OlapScanNode scanNode = (OlapScanNode) cachePoint.cacheRoot.getChild(0);
+        OlapTable olapTable = scanNode.getOlapTable();
+        long selectIndexId = scanNode.getSelectedIndexId() == -1
+                ? olapTable.getBaseIndexId()
+                : scanNode.getSelectedIndexId();
+        KeysType keysType = olapTable.getKeysTypeByIndexId(selectIndexId);
         return keysType == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite();
     }
 

@@ -112,9 +112,20 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // where it overshot. Suppressing the write-back keeps these reads pure
     // consumers: they may still serve an exact HIT filled by a plain run
     // (precise data, no worse than asked).
+    //
+    // Carve-out for the prefer knob on cloud merge-on-write UNIQUE tables:
+    // CloudTablet::capture_consistent_versions_unlocked honors
+    // enable_prefer_cached_rowset only for non-MOW tables (it guards on
+    // !enable_unique_key_merge_on_write()), so a MOW query that set prefer but
+    // not freshness still reads the exact queried version. That fill is
+    // version-exact and cacheable; suppressing it would keep a cloud MOW table
+    // with prefer set from ever populating the cache. Freshness tolerance has
+    // no such MOW guard (it is honored for MOW too), so it still forces
+    // suppression regardless of table type.
     const bool inexact_version_fill =
-            config::is_cloud_mode() && (state->enable_query_freshness_tolerance() ||
-                                        state->enable_prefer_cached_rowset());
+            config::is_cloud_mode() &&
+            (state->enable_query_freshness_tolerance() ||
+             (state->enable_prefer_cached_rowset() && !cache_param.is_merge_on_write));
     _need_insert_cache = _cache_decision->key_valid && !hit_cache &&
                          _cache_decision->write_back_feasible && !inexact_version_fill;
     _insert_delta_count = _is_incremental ? _cache_decision->cached_delta_count + 1 : 0;
