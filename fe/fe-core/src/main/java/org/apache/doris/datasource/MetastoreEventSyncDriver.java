@@ -244,11 +244,10 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 catalogMgr.unregisterExternalDatabase(descriptor.getDbName(), catalogName);
                 break;
             case RENAME_DATABASE:
-                // legacy AlterDatabaseEvent.processRename: skip when the after-db already exists locally
-                if (catalog.getDbNullable(descriptor.getDbNameAfter()) == null) {
-                    catalogMgr.unregisterExternalDatabase(descriptor.getDbName(), catalogName);
-                    catalogMgr.registerExternalDatabaseFromEvent(descriptor.getDbNameAfter(), catalogName);
-                }
+                // Always converge to "old removed, new registered". A normal lookup may already have warmed the
+                // target after the remote rename; treating that as a reason to skip would retain stale old state.
+                catalogMgr.unregisterExternalDatabase(descriptor.getDbName(), catalogName);
+                catalogMgr.registerExternalDatabaseFromEvent(descriptor.getDbNameAfter(), catalogName);
                 break;
             case REGISTER_TABLE:
                 catalogMgr.registerExternalTableFromEvent(descriptor.getDbName(), descriptor.getTableName(),
@@ -289,14 +288,8 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             throws Exception {
         String catalogName = catalog.getName();
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
-        // legacy AlterTableEvent: a rename to a DIFFERENT key that already exists locally is skipped
-        // (processRename guard); a view recreate (after == before) always proceeds (processRecreateTable).
-        boolean sameKey = descriptor.getDbName().equalsIgnoreCase(descriptor.getDbNameAfter())
-                && descriptor.getTableName().equalsIgnoreCase(descriptor.getTableNameAfter());
-        if (!sameKey && catalogMgr.externalTableExistInLocal(descriptor.getDbNameAfter(),
-                descriptor.getTableNameAfter(), catalogName)) {
-            return;
-        }
+        // Always converge to "old removed, new registered". The target may already be hot because a normal
+        // lookup raced with the event after the remote rename; it must not prevent cleanup of the old identity.
         catalogMgr.unregisterExternalTable(descriptor.getDbName(), descriptor.getTableName(),
                 catalogName, true);
         catalogMgr.registerExternalTableFromEvent(descriptor.getDbNameAfter(),
