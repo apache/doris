@@ -901,31 +901,35 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
-    public void testModifyColumnCommentSupportsDirectArrayElementAndMapValue() throws Throwable {
+    public void testRejectsCommentsOnDirectArrayElementAndMapValue() {
         Schema schema = primitiveContainerSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
         Table icebergTable = Mockito.mock(Table.class);
-        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
         Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
         Mockito.when(icebergTable.schema()).thenReturn(schema);
-        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
 
-            ops.modifyColumnComment(dorisTable, ColumnPath.fromDotName("arr.element"),
-                    "array element comment", 1L);
-            ops.modifyColumnComment(dorisTable, ColumnPath.fromDotName("m.value"),
-                    "map value comment", 1L);
+            assertUserException(() -> ops.modifyColumnComment(
+                            dorisTable, ColumnPath.fromDotName("arr.element"), "array element comment", 1L),
+                    "Iceberg does not support comments on collection element or value fields: arr.element");
+            assertUserException(() -> ops.modifyColumnComment(
+                            dorisTable, ColumnPath.fromDotName("m.value"), "map value comment", 1L),
+                    "Iceberg does not support comments on collection element or value fields: m.value");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("arr.element"),
+                            new Column("element", Type.BIGINT, true, "array element comment"), null, 1L),
+                    "Iceberg does not support comments on collection element or value fields: arr.element");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("m.value"),
+                            new Column("value", Type.BIGINT, true, "map value comment"), null, 1L),
+                    "Iceberg does not support comments on collection element or value fields: m.value");
             assertUserException(() -> ops.modifyColumnComment(
                             dorisTable, ColumnPath.fromDotName("m.key"), "map key comment", 1L),
                     "Cannot modify comment MAP key nested column");
         }
 
-        Mockito.verify(updateSchema).updateColumnDoc("arr.element", "array element comment");
-        Mockito.verify(updateSchema).updateColumnDoc("m.value", "map value comment");
-        Mockito.verify(updateSchema, Mockito.times(2)).commit();
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
     }
 
     @Test

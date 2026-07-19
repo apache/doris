@@ -305,7 +305,7 @@ suite("iceberg_schema_change_ddl", "p0,external") {
     // struct/complex type changes
     test {
         sql """ ALTER TABLE ${table_name} MODIFY COLUMN address STRING """
-        exception "Cannot change column type"
+        exception "Modify column type from complex to primitive is not supported"
     }
     
     test {

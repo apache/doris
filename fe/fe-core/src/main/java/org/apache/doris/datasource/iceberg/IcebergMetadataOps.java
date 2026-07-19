@@ -1103,6 +1103,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         ResolvedColumnPath resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify");
         NestedField currentCol = resolvedPath.getField();
+        validateCollectionPseudoFieldComment(
+                icebergTable.schema(), resolvedPath, column.getComment(), false);
         if (position != null) {
             validatePositionTarget(icebergTable.schema(), resolvedPath.getColumnPath(), "modify");
         }
@@ -1153,6 +1155,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         ResolvedColumnPath resolvedPath = resolveColumnPath(
                 icebergTable.schema(), columnPath, "modify comment");
+        validateCollectionPseudoFieldComment(icebergTable.schema(), resolvedPath, comment, true);
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.updateColumnDoc(resolvedPath.getFullPath(), StringUtils.defaultString(comment));
@@ -1163,6 +1166,20 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
         refreshTable(dorisTable, updateTime);
+    }
+
+    private void validateCollectionPseudoFieldComment(Schema schema, ResolvedColumnPath resolvedPath,
+            String comment, boolean explicitCommentOperation) throws UserException {
+        if (!resolvedPath.getColumnPath().isNested()
+                || (!explicitCommentOperation && StringUtils.isEmpty(comment))) {
+            return;
+        }
+        ResolvedColumnPath parentPath = resolveColumnPath(
+                schema, resolvedPath.getColumnPath().getParentPath(), "modify comment");
+        if (parentPath.getType().isListType() || parentPath.getType().isMapType()) {
+            throw new UserException("Iceberg does not support comments on collection element or value fields: "
+                    + resolvedPath.getFullPath());
+        }
     }
 
     private void applyExplicitNullableChange(UpdateSchema updateSchema, String columnPath, Column column,

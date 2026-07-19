@@ -98,8 +98,22 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
         exception "Cannot modify MAP key nested column"
     }
 
-    sql """ALTER TABLE ${tableName} MODIFY COLUMN arr_scalar.element COMMENT 'array element comment'"""
-    sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.value COMMENT 'map value comment'"""
+    test {
+        sql """ALTER TABLE ${tableName} MODIFY COLUMN arr_scalar.element COMMENT 'array element comment'"""
+        exception "Iceberg does not support comments on collection element or value fields"
+    }
+    test {
+        sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.value COMMENT 'map value comment'"""
+        exception "Iceberg does not support comments on collection element or value fields"
+    }
+    test {
+        sql """ALTER TABLE ${tableName} MODIFY COLUMN arr_scalar.element BIGINT COMMENT 'array element comment'"""
+        exception "Iceberg does not support comments on collection element or value fields"
+    }
+    test {
+        sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.value BIGINT COMMENT 'map value comment'"""
+        exception "Iceberg does not support comments on collection element or value fields"
+    }
     test {
         sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.`key` COMMENT 'map key comment'"""
         exception "Cannot modify comment MAP key nested column"
