@@ -1487,13 +1487,13 @@ wait_for_kerberos_ready() {
     local container="$1"
 
     echo "Waiting for ${container} readiness event"
-    if ! timeout --signal=TERM --kill-after=5s 20m bash -c '
+    if ! sudo timeout --signal=TERM --kill-after=5s 20m bash -c '
         log_dir=$(mktemp -d)
         mkfifo "${log_dir}/container.log"
-        sudo docker logs --follow "$1" >"${log_dir}/container.log" 2>&1 &
+        docker logs --follow "$1" >"${log_dir}/container.log" 2>&1 &
         log_pid=$!
         cleanup() {
-            kill "${log_pid}" 2>/dev/null || true
+            kill -KILL "${log_pid}" 2>/dev/null || true
             wait "${log_pid}" 2>/dev/null || true
             rm -rf "${log_dir}"
         }
