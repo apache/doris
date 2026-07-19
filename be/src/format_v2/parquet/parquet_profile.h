@@ -41,9 +41,8 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
-    // Native page/encoding reader internals. These counters intentionally mirror v1 so a v1/v2
-    // profile comparison attributes page IO, decompression, levels, value decode and conversion to
-    // the same stages.
+    // Native page/encoding reader internals. These counters keep page IO, decompression, levels,
+    // value decode and conversion attributable to separate stages.
     RuntimeProfile::Counter* decompress_time = nullptr;
     RuntimeProfile::Counter* decompress_count = nullptr;
     RuntimeProfile::Counter* decode_header_time = nullptr;
@@ -64,7 +63,7 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* page_cache_miss_count = nullptr;
     RuntimeProfile::Counter* page_cache_compressed_hit_count = nullptr;
     RuntimeProfile::Counter* page_cache_decompressed_hit_count = nullptr;
-    RuntimeProfile::Counter* native_read_calls = nullptr;     // v1-native reader calls
+    RuntimeProfile::Counter* native_read_calls = nullptr;     // native column-reader calls
     RuntimeProfile::Counter* native_page_fragments = nullptr; // page-bounded read fragments
     RuntimeProfile::Counter* page_crossing_batches = nullptr; // batches spanning multiple pages
     RuntimeProfile::Counter* nested_batches = nullptr;        // complex-column read batches
