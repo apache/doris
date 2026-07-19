@@ -64,6 +64,11 @@ public:
     IntCounter* query_cache_stale_hit_total = nullptr;
     IntCounter* query_cache_incremental_fallback_total = nullptr;
     IntCounter* query_cache_write_back_total = nullptr;
+    // Cumulative wall time the cloud incremental-merge decision spent blocking
+    // on its pre-sync rowset fan-out. That sync runs during operator init, not
+    // inside a profiled scan node, so without this counter its (potentially
+    // meta-service-bound) latency is invisible.
+    IntCounter* query_cache_decision_sync_time_ms = nullptr;
 
     IntCounter* push_requests_success_total = nullptr;
     IntCounter* push_requests_fail_total = nullptr;

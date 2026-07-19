@@ -17,8 +17,17 @@
 
 #include "runtime/query_cache/query_cache.h"
 
+#include <algorithm>
+#include <chrono>
+#include <functional>
+#include <future>
 #include <limits>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -155,11 +164,12 @@ std::shared_ptr<QueryCacheInstanceDecision> QueryCacheRuntime::get_or_make_decis
     }
 
     // Build the candidate outside the lock: a stale-entry decision walks
-    // tablet metadata under the header lock and, on merge-on-write tables,
-    // scans the delete bitmap, so its cost grows with the tablets per
-    // instance and the bitmap size. This runtime is fragment-wide, so a
-    // single lock-scoped build would serialize even unrelated instances'
-    // keys behind one slow decision. Racing callers of the same instance
+    // tablet metadata under the header lock, on merge-on-write tables scans
+    // the delete bitmap, and on cloud tablets may first sync the tablet view
+    // from the meta service (an RPC), so its cost grows with the tablets per
+    // instance, the bitmap size and the sync latency. This runtime is
+    // fragment-wide, so a single lock-scoped build would serialize even
+    // unrelated instances' keys behind one slow decision. Racing callers of the same instance
     // build duplicate candidates; the loser adopts the winner's decision
     // below and its own candidate releases with the shared_ptr (the entry
     // pin and any captured delta read sources go with it), which only costs
@@ -235,13 +245,6 @@ bool QueryCacheRuntime::_try_prepare_incremental(const std::vector<TScanRangePar
         // query, so leave incremental_fallback_reason empty.
         return false;
     }
-    // Cloud tablets capture rowsets through a different (partly asynchronous)
-    // path; incremental merge only supports local storage for now.
-    if (config::is_cloud_mode()) {
-        decision->incremental_fallback_reason = "cloud mode";
-        return false;
-    }
-
     int64_t cached_version = decision->handle.get_cache_version();
     if (cached_version >= decision->current_version) {
         // The entry is newer than what this replica is asked to read (e.g. the
@@ -259,9 +262,19 @@ bool QueryCacheRuntime::_try_prepare_incremental(const std::vector<TScanRangePar
         return false;
     }
 
+    // Cloud only: fan the per-tablet meta-service syncs out in parallel before
+    // the serial capture below, so an instance holding many stale tablets does
+    // not stall the shared prepare thread issuing those RPCs one at a time.
+    // Empty (and untouched) in shared-nothing mode, where no sync is needed.
+    std::unordered_map<int64_t, std::string> presync_reasons;
+    if (config::is_cloud_mode()) {
+        presync_reasons =
+                _presync_cloud_delta_tablets(scan_ranges, decision->current_version);
+    }
+
     for (const auto& scan_range : scan_ranges) {
         int64_t tablet_id = scan_range.scan_range.palo_scan_range.tablet_id;
-        if (!_capture_tablet_delta(tablet_id, cached_version, decision)) {
+        if (!_capture_tablet_delta(tablet_id, cached_version, presync_reasons, decision)) {
             return false;
         }
     }
@@ -282,8 +295,187 @@ bool QueryCacheRuntime::_try_prepare_incremental(const std::vector<TScanRangePar
     return true;
 }
 
-bool QueryCacheRuntime::_capture_tablet_delta(int64_t tablet_id, int64_t cached_version,
-                                              QueryCacheInstanceDecision* decision) {
+std::unordered_map<int64_t, std::string> QueryCacheRuntime::_presync_cloud_delta_tablets(
+        const std::vector<TScanRangeParams>& scan_ranges, int64_t current_version) {
+    // Index-aligned so the fork-joined tasks write disjoint slots without a
+    // lock; an empty slot means synced (or skipped as non-append-only), a
+    // non-empty slot is the fallback reason. Held behind a shared_ptr because
+    // the fan-out below is waited on with a fast-fail deadline: on a timeout
+    // this frame returns while the still-running tasks keep writing their
+    // slots, so the storage must outlive the frame -- the shared_ptr each task
+    // captured keeps it alive until the last one finishes. Only read on the
+    // completed (non-timeout) path, where every task is done.
+    auto per_range_reason = std::make_shared<std::vector<std::string>>(scan_ranges.size());
+    std::vector<std::function<Status()>> tasks;
+    tasks.reserve(scan_ranges.size());
+    for (size_t i = 0; i < scan_ranges.size(); ++i) {
+        int64_t tablet_id = scan_ranges[i].scan_range.palo_scan_range.tablet_id;
+        tasks.emplace_back([tablet_id, current_version, per_range_reason, i]() -> Status {
+            auto tablet_res = ExecEnv::get_tablet(tablet_id);
+            if (!tablet_res) {
+                // _capture_tablet_delta reports "tablet not found" from its own
+                // get_tablet; nothing to sync. Should that later get_tablet
+                // succeed instead (a transient failure here), it takes the
+                // cache-miss load, which itself syncs rowsets AND the delete
+                // bitmap up to the visible version -- that load-bearing
+                // invariant (plus the endpoint check downstream) is what keeps
+                // a tablet that skipped this pre-sync safe to capture.
+                return Status::OK();
+            }
+            BaseTabletSPtr tablet = std::move(tablet_res.value());
+            const bool append_only =
+                    tablet->keys_type() == KeysType::DUP_KEYS ||
+                    (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                     tablet->enable_unique_key_merge_on_write());
+            if (!append_only) {
+                // Skip the RPC entirely: _capture_tablet_delta rejects this
+                // tablet at its keys-type check before it would consume a sync.
+                return Status::OK();
+            }
+            auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(std::move(tablet));
+            if (cloud_tablet == nullptr) {
+                // is_cloud_mode() flipped on a live local deployment
+                // (cloud_unique_id is a mutable config): degrade to a full
+                // recompute rather than dereference the failed cast downstream.
+                (*per_range_reason)[i] = "tablet is not a cloud tablet";
+                return Status::OK();
+            }
+            SyncOptions options;
+            options.query_version = current_version;
+            options.merge_schema = true;
+            // The history-rewrite check reads the delete bitmap this sync merges,
+            // so pin the dependency explicitly rather than inherit the struct
+            // default (which a refactor could flip with no compile error): a
+            // merge-on-write delta cannot be classified on a bitmap the sync did
+            // not bring up to the queried version.
+            options.sync_delete_bitmap = true;
+            Status st = cloud_tablet->sync_rowsets(options);
+            if (!st.ok()) {
+                // Unlike the other fallback reasons (expected data shapes), a
+                // failed sync is an infrastructure error: log the status so the
+                // profile reason correlates to a cause. Throttled with
+                // LOG_EVERY_N because a meta-service brownout fails this for
+                // every stale tablet of every query at once; the underlying RPC
+                // errors are already logged per retry inside retry_rpc, so a
+                // sampled line here is enough to correlate without a storm, and
+                // the exact reason still reaches the user via the query profile.
+                LOG_EVERY_N(WARNING, 100)
+                        << "query cache incremental merge falls back, cloud rowset sync failed"
+                        << ", tablet_id=" << tablet_id << ", status=" << st.to_string();
+                (*per_range_reason)[i] = "cloud rowset sync failed";
+            }
+            return Status::OK();
+        });
+    }
+    // Fan the syncs out asynchronously and wait on the result with a fast-fail
+    // budget instead of blocking unconditionally. This decision runs in
+    // operator init on a bounded query-admission pool (the BE light_work_pool,
+    // contractually "must be light, not locked"), so a meta-service brownout
+    // that stalls these RPCs must not hold that thread for the full RPC retry
+    // budget (tens of seconds): sustained, it would exhaust the pool and reject
+    // query admission cluster-wide. If the fan-out does not finish within
+    // query_cache_decision_sync_timeout_ms the decision abandons the wait and
+    // falls the whole instance back to a full recompute; the still-running
+    // tasks are correctness-harmless and bounded: on a slow-but-healthy sync
+    // each merely advances the tablet view early (work the scan node's own
+    // async sync would otherwise do), and on a failing sync each is at worst one
+    // extra bounded sync attempt that changes no result; either way they stay
+    // cheap while pending (small per-task captures; the brpc I/O yields the
+    // pthread rather than pinning it) and self-limiting once the meta service
+    // recovers, and keep their slot storage alive through the shared_ptr they
+    // captured. A healthy sync is
+    // milliseconds, far under the budget, so this only trips under real
+    // meta-service degradation and leaves the steady-state incremental path
+    // unchanged.
+    //
+    // Parallelism reuses init_scanner_sync_rowsets_parallelism on purpose: this
+    // is the same per-tablet rowset-sync fan-out the scan node runs, and one
+    // shared knob keeps the two fan-outs' budgets aligned rather than letting a
+    // cache-only config silently drift apart from it. Every task swallows its
+    // own error into its slot and returns OK, which is load-bearing:
+    // bthread_fork_join stops DISPATCHING the tasks queued after the first one
+    // that returns non-OK (see cloud_meta_mgr.cpp), so a task that propagated
+    // its sync error would leave the tablets queued behind it un-synced;
+    // recording the failure into the slot keeps every tablet's sync attempted.
+    // The blocking time (bounded by the budget) is folded into
+    // query_cache_decision_sync_time_ms.
+    auto sync_fanout_start = std::chrono::steady_clock::now();
+    std::future<Status> fanout_done;
+    // Clamp the shared parallelism knob to >= 1: bthread_fork_join waits for a
+    // free slot before dispatching its first task (count 0 >= concurrency 0),
+    // so a misconfigured 0/negative would park the driver bthread forever with
+    // nothing to notify it. On the scan node that surfaces as a hung query; on
+    // this fast-fail path the caller's wait_for still expires and falls back, so
+    // the deadlock would instead leak the driver bthread and its task closures
+    // silently, once per incremental candidate. A local floor avoids that.
+    Status launch_st = cloud::bthread_fork_join(
+            std::move(tasks), std::max(1, config::init_scanner_sync_rowsets_parallelism),
+            &fanout_done);
+    bool timed_out = false;
+    if (!launch_st.ok()) {
+        // Could not even spawn the fan-out driver bthread: fall back rather than
+        // block, the same as a timeout (its future would never be fulfilled).
+        timed_out = true;
+    } else if (fanout_done.wait_for(std::chrono::milliseconds(
+                       config::query_cache_decision_sync_timeout_ms)) !=
+               std::future_status::ready) {
+        timed_out = true;
+    } else {
+        // Completed within budget. Every task returns OK by construction (each
+        // swallows its own error into its slot), so the join status is always
+        // OK; assert it rather than discard, so a future refactor that lets a
+        // task propagate an error trips here instead of silently leaving the
+        // tablets queued behind it un-synced.
+        Status join_st = fanout_done.get();
+        DCHECK(join_st.ok()) << join_st;
+    }
+    DorisMetrics::instance()->query_cache_decision_sync_time_ms->increment(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - sync_fanout_start)
+                    .count());
+
+    std::unordered_map<int64_t, std::string> fallback_reasons;
+    if (timed_out) {
+        // The fan-out outran its fast-fail budget. Do NOT read per_range_reason
+        // (the detached tasks are still writing it); fall every scanned tablet
+        // back so the whole instance recomputes in full. A distinct reason from
+        // a hard sync failure so the profile tells a slow meta service apart
+        // from a failing one. Throttled like the sync-failure log above: a
+        // brownout trips this for every stale tablet of every query at once, and
+        // this timeout is the primary operator-visible symptom of that brownout,
+        // so a sampled line correlates it without a storm (the per-query reason
+        // still reaches the user via the profile).
+        LOG_EVERY_N(WARNING, 100)
+                << "query cache incremental merge falls back, cloud rowset sync did not finish"
+                << " within query_cache_decision_sync_timeout_ms="
+                << config::query_cache_decision_sync_timeout_ms << "ms";
+        for (const auto& scan_range : scan_ranges) {
+            fallback_reasons[scan_range.scan_range.palo_scan_range.tablet_id] =
+                    "cloud rowset sync timed out";
+        }
+        return fallback_reasons;
+    }
+    // Merge the index-aligned slots into a tablet-id map for the capture loop.
+    // Safe to read now: the fan-out completed, so no task is still writing.
+    // Scan ranges carry distinct tablet ids in practice (each tablet is scanned
+    // once per query), but were one to appear twice the fan-out would only
+    // issue an idempotent redundant sync (serialized inside sync_rowsets by
+    // _sync_meta_lock) and this map, keyed by tablet id, would still resolve to
+    // one consistent reason for it -- so a duplicate is harmless, not something
+    // to guard against with an unreachable de-dup branch.
+    for (size_t i = 0; i < per_range_reason->size(); ++i) {
+        if (!(*per_range_reason)[i].empty()) {
+            fallback_reasons[scan_ranges[i].scan_range.palo_scan_range.tablet_id] =
+                    std::move((*per_range_reason)[i]);
+        }
+    }
+    return fallback_reasons;
+}
+
+bool QueryCacheRuntime::_capture_tablet_delta(
+        int64_t tablet_id, int64_t cached_version,
+        const std::unordered_map<int64_t, std::string>& presync_reasons,
+        QueryCacheInstanceDecision* decision) {
     auto tablet_res = ExecEnv::get_tablet(tablet_id);
     if (!tablet_res) {
         decision->incremental_fallback_reason = "tablet not found";
@@ -303,6 +495,35 @@ bool QueryCacheRuntime::_capture_tablet_delta(int64_t tablet_id, int64_t cached_
     if (tablet->keys_type() != KeysType::DUP_KEYS && !merge_on_write) {
         decision->incremental_fallback_reason = "keys type not append-only";
         return false;
+    }
+
+    if (config::is_cloud_mode()) {
+        // A CloudTablet keeps its rowset list (and for merge-on-write tables
+        // its delete bitmap) as a lazily synced copy of the meta service, and
+        // this decision runs before the scan node's own sync round, so the
+        // local view had to be brought up to the queried version first.
+        // _try_prepare_incremental already did that for every append-only
+        // tablet in one parallel fork-join (_presync_cloud_delta_tablets),
+        // which is the single sync per tablet; this loop only consumes its
+        // outcome. A recorded reason means the sync could not vouch for the
+        // view (a failed cast on a misconfigured deployment, an infrastructure
+        // sync failure, or the fast-fail budget expiring on a slow meta
+        // service), so fall back to a full recompute. No reason means the view
+        // is synced up to query_version, and the history-rewrite check below
+        // reads the tablet's delete bitmap as the sync brought it to that
+        // version (sync_delete_bitmap=true) -- exactly as complete as the
+        // merge-on-write read path itself sees it, and no more: the
+        // classification inherits that read path's completeness, including any
+        // of its known limitations (e.g. a bitmap left short by a prior
+        // sync_delete_bitmap=false materialization of the tablet), rather than
+        // adding a stronger guarantee of its own. The scan node's later sync
+        // hits the same no-op shortcut, so the RPC count per query does not
+        // grow.
+        auto reason_it = presync_reasons.find(tablet_id);
+        if (reason_it != presync_reasons.end()) {
+            decision->incremental_fallback_reason = reason_it->second;
+            return false;
+        }
     }
 
     // quiet: on a version-graph miss (the delta merged away by compaction, an
@@ -357,13 +578,20 @@ bool QueryCacheRuntime::_capture_tablet_delta(int64_t tablet_id, int64_t cached_
     // input, which the stale sweep then hands to the unused-rowset GC.
     // Classification would see no rewrite and merge the cached rows with
     // their replacements: a wrong entry, stored at the current version.
-    // Holding the rowsets stops that, in start_delete_unused_rowset(): it
-    // collects a retired rowset only once nothing else references it, and
-    // only what it collects gets remove_rowset_delete_bitmap(), which drops
-    // every version of that rowset's bitmap. The other remover, the key
-    // ranges that the stale sweep queues onto the pre-window rowsets, is
-    // held off by the delta capture instead: that queue is released only
-    // once the swept path's own rowsets are unreferenced.
+    // Holding the rowsets stops that: both storage engines drop a retired
+    // rowset's bitmap only once nothing else references it, so raising the
+    // use count with this pin blocks the drop in either deployment mode.
+    // Local storage does it in start_delete_unused_rowset(): it collects a
+    // retired rowset only once nothing else references it, and only what it
+    // collects gets remove_rowset_delete_bitmap(), which drops every version
+    // of that rowset's bitmap. Cloud does it in
+    // CloudTablet::remove_unused_rowsets(), which skips any rowset whose
+    // use_count() still exceeds one before the same remove_rowset_delete_bitmap().
+    // The other remover, the key ranges the stale sweep queues onto the
+    // pre-window rowsets (the engine's unused-delete-bitmap queue locally,
+    // CloudTablet::_unused_delete_bitmap in cloud), is held off by the delta
+    // capture instead: that queue is released only once the swept path's own
+    // rowsets are unreferenced.
     std::vector<RowsetSharedPtr> cached_side_pin;
     if (merge_on_write) {
         {
@@ -429,7 +657,10 @@ bool QueryCacheRuntime::_delta_rewrites_history(BaseTablet& tablet,
     // gone is rejected before we get here. Capture and scan are not atomic,
     // so a sweep landing exactly in between (with the aggregated keys also
     // already recycled) can still hide a rewrite: a known narrow race the
-    // fallback does not cover, shared with the baseline exact-hit path.
+    // fallback does not cover, the same one any merge-on-write snapshot read
+    // faces when a concurrent sweep re-stamps and recycles a marker (the
+    // exact-hit cache path is not itself exposed, since it serves cached
+    // blocks without re-reading the bitmap).
     // Pending entries use DeleteBitmap::TEMP_VERSION_COMMON (= 0) and stay
     // below the window as well.
     //

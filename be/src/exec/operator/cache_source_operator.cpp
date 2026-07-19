@@ -20,13 +20,14 @@
 #include <functional>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
-class RuntimeState;
 
 Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -95,8 +96,27 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // MISS and INCREMENTAL rebuild the entry (from scratch / by merge), unless
     // the decision already knows the merged entry could never fit the entry
     // limits (write_back_feasible == false).
-    _need_insert_cache =
-            _cache_decision->key_valid && !hit_cache && _cache_decision->write_back_feasible;
+    // A query reading through a warmed-up-layout knob (both cloud only) must
+    // not write back either, because its scan is not guaranteed to represent
+    // exactly the queried version the entry would be stamped with. Both
+    // knobs walk the version graph by warmed-up preference and, unlike the
+    // plain capture, never clip an edge whose end lies past the requested
+    // window: the read may OVERSHOOT the queried version (a warmed
+    // compaction rowset spanning it drags the path beyond), and under
+    // freshness tolerance it may also STOP BELOW it (the walk halts at the
+    // warmed boundary). Neither knob carries an affectQueryResult
+    // annotation, so such an entry shares its cache key with plain runs of
+    // the same statement, which would then serve (exact hit) or extend
+    // (incremental merge) a base whose content does not match its version
+    // stamp: missing rows where the read stopped short, double-counted rows
+    // where it overshot. Suppressing the write-back keeps these reads pure
+    // consumers: they may still serve an exact HIT filled by a plain run
+    // (precise data, no worse than asked).
+    const bool inexact_version_fill =
+            config::is_cloud_mode() && (state->enable_query_freshness_tolerance() ||
+                                        state->enable_prefer_cached_rowset());
+    _need_insert_cache = _cache_decision->key_valid && !hit_cache &&
+                         _cache_decision->write_back_feasible && !inexact_version_fill;
     _insert_delta_count = _is_incremental ? _cache_decision->cached_delta_count + 1 : 0;
 
     if (hit_cache || _is_incremental) {

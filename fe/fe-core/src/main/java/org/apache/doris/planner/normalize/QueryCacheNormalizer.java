@@ -179,6 +179,33 @@ public class QueryCacheNormalizer implements Normalizer {
         if (!sessionVariable.getEnableQueryCacheIncremental()) {
             return false;
         }
+        // Freshness tolerance and prefer-cached-rowset (both cloud-only in
+        // effect) trade exactness for speed and locality: the scan may read a
+        // warmed-up layout that stops below the queried version (freshness
+        // halts at the warmed boundary) or reaches beyond it (neither walk
+        // clips an edge spanning it). An incremental merge would defeat both knobs,
+        // because the delta capture always targets the exact queried version
+        // (it must, to keep the merged entry correct): under freshness
+        // tolerance it would force the wait for un-warmed data the query
+        // explicitly chose to skip, and under prefer-cached-rowset it would
+        // ignore the layout preference the user set. So exclude incremental
+        // for such queries and let them take their cheap path. Correctness
+        // against their version-inexact reads does NOT rest on this per-query
+        // gate (an entry filled by such a read could still be reused by a
+        // different, knob-free query sharing the cache key): on cloud, the
+        // only mode where these reads occur, the BE suppresses their cache
+        // write-back, so no entry whose content mismatches its version stamp
+        // exists in the first place. These knobs are inert on local storage,
+        // so gating them in any mode only forgoes incremental for a query
+        // that opted into a cloud trade-off; the gate stays mode-agnostic on
+        // purpose, because a mode-conditioned gate cannot be exercised by the
+        // local FE unit-test harness (planning under a flipped cloud flag casts
+        // SystemInfoService to CloudSystemInfoService and fails), so it would
+        // ship an untestable branch for no correctness gain.
+        if (sessionVariable.getQueryFreshnessToleranceMs() > 0
+                || sessionVariable.getEnablePreferCachedRowset()) {
+            return false;
+        }
         // The cache point is always an aggregation node (see doComputeCachePoint).
         if (((AggregationNode) cachePoint.cacheRoot).isNeedsFinalize()) {
             return false;

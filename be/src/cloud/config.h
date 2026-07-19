@@ -70,6 +70,23 @@ DECLARE_mInt32(tablet_sync_interval_s);
 // parallelism for scanner init where may issue RPCs to sync rowset meta from MS
 DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
 DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
+// Fast-fail budget (ms) for the query-cache incremental-merge decision's
+// pre-sync rowset fan-out. That decision runs in operator init on a bounded
+// query-admission thread pool (the BE light_work_pool, contractually "must be
+// light, not locked"), so a meta-service brownout that stalls the sync must not
+// hold that thread for the full RPC retry budget (tens of seconds): sustained,
+// it would exhaust the pool and reject query admission cluster-wide. When the
+// fan-out does not finish within this budget the decision abandons the wait and
+// falls back to one full recompute (the scan node's own async sync still brings
+// the view up for the actual scan). A healthy sync is milliseconds, far under
+// this, so it only trips under real meta-service degradation and leaves the
+// steady-state incremental path unchanged. A value <= 0 makes the wait expire
+// immediately, so the decision falls back to a full recompute whenever a sync
+// is still in flight (a fan-out that already finished -- every tablet a no-op
+// -- still proceeds correctly): that disables cloud incremental merge under any
+// real sync latency rather than blocking, a fail-safe, not a useful setting.
+// Cloud only.
+DECLARE_mInt32(query_cache_decision_sync_timeout_ms);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);

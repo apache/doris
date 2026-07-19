@@ -373,10 +373,27 @@ private:
     bool _try_prepare_incremental(const std::vector<TScanRangeParams>& scan_ranges,
                                   QueryCacheInstanceDecision* decision);
 
+    // Cloud only: bring every append-only scanned tablet's local view up to the
+    // queried version in parallel (a fork-join of sync_rowsets, matching the
+    // scan node's own tablet-sync fan-out) before the serial per-tablet capture
+    // below runs, instead of issuing those RPCs one tablet at a time on the
+    // shared prepare thread. This is the single sync per tablet: _capture_
+    // tablet_delta consumes the result here and does not sync again. Returns
+    // the per-tablet fallback reasons the sync produced (keyed by tablet id,
+    // only failures present): a cast failure ("tablet is not a cloud tablet")
+    // or an infrastructure sync failure ("cloud rowset sync failed"). Tablets
+    // that are not append-only are skipped (no wasted RPC); _capture_tablet_
+    // delta rejects them at its own keys-type check.
+    static std::unordered_map<int64_t, std::string> _presync_cloud_delta_tablets(
+            const std::vector<TScanRangeParams>& scan_ranges, int64_t current_version);
+
     // Validate one tablet for incremental merge and capture its delta read
     // source of (cached_version, current_version]. On any failure records the
-    // fallback reason in the decision and returns false.
+    // fallback reason in the decision and returns false. In cloud mode the view
+    // sync already ran in _presync_cloud_delta_tablets; its per-tablet failure
+    // reasons arrive through presync_reasons.
     bool _capture_tablet_delta(int64_t tablet_id, int64_t cached_version,
+                               const std::unordered_map<int64_t, std::string>& presync_reasons,
                                QueryCacheInstanceDecision* decision);
 
     // Merge-on-write only: true if any delete-bitmap entry stamped with a

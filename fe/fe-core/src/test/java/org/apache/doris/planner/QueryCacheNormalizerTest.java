@@ -465,6 +465,37 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                             + " (select k1, count(*) cnt from db1.non_part group by k1) x"
                             + " group by cnt");
             Assertions.assertFalse(nestedAgg.allow_incremental);
+
+            // Query freshness tolerance trades exactness for speed; an
+            // incremental merge would force the wait for un-warmed data the
+            // query chose to skip (the BE separately suppresses such a query's
+            // cache write-back on cloud, which is where correctness lives). The
+            // gate is mode-agnostic (it forgoes incremental in any mode for a
+            // query that set the knob), so it must reject incremental for an
+            // otherwise-eligible DUP_KEYS query here in the local harness too.
+            connectContext.getSessionVariable().queryFreshnessToleranceMs = 5000;
+            try {
+                TQueryCacheParam withFreshness = getQueryCacheParam(
+                        "select k2, sum(v1) as v from db1.part1 group by k2");
+                Assertions.assertFalse(withFreshness.allow_incremental);
+            } finally {
+                connectContext.getSessionVariable().queryFreshnessToleranceMs = -1;
+            }
+
+            // Prefer-cached-rowset may overshoot the queried version (its walk
+            // never clips an edge spanning it), and the incremental delta
+            // capture always targets the exact queried version anyway (the BE
+            // separately suppresses such a query's cache write-back on cloud);
+            // the same mode-agnostic gate rejects incremental for the same
+            // otherwise-eligible query.
+            connectContext.getSessionVariable().enablePreferCachedRowset = true;
+            try {
+                TQueryCacheParam withPreferCached = getQueryCacheParam(
+                        "select k2, sum(v1) as v from db1.part1 group by k2");
+                Assertions.assertFalse(withPreferCached.allow_incremental);
+            } finally {
+                connectContext.getSessionVariable().enablePreferCachedRowset = false;
+            }
         } finally {
             connectContext.getSessionVariable().setEnableQueryCacheIncremental(false);
         }
