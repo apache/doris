@@ -23,6 +23,9 @@
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <glog/logging.h>
+#ifdef __linux__
+#include <sys/uio.h>
+#endif
 #include <unistd.h>
 
 #include <algorithm>
@@ -192,6 +195,54 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     }
     DorisMetrics::instance()->local_bytes_read_total->increment(*bytes_read);
     return Status::OK();
+}
+
+PageCacheProbeResult LocalFileReader::probe_page_cache(size_t offset, Slice result) {
+#ifdef __linux__
+    if (closed() || offset > _file_size || result.size == 0) {
+        return PageCacheProbeResult::UNSUPPORTED;
+    }
+
+    const size_t bytes_req = std::min(result.size, _file_size - offset);
+    iovec iov {.iov_base = result.data, .iov_len = bytes_req};
+    ssize_t res;
+    do {
+        res = ::preadv2(_fd, &iov, 1, static_cast<off_t>(offset), RWF_NOWAIT);
+    } while (res == -1 && errno == EINTR);
+
+    if (res == static_cast<ssize_t>(bytes_req)) {
+        return PageCacheProbeResult::RESIDENT;
+    }
+    if (res >= 0 || errno == EAGAIN) {
+        return PageCacheProbeResult::NON_RESIDENT;
+    }
+    if (errno != EOPNOTSUPP && errno != ENOSYS && errno != EINVAL) {
+        VLOG_DEBUG << "RWF_NOWAIT probe failed for " << _path.native() << ": " << errno_to_str();
+    }
+    return PageCacheProbeResult::UNSUPPORTED;
+#else
+    static_cast<void>(offset);
+    static_cast<void>(result);
+    return PageCacheProbeResult::UNSUPPORTED;
+#endif
+}
+
+bool LocalFileReader::prefetch(size_t offset, size_t length) {
+#ifdef __linux__
+    if (closed() || length == 0 || offset >= _file_size) {
+        return false;
+    }
+    length = std::min(length, _file_size - offset);
+    if (::readahead(_fd, static_cast<off64_t>(offset), length) == 0) {
+        return true;
+    }
+    VLOG_DEBUG << "readahead failed for " << _path.native() << ": " << errno_to_str();
+    return false;
+#else
+    static_cast<void>(offset);
+    static_cast<void>(length);
+    return false;
+#endif
 }
 
 } // namespace io

@@ -357,6 +357,36 @@ struct OlapReaderStatistics {
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
 
+    int64_t cache_aware_lazy_read_ns = 0;
+    int64_t cache_aware_lazy_read_planned_pages = 0;
+    int64_t cache_aware_lazy_read_doris_cache_hit_pages = 0;
+    int64_t cache_aware_lazy_read_os_cache_hit_pages = 0;
+    int64_t cache_aware_lazy_read_cold_pages = 0;
+    int64_t cache_aware_lazy_read_probe_unsupported_pages = 0;
+    int64_t cache_aware_lazy_read_prefetch_ranges = 0;
+    int64_t cache_aware_lazy_read_prefetch_bytes = 0;
+    int64_t cache_aware_lazy_read_page_collect_ns = 0;
+    int64_t cache_aware_lazy_read_doris_cache_lookup_ns = 0;
+    int64_t cache_aware_lazy_read_os_page_cache_probe_ns = 0;
+    int64_t cache_aware_lazy_read_preload_ns = 0;
+    int64_t cache_aware_lazy_read_range_build_ns = 0;
+    int64_t cache_aware_lazy_read_readahead_ns = 0;
+    int64_t cache_aware_lazy_read_sampled_pages = 0;
+    int64_t cache_aware_lazy_read_sample_batches = 0;
+    int64_t cache_aware_lazy_read_sample_doris_cache_hit_pages = 0;
+    int64_t cache_aware_lazy_read_sample_os_only_resident_pages = 0;
+    int64_t cache_aware_lazy_read_sample_cold_pages = 0;
+    int64_t cache_aware_lazy_read_enabled_segments = 0;
+    int64_t cache_aware_lazy_read_skipped_insufficient_sample_segments = 0;
+    int64_t cache_aware_lazy_read_skipped_low_os_resident_segments = 0;
+    int64_t cache_aware_lazy_read_skipped_cold_ratio_segments = 0;
+    int64_t cache_aware_lazy_read_cooldown_events = 0;
+    int64_t cache_aware_lazy_read_resample_attempts = 0;
+    int64_t cache_aware_lazy_read_budget_limit_events = 0;
+    int64_t cache_aware_lazy_read_skipped_prefetch_ranges = 0;
+    int64_t cache_aware_lazy_read_pinned_bytes = 0;
+    int64_t cache_aware_lazy_read_preloaded_bytes = 0;
+
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
     int64_t inverted_index_query_timer = 0;
