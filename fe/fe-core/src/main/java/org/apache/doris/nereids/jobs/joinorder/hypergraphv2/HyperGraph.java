@@ -28,6 +28,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -214,6 +215,44 @@ public class HyperGraph {
             }
         }
         return result;
+    }
+
+    /**
+     * Returns true if the edge can be safely used as a join predicate between
+     * left and right. An edge is unsafe when it references a projected alias
+     * whose source bitmap spans both children — the alias layer is emitted by
+     * proposeProject (after proposeJoin), so the join predicate cannot see it.
+     * Such edges must wait for a later join step where the alias source is
+     * fully contained in one child.
+     *
+     * <p>This guards against missed-edge fallback consuming a projected alias
+     * across a split source endpoint:
+     * <pre>
+     *   Edge {A,B}--{C} with predicate s=C.t, where s has source {A,B}.
+     *   When left={A,C}, right={B}: s spans both children, so unsafe.
+     *   When left={A,B}, right={C}: {A,B} subset of left, so safe.
+     * </pre>
+     */
+    public boolean isEdgeSafeForJoin(Edge edge, long left, long right) {
+        if (!hasProjectedAliases()) {
+            return true;
+        }
+        List<List<NamedExpression>> splitLayers = getProjectedAliasLayers(left, right);
+        if (splitLayers.isEmpty()) {
+            return true;
+        }
+        Set<ExprId> splitAliasExprIds = new HashSet<>();
+        for (List<NamedExpression> layer : splitLayers) {
+            for (NamedExpression alias : layer) {
+                splitAliasExprIds.add(alias.getExprId());
+            }
+        }
+        for (Slot slot : edge.getInputSlots()) {
+            if (splitAliasExprIds.contains(slot.getExprId())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // find edges to connect left and right node
@@ -497,6 +536,7 @@ public class HyperGraph {
                 }
             }
             Preconditions.checkArgument(bitmap > 0, "slot must belong to some table");
+            boolean mustStayInCurrentAliasLayer = isNullableSide && !(alias.child() instanceof Slot);
             // Map nullable-side alias slots to subTreeNodes instead of the minimal
             // referenced bitmap. Otherwise a later join predicate like s=C.k sees s as
             // {B} (its input slot) and creates a {B}--{C} edge, allowing DPHyp to join
@@ -507,7 +547,7 @@ public class HyperGraph {
             // alias (e.g. s=A.k) that shares a Project with expression aliases cannot
             // safely use the minimal bitmap — its layer only emits at {A,B}, so exposing
             // it as {A} would let DPHyp form predicate edges before the alias exists.
-            slotToHyperNodeMap.put(aliasSlot, isNullableSide ? subTreeNodes : bitmap);
+            slotToHyperNodeMap.put(aliasSlot, mustStayInCurrentAliasLayer ? subTreeNodes : bitmap);
             // Do not add aliases on the nullable side of outer joins to aliasReplaceMap.
             // Aliases on the nullable side (e.g., COALESCE(v, 0) AS dv on the right side of
             // a LEFT JOIN) must execute BEFORE the outer join's null-extension.
@@ -522,7 +562,7 @@ public class HyperGraph {
             // independent layers that reference child-output slots, so expansion is
             // unnecessary and could trigger expression-limit failures for large chains
             // (the same reason PlanUtils.tryMergeProjections keeps layers).
-            if (addToReplaceMap && isNullableSide) {
+            if (addToReplaceMap && mustStayInCurrentAliasLayer) {
                 if (currentProjectedAliasLayer != null) {
                     currentProjectedAliasLayer.add(alias);
                 }

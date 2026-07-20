@@ -222,4 +222,55 @@ public class NullableAliasTest extends SqlTestBase {
         Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
         Assertions.assertNotNull(plan);
     }
+
+    @Test
+    void testSplitSourceAliasMissedEdge() {
+        // Problem: a projected alias on the nullable side whose source bitmap
+        // spans two base tables is consumed by a join predicate via the
+        // missed-edge fallback while its source is split across both children.
+        //
+        // Plan structure (bottom-up):
+        //   S2 = InnerT2 INNER JOIN InnerT3 ON InnerT2.id = InnerT3.id
+        //        Project(InnerT2.id, coalesce(InnerT3.score, 0) AS s)
+        //        -> alias s has source {InnerT2, InnerT3}
+        //   Sub = S2 INNER JOIN C ON S2.id = C.id AND S2.s = C.score
+        //        -> edges: {InnerT2}--{C}, {InnerT2,InnerT3}--{C}
+        //   Outer: PreservedT1 LEFT JOIN Sub ON PreservedT1.id = Sub.id
+        //
+        // Inner join cluster: {InnerT2, InnerT3, C}
+        //   Edge {InnerT2}--{InnerT3}: InnerT2.id = InnerT3.id
+        //   Edge {InnerT2}--{C}:       S2.id = C.id
+        //   Edge {InnerT2,InnerT3}--{C}: S2.s = C.score
+        //
+        // DPHyp can reorder the inner join cluster:
+        //   1. Build {InnerT2, C}     via edge {InnerT2}--{C}
+        //   2. Combine with {InnerT3} via edge {InnerT2}--{InnerT3}
+        // At step 2, processMissedEdges finds the unused edge
+        // {InnerT2,InnerT3}--{C} (predicate S2.s = C.score).
+        // All reference nodes {InnerT2,InnerT3,C} are in the union,
+        // so it would normally be added as a connection edge.
+        //
+        // Without the fix: proposeJoin would evaluate S2.s = C.score
+        // while neither child outputs S2.s — the alias layer is only
+        // emitted later by proposeProject (after the full {InnerT2,InnerT3,C}
+        // is assembled). This violates CheckAfterRewrite.
+        //
+        // With the fix (isEdgeSafeForJoin): getProjectedAliasLayers detects
+        // that the alias layer for {InnerT2,InnerT3} spans both children
+        // ({InnerT2,C} and {InnerT3}), and rejects the unsafe missed edge.
+        CascadesContext c1 = createCascadesContext(
+                "select PreservedT1.id, Sub.s "
+                        + "from T1 PreservedT1 left join ("
+                        + "  select S2.id, S2.s "
+                        + "  from ("
+                        + "    select InnerT2.id, coalesce(InnerT3.score, 0) as s "
+                        + "    from T2 InnerT2 inner join T3 InnerT3 on InnerT2.id = InnerT3.id"
+                        + "  ) S2 "
+                        + "  inner join T1 C on S2.id = C.id and S2.s = C.score"
+                        + ") Sub on PreservedT1.id = Sub.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+    }
 }
