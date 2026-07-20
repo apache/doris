@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_scalar_encoding.h"
+#include "core/value/variant/variant_scalar_encoding.h"
 
 #include <bit>
 #include <cstring>
 #include <limits>
 
 #include "common/exception.h"
+#include "core/value/variant/variant_encoding.h"
 #include "util/utf8_check.h"
-#include "util/variant/variant_encoding.h"
 
 namespace doris {
 namespace {

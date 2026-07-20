@@ -24,11 +24,11 @@
 #include "core/column/column.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_value.h"
 
 namespace doris {
 
-class VariantEncodedBlockView;
+class VariantEncodedBlock;
 
 // ColumnVariantV2 stores a whole column in exactly one state: encoded Variant bytes or one nullable
 // typed scalar column. Mixed operations materialize the typed state as encoded bytes atomically.
@@ -58,7 +58,7 @@ public:
         size_t metadata_count() const noexcept;
         uint32_t metadata_id_at(size_t row) const;
         VariantMetadataRef metadata_at(uint32_t id) const;
-        VariantValueRef value_at(size_t row) const;
+        VariantRef value_at(size_t row) const;
         const IColumn& typed_column() const;
         const DataTypePtr& typed_type() const;
 
@@ -128,11 +128,11 @@ public:
 
     // Direct shared-metadata codec adapter. The block already uses ColumnString-compatible uint32
     // offsets, so this path borrows its buffers without an O(rows) offset conversion.
-    void insert_encoded_block(VariantEncodedBlockView block);
+    void insert_encoded_block(const VariantEncodedBlock& block);
 
     // The returned view borrows this column's metadata and value buffers. Any structural mutation,
     // including insert, clear, COW mutation, or future row transformations, may invalidate it.
-    VariantValueRef get_value_ref(size_t row) const;
+    VariantRef get_value_ref(size_t row) const;
 
     Field operator[](size_t row) const override;
     void get(size_t row, Field& result) const override;

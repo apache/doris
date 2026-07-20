@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_json.h"
+#include "exprs/function/parse/variant_json.h"
 
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
@@ -39,10 +39,10 @@
 #include "core/column/column_variant.h"
 #include "core/string_buffer.hpp"
 #include "core/value/jsonb_value.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_canonical.h"
+#include "core/value/variant/variant_encoding.h"
 #include "exec/common/variant_util.h"
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_canonical.h"
-#include "util/variant/variant_encoding.h"
 #include "variant_test_utils.h"
 
 namespace doris {
@@ -56,10 +56,9 @@ struct OwnedValue {
     std::string metadata;
     std::string value;
 
-    VariantValueRef ref() const {
+    VariantRef ref() const {
         return {.metadata = {.data = metadata.data(), .size = metadata.size()},
-                .data = value.data(),
-                .size = value.size()};
+                .value = {value.data(), value.size()}};
     }
 };
 
@@ -71,9 +70,9 @@ OwnedValue build_value(Fill&& fill) {
     row.finish();
     VariantEncodedBlock block = builder.finish_block();
     const VariantMetadataRef metadata = block.metadata_ref();
-    const VariantValueRef value = block.value_at(0);
+    const VariantRef value = block.value_at(0);
     return {.metadata = std::string(metadata.data, metadata.size),
-            .value = std::string(value.data, value.size)};
+            .value = std::string(value.value.data, value.value.size)};
 }
 
 struct StringWriter {
@@ -82,7 +81,7 @@ struct StringWriter {
     std::string value;
 };
 
-std::string print_json(VariantValueRef value,
+std::string print_json(VariantRef value,
                        const VariantJsonFormatOptions& options = VariantJsonFormatOptions {}) {
     StringWriter writer;
     to_json(value, writer, options);
@@ -201,7 +200,7 @@ TEST(VariantJsonTest, AllPrimitiveIdsUseStableJsonMappings) {
         builder.add_uuid(uuid);
         array.finish();
     });
-    const VariantValueRef root = owned.ref();
+    const VariantRef root = owned.ref();
     validate_canonical(root);
     ASSERT_EQ(root.num_elements(), VARIANT_MAX_PRIMITIVE_ID + 1);
 
@@ -229,7 +228,7 @@ TEST(VariantJsonTest, AllPrimitiveIdsUseStableJsonMappings) {
             "\"00010203-0405-0607-0809-0a0b0c0d0e0f\"",
     };
     for (uint8_t id = 0; id <= VARIANT_MAX_PRIMITIVE_ID; ++id) {
-        const VariantValueRef value = root.array_at(id);
+        const VariantRef value = root.array_at(id);
         EXPECT_EQ(value.primitive_id(), static_cast<VariantPrimitiveId>(id));
         EXPECT_EQ(print_json(value), expected_json[id]);
     }
@@ -272,12 +271,12 @@ TEST(VariantJsonTest, EncoderCopiesRowsBeforeParserReuseAndProducesCanonicalValu
     EXPECT_EQ(print_json(block.value_at(0)), R"({"a":[true,null,"x"],"z":1})");
     EXPECT_EQ(print_json(block.value_at(1)), "18446744073709551615");
     EXPECT_EQ(print_json(block.value_at(2)), R"("last")");
-    std::vector<VariantValueRef> rows;
+    std::vector<VariantRef> rows;
     rows.reserve(block.num_rows());
     for (size_t row = 0; row < block.num_rows(); ++row) {
         rows.push_back(block.value_at(row));
     }
-    validate_canonical(block.metadata_ref(), std::span<const VariantValueRef>(rows));
+    validate_canonical(block.metadata_ref(), std::span<const VariantRef>(rows));
 
     VariantEncodedBlock reparsed = encode_jsons({print_json(block.value_at(0))});
     EXPECT_TRUE(canonical_equals(block.value_at(0), reparsed.value_at(0)));
@@ -320,7 +319,7 @@ TEST(VariantJsonTest, RepeatedDuplicateSchemasStayStableAcrossSchemaAndScalarRow
     EXPECT_EQ(print_json(block.value_at(3)), R"({"a":5})");
     EXPECT_EQ(print_json(block.value_at(4)), R"({"b":7})");
     EXPECT_EQ(print_json(block.value_at(5)), R"({"b":9})");
-    std::vector<VariantValueRef> rows;
+    std::vector<VariantRef> rows;
     rows.reserve(block.num_rows());
     for (size_t index = 0; index < block.num_rows(); ++index) {
         rows.push_back(block.value_at(index));
@@ -509,8 +508,7 @@ TEST(VariantJsonBlockTest, SharedBuilderIsByteEquivalentToExistingJsonAndTermina
     EXPECT_EQ(std::string(block.metadata_ref().data, block.metadata_ref().size), expected_metadata);
     EXPECT_EQ(block_value_bytes(block), expected_values);
     EXPECT_EQ(block_value_offsets(block), expected_offsets);
-    const std::vector<VariantValueRef> rows {block.value_at(0), block.value_at(1),
-                                             block.value_at(2)};
+    const std::vector<VariantRef> rows {block.value_at(0), block.value_at(1), block.value_at(2)};
     validate_canonical(block.metadata_ref(), rows);
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
                           [&] { static_cast<void>(builder.begin_row()); });

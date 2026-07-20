@@ -22,15 +22,14 @@
 #include <cstdint>
 
 #include "core/string_ref.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_metadata.h"
+#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_metadata.h"
 
 namespace doris {
 
-struct VariantValueRef {
+struct VariantRef {
     VariantMetadataRef metadata;
-    const char* data = nullptr;
-    size_t size = 0;
+    StringRef value;
 
     VariantBasicType basic_type() const;
     VariantPrimitiveId primitive_id() const;
@@ -53,10 +52,10 @@ struct VariantValueRef {
     std::array<uint8_t, 16> get_uuid() const;
 
     uint32_t num_elements() const;
-    bool object_find(StringRef key, VariantValueRef* out) const;
-    bool object_find_by_id(uint32_t field_id, VariantValueRef* out) const;
-    VariantValueRef object_value_at(uint32_t index, uint32_t* field_id_out) const;
-    VariantValueRef array_at(uint32_t index) const;
+    bool object_find(StringRef key, VariantRef* out) const;
+    bool object_find_by_id(uint32_t field_id, VariantRef* out) const;
+    VariantRef object_value_at(uint32_t index, uint32_t* field_id_out) const;
+    VariantRef array_at(uint32_t index) const;
 
 private:
     struct ContainerLayout {
@@ -72,9 +71,9 @@ private:
     ContainerLayout _container_layout(VariantBasicType expected_type) const;
     uint32_t _object_field_id(const ContainerLayout& layout, uint32_t index) const;
     bool _object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
-                            VariantValueRef* out) const;
-    VariantValueRef _container_value_at(const ContainerLayout& layout, uint32_t index,
-                                        bool require_array_boundary) const;
+                            VariantRef* out) const;
+    VariantRef _container_value_at(const ContainerLayout& layout, uint32_t index,
+                                   bool require_array_boundary) const;
 };
 
 } // namespace doris

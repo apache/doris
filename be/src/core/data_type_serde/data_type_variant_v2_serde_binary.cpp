@@ -24,7 +24,7 @@
 #include "core/column/column_const.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde_binary_internal.h"
-#include "util/variant/variant_field.h"
+#include "core/value/variant/variant_field.h"
 
 namespace doris::variant_v2_serde_binary_internal {
 
@@ -76,7 +76,7 @@ struct EncodedPlan {
     DorisVector<VariantMetadataRef> metadatas;
     DorisVector<uint32_t> meta_ids;
     DorisVector<uint32_t> value_offsets;
-    DorisVector<VariantValueRef> values;
+    DorisVector<VariantRef> values;
 };
 
 ResolvedColumn resolve_column(const IColumn& source) {
@@ -131,10 +131,10 @@ EncodedPlan plan_encoded(const ResolvedColumn& source) {
         }
         plan.meta_ids.push_back(dense_id);
 
-        const VariantValueRef value = source.view.value_at(physical_row);
+        const VariantRef value = source.view.value_at(physical_row);
         validate_variant_payload(value);
         plan.values.push_back(value);
-        values_bytes = checked_add(values_bytes, value.size, "value bytes");
+        values_bytes = checked_add(values_bytes, value.value.size, "value bytes");
         plan.value_offsets.push_back(checked_u32(values_bytes, "value bytes"));
     }
 
@@ -189,8 +189,8 @@ void write_encoded(const ResolvedColumn& source, const EncodedPlan& plan, Writer
     for (const uint32_t offset : plan.value_offsets) {
         writer.u32(offset);
     }
-    for (const VariantValueRef value : plan.values) {
-        writer.raw({value.data, value.size});
+    for (const VariantRef value : plan.values) {
+        writer.raw(value.value);
     }
 }
 
@@ -291,9 +291,10 @@ ColumnVariantV2::MutablePtr decode_encoded(uint64_t row_count_u64,
         }
         const uint32_t begin = value_offsets[row];
         const uint32_t end = value_offsets[row + 1];
-        validate_variant_payload({.metadata = metadatas[meta_ids[row]],
-                                  .data = reinterpret_cast<const char*>(value_bytes.data() + begin),
-                                  .size = end - begin});
+        validate_variant_payload(
+                {.metadata = metadatas[meta_ids[row]],
+                 .value = {reinterpret_cast<const char*>(value_bytes.data() + begin),
+                           end - begin}});
     }
 
     auto result = ColumnVariantV2::create();

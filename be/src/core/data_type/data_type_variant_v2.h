@@ -15,21 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#pragma once
 
-#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_variant.h"
-#include "core/data_type/data_type_variant_v2.h"
 
 namespace doris {
 
-TEST(VariantV2ExecutionTest, ExecutionTypeSelectsPhysicalColumn) {
-    DataTypeVariant legacy;
-    DataTypeVariantV2 compute_v2;
+class DataTypeVariantV2 final : public DataTypeVariant {
+public:
+    DataTypeVariantV2() = default;
+    explicit DataTypeVariantV2(int32_t max_subcolumns_count)
+            : DataTypeVariant(max_subcolumns_count) {}
+    DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode)
+            : DataTypeVariant(max_subcolumns_count, enable_doc_mode) {}
 
-    EXPECT_NE(check_and_get_column<ColumnVariant>(*legacy.create_column()), nullptr);
-    EXPECT_NE(check_and_get_column<ColumnVariantV2>(*compute_v2.create_column()), nullptr);
-}
+    MutableColumnPtr create_column() const override { return ColumnVariantV2::create(); }
+    bool is_variant_v2() const override { return true; }
+};
 
 } // namespace doris

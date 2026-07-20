@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_json.h"
+#include "exprs/function/parse/variant_json.h"
 
 #include <cctz/time_zone.h>
 #include <fmt/compile.h>
@@ -32,10 +32,10 @@
 
 #include "common/config.h"
 #include "common/exception.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_encoding.h"
 #include "util/json/simd_json_parser.h"
 #include "util/utf8_check.h"
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_encoding.h"
 
 namespace doris {
 namespace {
@@ -230,12 +230,12 @@ void require_json_depth(uint32_t depth) {
     }
 }
 
-void require_exact_json_value(VariantValueRef value) {
+void require_exact_json_value(VariantRef value) {
     const size_t encoded_size = value.value_size();
-    if (encoded_size != value.size) {
+    if (encoded_size != value.value.size) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Variant value has {} trailing bytes after its {} byte root",
-                        value.size - encoded_size, encoded_size);
+                        value.value.size - encoded_size, encoded_size);
     }
 }
 

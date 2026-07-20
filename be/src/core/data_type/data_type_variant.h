@@ -93,15 +93,4 @@ public:
     bool enable_doc_mode() const { return _enable_doc_mode; }
 };
 
-class DataTypeVariantV2 final : public DataTypeVariant {
-public:
-    DataTypeVariantV2() = default;
-    explicit DataTypeVariantV2(int32_t max_subcolumns_count)
-            : DataTypeVariant(max_subcolumns_count) {}
-    DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode)
-            : DataTypeVariant(max_subcolumns_count, enable_doc_mode) {}
-
-    MutableColumnPtr create_column() const override { return ColumnVariantV2::create(); }
-    bool is_variant_v2() const override { return true; }
-};
 } // namespace doris

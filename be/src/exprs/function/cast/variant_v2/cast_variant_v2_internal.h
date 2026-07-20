@@ -22,7 +22,7 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_value.h"
 
 namespace doris {
 
@@ -46,8 +46,7 @@ Status cast_array_to_variant(const ColumnPtr& source, const DataTypePtr& source_
 Status cast_typed_variant_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
                                     const DataTypePtr& target_type, size_t rows,
                                     ForcedNulls forced_nulls, ColumnPtr* output);
-Status cast_variant_refs_to_scalar(FunctionContext* context,
-                                   std::span<const VariantValueRef> values,
+Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const VariantRef> values,
                                    const DataTypePtr& target_type, ForcedNulls forced_nulls,
                                    ColumnPtr* output);
 Status cast_variant_to_array(FunctionContext* context, const ColumnVariantV2& source,

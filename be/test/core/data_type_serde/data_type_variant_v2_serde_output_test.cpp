@@ -41,9 +41,9 @@
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
+#include "core/value/variant/variant_encoding.h"
+#include "exprs/function/parse/variant_json.h"
 #include "util/mysql_row_buffer.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_json.h"
 
 namespace doris {
 namespace {
@@ -101,7 +101,7 @@ ColumnVariantV2::MutablePtr encoded_json(std::initializer_list<std::string_view>
     }
     VariantEncodedBlock block = encoder.finish_block();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block.view());
+    result->insert_encoded_block(block);
     return result;
 }
 

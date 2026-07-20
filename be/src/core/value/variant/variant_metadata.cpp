@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_metadata.h"
+#include "core/value/variant/variant_metadata.h"
 
 #include <cstdint>
 
 #include "common/exception.h"
-#include "util/variant/variant_encoding.h"
+#include "core/value/variant/variant_encoding.h"
 
 namespace doris {
 namespace {

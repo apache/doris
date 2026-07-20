@@ -20,9 +20,9 @@
 #include <cstdint>
 #include <memory>
 
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_json.h"
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_value.h"
+#include "exprs/function/parse/variant_json.h"
 
 namespace doris {
 
@@ -63,7 +63,7 @@ private:
 // accepted. The caller validates shared metadata once at the encoding-unit entry; this per-row API
 // intentionally performs only O(1) metadata layout checks and validates keys referenced by the
 // row. On failure the writer is reset and contains no usable document.
-void variant_to_jsonb(VariantValueRef value, JsonbWriter& writer,
+void variant_to_jsonb(VariantRef value, JsonbWriter& writer,
                       const VariantJsonFormatOptions& options = {});
 
 } // namespace doris

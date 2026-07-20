@@ -28,9 +28,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "exec/common/variant_util.h"
+#include "exprs/function/parse/variant_json.h"
 #include "exprs/function/simple_function_factory.h"
 #include "util/json/json_parser.h"
-#include "util/variant/variant_json.h"
 
 namespace doris {
 namespace {
@@ -168,7 +168,7 @@ public:
 
         VariantEncodedBlock encoded = encoder.finish_block();
         auto values = ColumnVariantV2::create();
-        values->insert_encoded_block(encoded.view());
+        values->insert_encoded_block(encoded);
 
         ColumnPtr output;
         if (result_is_nullable) {

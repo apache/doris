@@ -15,43 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_encoded_block.h"
+#include "core/value/variant/variant_encoded_block.h"
 
 #include <utility>
 
 #include "common/exception.h"
-#include "util/variant/variant_tracked_storage.h"
+#include "core/value/variant/variant_tracked_storage.h"
 
 namespace doris {
 
-size_t VariantEncodedBlockView::num_rows() const noexcept {
+size_t VariantEncodedBlock::num_rows() const noexcept {
     return _offsets.empty() ? 0 : _offsets.size() - 1;
 }
 
-VariantValueRef VariantEncodedBlockView::value_at(size_t row) const {
+VariantRef VariantEncodedBlock::value_at(size_t row) const {
     if (row >= num_rows()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant encoded block row {} is outside [0, {})", row, num_rows());
     }
     const uint32_t begin = _offsets[row];
     const uint32_t end = _offsets[row + 1];
-    return {.metadata = _metadata, .data = _values.data + begin, .size = end - begin};
+    return {.metadata = metadata_ref(), .value = {_values.data() + begin, end - begin}};
 }
 
-VariantEncodedBlock::VariantEncodedBlock(
-        std::unique_ptr<VariantEncodedBlockStorage> storage) noexcept
-        : _storage(std::move(storage)) {}
+VariantEncodedBlock::VariantEncodedBlock(VariantTrackedString metadata, VariantTrackedString values,
+                                         DorisVector<uint32_t> offsets) noexcept
+        : _metadata(std::move(metadata)),
+          _values(std::move(values)),
+          _offsets(std::move(offsets)) {}
 
 VariantEncodedBlock::VariantEncodedBlock(VariantEncodedBlock&&) noexcept = default;
 
 VariantEncodedBlock& VariantEncodedBlock::operator=(VariantEncodedBlock&&) noexcept = default;
 
 VariantEncodedBlock::~VariantEncodedBlock() = default;
-
-VariantEncodedBlockView VariantEncodedBlock::view() const noexcept {
-    return VariantEncodedBlockView(
-            {.data = _storage->metadata.data(), .size = _storage->metadata.size()},
-            StringRef(_storage->values.data(), _storage->values.size()), _storage->offsets);
-}
 
 } // namespace doris

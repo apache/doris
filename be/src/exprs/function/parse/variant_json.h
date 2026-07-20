@@ -25,8 +25,8 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/variant/variant_encoded_block.h"
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_encoded_block.h"
+#include "core/value/variant/variant_value.h"
 
 namespace cctz {
 class time_zone;
@@ -79,7 +79,7 @@ struct FormattedScalar {
 };
 
 void require_json_depth(uint32_t depth);
-void require_exact_json_value(VariantValueRef value);
+void require_exact_json_value(VariantRef value);
 void require_valid_json_utf8(StringRef value, const char* description);
 void require_json_object_key(StringRef key, StringRef previous_key, uint32_t field_index);
 [[noreturn]] void throw_unsupported_json_primitive(VariantPrimitiveId id);
@@ -249,7 +249,7 @@ class Printer {
 public:
     Printer(Writer& out, const VariantJsonFormatOptions& options) : _out(out), _options(options) {}
 
-    void write(VariantValueRef value, uint32_t depth) {
+    void write(VariantRef value, uint32_t depth) {
         require_json_depth(depth);
         switch (value.basic_type()) {
         case VariantBasicType::SHORT_STRING:
@@ -268,7 +268,7 @@ public:
     }
 
 private:
-    void write_primitive(VariantValueRef value) {
+    void write_primitive(VariantRef value) {
         const VariantPrimitiveId id = value.primitive_id();
         switch (id) {
         case VariantPrimitiveId::NULL_VALUE:
@@ -355,7 +355,7 @@ private:
         }
     }
 
-    void write_object(VariantValueRef value, uint32_t depth) {
+    void write_object(VariantRef value, uint32_t depth) {
         write_literal(_out, "{");
         const uint32_t count = value.num_elements();
         StringRef previous_key;
@@ -364,7 +364,7 @@ private:
                 write_literal(_out, ",");
             }
             uint32_t field_id = 0;
-            VariantValueRef child = value.object_value_at(index, &field_id);
+            VariantRef child = value.object_value_at(index, &field_id);
             const StringRef key = value.metadata.key_at(field_id);
             require_json_object_key(key, previous_key, index);
             write_escaped_json_string(_out, key);
@@ -375,7 +375,7 @@ private:
         write_literal(_out, "}");
     }
 
-    void write_array(VariantValueRef value, uint32_t depth) {
+    void write_array(VariantRef value, uint32_t depth) {
         write_literal(_out, "[");
         const uint32_t count = value.num_elements();
         for (uint32_t index = 0; index < count; ++index) {
@@ -395,7 +395,7 @@ private:
 
 // Writer is statically dispatched and only needs write(const char*, size_t).
 template <typename Writer>
-void to_json(VariantValueRef value, Writer& out,
+void to_json(VariantRef value, Writer& out,
              const VariantJsonFormatOptions& options = VariantJsonFormatOptions {}) {
     variant_json_detail::require_exact_json_value(value);
     variant_json_detail::Printer<Writer>(out, options).write(value, 0);

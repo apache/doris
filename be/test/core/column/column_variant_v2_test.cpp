@@ -55,15 +55,15 @@
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_canonical.h"
+#include "core/value/variant/variant_encoding.h"
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/string_hash_map.h"
 #include "exec/common/sip_hash.h"
+#include "exprs/function/parse/variant_json.h"
+#include "exprs/function/parse/variant_jsonb.h"
 #include "util/jsonb_writer.h"
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_canonical.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_json.h"
-#include "util/variant/variant_jsonb.h"
 #include "util/variant/variant_test_utils.h"
 
 namespace doris {
@@ -199,9 +199,9 @@ struct OwnedEncodedData {
         return static_cast<uint32_t>(metadata_offsets.size() - 2);
     }
 
-    void add_value(VariantValueRef value, uint32_t metadata_id) {
-        EXPECT_LE(value_bytes.size() + value.size, std::numeric_limits<uint32_t>::max());
-        value_bytes.append(value.data, value.size);
+    void add_value(VariantRef value, uint32_t metadata_id) {
+        EXPECT_LE(value_bytes.size() + value.value.size, std::numeric_limits<uint32_t>::max());
+        value_bytes.append(value.value.data, value.value.size);
         value_offsets.push_back(static_cast<uint32_t>(value_bytes.size()));
         meta_ids.push_back(metadata_id);
     }
@@ -318,19 +318,19 @@ void fill_equivalent_columns(ColumnVariantV2& canonical, ColumnVariantV2& extern
     insert_encoded_field(external, encoded_double(42.0));
 }
 
-uint64_t canonical_xx_hash(VariantValueRef value, uint64_t seed) {
+uint64_t canonical_xx_hash(VariantRef value, uint64_t seed) {
     VariantXxHashSink sink(seed);
     canonical_hash(value, sink);
     return sink.digest();
 }
 
-uint32_t canonical_crc_hash(VariantValueRef value, uint32_t seed) {
+uint32_t canonical_crc_hash(VariantRef value, uint32_t seed) {
     VariantCrc32HashSink sink(seed);
     canonical_hash(value, sink);
     return sink.digest();
 }
 
-uint32_t canonical_crc32c_hash(VariantValueRef value, uint32_t seed) {
+uint32_t canonical_crc32c_hash(VariantRef value, uint32_t seed) {
     VariantCrc32cHashSink sink(seed);
     canonical_hash(value, sink);
     return sink.digest();
@@ -629,9 +629,9 @@ void expect_et_cross_check_canonical(const ETCrossCheckRepresentation& left,
                                      const ETCrossCheckRepresentation& right, size_t row,
                                      const ETCrossCheckObservation& left_observation,
                                      const ETCrossCheckObservation& right_observation) {
-    const VariantValueRef left_canonical = parse_canonical_serialized(
+    const VariantRef left_canonical = parse_canonical_serialized(
             {left_observation.serialized.data(), left_observation.serialized.size()});
-    const VariantValueRef right_canonical = parse_canonical_serialized(
+    const VariantRef right_canonical = parse_canonical_serialized(
             {right_observation.serialized.data(), right_observation.serialized.size()});
     EXPECT_TRUE(canonical_equals(left_canonical, right_canonical));
     if (!left.column->is_typed() && !right.column->is_typed()) {
@@ -729,9 +729,9 @@ void expect_et_cross_check_distinct(std::string_view group, const ETCrossCheckRe
     ASSERT_LT(right_row, right_observations.size());
     const ETCrossCheckObservation& left_observation = left_observations[left_row];
     const ETCrossCheckObservation& right_observation = right_observations[right_row];
-    const VariantValueRef left_canonical = parse_canonical_serialized(
+    const VariantRef left_canonical = parse_canonical_serialized(
             {left_observation.serialized.data(), left_observation.serialized.size()});
-    const VariantValueRef right_canonical = parse_canonical_serialized(
+    const VariantRef right_canonical = parse_canonical_serialized(
             {right_observation.serialized.data(), right_observation.serialized.size()});
     EXPECT_FALSE(canonical_equals(left_canonical, right_canonical));
     if (!left.column->is_typed() && !right.column->is_typed()) {
@@ -781,10 +781,10 @@ TEST(ColumnVariantV2Test, EncodedScalarObjectAndArray) {
     ASSERT_EQ(column->size(), 5);
     EXPECT_EQ(column->get_value_ref(0).get_int(), 7);
 
-    VariantValueRef a;
+    VariantRef a;
     ASSERT_TRUE(column->get_value_ref(1).object_find(StringRef("a"), &a));
     EXPECT_EQ(a.get_int(), 1);
-    const VariantValueRef array_ref = column->get_value_ref(2);
+    const VariantRef array_ref = column->get_value_ref(2);
     ASSERT_EQ(array_ref.num_elements(), 3);
     EXPECT_TRUE(array_ref.array_at(0).get_bool());
     EXPECT_TRUE(array_ref.array_at(1).is_null());
@@ -814,8 +814,8 @@ TEST(ColumnVariantV2Test, PreservesLegalNoncanonicalBytes) {
 
     VariantField round_trip = VariantField::encode(column->get_value_ref(0));
     EXPECT_EQ(as_view(round_trip.bytes()), raw);
-    VariantValueRef a;
-    VariantValueRef b;
+    VariantRef a;
+    VariantRef b;
     ASSERT_TRUE(column->get_value_ref(0).object_find(StringRef("a"), &a));
     ASSERT_TRUE(column->get_value_ref(0).object_find(StringRef("b"), &b));
     EXPECT_TRUE(a.get_bool());
@@ -876,7 +876,7 @@ TEST(ColumnVariantV2Test, ReadViewBorrowsEncodedStateAndCachesDenseMetadata) {
     const VariantMetadataRef cached_metadata = view.metadata_at(0);
     EXPECT_EQ(first_metadata.data, cached_metadata.data);
     EXPECT_EQ(first_metadata.size, cached_metadata.size);
-    VariantValueRef value;
+    VariantRef value;
     ASSERT_TRUE(view.value_at(1).object_find(StringRef("a"), &value));
     EXPECT_EQ(value.get_int(), 2);
     EXPECT_FALSE(column->is_typed());
@@ -901,7 +901,7 @@ TEST(ColumnVariantV2Test, CopyInterfacesUseSharedMetadataFastPath) {
     EXPECT_EQ(metadata_count(*destination), dictionaries);
     ASSERT_EQ(destination->size(), 6);
 
-    VariantValueRef value;
+    VariantRef value;
     ASSERT_TRUE(destination->get_value_ref(3).object_find(StringRef("b"), &value));
     EXPECT_EQ(value.get_int(), 2);
     ASSERT_TRUE(destination->get_value_ref(4).object_find(StringRef("a"), &value));
@@ -964,7 +964,7 @@ TEST(ColumnVariantV2Test, RemapsDistinctAndDuplicateMetadataBlobs) {
 
     ASSERT_EQ(destination->size(), 4);
     EXPECT_EQ(metadata_count(*destination), 2);
-    VariantValueRef value;
+    VariantRef value;
     ASSERT_TRUE(destination->get_value_ref(1).object_find(StringRef("b"), &value));
     EXPECT_EQ(value.get_int(), 3);
     ASSERT_TRUE(destination->get_value_ref(2).object_find(StringRef("a"), &value));
@@ -999,10 +999,10 @@ TEST(ColumnVariantV2Test, BulkAppendSharedMetadataAtLeast64KRows) {
     const VariantField null_value = encode_json("null");
     OwnedEncodedData encoded;
     encoded.add_metadata(null_value.ref().metadata);
-    encoded.value_bytes.reserve(ROWS * null_value.ref().size);
+    encoded.value_bytes.reserve(ROWS * null_value.ref().value.size);
     encoded.value_offsets.reserve(static_cast<size_t>(ROWS) + 1);
     for (uint32_t row = 0; row < ROWS; ++row) {
-        encoded.value_bytes.append(null_value.ref().data, null_value.ref().size);
+        encoded.value_bytes.append(null_value.ref().value.data, null_value.ref().value.size);
         encoded.value_offsets.push_back(static_cast<uint32_t>(encoded.value_bytes.size()));
     }
 
@@ -1020,7 +1020,7 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBlocksDirectly) {
         JsonToVariantEncoder encoder;
         VariantEncodedBlock block = encoder.finish_block();
         auto column = ColumnVariantV2::create();
-        column->insert_encoded_block(block.view());
+        column->insert_encoded_block(block);
         EXPECT_EQ(column->size(), 0);
         EXPECT_EQ(metadata_count(*column), 0);
     }
@@ -1032,7 +1032,7 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBlocksDirectly) {
         encoder.add_json(StringRef("7", 1));
         VariantEncodedBlock block = encoder.finish_block();
         auto column = ColumnVariantV2::create();
-        column->insert_encoded_block(block.view());
+        column->insert_encoded_block(block);
         ASSERT_EQ(column->size(), 1);
         EXPECT_EQ(column->get_value_ref(0).get_int(), 7);
     }
@@ -1047,10 +1047,10 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBlocksDirectly) {
         encoder.add_json({SECOND.data(), SECOND.size()});
         VariantEncodedBlock block = encoder.finish_block();
         auto column = ColumnVariantV2::create();
-        column->insert_encoded_block(block.view());
+        column->insert_encoded_block(block);
         ASSERT_EQ(column->size(), 2);
         EXPECT_EQ(metadata_count(*column), 1);
-        VariantValueRef nested;
+        VariantRef nested;
         ASSERT_TRUE(column->get_value_ref(0).object_find(StringRef("a", 1), &nested));
         ASSERT_EQ(nested.num_elements(), 2);
         EXPECT_EQ(nested.array_at(0).get_int(), 1);
@@ -1075,9 +1075,9 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBlocksDirectly) {
         encoder.add_jsonb(StringRef(document));
         VariantEncodedBlock block = encoder.finish_block();
         auto column = ColumnVariantV2::create();
-        column->insert_encoded_block(block.view());
+        column->insert_encoded_block(block);
         ASSERT_EQ(column->size(), 1);
-        VariantValueRef array;
+        VariantRef array;
         ASSERT_TRUE(column->get_value_ref(0).object_find(StringRef("jsonb", 5), &array));
         ASSERT_EQ(array.num_elements(), 2);
         EXPECT_TRUE(array.array_at(0).is_null());
@@ -1098,7 +1098,7 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBlockAtLeast64KRows) {
     ASSERT_EQ(block.value_offsets().back(), ROWS);
 
     auto column = ColumnVariantV2::create();
-    column->insert_encoded_block(block.view());
+    column->insert_encoded_block(block);
     ASSERT_EQ(column->size(), ROWS);
     EXPECT_TRUE(column->get_value_ref(0).is_null());
     EXPECT_TRUE(column->get_value_ref(ROWS / 2).is_null());
@@ -1181,9 +1181,9 @@ TEST(ColumnVariantV2Test, DefaultRowsUseCanonicalEmptyObjectAndReuseMetadata) {
     ASSERT_EQ(column->size(), 4);
     EXPECT_EQ(metadata_count(*column), 1);
     for (size_t row = 0; row < column->size(); ++row) {
-        const VariantValueRef value = column->get_value_ref(row);
+        const VariantRef value = column->get_value_ref(row);
         EXPECT_EQ(std::string_view(value.metadata.data, value.metadata.size), EMPTY_METADATA);
-        EXPECT_EQ(std::string_view(value.data, value.size), EMPTY_OBJECT);
+        EXPECT_EQ(std::string_view(value.value.data, value.value.size), EMPTY_OBJECT);
         EXPECT_EQ(json_at(*column, row), "{}");
     }
     column->sanity_check();
@@ -1893,7 +1893,7 @@ TEST(ColumnVariantV2Test, CowDetachAndClear) {
 
     EXPECT_EQ(detached_variant.size(), 0);
     EXPECT_EQ(original->size(), 1);
-    VariantValueRef a;
+    VariantRef a;
     ASSERT_TRUE(assert_cast<const ColumnVariantV2&>(*original).get_value_ref(0).object_find(
             StringRef("a"), &a));
     EXPECT_EQ(a.num_elements(), 2);
@@ -2050,25 +2050,25 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     validate_encoded_column(*booleans);
 
     expect_single_typed_encoding(nullable_fixed<ColumnInt8, Int8>({-7}, {0}),
-                                 std::make_shared<DataTypeInt8>(), [](VariantValueRef value) {
+                                 std::make_shared<DataTypeInt8>(), [](VariantRef value) {
                                      EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::INT8);
                                      EXPECT_EQ(value.value_size(), 2);
                                      EXPECT_EQ(value.get_int(), -7);
                                  });
     expect_single_typed_encoding(nullable_fixed<ColumnInt16, Int16>({-129}, {0}),
-                                 std::make_shared<DataTypeInt16>(), [](VariantValueRef value) {
+                                 std::make_shared<DataTypeInt16>(), [](VariantRef value) {
                                      EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::INT16);
                                      EXPECT_EQ(value.value_size(), 3);
                                      EXPECT_EQ(value.get_int(), -129);
                                  });
     expect_single_typed_encoding(nullable_fixed<ColumnInt32, Int32>({32768}, {0}),
-                                 std::make_shared<DataTypeInt32>(), [](VariantValueRef value) {
+                                 std::make_shared<DataTypeInt32>(), [](VariantRef value) {
                                      EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::INT32);
                                      EXPECT_EQ(value.value_size(), 5);
                                      EXPECT_EQ(value.get_int(), 32768);
                                  });
     expect_single_typed_encoding(nullable_fixed<ColumnInt64, Int64>({int64_t {1} << 40}, {0}),
-                                 std::make_shared<DataTypeInt64>(), [](VariantValueRef value) {
+                                 std::make_shared<DataTypeInt64>(), [](VariantRef value) {
                                      EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::INT64);
                                      EXPECT_EQ(value.value_size(), 9);
                                      EXPECT_EQ(value.get_int(), int64_t {1} << 40);
@@ -2090,13 +2090,13 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     validate_encoded_column(*largeints);
 
     expect_single_typed_encoding(nullable_fixed<ColumnFloat32, Float32>({-1.25F}, {0}),
-                                 std::make_shared<DataTypeFloat32>(), [](VariantValueRef value) {
+                                 std::make_shared<DataTypeFloat32>(), [](VariantRef value) {
                                      EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::FLOAT);
                                      EXPECT_EQ(value.value_size(), sizeof(float) + 1);
                                      EXPECT_EQ(value.get_float(), -1.25F);
                                  });
     expect_single_typed_encoding(nullable_fixed<ColumnFloat64, Float64>({123.5}, {0}),
-                                 std::make_shared<DataTypeFloat64>(), [](VariantValueRef value) {
+                                 std::make_shared<DataTypeFloat64>(), [](VariantRef value) {
                                      EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::DOUBLE);
                                      EXPECT_EQ(value.value_size(), sizeof(double) + 1);
                                      EXPECT_EQ(value.get_double(), 123.5);
@@ -2105,26 +2105,26 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     const DecimalV2Value decimal_v2(static_cast<int128_t>(12'340'000'000LL));
     expect_single_typed_encoding(
             nullable_decimal<ColumnDecimal128V2, DecimalV2Value>(9, {decimal_v2}, {0}),
-            std::make_shared<DataTypeDecimalV2>(27, 9), [](VariantValueRef value) {
+            std::make_shared<DataTypeDecimalV2>(27, 9), [](VariantRef value) {
                 EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::DECIMAL16);
                 EXPECT_EQ(value.get_decimal(), (VariantDecimal {12'340'000'000LL, 9, 16}));
             });
     expect_single_typed_encoding(
             nullable_decimal<ColumnDecimal32, Decimal32>(2, {Decimal32 {12345}}, {0}),
-            std::make_shared<DataTypeDecimal32>(9, 2), [](VariantValueRef value) {
+            std::make_shared<DataTypeDecimal32>(9, 2), [](VariantRef value) {
                 EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::DECIMAL4);
                 EXPECT_EQ(value.get_decimal(), (VariantDecimal {12345, 2, 4}));
             });
     expect_single_typed_encoding(
             nullable_decimal<ColumnDecimal64, Decimal64>(3, {Decimal64 {-123456}}, {0}),
-            std::make_shared<DataTypeDecimal64>(18, 3), [](VariantValueRef value) {
+            std::make_shared<DataTypeDecimal64>(18, 3), [](VariantRef value) {
                 EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::DECIMAL8);
                 EXPECT_EQ(value.get_decimal(), (VariantDecimal {-123456, 3, 8}));
             });
     expect_single_typed_encoding(
             nullable_decimal<ColumnDecimal128V3, Decimal128V3>(
                     4, {Decimal128V3 {static_cast<Int128>(1'234'567'890'123'456'789LL)}}, {0}),
-            std::make_shared<DataTypeDecimal128>(38, 4), [](VariantValueRef value) {
+            std::make_shared<DataTypeDecimal128>(38, 4), [](VariantRef value) {
                 EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::DECIMAL16);
                 EXPECT_EQ(value.get_decimal(),
                           (VariantDecimal {1'234'567'890'123'456'789LL, 4, 16}));
@@ -2132,7 +2132,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     const VecDateTimeValue date =
             VecDateTimeValue::create_from_olap_date(pack_olap_date(1970, 1, 2));
     expect_single_typed_encoding(nullable_fixed<ColumnDate, VecDateTimeValue>({date}, {0}),
-                                 std::make_shared<DataTypeDate>(), [](VariantValueRef value) {
+                                 std::make_shared<DataTypeDate>(), [](VariantRef value) {
                                      EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::DATE);
                                      EXPECT_EQ(value.get_date(), 1);
                                  });
@@ -2140,14 +2140,14 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
             DateV2Value<DateV2ValueType>::create_from_olap_date(pack_olap_date(1970, 1, 2));
     expect_single_typed_encoding(
             nullable_fixed<ColumnDateV2, DateV2Value<DateV2ValueType>>({date_v2}, {0}),
-            std::make_shared<DataTypeDateV2>(), [](VariantValueRef value) {
+            std::make_shared<DataTypeDateV2>(), [](VariantRef value) {
                 EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::DATE);
                 EXPECT_EQ(value.get_date(), 1);
             });
     const VecDateTimeValue datetime =
             VecDateTimeValue::create_from_olap_datetime(19700101000001ULL);
     expect_single_typed_encoding(nullable_fixed<ColumnDateTime, VecDateTimeValue>({datetime}, {0}),
-                                 std::make_shared<DataTypeDateTime>(), [](VariantValueRef value) {
+                                 std::make_shared<DataTypeDateTime>(), [](VariantRef value) {
                                      EXPECT_EQ(value.primitive_id(),
                                                VariantPrimitiveId::TIMESTAMP_NTZ_MICROS);
                                      EXPECT_EQ(value.get_timestamp_ntz_micros(), 1'000'000);
@@ -2157,7 +2157,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     datetime_v2.set_microsecond(234567);
     expect_single_typed_encoding(
             nullable_fixed<ColumnDateTimeV2, DateV2Value<DateTimeV2ValueType>>({datetime_v2}, {0}),
-            std::make_shared<DataTypeDateTimeV2>(6), [](VariantValueRef value) {
+            std::make_shared<DataTypeDateTimeV2>(6), [](VariantRef value) {
                 EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::TIMESTAMP_NTZ_MICROS);
                 EXPECT_EQ(value.get_timestamp_ntz_micros(), 1'234'567);
             });
@@ -2165,7 +2165,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     timestamp_tz.unchecked_set_time(1970, 1, 1, 0, 0, 2, 345678);
     expect_single_typed_encoding(
             nullable_fixed<ColumnTimeStampTz, TimestampTzValue>({timestamp_tz}, {0}),
-            std::make_shared<DataTypeTimeStampTz>(6), [](VariantValueRef value) {
+            std::make_shared<DataTypeTimeStampTz>(6), [](VariantRef value) {
                 EXPECT_EQ(value.primitive_id(), VariantPrimitiveId::TIMESTAMP_MICROS);
                 EXPECT_EQ(value.get_timestamp_micros(), 2'345'678);
             });
@@ -2191,14 +2191,13 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     ASSERT_TRUE(IPv4Value::from_string(ipv4, "192.0.2.1"));
     expect_single_typed_encoding(
             nullable_fixed<ColumnIPv4, IPv4>({ipv4}, {0}), std::make_shared<DataTypeIPv4>(),
-            [](VariantValueRef value) { EXPECT_EQ(value.get_string(), StringRef("192.0.2.1")); }, 0,
-            1);
+            [](VariantRef value) { EXPECT_EQ(value.get_string(), StringRef("192.0.2.1")); }, 0, 1);
     IPv6 ipv6 {};
     ASSERT_TRUE(IPv6Value::from_string(ipv6, "2001:db8::1"));
     expect_single_typed_encoding(
             nullable_fixed<ColumnIPv6, IPv6>({ipv6}, {0}), std::make_shared<DataTypeIPv6>(),
-            [](VariantValueRef value) { EXPECT_EQ(value.get_string(), StringRef("2001:db8::1")); },
-            0, 1);
+            [](VariantRef value) { EXPECT_EQ(value.get_string(), StringRef("2001:db8::1")); }, 0,
+            1);
 
     constexpr std::array<int32_t, 3> NULL_VALUES {1, 0, -2};
     constexpr std::array<uint8_t, 3> INNER_NULLS {0, 0, 1};

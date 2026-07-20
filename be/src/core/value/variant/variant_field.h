@@ -21,7 +21,7 @@
 #include <memory>
 
 #include "core/string_ref.h"
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_value.h"
 
 namespace doris {
 
@@ -31,7 +31,7 @@ void validate_variant_metadata(VariantMetadataRef metadata);
 
 // Validate exactly one recursive Variant payload. The referenced metadata must already have
 // passed validate_variant_metadata().
-void validate_variant_payload(VariantValueRef value);
+void validate_variant_payload(VariantRef value);
 
 // Owns one encoded Variant row. The byte layout is
 // [u32 little-endian metadata_size][metadata][exactly one value].
@@ -47,13 +47,13 @@ public:
 
     // Both entry points validate the complete row once, then own a byte-for-byte copy;
     // decode never borrows the input buffer.
-    static VariantField encode(VariantValueRef value);
+    static VariantField encode(VariantRef value);
     static VariantField decode(StringRef bytes);
 
     // The returned view borrows this field and is invalidated by assignment or destruction. It is
     // O(1) and does not revalidate. Default and moved-from fields have empty bytes(), and ref()
     // throws for them.
-    VariantValueRef ref() const;
+    VariantRef ref() const;
     StringRef bytes() const noexcept;
 
     // VariantField has no ordering or equality contract; all six comparisons always throw.

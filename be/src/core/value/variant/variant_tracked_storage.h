@@ -27,12 +27,6 @@ namespace doris {
 using VariantTrackedString =
         std::basic_string<char, std::char_traits<char>, CustomStdAllocator<char>>;
 
-struct VariantEncodedBlockStorage {
-    VariantTrackedString metadata;
-    VariantTrackedString values;
-    DorisVector<uint32_t> offsets;
-};
-
 template <typename Container>
 void release_variant_tracked_container(Container& container) noexcept {
     Container().swap(container);
