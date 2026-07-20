@@ -539,13 +539,42 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetMixedFieldIdsPreferExistingIds) 
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
-                        root_field, parquet_field, ans_node)
+                        root_field, parquet_field, ans_node, true)
                         .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"
               "  a (file: a)\n"
               "    ScalarNode\n"
               "  b (not exists)\n");
+}
+
+TEST(MockTableSchemaChangeHelper, IcebergParquetLegacyPlanFallsBackForMixedFieldIds) {
+    auto root_field = partial_name_mapping_root_field();
+    for (auto& field : root_field.fields) {
+        field.field_ptr->__isset.name_mapping_is_authoritative = false;
+    }
+
+    FieldDescriptor parquet_field;
+    for (const auto& [name, field_id] :
+         std::vector<std::pair<std::string, int32_t>> {{"a", 1}, {"b", -1}}) {
+        FieldSchema file_field;
+        file_field.name = name;
+        file_field.field_id = field_id;
+        file_field.data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+        parquet_field._fields.emplace_back(std::move(file_field));
+    }
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+                        root_field, parquet_field, ans_node)
+                        .ok());
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  a (file: a)\n"
+              "    ScalarNode\n"
+              "  b (file: b)\n"
+              "    ScalarNode\n");
 }
 
 TEST(MockTableSchemaChangeHelper, IcebergParquetNestedMixedFieldIdsPreferExistingIds) {
@@ -579,7 +608,7 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetNestedMixedFieldIdsPreferExistin
     parquet_field._fields.emplace_back(std::move(struct_field));
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
-                        root_field, parquet_field, ans_node)
+                        root_field, parquet_field, ans_node, true)
                         .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"
@@ -593,6 +622,47 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetNestedMixedFieldIdsPreferExistin
     ASSERT_TRUE(default_value.has_value());
     EXPECT_EQ(default_value->value, "AAEC/w==");
     EXPECT_TRUE(default_value->is_base64);
+}
+
+TEST(MockTableSchemaChangeHelper, IcebergParquetLegacyPlanFallsBackForNestedMixedFieldIds) {
+    auto root_field = nested_partial_name_mapping_root_field();
+    root_field.fields[0].field_ptr->__isset.name_mapping_is_authoritative = false;
+    for (auto& child : root_field.fields[0].field_ptr->nestedField.struct_field.fields) {
+        child.field_ptr->__isset.name_mapping_is_authoritative = false;
+    }
+
+    FieldSchema struct_field;
+    struct_field.name = "s";
+    struct_field.field_id = 10;
+    std::vector<DataTypePtr> child_types;
+    Strings child_names;
+    for (const auto& [name, field_id] :
+         std::vector<std::pair<std::string, int32_t>> {{"a", 1}, {"b", -1}}) {
+        FieldSchema child;
+        child.name = name;
+        child.field_id = field_id;
+        child.data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+        child_types.emplace_back(child.data_type);
+        child_names.emplace_back(child.name);
+        struct_field.children.emplace_back(std::move(child));
+    }
+    struct_field.data_type = std::make_shared<DataTypeStruct>(child_types, child_names);
+
+    FieldDescriptor parquet_field;
+    parquet_field._fields.emplace_back(std::move(struct_field));
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+                        root_field, parquet_field, ans_node)
+                        .ok());
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  s (file: s)\n"
+              "    StructNode\n"
+              "      a (file: a)\n"
+              "        ScalarNode\n"
+              "      b (file: b)\n"
+              "        ScalarNode\n");
 }
 
 TEST(MockTableSchemaChangeHelper,
@@ -652,7 +722,7 @@ TEST(MockTableSchemaChangeHelper,
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
-                        table_root, parquet_field, ans_node)
+                        table_root, parquet_field, ans_node, true)
                         .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"
@@ -717,7 +787,7 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetKeepsWholeFileIdModeInNestedStru
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
-                        table_root, parquet_field, ans_node)
+                        table_root, parquet_field, ans_node, true)
                         .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"
@@ -863,10 +933,10 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcMixedFieldIdsPreferExistingIds) {
     orc_type->getSubtype(0)->setAttribute(IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE, "1");
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
-    ASSERT_TRUE(
-            TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
-                    root_field, orc_type.get(), IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE, ans_node)
-                    .ok());
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+                        root_field, orc_type.get(), IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE,
+                        ans_node, true)
+                        .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"
               "  a (file: a)\n"
@@ -891,7 +961,7 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcNestedMixedFieldIdsPreferExistingIds
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
-                        root_field, orc_type.get(), attribute, ans_node)
+                        root_field, orc_type.get(), attribute, ans_node, true)
                         .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"
@@ -915,7 +985,7 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcDoesNotBindIdlessWrapperByName) {
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
-                        root_field, orc_type.get(), attribute, ans_node)
+                        root_field, orc_type.get(), attribute, ans_node, true)
                         .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"

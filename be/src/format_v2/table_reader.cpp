@@ -41,6 +41,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
@@ -218,6 +219,15 @@ void attach_full_schema_identity(ColumnDefinition* projected, const ColumnDefini
             identity_child != nullptr) {
             attach_full_schema_identity(&projected_child, *identity_child);
         }
+    }
+}
+
+void clear_initial_default_metadata(ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    column->initial_default_value.reset();
+    column->initial_default_value_is_base64 = false;
+    for (auto& child : column->children) {
+        clear_initial_default_metadata(&child);
     }
 }
 
@@ -566,6 +576,12 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
         return Status::OK();
     }
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
+    const bool use_current_semantics = supports_iceberg_scan_semantics_v1(context->scan_params);
+    if (!use_current_semantics) {
+        // IDs and encoded defaults predate the result-changing semantics. Strip only the new
+        // default channel so an old-FE plan keeps the same generic root/nested values on every BE.
+        clear_initial_default_metadata(&*context->schema_column);
+    }
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
     column->has_name_mapping = context->schema_column->has_name_mapping;
@@ -616,11 +632,14 @@ Status TableReader::init(TableReadOptions&& options) {
     _initial_condition_cache_digest = options.condition_cache_digest;
     _condition_cache_digest = _initial_condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
-    for (auto& projected_column : _projected_columns) {
-        const auto* schema_field = find_external_root_field(_scan_params, projected_column);
-        if (schema_field != nullptr) {
-            attach_full_schema_identity(&projected_column,
-                                        build_schema_identity_from_external_field(*schema_field));
+    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
+        for (auto& projected_column : _projected_columns) {
+            const auto* schema_field = find_external_root_field(_scan_params, projected_column);
+            if (schema_field != nullptr) {
+                attach_full_schema_identity(
+                        &projected_column,
+                        build_schema_identity_from_external_field(*schema_field));
+            }
         }
     }
     _system_properties = create_system_properties(_scan_params);

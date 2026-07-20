@@ -133,6 +133,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
+    static final int ICEBERG_SCAN_SEMANTICS_VERSION = 1;
     private static final Logger LOG = LogManager.getLogger(IcebergScanNode.class);
 
     private IcebergSource source;
@@ -505,6 +506,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
+        enableCurrentIcebergScanSemantics();
         // Extract name mapping from Iceberg table properties
         Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
 
@@ -514,6 +516,13 @@ public class IcebergScanNode extends FileQueryScanNode {
         ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
                 getBase64EncodedInitialDefaultsForScan());
+    }
+
+    @VisibleForTesting
+    void enableCurrentIcebergScanSemantics() {
+        // This explicit capability is the rollout boundary: old FE plans must keep legacy values
+        // when fragments run on a mixture of old and new BEs.
+        params.setIcebergScanSemanticsVersion(ICEBERG_SCAN_SEMANTICS_VERSION);
     }
 
     @VisibleForTesting

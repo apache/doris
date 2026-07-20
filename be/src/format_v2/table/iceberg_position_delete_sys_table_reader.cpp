@@ -136,8 +136,10 @@ void set_iceberg_delete_field_id(ColumnDefinition* column) {
 class PositionDeleteFileTableReader final : public format::TableReader {
 protected:
     format::TableColumnMappingMode mapping_mode() const override {
-        if (!_data_reader.file_schema.empty() &&
-            schema_has_any_field_id(_data_reader.file_schema)) {
+        const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
+                                           ? schema_has_any_field_id(_data_reader.file_schema)
+                                           : schema_has_all_field_ids(_data_reader.file_schema);
+        if (!_data_reader.file_schema.empty() && has_field_ids) {
             return format::TableColumnMappingMode::BY_FIELD_ID;
         }
         return format::TableColumnMappingMode::BY_NAME;
@@ -146,7 +148,9 @@ protected:
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         // Parquet may preserve a selected complex wrapper without its own ID; position-delete row
         // projection must use the same descendant-ID fallback as ordinary Iceberg data scans.
-        options->allow_idless_complex_wrapper_projection = _format == format::FileFormat::PARQUET;
+        options->allow_idless_complex_wrapper_projection =
+                supports_iceberg_scan_semantics_v1(_scan_params) &&
+                _format == format::FileFormat::PARQUET;
     }
 };
 

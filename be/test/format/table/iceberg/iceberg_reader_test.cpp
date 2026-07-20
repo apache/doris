@@ -60,6 +60,7 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -1295,6 +1296,7 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -1362,6 +1364,7 @@ TEST_F(IcebergReaderTest, v1_top_level_missing_binary_prefers_iceberg_initial_de
     current_schema.__set_root_field(std::move(root_field));
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -1389,6 +1392,53 @@ TEST_F(IcebergReaderTest, v1_top_level_missing_binary_prefers_iceberg_initial_de
               std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
 }
 
+TEST_F(IcebergReaderTest, v1_legacy_plan_keeps_missing_binary_null) {
+    auto field = std::make_shared<schema::external::TField>();
+    field->__set_name("added_uuid");
+    field->__set_id(1);
+    field->__set_initial_default_value("Ej5FZ+ibEtOkVkJmFBdAAA==");
+    field->__set_initial_default_value_is_base64(true);
+    TColumnType thrift_type;
+    thrift_type.__set_type(TPrimitiveType::VARBINARY);
+    thrift_type.__set_len(16);
+    field->__set_type(thrift_type);
+    schema::external::TFieldPtr field_ptr;
+    field_ptr.__set_field_ptr(std::move(field));
+    schema::external::TStructField root_field;
+    root_field.__set_fields({std::move(field_ptr)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(std::move(root_field));
+
+    TFileScanRangeParams old_fe_scan_params;
+    old_fe_scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    old_fe_scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    old_fe_scan_params.__set_current_schema_id(-1);
+    old_fe_scan_params.__set_history_schema_info({std::move(current_schema)});
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, old_fe_scan_params, scan_range, 1024, &ctz,
+                                &io_ctx, &runtime_state, cache.get());
+
+    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(16));
+    Block block;
+    block.insert({varbinary_type->create_column(), varbinary_type, "added_uuid"});
+    std::unordered_map<std::string, uint32_t> positions = {{"added_uuid", 0}};
+    reader.TEST_set_column_name_to_block_index(&positions);
+    reader._fill_col_name_to_block_idx = &positions;
+
+    ASSERT_TRUE(reader.on_fill_missing_columns(&block, 2, {"added_uuid"}).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    ASSERT_EQ(nullable.size(), 2);
+    EXPECT_TRUE(nullable.is_null_at(0));
+    EXPECT_TRUE(nullable.is_null_at(1));
+}
+
 TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_default) {
     schema::external::TStructField root_field;
     root_field.__set_fields({make_external_int_field("id", 0, std::nullopt),
@@ -1398,6 +1448,7 @@ TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_d
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_current_schema_id(-1);
     scan_params.__set_history_schema_info({current_schema});
     TFileRangeDesc scan_range;
@@ -1451,6 +1502,7 @@ TEST_F(IcebergReaderTest, v1_missing_equality_key_returns_error_for_pruned_descr
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_current_schema_id(-1);
     scan_params.__set_history_schema_info({current_schema});
     TFileRangeDesc scan_range;
@@ -1488,6 +1540,7 @@ TEST_F(IcebergReaderTest, v1_orc_equality_delete_matches_missing_initial_default
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);
@@ -1592,6 +1645,7 @@ TEST_F(IcebergReaderTest, v1_parquet_reads_idless_wrapper_with_authoritative_emp
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -1687,6 +1741,7 @@ TEST_F(IcebergReaderTest, v1_parquet_keeps_file_id_mode_inside_nested_struct) {
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -1803,6 +1858,7 @@ TEST_F(IcebergReaderTest, v1_orc_keeps_file_id_mode_inside_array_and_map) {
     current_schema.__set_root_field(std::move(root_field));
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);
@@ -1884,6 +1940,7 @@ TEST_F(IcebergReaderTest, v1_parquet_mixed_ids_prefer_existing_equality_field_id
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -1980,6 +2037,7 @@ TEST_F(IcebergReaderTest, v1_orc_mixed_ids_prefer_existing_equality_field_id) {
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);

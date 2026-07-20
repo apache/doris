@@ -37,6 +37,7 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/parquet_utils.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_state.h"
@@ -244,7 +245,8 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
             // ID-less physical row from being rebound by name in either reader generation.
             RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::
                                     by_parquet_field_id_with_name_mapping(
-                                            table_schema->root_field, *schema, mapped_file_schema));
+                                            table_schema->root_field, *schema, mapped_file_schema,
+                                            supports_iceberg_scan_semantics_v1(_range_params)));
         }
         const bool read_row =
                 row_requested && mapped_file_schema->children_column_exists(kRowColumn);
@@ -294,7 +296,7 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
             RETURN_IF_ERROR(
                     TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
                             table_schema->root_field, root_type, kIcebergOrcAttribute,
-                            mapped_file_schema));
+                            mapped_file_schema, supports_iceberg_scan_semantics_v1(_range_params)));
         }
         const bool read_row =
                 row_requested && mapped_file_schema->children_column_exists(kRowColumn);

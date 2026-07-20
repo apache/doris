@@ -40,6 +40,7 @@
 #include "format/generic_reader.h"
 #include "format/table/equality_delete.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
@@ -159,6 +160,9 @@ protected:
 
     Status on_fill_missing_columns(Block* block, size_t rows,
                                    const std::vector<std::string>& cols) override {
+        if (!supports_iceberg_scan_semantics_v1(&this->get_scan_params())) {
+            return BaseReader::on_fill_missing_columns(block, rows, cols);
+        }
         std::vector<std::string> generic_columns;
         for (const auto& name : cols) {
             const auto* field = _find_current_schema_field(name);

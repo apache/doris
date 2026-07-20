@@ -44,6 +44,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
 import org.apache.iceberg.DataFile;
@@ -128,6 +129,20 @@ public class IcebergScanNodeTest {
             slot.setColumn(column);
             desc.addSlot(slot);
         }
+
+        int enableAndGetIcebergScanSemanticsVersion() {
+            params = new TFileScanRangeParams();
+            enableCurrentIcebergScanSemantics();
+            return params.getIcebergScanSemanticsVersion();
+        }
+    }
+
+    @Test
+    public void testEmitsCurrentIcebergScanSemanticsCapability() {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+
+        Assert.assertEquals(IcebergScanNode.ICEBERG_SCAN_SEMANTICS_VERSION,
+                node.enableAndGetIcebergScanSemanticsVersion());
     }
 
     @Test

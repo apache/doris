@@ -58,8 +58,10 @@ public:
     Status prepare_split(const format::SplitReadOptions& options) override;
     std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
-        if (!_data_reader.file_schema.empty() &&
-            schema_has_any_field_id(_data_reader.file_schema)) {
+        const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
+                                           ? schema_has_any_field_id(_data_reader.file_schema)
+                                           : schema_has_all_field_ids(_data_reader.file_schema);
+        if (!_data_reader.file_schema.empty() && has_field_ids) {
             return format::TableColumnMappingMode::BY_FIELD_ID;
         }
         return format::TableColumnMappingMode::BY_NAME;
@@ -67,7 +69,8 @@ public:
 
 protected:
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
-        options->allow_idless_complex_wrapper_projection = _format == FileFormat::PARQUET;
+        options->allow_idless_complex_wrapper_projection =
+                supports_iceberg_scan_semantics_v1(_scan_params) && _format == FileFormat::PARQUET;
     }
 
     Status materialize_virtual_columns(Block* table_block) override;

@@ -40,6 +40,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "format/orc/orc_memory_stream_test.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/parquet_utils.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
 #include "io/io_common.h"
@@ -321,6 +322,7 @@ void run_v1_idless_row_position_delete_test(TFileFormatType::type file_format,
     state.set_timezone("UTC");
     RuntimeProfile profile("test_profile");
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(file_format);
     scan_params.__set_current_schema_id(-1);
@@ -389,6 +391,7 @@ void run_mixed_id_position_delete_test(format::FileFormat file_format,
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RuntimeProfile profile("test_profile");
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(thrift_format);
     io::FileReaderStats file_reader_stats;
@@ -459,6 +462,7 @@ void run_v2_nested_wrapper_position_delete_test() {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RuntimeProfile profile("test_profile");
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     io::FileReaderStats file_reader_stats;

@@ -54,6 +54,7 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg/iceberg_orc_nested_column_utils.h"
 #include "format/table/iceberg/iceberg_parquet_nested_column_utils.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/nested_column_access_helper.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_state.h"
@@ -149,7 +150,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     } else {
         RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
                 get_scan_params().history_schema_info.front().root_field, *field_desc,
-                ctx->table_info_node));
+                ctx->table_info_node, supports_iceberg_scan_semantics_v1(&get_scan_params())));
     }
 
     std::unordered_set<std::string> partition_col_names;
@@ -497,7 +498,8 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     } else {
         RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
                 get_scan_params().history_schema_info.front().root_field, orc_type_ptr,
-                ICEBERG_ORC_ATTRIBUTE, ctx->table_info_node));
+                ICEBERG_ORC_ATTRIBUTE, ctx->table_info_node,
+                supports_iceberg_scan_semantics_v1(&get_scan_params())));
     }
 
     std::unordered_set<std::string> partition_col_names;

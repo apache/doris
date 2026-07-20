@@ -19,6 +19,7 @@
 
 #include <vector>
 
+#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/column_data.h"
 
 namespace doris::format::iceberg {
@@ -35,6 +36,18 @@ inline bool schema_has_any_field_id(const std::vector<ColumnDefinition>& schema)
         }
     }
     return false;
+}
+
+inline bool schema_has_all_field_ids(const std::vector<ColumnDefinition>& schema) {
+    for (const auto& field : schema) {
+        if (field.column_type != ColumnType::DATA_COLUMN) {
+            continue;
+        }
+        if (!field.has_identifier_field_id() || !schema_has_all_field_ids(field.children)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace doris::format::iceberg
