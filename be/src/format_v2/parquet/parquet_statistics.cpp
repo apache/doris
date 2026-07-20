@@ -1046,8 +1046,8 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
         page_idx >= typed_index->max_values().size()) {
         return false;
     }
-    const auto& min_value = typed_index->min_values()[page_idx];
-    const auto& max_value = typed_index->max_values()[page_idx];
+    const typename ParquetDType::c_type min_value = typed_index->min_values()[page_idx];
+    const typename ParquetDType::c_type max_value = typed_index->max_values()[page_idx];
     if constexpr (std::is_same_v<ParquetDType, ::parquet::Int64Type>) {
         if (!timestamp_min_max_is_safe(column_schema, min_value, max_value, timezone)) {
             return false;
