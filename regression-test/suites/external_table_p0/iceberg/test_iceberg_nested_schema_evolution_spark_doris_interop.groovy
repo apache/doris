@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import groovy.json.JsonSlurper
+
 suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,iceberg") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -25,6 +27,7 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
     String catalogName = "test_iceberg_nested_schema_evolution_spark_doris_interop"
     String dbName = "iceberg_nested_schema_evolution_interop_db"
     String dorisTable = "doris_nested_evolution_to_spark"
+    String commentTable = "doris_nested_comment_semantics"
     String sparkTable = "spark_nested_evolution_to_doris"
     String mixedCaseTable = "spark_mixed_case_nested_collision"
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
@@ -52,6 +55,47 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
     sql """set enable_fallback_to_original_planner=false"""
 
     spark_iceberg """CREATE DATABASE IF NOT EXISTS demo.${dbName}"""
+
+    sql """
+        CREATE TABLE ${commentTable} (
+            id INT,
+            info STRUCT<
+                metric:INT COMMENT 'metric doc',
+                note:STRING COMMENT 'old note',
+                clear_me:STRING COMMENT 'clear doc',
+                payload:STRUCT<
+                    name:STRING COMMENT 'name doc',
+                    count:INT COMMENT 'count doc'
+                > COMMENT 'payload doc'
+            >
+        )
+    """
+    sql """ALTER TABLE ${commentTable} MODIFY COLUMN info.note COMMENT 'new note'"""
+    sql """ALTER TABLE ${commentTable} MODIFY COLUMN info.metric BIGINT"""
+    sql """ALTER TABLE ${commentTable} MODIFY COLUMN info.clear_me STRING COMMENT ''"""
+    sql """
+        ALTER TABLE ${commentTable} MODIFY COLUMN info.payload
+        STRUCT<name:STRING COMMENT '', count:BIGINT>
+    """
+
+    spark_iceberg """REFRESH TABLE demo.${dbName}.${commentTable}"""
+    def commentMetadataRows = spark_iceberg """
+        DESCRIBE TABLE EXTENDED demo.${dbName}.${commentTable} AS JSON
+    """
+    assertEquals(1, commentMetadataRows.size())
+    def tableMetadata = new JsonSlurper().parseText(commentMetadataRows[0][0].toString())
+    def infoColumn = tableMetadata.columns.find { it.name == "info" }
+    assertNotNull(infoColumn, "info column should exist in Spark's Iceberg schema")
+    def infoFields = infoColumn.type.fields.collectEntries { [(it.name): it] }
+    assertEquals("bigint", infoFields.metric.type.name)
+    assertEquals("metric doc", infoFields.metric.comment)
+    assertEquals("new note", infoFields.note.comment)
+    assertTrue(infoFields.clear_me.comment == null || infoFields.clear_me.comment == "")
+    assertEquals("payload doc", infoFields.payload.comment)
+    def payloadFields = infoFields.payload.type.fields.collectEntries { [(it.name): it] }
+    assertTrue(payloadFields.name.comment == null || payloadFields.name.comment == "")
+    assertEquals("bigint", payloadFields.count.type.name)
+    assertEquals("count doc", payloadFields.count.comment)
 
     sql """
         CREATE TABLE ${dorisTable} (

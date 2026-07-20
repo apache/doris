@@ -294,6 +294,85 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testPrimitiveModifyPreservesOmittedCommentAndClearsExplicitEmptyComment() throws Throwable {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "info", Types.StructType.of(
+                        Types.NestedField.optional(2, "metric", Types.IntegerType.get(), "metric doc"),
+                        Types.NestedField.optional(3, "clear_me", Types.StringType.get(), "clear doc"))),
+                Types.NestedField.optional(4, "top_metric", Types.IntegerType.get(), "top metric doc"));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        Column clearComment = new Column("clear_me", Type.STRING, true, "");
+        clearComment.setCommentSpecified(true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
+                    new Column("metric", Type.BIGINT, true), null, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.of("top_metric"),
+                    new Column("top_metric", Type.BIGINT, true), null, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.clear_me"),
+                    clearComment, null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumn("info.metric", Types.LongType.get(), "metric doc");
+        Mockito.verify(updateSchema).updateColumn("top_metric", Types.LongType.get(), "top metric doc");
+        Mockito.verify(updateSchema).updateColumnDoc("info.clear_me", "");
+        Mockito.verify(updateSchema, Mockito.times(3)).commit();
+    }
+
+    @Test
+    public void testFullStructModifyPreservesOmittedChildComments() throws Throwable {
+        Schema schema = new Schema(Types.NestedField.optional(1, "info", Types.StructType.of(
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "metric", Types.IntegerType.get(), "metric doc"),
+                        Types.NestedField.optional(4, "clear_me", Types.StringType.get(), "clear doc"),
+                        Types.NestedField.optional(5, "details", Types.StructType.of(
+                                Types.NestedField.optional(
+                                        6, "count", Types.IntegerType.get(), "count doc")), "details doc")),
+                        "payload doc"))));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        StructType detailsType = new StructType(
+                new StructField("count", Type.BIGINT, "", true, false));
+        StructType payloadType = new StructType(
+                new StructField("metric", Type.BIGINT, "", true, false),
+                new StructField("clear_me", Type.STRING, "", true, true),
+                new StructField("details", detailsType, "", true, false));
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.payload"),
+                    new Column("payload", payloadType, true), null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumn(
+                "info.payload.metric", Types.LongType.get(), "metric doc");
+        Mockito.verify(updateSchema).updateColumnDoc("info.payload.clear_me", "");
+        Mockito.verify(updateSchema).updateColumn(
+                "info.payload.details.count", Types.LongType.get(), "count doc");
+        Mockito.verify(updateSchema, Mockito.never()).updateColumnDoc(
+                Mockito.eq("info.payload"), Mockito.nullable(String.class));
+        Mockito.verify(updateSchema, Mockito.never()).updateColumnDoc(
+                Mockito.eq("info.payload.details"), Mockito.nullable(String.class));
+        Mockito.verify(updateSchema).commit();
+    }
+
+    @Test
     public void testPrimitiveModifyPreservesRequiredNestedField() throws Throwable {
         Schema schema = requiredNestedSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
@@ -311,7 +390,7 @@ public class IcebergMetadataOpsValidationTest {
                     new Column("metric", Type.BIGINT, true), null, 1L);
         }
 
-        Mockito.verify(updateSchema).updateColumn("info.metric", Types.LongType.get(), "");
+        Mockito.verify(updateSchema).updateColumn("info.metric", Types.LongType.get(), null);
         Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional(Mockito.anyString());
         Mockito.verify(updateSchema).commit();
     }
@@ -339,7 +418,7 @@ public class IcebergMetadataOpsValidationTest {
                     new StructType(new StructField("Value", Type.BIGINT)), true), null, 1L);
         }
 
-        Mockito.verify(updateSchema).updateColumn("Id", Types.LongType.get(), "");
+        Mockito.verify(updateSchema).updateColumn("Id", Types.LongType.get(), null);
         Mockito.verify(updateSchema).updateColumn("Payload.Value", Types.LongType.get(), null);
         Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional(Mockito.anyString());
         Mockito.verify(updateSchema, Mockito.times(2)).commit();
@@ -385,7 +464,7 @@ public class IcebergMetadataOpsValidationTest {
                     new Column("a.b", Type.BIGINT, true), null, 1L);
         }
 
-        Mockito.verify(updateSchema).updateColumn("a.b", Types.LongType.get(), "");
+        Mockito.verify(updateSchema).updateColumn("a.b", Types.LongType.get(), null);
         Mockito.verify(updateSchema).commit();
     }
 
@@ -419,9 +498,8 @@ public class IcebergMetadataOpsValidationTest {
                     nestedTimestamp, null, 1L);
         }
 
-        Mockito.verify(updateSchema).updateColumnDoc("top_uuid", "");
-        Mockito.verify(updateSchema).updateColumnDoc("info.uuid_value", "");
-        Mockito.verify(updateSchema).updateColumnDoc("info.tz_value", "");
+        Mockito.verify(updateSchema, Mockito.never()).updateColumnDoc(
+                Mockito.anyString(), Mockito.nullable(String.class));
         Mockito.verify(updateSchema).makeColumnOptional("top_uuid");
         Mockito.verify(updateSchema).makeColumnOptional("info.uuid_value");
         Mockito.verify(updateSchema).moveFirst("top_uuid");
@@ -454,8 +532,8 @@ public class IcebergMetadataOpsValidationTest {
                     new Column("tz_value", ScalarType.createTimeStampTzType(6), true), null, 1L);
         }
 
-        Mockito.verify(updateSchema).updateColumnDoc("top_uuid", "");
-        Mockito.verify(updateSchema).updateColumnDoc("info.tz_value", "");
+        Mockito.verify(updateSchema, Mockito.never()).updateColumnDoc(
+                Mockito.anyString(), Mockito.nullable(String.class));
         Mockito.verify(updateSchema, Mockito.never()).updateColumn(
                 Mockito.anyString(), Mockito.any(org.apache.iceberg.types.Type.PrimitiveType.class),
                 Mockito.nullable(String.class));
@@ -488,7 +566,8 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.verify(updateSchema, Mockito.times(1)).updateColumn(
                 Mockito.anyString(), Mockito.any(org.apache.iceberg.types.Type.PrimitiveType.class),
                 Mockito.nullable(String.class));
-        Mockito.verify(updateSchema).updateColumnDoc("outer.payload", "");
+        Mockito.verify(updateSchema, Mockito.never()).updateColumnDoc(
+                Mockito.anyString(), Mockito.nullable(String.class));
         Mockito.verify(updateSchema).commit();
     }
 
@@ -909,8 +988,8 @@ public class IcebergMetadataOpsValidationTest {
                     new Column("value", Type.BIGINT, true), null, 1L);
         }
 
-        Mockito.verify(updateSchema).updateColumn("arr.element", Types.LongType.get(), "");
-        Mockito.verify(updateSchema).updateColumn("m.value", Types.LongType.get(), "");
+        Mockito.verify(updateSchema).updateColumn("arr.element", Types.LongType.get(), null);
+        Mockito.verify(updateSchema).updateColumn("m.value", Types.LongType.get(), null);
         Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional(Mockito.anyString());
         Mockito.verify(updateSchema, Mockito.times(2)).commit();
     }

@@ -5498,7 +5498,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String comment = ctx.commentSpec() == null ? ""
                 : SqlLiteralUtils.parseStringLiteral(
                         ctx.commentSpec().STRING_LITERAL().getText());
-        return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true, comment);
+        return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true,
+                comment, ctx.commentSpec() != null);
     }
 
     private String parseConstant(ConstantContext context) {

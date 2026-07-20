@@ -34,6 +34,7 @@ public class StructField {
     private final DataType dataType;
     private final boolean nullable;
     private final String comment;
+    private final boolean commentSpecified;
 
     /**
      * StructField Constructor
@@ -42,10 +43,16 @@ public class StructField {
      *  @param nullable Indicates if values of this field can be `null` values
      */
     public StructField(String name, DataType dataType, boolean nullable, String comment) {
+        this(name, dataType, nullable, comment, comment != null && !comment.isEmpty());
+    }
+
+    public StructField(String name, DataType dataType, boolean nullable, String comment,
+            boolean commentSpecified) {
         this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase();
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.nullable = nullable;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
+        this.commentSpecified = commentSpecified;
     }
 
     public String getName() {
@@ -64,6 +71,10 @@ public class StructField {
         return comment;
     }
 
+    public boolean isCommentSpecified() {
+        return commentSpecified;
+    }
+
     public StructField conversion() {
         if (this.dataType.equals(dataType.conversion())) {
             return this;
@@ -72,22 +83,22 @@ public class StructField {
     }
 
     public StructField withDataType(DataType dataType) {
-        return new StructField(name, dataType, nullable, comment);
+        return new StructField(name, dataType, nullable, comment, commentSpecified);
     }
 
     public StructField withDataTypeAndNullable(DataType dataType, boolean nullable) {
-        return new StructField(name, dataType, nullable, comment);
+        return new StructField(name, dataType, nullable, comment, commentSpecified);
     }
 
     public org.apache.doris.catalog.StructField toCatalogDataType() {
         return new org.apache.doris.catalog.StructField(
-                name, dataType.toCatalogDataType(), comment, nullable);
+                name, dataType.toCatalogDataType(), comment, nullable, commentSpecified);
     }
 
     public String toSql() {
         return SqlUtils.getIdentSql(name) + ":" + dataType.toSql()
                 + (nullable ? "" : " NOT NULL")
-                + (comment.isEmpty() ? "" : " COMMENT "
+                + (!commentSpecified ? "" : " COMMENT "
                         + SqlLiteralUtils.quoteStringLiteral(comment));
     }
 

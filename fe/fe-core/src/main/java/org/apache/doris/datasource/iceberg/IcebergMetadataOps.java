@@ -1069,15 +1069,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
+        String targetComment = resolveTargetComment(currentCol, column, legacyMode);
         if (column.getType().isComplexType()) {
             applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(),
                     column.getType(), legacyMode);
-            if (!Objects.equals(currentCol.doc(), column.getComment())) {
-                updateSchema.updateColumnDoc(resolvedPath.getFullPath(), column.getComment());
+            if (!Objects.equals(currentCol.doc(), targetComment)) {
+                updateSchema.updateColumnDoc(resolvedPath.getFullPath(), targetComment);
             }
         } else {
             applyPrimitiveColumnChange(updateSchema, resolvedPath.getFullPath(), currentCol,
-                    targetType.asPrimitiveType(), column.getComment());
+                    targetType.asPrimitiveType(), targetComment);
         }
         applyExplicitNullableChange(updateSchema, resolvedPath.getFullPath(), column, legacyMode);
 
@@ -1122,15 +1123,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
+        String targetComment = resolveTargetComment(currentCol, column, false);
         if (column.getType().isComplexType()) {
             applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(),
                     column.getType(), false);
-            if (!Objects.equals(currentCol.doc(), column.getComment())) {
-                updateSchema.updateColumnDoc(resolvedPath.getFullPath(), column.getComment());
+            if (!Objects.equals(currentCol.doc(), targetComment)) {
+                updateSchema.updateColumnDoc(resolvedPath.getFullPath(), targetComment);
             }
         } else {
             applyPrimitiveColumnChange(updateSchema, resolvedPath.getFullPath(), currentCol,
-                    targetType.asPrimitiveType(), column.getComment());
+                    targetType.asPrimitiveType(), targetComment);
         }
         applyExplicitNullableChange(updateSchema, resolvedPath.getFullPath(), column, false);
 
@@ -1188,6 +1190,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if ((legacyNullableExplicit || column.isNullableSpecified()) && column.isAllowNull()) {
             updateSchema.makeColumnOptional(columnPath);
         }
+    }
+
+    private String resolveTargetComment(NestedField currentCol, Column column, boolean legacyMode) {
+        return legacyMode || column.isCommentSpecified() ? column.getComment() : currentCol.doc();
     }
 
     private org.apache.iceberg.types.Type.PrimitiveType resolvePrimitiveTypeForModify(
@@ -1492,19 +1498,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private void applyComplexTypeChange(UpdateSchema updateSchema, String path,
             org.apache.iceberg.types.Type oldIcebergType,
-            org.apache.doris.catalog.Type newDorisType, boolean legacyNullableExplicit) throws UserException {
+            org.apache.doris.catalog.Type newDorisType, boolean legacyMode) throws UserException {
         switch (oldIcebergType.typeId()) {
             case STRUCT:
                 applyStructChange(updateSchema, path, oldIcebergType.asStructType(), (StructType) newDorisType,
-                        legacyNullableExplicit);
+                        legacyMode);
                 break;
             case LIST:
                 applyListChange(updateSchema, path, (Types.ListType) oldIcebergType, (ArrayType) newDorisType,
-                        legacyNullableExplicit);
+                        legacyMode);
                 break;
             case MAP:
                 applyMapChange(updateSchema, path, (Types.MapType) oldIcebergType, (MapType) newDorisType,
-                        legacyNullableExplicit);
+                        legacyMode);
                 break;
             default:
                 throw new UserException("Unsupported complex type for modify: " + oldIcebergType);
@@ -1512,7 +1518,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private void applyStructChange(UpdateSchema updateSchema, String path,
-            Types.StructType oldStructType, StructType newStructType, boolean legacyNullableExplicit)
+            Types.StructType oldStructType, StructType newStructType, boolean legacyMode)
             throws UserException {
         List<NestedField> oldFields = oldStructType.fields();
         List<StructField> newFields = newStructType.getFields();
@@ -1528,26 +1534,28 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
             org.apache.iceberg.types.Type oldFieldType = oldField.type();
             org.apache.doris.catalog.Type newFieldType = newField.getType();
+            String targetComment = legacyMode || newField.isCommentSpecified()
+                    ? newField.getComment() : oldField.doc();
             if (oldFieldType.isPrimitiveType()) {
                 org.apache.doris.catalog.Type oldDorisFieldType = mappedDorisType(oldFieldType);
                 boolean typeChanged = !isSameMappedDorisType(oldDorisFieldType, newFieldType);
-                boolean commentChanged = !Objects.equals(oldField.doc(), newField.getComment());
+                boolean commentChanged = !Objects.equals(oldField.doc(), targetComment);
                 if (typeChanged) {
                     org.apache.iceberg.types.Type newIcebergFieldType =
                             toIcebergTypeForSchemaChange(newFieldType, fieldPath);
                     updateSchema.updateColumn(fieldPath, newIcebergFieldType.asPrimitiveType(),
-                            newField.getComment());
+                            targetComment);
                 } else if (commentChanged) {
-                    updateSchema.updateColumnDoc(fieldPath, newField.getComment());
+                    updateSchema.updateColumnDoc(fieldPath, targetComment);
                 }
             } else {
                 applyComplexTypeChange(updateSchema, fieldPath, oldFieldType, newFieldType,
-                        legacyNullableExplicit);
-                if (!Objects.equals(oldField.doc(), newField.getComment())) {
-                    updateSchema.updateColumnDoc(fieldPath, newField.getComment());
+                        legacyMode);
+                if (!Objects.equals(oldField.doc(), targetComment)) {
+                    updateSchema.updateColumnDoc(fieldPath, targetComment);
                 }
             }
-            if (legacyNullableExplicit && !oldField.isOptional() && newField.getContainsNull()) {
+            if (legacyMode && !oldField.isOptional() && newField.getContainsNull()) {
                 updateSchema.makeColumnOptional(fieldPath);
             }
         }
@@ -1564,7 +1572,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private void applyListChange(UpdateSchema updateSchema, String path,
-            Types.ListType oldListType, ArrayType newArrayType, boolean legacyNullableExplicit)
+            Types.ListType oldListType, ArrayType newArrayType, boolean legacyMode)
             throws UserException {
         String elementPath = path + "." + oldListType.field(oldListType.elementId()).name();
         if (oldListType.isElementOptional() && !newArrayType.getContainsNull()) {
@@ -1581,15 +1589,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         } else {
             applyComplexTypeChange(updateSchema, elementPath, oldElementType, newElementType,
-                    legacyNullableExplicit);
+                    legacyMode);
         }
-        if (legacyNullableExplicit && !oldListType.isElementOptional() && newArrayType.getContainsNull()) {
+        if (legacyMode && !oldListType.isElementOptional() && newArrayType.getContainsNull()) {
             updateSchema.makeColumnOptional(elementPath);
         }
     }
 
     private void applyMapChange(UpdateSchema updateSchema, String path,
-            Types.MapType oldMapType, MapType newMapType, boolean legacyNullableExplicit)
+            Types.MapType oldMapType, MapType newMapType, boolean legacyMode)
             throws UserException {
         org.apache.iceberg.types.Type oldKeyType = oldMapType.keyType();
         org.apache.doris.catalog.Type newKeyType = newMapType.getKeyType();
@@ -1614,9 +1622,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         } else {
             applyComplexTypeChange(updateSchema, valuePath, oldValueType, newValueType,
-                    legacyNullableExplicit);
+                    legacyMode);
         }
-        if (legacyNullableExplicit && !oldMapType.isValueOptional() && newMapType.getIsValueContainsNull()) {
+        if (legacyMode && !oldMapType.isValueOptional() && newMapType.getIsValueContainsNull()) {
             updateSchema.makeColumnOptional(valuePath);
         }
     }

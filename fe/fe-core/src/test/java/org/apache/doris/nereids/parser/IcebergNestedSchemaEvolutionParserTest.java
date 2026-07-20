@@ -242,6 +242,28 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     @Test
+    public void testStructMemberRoundTripPreservesCommentIntent() {
+        ModifyColumnOp modify = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN info.payload "
+                        + "STRUCT<keep_comment:BIGINT,clear_comment:STRING COMMENT ''>",
+                ModifyColumnOp.class, "info.payload");
+        StructType structType = (StructType) modify.getColumnDef().getType();
+        Assertions.assertFalse(structType.getFields().get(0).isCommentSpecified());
+        Assertions.assertTrue(structType.getFields().get(1).isCommentSpecified());
+
+        ModifyColumnOp reparsed = assertSingleClausePath(
+                "ALTER TABLE t " + modify.toSql(), ModifyColumnOp.class, "info.payload");
+        StructType reparsedType = (StructType) reparsed.getColumnDef().getType();
+        Assertions.assertFalse(reparsedType.getFields().get(0).isCommentSpecified());
+        Assertions.assertTrue(reparsedType.getFields().get(1).isCommentSpecified());
+        Assertions.assertEquals("", reparsedType.getFields().get(1).getComment());
+        org.apache.doris.catalog.StructType catalogType = (org.apache.doris.catalog.StructType) reparsed
+                .getColumnDef().translateToCatalogStyleForSchemaChange().getType();
+        Assertions.assertFalse(catalogType.getFields().get(0).isCommentSpecified());
+        Assertions.assertTrue(catalogType.getFields().get(1).isCommentSpecified());
+    }
+
+    @Test
     public void testModifyColumnCommentRoundTripEscapesQuotesAndBackslashes() {
         assertCommentRoundTrip(false);
         assertCommentRoundTrip(true);
