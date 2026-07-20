@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_ivm_chained_mtmv_1") {
-    assert false,  "binlog not support row id now, this case will cause BE coredump, so skip it"
 
     sql """drop materialized view if exists mv_ivm_chained_2;"""
     sql """drop materialized view if exists mv_ivm_chained_1;"""
