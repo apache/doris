@@ -272,20 +272,25 @@ public class IcebergScanNode extends FileQueryScanNode {
      * Returns a map from field ID to list of mapped names.
      */
     private Map<Integer, List<String>> extractNameMapping() {
+        String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
+        if (nameMappingJson == null || nameMappingJson.isEmpty()) {
+            // Table does not define a name mapping: return null so callers can distinguish
+            // "table uses name mapping" (missing entries must resolve to NULL) from "no name mapping
+            // at all" (legacy physical-name matching is allowed). A non-null result may still be empty.
+            return null;
+        }
         Map<Integer, List<String>> result = new HashMap<>();
         try {
-            String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
-            if (nameMappingJson != null && !nameMappingJson.isEmpty()) {
-                NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
-                if (mapping != null) {
-                    // Extract mappings from NameMapping
-                    // NameMapping contains field mappings, we need to convert them to our format
-                    extractMappingsFromNameMapping(mapping.asMappedFields(), result);
-                }
+            NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
+            if (mapping != null) {
+                // Extract mappings from NameMapping
+                // NameMapping contains field mappings, we need to convert them to our format
+                extractMappingsFromNameMapping(mapping.asMappedFields(), result);
             }
         } catch (Exception e) {
-            // If name mapping parsing fails, continue without it
+            // If name mapping parsing fails, fall back to legacy behavior to avoid all-NULL reads.
             LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
+            return null;
         }
         return result;
     }

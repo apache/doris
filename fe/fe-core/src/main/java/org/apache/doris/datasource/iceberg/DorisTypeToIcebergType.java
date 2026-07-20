@@ -73,7 +73,12 @@ public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
             Type type = types.get(i);
 
             int id = isRoot ? i : getNextId();
-            String fieldName = isRoot && !rootFieldNames.isEmpty() ? rootFieldNames.get(i) : field.getName();
+            // Top-level names come from rootFieldNames (#65094, case-preserved from the DDL columns);
+            // nested struct field names use the case-preserved originalName so a Doris-created/altered
+            // Iceberg table keeps cross-engine-faithful nested names. Internal tables are unaffected
+            // (only this Iceberg-scoped visitor reads getOriginalName()).
+            String fieldName = isRoot && !rootFieldNames.isEmpty()
+                    ? rootFieldNames.get(i) : field.getOriginalName();
             if (field.getContainsNull()) {
                 newFields.add(Types.NestedField.optional(id, fieldName, type, field.getComment()));
             } else {

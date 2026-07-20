@@ -82,6 +82,14 @@ bool column_has_name(const ColumnDefinition& column, const std::string& name) {
 }
 
 bool column_names_match(const ColumnDefinition& lhs, const ColumnDefinition& rhs) {
+    if (lhs.has_name_mapping) {
+        // The table defines schema.name-mapping.default: resolve strictly through the mapping
+        // aliases. A field the mapping does not cover (empty name_mapping) matches nothing (-> NULL)
+        // instead of falling back to its own physical name (Iceberg name-mapping semantics).
+        return std::ranges::any_of(lhs.name_mapping, [&](const std::string& alias) {
+            return column_has_name(rhs, alias);
+        });
+    }
     if (column_has_name(rhs, lhs.name)) {
         return true;
     }

@@ -40,13 +40,41 @@ public class StructField {
     @SerializedName(value = "containsNull")
     private final boolean containsNull; // Now always true (nullable field)
 
+    // Original, case-preserved field name. Only consulted by the Iceberg type converter
+    // (DorisTypeToIcebergType) so a Doris-created Iceberg table keeps cross-engine-faithful nested
+    // field names. Transient and unannotated: it is never persisted, and getOriginalName() falls
+    // back to `name` after metadata replay. Internal OLAP tables never read it, so their behavior
+    // (lowercased `name`, serialized form) is unchanged.
+    private final transient String originalName;
+
     public static final String DEFAULT_FIELD_NAME = "col";
 
     public StructField(String name, Type type, String comment, boolean containsNull) {
-        this.name = name.toLowerCase();
+        this(name, type, comment, containsNull, false);
+    }
+
+    /**
+     * When {@code preserveCase} is true the original field-name case is kept in {@link #name},
+     * which the external/Iceberg read path relies on so DESCRIBE shows cross-engine-faithful names.
+     * Internal tables MUST use {@code preserveCase == false} so struct field names stay lowercased,
+     * matching long-standing behavior. Either way {@link #originalName} keeps the original case for
+     * the Iceberg write path.
+     */
+    private StructField(String name, Type type, String comment, boolean containsNull, boolean preserveCase) {
+        this.originalName = name;
+        this.name = preserveCase ? name : name.toLowerCase();
         this.type = type;
         this.comment = comment;
         this.containsNull = containsNull;
+    }
+
+    /**
+     * Builds a field that keeps the original name case, for external schemas (e.g. Iceberg) that
+     * require cross-engine name fidelity. Field lookups stay case-insensitive because
+     * {@link StructType} lowercases its map keys.
+     */
+    public static StructField createPreservingCase(String name, Type type) {
+        return new StructField(name, type, null, true, true);
     }
 
     public StructField(String name, Type type) {
@@ -67,6 +95,14 @@ public class StructField {
 
     public String getName() {
         return name;
+    }
+
+    /**
+     * The original, case-preserved field name (falls back to {@link #name} after metadata replay,
+     * where the transient original name is not restored). Used only by the Iceberg type converter.
+     */
+    public String getOriginalName() {
+        return originalName != null ? originalName : name;
     }
 
     public Type getType() {

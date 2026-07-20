@@ -178,9 +178,13 @@ public class ExternalUtil {
             root.setInitialDefaultValue(dorisColumn.getDefaultValue());
         }
 
-        if (nameMapping != null && nameMapping.containsKey(dorisColumn.getUniqueId())) {
-            // for iceberg set name mapping.
-            root.setNameMapping(new ArrayList<>(nameMapping.get(dorisColumn.getUniqueId())));
+        if (nameMapping != null) {
+            // The table defines schema.name-mapping.default, so field resolution for files without
+            // field ids must go strictly through the mapping. Set the mapped names when this field
+            // is covered, otherwise an empty list so BE resolves it to NULL rather than falling back
+            // to physical-name matching (Iceberg name-mapping semantics).
+            List<String> mappedNames = nameMapping.get(dorisColumn.getUniqueId());
+            root.setNameMapping(mappedNames != null ? new ArrayList<>(mappedNames) : new ArrayList<>());
         }
 
         TNestedField nestedField = new TNestedField();

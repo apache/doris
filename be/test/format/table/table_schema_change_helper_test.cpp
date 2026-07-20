@@ -425,6 +425,102 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetNameMappingFallback) {
               "    ScalarNode\n");
 }
 
+TEST(MockTableSchemaChangeHelper, IcebergParquetPartialNameMappingReturnsNull) {
+    // Table defines schema.name-mapping.default that covers `a` but not `b`. The migrated legacy
+    // parquet file (no field ids) physically contains both `a` and `b`. `b` is uncovered by the
+    // mapping (empty name_mapping list, as FE now emits), so it must resolve to NULL rather than
+    // fall back to the physical column `b`. Mirrors testMigratedDataWithPartialNameMapping ([1, null]).
+    TColumnType int_type;
+    int_type.type = TPrimitiveType::INT;
+
+    schema::external::TStructField root_field;
+    {
+        auto a_field = std::make_shared<schema::external::TField>();
+        a_field->name = "a";
+        a_field->id = 1;
+        a_field->type = int_type;
+        a_field->__set_name_mapping(std::vector<std::string> {"a"});
+        schema::external::TFieldPtr a_ptr;
+        a_ptr.field_ptr = a_field;
+        root_field.fields.emplace_back(a_ptr);
+    }
+    {
+        auto b_field = std::make_shared<schema::external::TField>();
+        b_field->name = "b";
+        b_field->id = 2;
+        b_field->type = int_type;
+        // Uncovered field: FE sets an empty name mapping so BE must not fall back to physical name.
+        b_field->__set_name_mapping(std::vector<std::string> {});
+        schema::external::TFieldPtr b_ptr;
+        b_ptr.field_ptr = b_field;
+        root_field.fields.emplace_back(b_ptr);
+    }
+
+    FieldDescriptor parquet_field;
+    {
+        FieldSchema a_file;
+        a_file.name = "a";
+        a_file.data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+        a_file.field_id = -1;
+        parquet_field._fields.emplace_back(a_file);
+    }
+    {
+        FieldSchema b_file;
+        b_file.name = "b";
+        b_file.data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+        b_file.field_id = -1;
+        parquet_field._fields.emplace_back(b_file);
+    }
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+                        root_field, parquet_field, ans_node)
+                        .ok());
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  a (file: a)\n"
+              "    ScalarNode\n"
+              "  b (not exists)\n");
+}
+
+TEST(MockTableSchemaChangeHelper, IcebergParquetNameMappingNoPhysicalFallback) {
+    // A field covered by the mapping whose mapped names are absent from the file must resolve to
+    // NULL, even when the field's own physical name exists in the file. This is the lenient
+    // physical-name fallback that was removed for name-mapped tables.
+    TColumnType int_type;
+    int_type.type = TPrimitiveType::INT;
+
+    schema::external::TStructField root_field;
+    auto renamed_field = std::make_shared<schema::external::TField>();
+    renamed_field->name = "col1_new";
+    renamed_field->id = 1;
+    renamed_field->type = int_type;
+    renamed_field->__set_name_mapping(std::vector<std::string> {"absent_old_name"});
+    schema::external::TFieldPtr renamed_ptr;
+    renamed_ptr.field_ptr = renamed_field;
+    root_field.fields.emplace_back(renamed_ptr);
+
+    FieldDescriptor parquet_field;
+    FieldSchema file_col;
+    file_col.name = "col1_new"; // matches the table field's physical name, but not the mapped name
+    file_col.data_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    file_col.field_id = -1;
+    parquet_field._fields.emplace_back(file_col);
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+                        root_field, parquet_field, ans_node)
+                        .ok());
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  col1_new (not exists)\n");
+}
+
 TEST(MockTableSchemaChangeHelper, IcebergOrcSchemaChange) {
     schema::external::TField test_field;
     TColumnType struct_type;
@@ -534,6 +630,49 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcNameMappingFallback) {
               "StructNode\n"
               "  col1_new (file: col1_old)\n"
               "    ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, IcebergOrcPartialNameMappingReturnsNull) {
+    // ORC counterpart of IcebergParquetPartialNameMappingReturnsNull: `a` is covered by the mapping,
+    // `b` is uncovered (empty name_mapping) and must resolve to NULL, not fall back to physical `b`.
+    TColumnType int_type;
+    int_type.type = TPrimitiveType::INT;
+
+    schema::external::TStructField root_field;
+    {
+        auto a_field = std::make_shared<schema::external::TField>();
+        a_field->name = "a";
+        a_field->id = 1;
+        a_field->type = int_type;
+        a_field->__set_name_mapping(std::vector<std::string> {"a"});
+        schema::external::TFieldPtr a_ptr;
+        a_ptr.field_ptr = a_field;
+        root_field.fields.emplace_back(a_ptr);
+    }
+    {
+        auto b_field = std::make_shared<schema::external::TField>();
+        b_field->name = "b";
+        b_field->id = 2;
+        b_field->type = int_type;
+        b_field->__set_name_mapping(std::vector<std::string> {});
+        schema::external::TFieldPtr b_ptr;
+        b_ptr.field_ptr = b_field;
+        root_field.fields.emplace_back(b_ptr);
+    }
+
+    std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString("struct<a:int,b:int>"));
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> ans_node = nullptr;
+    ASSERT_TRUE(
+            TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+                    root_field, orc_type.get(), IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE, ans_node)
+                    .ok());
+
+    ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
+              "StructNode\n"
+              "  a (file: a)\n"
+              "    ScalarNode\n"
+              "  b (not exists)\n");
 }
 
 TEST(MockTableSchemaChangeHelper, NestedMapArrayStruct) {

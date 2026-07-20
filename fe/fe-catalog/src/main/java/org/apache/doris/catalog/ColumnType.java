@@ -269,8 +269,10 @@ public abstract class ColumnType {
 
     private static void validateStructFieldCompatibility(StructField originalField, StructField newField,
             boolean allowDecimalPrecisionPromotion) throws DdlException {
-        // check field name
-        if (!originalField.getName().equals(newField.getName())) {
+        // check field name. Compare case-insensitively: Doris identifiers are case-insensitive, and
+        // the existing (external) type may carry the original field-name case (e.g. Iceberg struct
+        // fields) while the new type from DDL is lowercased, so a case-only difference is not a rename.
+        if (!originalField.getName().equalsIgnoreCase(newField.getName())) {
             throw new DdlException(
                     "Cannot rename struct field from '" + originalField.getName() + "' to '" + newField.getName()
                             + "'");
@@ -319,14 +321,16 @@ public abstract class ColumnType {
                 StructField newField = newFields.get(i);
 
                 validateStructFieldCompatibility(originalField, newField, allowDecimalPrecisionPromotion);
-                existingNames.add(originalField.getName());
+                // Case-insensitive: identifiers are case-insensitive and the existing type may keep
+                // the original field-name case (e.g. Iceberg), so conflicts must ignore case.
+                existingNames.add(originalField.getName().toLowerCase());
             }
 
             // check new field name is not conflict with old field name
             for (int i = originalFields.size(); i < otherStructType.getFields().size(); i++) {
                 // to check new field name is not conflict with old field name
                 String newFieldName = otherStructType.getFields().get(i).getName();
-                if (existingNames.contains(newFieldName)) {
+                if (existingNames.contains(newFieldName.toLowerCase())) {
                     throw new DdlException("Added struct field '" + newFieldName + "' conflicts with existing field");
                 }
             }

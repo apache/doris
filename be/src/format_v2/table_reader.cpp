@@ -143,6 +143,11 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
     return field_ptr.field_ptr.get();
 }
 
+// Associates a projected column with its current-schema field (by current name, then aliases).
+// This is the current-schema association phase, NOT legacy-file matching: it must match the field
+// by its own current name so annotate_projected_column can copy the field id / aliases / mapping
+// marker. Strict name-mapping resolution (no physical-name fallback) belongs only to the id-less
+// file matching path in column_mapper (column_names_match), not here.
 bool external_field_matches_name(const schema::external::TField& field, const std::string& name) {
     if (field.__isset.name && to_lower(field.name) == to_lower(name)) {
         return true;
@@ -189,6 +194,7 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
                     field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
+            .has_name_mapping = field.__isset.name_mapping,
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
@@ -488,6 +494,7 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
+    column->has_name_mapping = context->schema_column->has_name_mapping;
     return Status::OK();
 }
 

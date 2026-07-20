@@ -67,14 +67,20 @@ bool find_file_field_idx_by_name_mapping(
         return true;
     };
 
+    // When the table defines schema.name-mapping.default, field resolution for files without field
+    // ids must go strictly through the mapping. A field that is not covered by the mapping (empty
+    // name_mapping) or whose mapped names are absent from the file must resolve to NULL, never fall
+    // back to physical-name matching.
     if (table_field.__isset.name_mapping) {
         for (const auto& mapped_name : table_field.name_mapping) {
             if (try_match(mapped_name)) {
                 return true;
             }
         }
+        return false;
     }
 
+    // No name mapping defined for the table: keep legacy physical-name matching.
     return table_field.__isset.name && try_match(table_field.name);
 }
 
