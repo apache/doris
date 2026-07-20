@@ -56,7 +56,6 @@ suite("test_ivm_rewrite_projection", "nonConcurrent") {
 
     sql """REFRESH MATERIALIZED VIEW rewrite_projection_ivm COMPLETE"""
     waitingMTMVTaskFinishedByMvName("rewrite_projection_ivm")
-    advance_ivm_stream_offset("rewrite_projection_ivm")
 
     mv_rewrite_success_without_check_chosen("""
         SELECT id, category, amount

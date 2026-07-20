@@ -81,7 +81,6 @@ suite("test_ivm_outer_join_5") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_5_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_5_mv")
-    advance_ivm_stream_offset("test_ivm_outer_join_5_mv")
     order_qt_outer_join_5_after_complete_source """
         SELECT
             test_ivm_outer_join_5_customers.customer_id,

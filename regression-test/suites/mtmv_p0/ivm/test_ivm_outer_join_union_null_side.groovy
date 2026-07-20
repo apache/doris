@@ -87,7 +87,6 @@ suite("test_ivm_outer_join_union_null_side") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_oj_un_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_oj_un_mv")
-    advance_ivm_stream_offset("ivm_oj_un_mv")
     order_qt_after_complete """
         SELECT k1, v1, v2 FROM ivm_oj_un_mv ORDER BY k1, v1, v2
     """

@@ -54,7 +54,6 @@ suite("test_ivm_plan_signature_fallback", "nonConcurrent") {
 
     sql """REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
     waitingMTMVTaskFinishedByMvName(mvName)
-    advance_ivm_stream_offset(mvName)
 
     sql """INSERT INTO ${tableName} VALUES (3, 30);"""
 
