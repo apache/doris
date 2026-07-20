@@ -1573,6 +1573,67 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(64L, d.getContentSizeInBytes());
     }
 
+    // --- DV metadata validation (port of upstream #65676 IcebergDeleteFileFilter.validateDeletionVectorMetadata) ---
+
+    @Test
+    public void validateDeletionVectorMetadataAcceptsInBoundsBlob() {
+        // A well-formed DV blob (offset+length within the puffin file) passes untouched. Guards the four
+        // rejection branches below against firing on valid metadata. MUTATION: tightening any bound -> red.
+        IcebergScanPlanProvider.validateDeletionVectorMetadata("s3://b/dv.puffin", 256L, 16L, 64L);
+    }
+
+    @Test
+    public void validateDeletionVectorMetadataRejectsMissingOffsetOrLength() {
+        // A puffin DV with no content_offset/size cannot be addressed inside the puffin file; rejecting on the FE
+        // (fail loud) beats handing BE a null offset that NPEs deep in range building. MUTATION: dropping the null
+        // guard -> the null reaches convertDelete/buildPositionDeleteRange and BE range params.
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergScanPlanProvider.validateDeletionVectorMetadata("s3://b/dv.puffin", 256L, null, 64L));
+        Assertions.assertTrue(e.getMessage().contains("misses content offset or length"));
+        Assertions.assertTrue(e.getMessage().contains("s3://b/dv.puffin"));
+    }
+
+    @Test
+    public void validateDeletionVectorMetadataRejectsNegativeValues() {
+        // A negative offset/length/file-size is malformed; it would become a bogus (or huge, when reinterpreted)
+        // read range on BE. MUTATION: dropping the sign guard -> a negative offset flows to BE.
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergScanPlanProvider.validateDeletionVectorMetadata("s3://b/dv.puffin", 256L, -1L, 64L));
+        Assertions.assertTrue(e.getMessage().contains("must be non-negative"));
+    }
+
+    @Test
+    public void validateDeletionVectorMetadataRejectsRangeOverflow() {
+        // offset+length must be checked for long overflow BEFORE the (offset+length > fileSize) test, or the sum
+        // wraps negative and silently passes the fileSize check. MUTATION: removing the overflow guard -> a
+        // wrapped-negative sum sneaks past the next check.
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergScanPlanProvider.validateDeletionVectorMetadata(
+                        "s3://b/dv.puffin", Long.MAX_VALUE, Long.MAX_VALUE, 1L));
+        Assertions.assertTrue(e.getMessage().contains("range overflows"));
+    }
+
+    @Test
+    public void validateDeletionVectorMetadataRejectsRangeBeyondFileSize() {
+        // The blob [offset, offset+length) must lie inside the puffin file. 80+40 > 100 addresses bytes past the
+        // file end. MUTATION: dropping the fileSize bound -> BE reads/allocates past the file.
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergScanPlanProvider.validateDeletionVectorMetadata("s3://b/dv.puffin", 100L, 80L, 40L));
+        Assertions.assertTrue(e.getMessage().contains("exceeds file size"));
+    }
+
+    @Test
+    public void convertDeleteRejectsMalformedDeletionVector() {
+        // Wiring proof: the normal merge-on-read path (convertDelete) runs the validation before emitting the DV
+        // carrier. A puffin whose blob range (200+100) exceeds its file size (256) is rejected here, never passed
+        // to BE. MUTATION: removing the convertDelete call site -> this returns a carrier instead of throwing.
+        DeleteFile delete = deletionVectorFile("s3://b/db/t1/dv.puffin", 200L, 100L);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class, () ->
+                provider().convertDelete(delete, Collections.emptyMap()));
+        Assertions.assertTrue(e.getMessage().contains("exceeds file size"));
+        Assertions.assertTrue(e.getMessage().contains("dv.puffin"));
+    }
+
     @Test
     public void convertDeleteEqualityDeleteCarriesFieldIds() {
         // EQUALITY_DELETES -> content 2 + the equality field-ids from delete metadata (correct independent of
