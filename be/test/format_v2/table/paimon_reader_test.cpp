@@ -461,6 +461,20 @@ TEST(PaimonReaderTest, DeletionVectorCacheKeyIncludesOffsetAndLength) {
     EXPECT_NE(first_desc.key, different_length_desc.key);
 }
 
+TEST(PaimonReaderTest, DeletionVectorRejectsInvalidRange) {
+    auto table_format_params = make_paimon_table_format_desc("dv.bin", -1, 4);
+
+    paimon::PaimonReader reader;
+    DeleteFileDesc desc;
+    bool has_delete_file = false;
+    auto status =
+            reader.TEST_parse_deletion_vector_file(table_format_params, &desc, &has_delete_file);
+
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("offset must be non-negative"), std::string::npos);
+    EXPECT_FALSE(has_delete_file);
+}
+
 TEST(PaimonReaderTest, DecodeDeletionVectorBufferUsesSharedFormatHelper) {
     // Scenario: format_v2 TableReader reads a raw Paimon BitmapDeletionVector range and delegates
     // the binary parsing to the same helper used by the format reader path.
