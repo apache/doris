@@ -70,6 +70,8 @@ public class PaimonSysExternalTable extends ExternalTable {
     private final String sysTableType;
     private volatile Boolean isDataTable;
     private volatile Table paimonSysTable;
+    private volatile List<Column> fullSchema;
+    private volatile SchemaCacheValue schemaCacheValue;
 
     /**
      * Creates a new Paimon system external table.
@@ -93,6 +95,7 @@ public class PaimonSysExternalTable extends ExternalTable {
         return PaimonExternalMetaCache.ENGINE;
     }
 
+    @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
@@ -136,9 +139,7 @@ public class PaimonSysExternalTable extends ExternalTable {
      */
     @Override
     public List<Column> getFullSchema() {
-        Table sysTable = getSysPaimonTable();
-        return buildFullSchema(sysTable.rowType().getFields(), getCatalog().getEnableMappingVarbinary(),
-                getCatalog().getEnableMappingTimestampTz());
+        return getOrCreateSchemaCacheValue().getSchema();
     }
 
     static List<Column> buildFullSchema(List<DataField> fields, boolean enableMappingVarbinary,
@@ -235,12 +236,12 @@ public class PaimonSysExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return Optional.of(new SchemaCacheValue(getFullSchema()));
+        return Optional.of(getOrCreateSchemaCacheValue());
     }
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(new SchemaCacheValue(getFullSchema()));
+        return Optional.of(getOrCreateSchemaCacheValue());
     }
 
     @Override
@@ -255,6 +256,23 @@ public class PaimonSysExternalTable extends ExternalTable {
     @Override
     public String getComment() {
         return "Paimon system table: " + sysTableType + " for " + sourceTable.getName();
+    }
+
+    private SchemaCacheValue getOrCreateSchemaCacheValue() {
+        if (schemaCacheValue == null) {
+            synchronized (this) {
+                if (schemaCacheValue == null) {
+                    if (fullSchema == null) {
+                        Table sysTable = getSysPaimonTable();
+                        fullSchema = buildFullSchema(sysTable.rowType().getFields(),
+                                getCatalog().getEnableMappingVarbinary(),
+                                getCatalog().getEnableMappingTimestampTz());
+                    }
+                    schemaCacheValue = new SchemaCacheValue(fullSchema);
+                }
+            }
+        }
+        return schemaCacheValue;
     }
 
 }
