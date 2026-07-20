@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,23 +15,21 @@
 # specific language governing permissions and limitations
 # under the License.
 
-[kdcdefaults]
- kdc_ports = ${KDC_PORT1}
- kdc_tcp_ports = ${KDC_PORT1}
- kadmind_port = ${KADMIND_PORT1}
- kpasswd_port = ${KPASSWD_PORT1}
+[logging]
+ default = FILE:/var/log/krb5libs.log
+ kdc = FILE:/var/log/krb5kdc.log
 
+[libdefaults]
+ default_realm = ${REALM}
+ dns_lookup_realm = false
+ dns_lookup_kdc = false
+ forwardable = true
+ udp_preference_limit = 1
 
 [realms]
- OTHERREALM.COM = {
-  acl_file = /var/kerberos/krb5kdc/kadm5.acl
-  dict_file = /usr/share/dict/words
-  admin_keytab = /var/kerberos/krb5kdc/kadm5.keytab
-  supported_enctypes = aes128-cts:normal des3-hmac-sha1:normal arcfour-hmac:normal des-hmac-sha1:normal des-cbc-md5:normal des-cbc-crc:normal
-  kdc_listen = ${KDC_PORT1}
-  kdc_tcp_listen = ${KDC_PORT1}
-  kdc_ports = ${KDC_PORT1}
-  kdc_tcp_ports = ${KDC_PORT1}
-  kadmind_port = ${KADMIND_PORT1}
-  kpasswd_port = ${KPASSWD_PORT1}
+ ${REALM} = {
+  kdc = 127.0.0.1:${KDC_PORT}
  }
+
+[domain_realm]
+ ${HOST} = ${REALM}
