@@ -382,7 +382,9 @@ public class CascadesContext implements ScheduleContext {
      */
     public IvmRewriteResult getOrCreateIvmRewriteResult() {
         if (!ivmRewriteResult.isPresent()) {
-            ivmRewriteResult = Optional.of(new IvmRewriteResult());
+            ivmRewriteResult = Optional.of(statementContext.getIvmRefreshContext()
+                    .map(context -> context.getRewriteResult())
+                    .orElseGet(IvmRewriteResult::new));
         }
         return ivmRewriteResult.get();
     }

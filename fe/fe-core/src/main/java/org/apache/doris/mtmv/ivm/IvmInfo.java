@@ -40,6 +40,9 @@ public class IvmInfo {
     @SerializedName("rv")
     private long refreshVersion;
 
+    // In-process token used to detect metadata changes during a multi-transaction COMPLETE refresh.
+    private transient long ivmBinlogBrokenGeneration;
+
     public IvmInfo() {
     }
 
@@ -48,6 +51,7 @@ public class IvmInfo {
         this.binlogBroken = other.binlogBroken;
         this.planSignature = other.planSignature;
         this.refreshVersion = other.refreshVersion;
+        this.ivmBinlogBrokenGeneration = other.ivmBinlogBrokenGeneration;
     }
 
     public boolean isEnableIvm() {
@@ -80,6 +84,14 @@ public class IvmInfo {
 
     public void advanceRefreshVersion() {
         refreshVersion++;
+    }
+
+    public void increaseBinlogBrokenGeneration() {
+        ivmBinlogBrokenGeneration++;
+    }
+
+    public long getBinlogBrokenGeneration() {
+        return ivmBinlogBrokenGeneration;
     }
 
     @Override
