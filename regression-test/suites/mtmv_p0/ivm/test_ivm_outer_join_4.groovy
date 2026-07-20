@@ -77,7 +77,6 @@ suite("test_ivm_outer_join_4") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_4_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_4_mv")
-    advance_ivm_stream_offset("test_ivm_outer_join_4_mv")
     order_qt_after_complete """
         SELECT left_k1, right_k1, left_v1, right_v2
         FROM test_ivm_outer_join_4_mv

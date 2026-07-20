@@ -77,7 +77,6 @@ suite("test_ivm_partition_unique_key") {
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_partition_key COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_partition_key")
-    advance_ivm_stream_offset("mv_ivm_partition_key")
     order_qt_partition_key_complete """SELECT dt, id, v FROM mv_ivm_partition_key"""
 
     sql """INSERT INTO t_ivm_partition_key_base VALUES (2, '2026-06-01', 22);"""
@@ -190,7 +189,6 @@ suite("test_ivm_partition_unique_key") {
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_partition_agg_key_subset COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_partition_agg_key_subset")
-    advance_ivm_stream_offset("mv_ivm_partition_agg_key_subset")
     order_qt_agg_key_subset_complete """
         SELECT dt, id, total_v FROM mv_ivm_partition_agg_key_subset ORDER BY dt, id
     """

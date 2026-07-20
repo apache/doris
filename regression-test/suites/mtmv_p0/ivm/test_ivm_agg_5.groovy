@@ -69,7 +69,6 @@ suite("test_ivm_agg_5") {
     // COMPLETE baseline — distinct k2: 'a'(cnt=2), 'b'(cnt=2)
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_grpby_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_grpby_mv")
-    advance_ivm_stream_offset("test_ivm_agg_bare_grpby_mv")
 
     order_qt_bare_grpby_after_complete """SELECT k2 FROM test_ivm_agg_bare_grpby_mv"""
 
@@ -87,7 +86,6 @@ suite("test_ivm_agg_5") {
     sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (6, 'c', 60);"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_grpby_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_grpby_mv")
-    advance_ivm_stream_offset("test_ivm_agg_bare_grpby_mv")
     // After COMPLETE: 'a'(k1=1,3): cnt=2; 'b'(k1=2,4): cnt=2; 'c'(k1=5,6): cnt=2
 
     // Delete one 'a' row (k1=3, op=1) and add new 'a' row (k1=7, op=0) as dirty trigger.
@@ -107,7 +105,6 @@ suite("test_ivm_agg_5") {
     // Reset to fresh COMPLETE with current physical state to control counts.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_grpby_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_grpby_mv")
-    advance_ivm_stream_offset("test_ivm_agg_bare_grpby_mv")
     // Physical rows now: k1=1('a',0), k1=2('b',0), k1=3('a',1), k1=4('b',0),
     //                    k1=5('c',0), k1=6('c',0), k1=7('a',0)
     // COMPLETE ignores binlog_op → 'a': cnt=3, 'b': cnt=2, 'c': cnt=2
@@ -172,7 +169,6 @@ suite("test_ivm_agg_5") {
     // Step 1: COMPLETE baseline: (10,x), (10,y), (20,x), (20,y). Each group count = 1.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_multikey_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_multikey_mv")
-    advance_ivm_stream_offset("test_ivm_agg_bare_multikey_mv")
 
     order_qt_bare_multi_after_complete """SELECT k2, v1 FROM test_ivm_agg_bare_multikey_mv"""
 

@@ -57,7 +57,6 @@ suite("test_ivm_snapshot") {
     // 3. COMPLETE refresh → MV catchup with base table
     sql """REFRESH MATERIALIZED VIEW test_ivm_snapshot_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_snapshot_mv")
-    advance_ivm_stream_offset("test_ivm_snapshot_mv")
 
     def syncAfterComplete = sql """select SyncWithBaseTables from mv_infos('database'='${context.dbName}')
         where Name='test_ivm_snapshot_mv'"""
@@ -94,7 +93,6 @@ suite("test_ivm_snapshot") {
     // 7. COMPLETE refresh → MV catchup
     sql """REFRESH MATERIALIZED VIEW test_ivm_snapshot_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_snapshot_mv")
-    advance_ivm_stream_offset("test_ivm_snapshot_mv")
 
     def syncAfterComplete2 = sql """select SyncWithBaseTables from mv_infos('database'='${context.dbName}')
         where Name='test_ivm_snapshot_mv'"""
@@ -143,7 +141,6 @@ suite("test_ivm_snapshot") {
 
     sql """REFRESH MATERIALIZED VIEW tivm_snap_part_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("tivm_snap_part_mv")
-    advance_ivm_stream_offset("tivm_snap_part_mv")
 
     sql """
         INSERT INTO tivm_snap_part_base VALUES

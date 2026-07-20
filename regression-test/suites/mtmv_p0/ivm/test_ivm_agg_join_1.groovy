@@ -78,7 +78,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p1_mv")
-    advance_ivm_stream_offset("ivm_aj1_p1_mv")
     order_qt_p1_complete """SELECT cust_id, total, cnt FROM ivm_aj1_p1_mv"""
 
     sql """INSERT INTO ivm_aj1_p1_orders VALUES (4,2,75);"""
@@ -88,7 +87,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p1_mv")
-    advance_ivm_stream_offset("ivm_aj1_p1_mv")
     order_qt_p1_complete2 """SELECT cust_id, total, cnt FROM ivm_aj1_p1_mv"""
 
     // =========================================================
@@ -150,7 +148,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p2_mv")
-    advance_ivm_stream_offset("ivm_aj1_p2_mv")
     order_qt_p2_complete """SELECT dname, headcount, total_sal, avg_sal FROM ivm_aj1_p2_mv"""
 
     sql """INSERT INTO ivm_aj1_p2_emp VALUES (4,2,250);"""
@@ -160,7 +157,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p2_mv")
-    advance_ivm_stream_offset("ivm_aj1_p2_mv")
     order_qt_p2_complete2 """SELECT dname, headcount, total_sal, avg_sal FROM ivm_aj1_p2_mv"""
 
     // =========================================================
@@ -221,7 +217,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p3_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p3_mv")
-    advance_ivm_stream_offset("ivm_aj1_p3_mv")
     order_qt_p3_complete """SELECT rid_ref, store_cnt, total_rev FROM ivm_aj1_p3_mv"""
 
     sql """INSERT INTO ivm_aj1_p3_stores VALUES (4,2,800);"""
@@ -231,7 +226,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p3_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p3_mv")
-    advance_ivm_stream_offset("ivm_aj1_p3_mv")
     order_qt_p3_complete2 """SELECT rid_ref, store_cnt, total_rev FROM ivm_aj1_p3_mv"""
 
     // =========================================================
@@ -295,7 +289,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p4_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p4_mv")
-    advance_ivm_stream_offset("ivm_aj1_p4_mv")
     order_qt_p4_complete """SELECT cat, region, cnt, s1 FROM ivm_aj1_p4_mv"""
 
     sql """INSERT INTO ivm_aj1_p4_t2 VALUES (4,1,'Y',400);"""
@@ -305,7 +298,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p4_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p4_mv")
-    advance_ivm_stream_offset("ivm_aj1_p4_mv")
     order_qt_p4_complete2 """SELECT cat, region, cnt, s1 FROM ivm_aj1_p4_mv"""
 
     // =========================================================
@@ -362,7 +354,6 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p5_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p5_mv")
-    advance_ivm_stream_offset("ivm_aj1_p5_mv")
     order_qt_p5_complete """SELECT cnt, total FROM ivm_aj1_p5_mv"""
 
     sql """INSERT INTO ivm_aj1_p5_t1 VALUES (3,30);"""
@@ -372,6 +363,5 @@ suite("test_ivm_agg_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj1_p5_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj1_p5_mv")
-    advance_ivm_stream_offset("ivm_aj1_p5_mv")
     order_qt_p5_complete2 """SELECT cnt, total FROM ivm_aj1_p5_mv"""
 }
