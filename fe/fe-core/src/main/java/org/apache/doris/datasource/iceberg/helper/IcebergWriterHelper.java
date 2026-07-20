@@ -85,7 +85,7 @@ public class IcebergWriterHelper {
             long fileSize = commitData.getFileSize();
             long recordCount = commitData.getRowCount();
             CommonStatistics stat = new CommonStatistics(recordCount, DEFAULT_FILE_COUNT, fileSize);
-            Metrics metrics = buildDataFileMetrics(commitData, schema, metricsConfig);
+            Metrics metrics = buildDataFileMetrics(commitData, schema, metricsConfig, fileFormat);
             Optional<PartitionData> partitionData = Optional.empty();
             //get and check partitionValues when table is partitionedTable
             if (spec.isPartitioned()) {
@@ -169,7 +169,7 @@ public class IcebergWriterHelper {
     }
 
     private static Metrics buildDataFileMetrics(
-            TIcebergCommitData commitData, Schema schema, MetricsConfig metricsConfig) {
+            TIcebergCommitData commitData, Schema schema, MetricsConfig metricsConfig, FileFormat fileFormat) {
         Map<Integer, Integer> fieldParents = TypeUtil.indexParents(schema.asStruct());
         Map<Integer, Long> columnSizes = new HashMap<>();
         Map<Integer, Long> valueCounts = new HashMap<>();
@@ -201,8 +201,8 @@ public class IcebergWriterHelper {
                 filterLogicalMetrics(valueCounts, schema, metricsConfig, fieldParents),
                 filterLogicalMetrics(nullValueCounts, schema, metricsConfig, fieldParents),
                 null,
-                filterBounds(lowerBounds, schema, metricsConfig, fieldParents, true),
-                filterBounds(upperBounds, schema, metricsConfig, fieldParents, false));
+                filterBounds(lowerBounds, schema, metricsConfig, fieldParents, fileFormat, true),
+                filterBounds(upperBounds, schema, metricsConfig, fieldParents, fileFormat, false));
     }
 
     private static <T> Map<Integer, T> filterDisabledMetrics(
@@ -232,7 +232,7 @@ public class IcebergWriterHelper {
 
     private static Map<Integer, ByteBuffer> filterBounds(
             Map<Integer, ByteBuffer> bounds, Schema schema, MetricsConfig metricsConfig,
-            Map<Integer, Integer> fieldParents, boolean lowerBound) {
+            Map<Integer, Integer> fieldParents, FileFormat fileFormat, boolean lowerBound) {
         Map<Integer, ByteBuffer> filteredBounds = new HashMap<>();
         bounds.forEach((fieldId, value) -> {
             if (isInRepeatedField(fieldId, schema, fieldParents)) {
@@ -248,7 +248,7 @@ public class IcebergWriterHelper {
                 Type type = schema.findType(fieldId);
                 int length = ((MetricsModes.Truncate) mode).length();
                 // Truncated upper bounds must round up so file pruning cannot exclude matching values.
-                filteredValue = truncateBound(type, value, length, lowerBound);
+                filteredValue = truncateBound(type, value, length, fileFormat, lowerBound);
             }
             if (filteredValue != null) {
                 filteredBounds.put(fieldId, filteredValue);
@@ -269,13 +269,18 @@ public class IcebergWriterHelper {
         return false;
     }
 
-    private static ByteBuffer truncateBound(Type type, ByteBuffer value, int length, boolean lowerBound) {
+    private static ByteBuffer truncateBound(
+            Type type, ByteBuffer value, int length, FileFormat fileFormat, boolean lowerBound) {
         switch (type.typeId()) {
             case STRING:
                 String stringValue = Conversions.fromByteBuffer(type, value).toString();
                 String truncatedString = lowerBound
                         ? UnicodeUtil.truncateStringMin(stringValue, length)
                         : UnicodeUtil.truncateStringMax(stringValue, length);
+                // ORC keeps the full maximum when no safe truncated successor exists.
+                if (!lowerBound && truncatedString == null && fileFormat == FileFormat.ORC) {
+                    return value;
+                }
                 return truncatedString == null ? null : Conversions.toByteBuffer(type, truncatedString);
             case BINARY:
                 return lowerBound

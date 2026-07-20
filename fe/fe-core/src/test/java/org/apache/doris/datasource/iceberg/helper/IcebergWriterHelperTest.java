@@ -178,6 +178,36 @@ public class IcebergWriterHelperTest {
     }
 
     @Test
+    public void testConvertToWriterResultPreservesOrcUpperBoundWithoutTruncatedSuccessor() {
+        Schema boundsSchema = new Schema(
+                Types.NestedField.optional(1, "text", Types.StringType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(boundsSchema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(Map.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "orc",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "truncate(1)"));
+
+        String maxWithoutSuccessor = new String(Character.toChars(Character.MAX_CODE_POINT)) + "tail";
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setUpperBounds(Map.of(
+                1, Conversions.toByteBuffer(Types.StringType.get(), maxWithoutSuccessor)));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.orc");
+        commitData.setRowCount(1);
+        commitData.setFileSize(128);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0];
+
+        Assertions.assertNotNull(dataFile.upperBounds());
+        Assertions.assertEquals(maxWithoutSuccessor, Conversions.fromByteBuffer(
+                Types.StringType.get(), dataFile.upperBounds().get(1)).toString());
+    }
+
+    @Test
     public void testConvertToWriterResultBuildsMetricsPolicyOncePerBatch() {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.schema()).thenReturn(schema);
