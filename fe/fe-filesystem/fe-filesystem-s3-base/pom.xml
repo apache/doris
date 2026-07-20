@@ -29,10 +29,12 @@ under the License.
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>fe-filesystem-s3</artifactId>
+    <artifactId>fe-filesystem-s3-base</artifactId>
     <packaging>jar</packaging>
-    <name>Doris FE Filesystem - S3</name>
-    <description>AWS S3 and S3-compatible filesystem implementation for Doris FE.</description>
+    <name>Doris FE Filesystem - S3 base (shared library)</name>
+    <description>Shared S3-protocol code (S3FileSystem, S3ObjStorage, credentials, dialect base
+        properties and detection signals) reused by the s3 / gcs / minio / ozone plugins.
+        Not a plugin itself: no provider, no META-INF/services.</description>
 
     <dependencies>
         <dependency>
@@ -43,33 +45,22 @@ under the License.
                  and are loaded parent-first; provided so they are not bundled into the plugin lib/. -->
             <scope>provided</scope>
         </dependency>
-
-        <!-- Shared S3 protocol code (S3FileSystem, S3ObjStorage, credentials, dialect base
-             properties and detection signals); brings fe-foundation and the AWS SDK transitively. -->
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>fe-filesystem-s3-base</artifactId>
-            <version>${revision}</version>
-        </dependency>
-
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-foundation</artifactId>
             <version>${revision}</version>
         </dependency>
-
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <scope>provided</scope>
         </dependency>
-
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
 
-        <!-- AWS SDK v2 -->
+        <!-- AWS SDK v2: the shared S3 protocol client used by every S3-compatible dialect. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
@@ -103,28 +94,4 @@ under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
-
-    <build>
-        <finalName>doris-fe-filesystem-s3</finalName>
-        <plugins>
-            <plugin>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <appendAssemblyId>false</appendAssemblyId>
-                    <descriptors>
-                        <descriptor>src/main/assembly/plugin-zip.xml</descriptor>
-                    </descriptors>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>make-assembly</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>single</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
 </project>

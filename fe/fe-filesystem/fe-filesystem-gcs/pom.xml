@@ -29,10 +29,11 @@ under the License.
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>fe-filesystem-s3</artifactId>
+    <artifactId>fe-filesystem-gcs</artifactId>
     <packaging>jar</packaging>
-    <name>Doris FE Filesystem - S3</name>
-    <description>AWS S3 and S3-compatible filesystem implementation for Doris FE.</description>
+    <name>Doris FE Filesystem - GCS</name>
+    <description>Google Cloud Storage (HMAC interoperability access) filesystem provider for Doris FE, built on the shared S3 protocol
+        client in fe-filesystem-s3-base.</description>
 
     <dependencies>
         <dependency>
@@ -43,53 +44,19 @@ under the License.
                  and are loaded parent-first; provided so they are not bundled into the plugin lib/. -->
             <scope>provided</scope>
         </dependency>
-
-        <!-- Shared S3 protocol code (S3FileSystem, S3ObjStorage, credentials, dialect base
-             properties and detection signals); brings fe-foundation and the AWS SDK transitively. -->
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-filesystem-s3-base</artifactId>
             <version>${revision}</version>
         </dependency>
-
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-foundation</artifactId>
             <version>${revision}</version>
         </dependency>
-
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <scope>provided</scope>
-        </dependency>
-
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
-        </dependency>
-
-        <!-- AWS SDK v2 -->
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>s3</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>sts</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>auth</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>url-connection-client</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.logging.log4j</groupId>
-            <artifactId>log4j-api</artifactId>
         </dependency>
 
         <dependency>
@@ -105,7 +72,7 @@ under the License.
     </dependencies>
 
     <build>
-        <finalName>doris-fe-filesystem-s3</finalName>
+        <finalName>doris-fe-filesystem-gcs</finalName>
         <plugins>
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
