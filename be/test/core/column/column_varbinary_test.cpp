@@ -201,6 +201,34 @@ TEST_F(ColumnVarbinaryTest, FilterBothModes) {
     }
 }
 
+TEST_F(ColumnVarbinaryTest, FilterKeepsSourceStorageAfterSourceClear) {
+    auto col = ColumnVarbinary::create();
+    std::vector<std::string> vals = {
+            make_bytes(doris::StringView::kInlineSize + 5, 0x91),
+            make_bytes(3, 0x12),
+            make_bytes(doris::StringView::kInlineSize + 7, 0x92),
+    };
+    for (auto& v : vals) {
+        col->insert_data(v.data(), v.size());
+    }
+
+    IColumn::Filter filter = {1, 0, 1};
+    ColumnPtr filtered = col->filter(filter, -1);
+    col->clear();
+    auto new_value = make_bytes(doris::StringView::kInlineSize + 11, 0xA1);
+    col->insert_data(new_value.data(), new_value.size());
+
+    const auto& filtered_col = assert_cast<const ColumnVarbinary&>(*filtered);
+    ASSERT_EQ(filtered_col.size(), 2U);
+    std::vector<size_t> kept_idx = {0, 2};
+    for (size_t i = 0; i < kept_idx.size(); ++i) {
+        auto r = filtered_col.get_data_at(i);
+        const auto& expect = vals[kept_idx[i]];
+        ASSERT_EQ(r.size, expect.size());
+        ASSERT_EQ(memcmp(r.data, expect.data(), r.size), 0);
+    }
+}
+
 TEST_F(ColumnVarbinaryTest, Permute) {
     auto col = ColumnVarbinary::create();
     // Include large (non-inline) entries to exercise arena path
@@ -233,6 +261,33 @@ TEST_F(ColumnVarbinaryTest, Permute) {
     ASSERT_EQ(c2.size(), vals.size());
     for (size_t i = 0; i < vals.size(); ++i) {
         auto r = c2.get_data_at(i);
+        const auto& expect = vals[perm[i]];
+        ASSERT_EQ(r.size, expect.size());
+        ASSERT_EQ(memcmp(r.data, expect.data(), r.size), 0);
+    }
+}
+
+TEST_F(ColumnVarbinaryTest, PermuteKeepsSourceStorageAfterSourceClear) {
+    auto col = ColumnVarbinary::create();
+    std::vector<std::string> vals = {
+            make_bytes(doris::StringView::kInlineSize + 3, 0xA0),
+            make_bytes(2, 0x21),
+            make_bytes(doris::StringView::kInlineSize + 8, 0xA1),
+    };
+    for (auto& v : vals) {
+        col->insert_data(v.data(), v.size());
+    }
+
+    IColumn::Permutation perm = {2, 0, 1};
+    ColumnPtr permuted = col->permute(perm, vals.size());
+    col->clear();
+    auto new_value = make_bytes(doris::StringView::kInlineSize + 13, 0xB1);
+    col->insert_data(new_value.data(), new_value.size());
+
+    const auto& permuted_col = assert_cast<const ColumnVarbinary&>(*permuted);
+    ASSERT_EQ(permuted_col.size(), vals.size());
+    for (size_t i = 0; i < vals.size(); ++i) {
+        auto r = permuted_col.get_data_at(i);
         const auto& expect = vals[perm[i]];
         ASSERT_EQ(r.size, expect.size());
         ASSERT_EQ(memcmp(r.data, expect.data(), r.size), 0);

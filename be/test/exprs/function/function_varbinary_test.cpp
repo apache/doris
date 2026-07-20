@@ -408,6 +408,44 @@ TEST(function_binary_test, function_subbinary_test) {
     }
 }
 
+TEST(function_binary_test, function_subbinary_reuses_non_inline_payload) {
+    auto binary = ColumnVarbinary::create();
+    std::string value = "0123456789abcdefghijklmnopqrstuvwxyz";
+    binary->insert_data(value.data(), value.size());
+    binary->insert_data(value.data(), value.size());
+    const char* source_data = binary->get_data_at(0).data;
+    const char* second_source_data = binary->get_data_at(1).data;
+    auto* binary_ptr = binary.get();
+
+    auto start = ColumnInt32::create();
+    start->insert_value(5);
+    start->insert_value(5);
+    auto length = ColumnInt32::create();
+    length->insert_value(20);
+    length->insert_value(5);
+
+    auto varbinary_type = std::make_shared<DataTypeVarbinary>();
+    Block block({{std::move(binary), varbinary_type, "binary"},
+                 {std::move(start), std::make_shared<DataTypeInt32>(), "start"},
+                 {std::move(length), std::make_shared<DataTypeInt32>(), "length"},
+                 {varbinary_type->create_column(), varbinary_type, "result"}});
+
+    SubBinaryUtil::sub_binary_execute(block, {0, 1, 2}, 3, 2);
+
+    const auto& result = assert_cast<const ColumnVarbinary&>(*block.get_by_position(3).column);
+    ASSERT_EQ(result.size(), 2);
+    EXPECT_EQ(result.get_data_at(0).data, source_data + 4);
+    EXPECT_EQ(result.get_data_at(0).to_string(), value.substr(4, 20));
+    EXPECT_NE(result.get_data_at(1).data, second_source_data + 4);
+    EXPECT_EQ(result.get_data_at(1).to_string(), value.substr(4, 5));
+
+    binary_ptr->clear();
+    std::string replacement(value.size(), 'x');
+    binary_ptr->insert_data(replacement.data(), replacement.size());
+    EXPECT_EQ(result.get_data_at(0).to_string(), value.substr(4, 20));
+    EXPECT_EQ(result.get_data_at(1).to_string(), value.substr(4, 5));
+}
+
 TEST(function_binary_test, function_to_binary_test) {
     std::string func_name = "to_binary";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};

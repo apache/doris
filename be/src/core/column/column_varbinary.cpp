@@ -95,13 +95,18 @@ ColumnPtr ColumnVarbinary::filter(const IColumn::Filter& filt, ssize_t result_si
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;
     const auto* data_pos = _data.data();
+    bool has_non_inline_value = false;
 
     while (filt_pos < filt_end) {
         if (*filt_pos) {
-            res->insert_data(data_pos->data(), data_pos->size());
+            has_non_inline_value |= !data_pos->isInline();
+            res_data.push_back(*data_pos);
         }
         ++filt_pos;
         ++data_pos;
+    }
+    if (has_non_inline_value) {
+        res->_auxiliary_data.add_owners_from(_auxiliary_data);
     }
     return res;
 };
@@ -111,13 +116,7 @@ size_t ColumnVarbinary::filter(const IColumn::Filter& filter) {
     const Self& src_vec = *this;
     for (size_t i = 0; i < filter.size(); i++) {
         if (filter[i]) {
-            if (src_vec.get_data()[i].isInline()) {
-                _data[pos] = src_vec.get_data()[i];
-            } else {
-                auto val = src_vec.get_data()[i];
-                const auto* dst = _arena.insert(val.data(), val.size());
-                _data[pos] = doris::StringView(dst, val.size());
-            }
+            _data[pos] = src_vec.get_data()[i];
             pos++;
         }
     }
@@ -138,14 +137,14 @@ MutableColumnPtr ColumnVarbinary::permute(const IColumn::Permutation& perm, size
 
     auto res = doris::ColumnVarbinary::create(limit);
     typename Self::Container& res_data = res->get_data();
+    bool has_non_inline_value = false;
     for (size_t i = 0; i < limit; ++i) {
         auto val = _data[perm[i]];
-        if (val.isInline()) {
-            res_data[i] = val;
-            continue;
-        }
-        const auto* dst = res->_arena.insert(val.data(), val.size());
-        res_data[i] = doris::StringView(dst, val.size());
+        has_non_inline_value |= !val.isInline();
+        res_data[i] = val;
+    }
+    if (has_non_inline_value) {
+        res->_auxiliary_data.add_owners_from(_auxiliary_data);
     }
 
     return res;
@@ -159,7 +158,8 @@ void ColumnVarbinary::replace_column_data(const IColumn& rhs, size_t row, size_t
         _data[self_row] = val;
         return;
     }
-    const auto* dst = _arena.insert(val.data(), val.size());
+    DCHECK(_arena != nullptr);
+    const auto* dst = _arena->insert(val.data(), val.size());
     _data[self_row] = doris::StringView(dst, val.size());
 }
 
