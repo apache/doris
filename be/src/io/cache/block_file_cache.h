@@ -93,7 +93,8 @@ struct FileBlocksProbeResult {
     ~FileBlocksProbeResult();
 
     /// One entry per cache-block-sized input slot, in offset order. A null entry is a cache miss;
-    /// a non-null entry has the exact slot range, except that the final slot may end at EOF.
+    /// a non-null entry covers the whole slot. Its right boundary can exceed the final short slot
+    /// while a file writer still owns a full-size preallocated tail block.
     std::vector<FileBlockSPtr> file_blocks;
 };
 
@@ -259,8 +260,9 @@ public:
 
     /// Probe the block-aligned `[offset, offset + size)` range without creating cache cells or
     /// touching LRU state. The result contains one ordered slot per cache block; each slot is null
-    /// on miss or owns the exactly aligned existing block. `context` supplies cache metadata when
-    /// lazy loading is required.
+    /// on miss or owns an existing block that starts at and covers the slot. A final short slot can
+    /// be covered by a full-size block preallocated by a file writer. `context` supplies cache
+    /// metadata when lazy loading is required.
     FileBlocksProbeResult probe(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 const CacheContext& context);
 

@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <condition_variable>
+#include <iterator>
 #include <mutex>
 #include <thread>
 
@@ -110,6 +111,37 @@ TEST_F(BlockFileCacheTest, ProbeReturnsDownloadedBlockAndNullMissSlot) {
             std::lock_guard cache_lock(cache._mutex);
             EXPECT_EQ(cache._files.at(hash).begin()->second.atime, 123);
         }
+    }
+    fs::remove_all(path, error);
+}
+
+TEST_F(BlockFileCacheTest, ProbeAcceptsPreallocatedBlockCoveringFileTail) {
+    const auto path = caches_dir / "block_file_cache_probe_preallocated_file_tail";
+    std::error_code error;
+    fs::remove_all(path, error);
+    fs::create_directories(path);
+    {
+        BlockFileCache cache(path.string(), probe_cache_settings());
+        ASSERT_TRUE(cache.initialize().ok());
+        wait_until_cache_ready(cache);
+        const auto hash = BlockFileCache::hash("probe_preallocated_file_tail");
+        ReadStatistics stats;
+        CacheContext context;
+        context.stats = &stats;
+
+        // File writers allocate a full block before the final buffer size is known. During that
+        // window, the last cache block can extend beyond the actual file tail passed to probe().
+        auto holder = cache.get_or_set(hash, 0, 8192, context);
+        ASSERT_EQ(holder.file_blocks.size(), 2);
+        const auto& preallocated_tail = *std::next(holder.file_blocks.begin());
+        ASSERT_EQ(preallocated_tail->range().left, 4096);
+        ASSERT_EQ(preallocated_tail->range().right, 8191);
+
+        auto result = cache.probe(hash, 0, 6144, context);
+        ASSERT_EQ(result.file_blocks.size(), 2);
+        ASSERT_EQ(result.file_blocks[1], preallocated_tail);
+        EXPECT_EQ(result.file_blocks[1]->range().left, 4096);
+        EXPECT_EQ(result.file_blocks[1]->range().right, 8191);
     }
     fs::remove_all(path, error);
 }

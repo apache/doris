@@ -888,7 +888,11 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
             cached_block->second.file_block->range().left <= expected_range.right) {
             file_block = cached_block->second.file_block;
             DORIS_CHECK(file_block->range().left == expected_range.left);
-            DORIS_CHECK(file_block->range().right == expected_range.right);
+            DORIS_CHECK(file_block->range().right >= expected_range.right);
+            // File writers allocate full-size cache blocks before the final buffer size is known.
+            // Only the last short probe slot can therefore have a larger cached right boundary.
+            DORIS_CHECK(file_block->range().right == expected_range.right ||
+                        block_size < _max_file_block_size);
             ++cached_block;
         }
         result.emplace_back(std::move(file_block));
