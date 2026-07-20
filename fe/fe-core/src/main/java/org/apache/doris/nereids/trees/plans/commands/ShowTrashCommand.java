@@ -36,30 +36,32 @@ import org.apache.doris.system.Backend;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * show trash command
  */
 public class ShowTrashCommand extends ShowCommand {
     private List<Backend> backends = Lists.newArrayList();
-    private String backendQuery;
+    private List<String> backendsQuery;
 
     public ShowTrashCommand() {
         super(PlanType.SHOW_TRASH_COMMAND);
     }
 
-    public ShowTrashCommand(String backendQuery) {
+    public ShowTrashCommand(List<String> backendsQuery) {
         super(PlanType.SHOW_TRASH_COMMAND);
-        this.backendQuery = backendQuery;
+        this.backendsQuery = backendsQuery;
     }
 
     public List<Backend> getBackends() {
         return backends;
     }
 
-    public String getBackend() {
-        return backendQuery;
+    public List<String> getBackendsQuery() {
+        return backendsQuery;
     }
 
     public ShowResultSetMetaData getMetaData() {
@@ -70,24 +72,28 @@ public class ShowTrashCommand extends ShowCommand {
         return builder.build();
     }
 
-    private ShowResultSet handleShowTrash(String backendQuery) throws Exception {
+    private ShowResultSet handleShowTrash(List<String> backendsQuery) throws Exception {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
                 && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
                 PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
-        if (backendQuery == null || backendQuery.isEmpty()) {
+        if (backendsQuery == null) {
             for (Backend backend : backendsInfo.values()) {
                 this.backends.add(backend);
             }
         } else {
+            Map<String, Long> backendsID = new HashMap<>();
             for (Backend backend : backendsInfo.values()) {
-                String backendStr = NetUtils.getHostPortInAccessibleFormat(backend.getHost(),
-                        backend.getHeartbeatPort());
-                if (backendQuery.equals(backendStr)) {
-                    this.backends.add(backend);
-                    break;
+                backendsID.put(
+                        NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort()),
+                        backend.getId());
+            }
+            for (String backendQuery : backendsQuery) {
+                if (backendsID.containsKey(backendQuery)) {
+                    this.backends.add(backendsInfo.get(backendsID.get(backendQuery)));
+                    backendsID.remove(backendQuery);
                 }
             }
         }
@@ -103,7 +109,7 @@ public class ShowTrashCommand extends ShowCommand {
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        return handleShowTrash(backendQuery);
+        return handleShowTrash(backendsQuery);
     }
 }
 

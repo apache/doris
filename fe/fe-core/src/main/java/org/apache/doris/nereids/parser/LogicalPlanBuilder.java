@@ -6678,10 +6678,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowTrash(ShowTrashContext ctx) {
         if (ctx.ON() != null) {
-            String backend = stripQuotes(ctx.STRING_LITERAL().getText());
-            new ShowTrashCommand(backend);
-        } else {
-            return new ShowTrashCommand();
+            List<String> backendsQuery = Lists.newArrayList();
+            // The grammar guarantees that ON is either a non-empty parenthesized list
+            // or the legacy single backend literal.
+            // Remove defensive null checks to avoid uncoverable dead branches.
+            if (!ctx.backends.isEmpty()) {
+                // Handle new added grammar: ON ("host:port", ...)
+                ctx.backends.forEach(backend -> backendsQuery.add(stripQuotes(backend.getText())));
+            } else {
+                // Handle previous old grammar: ON "host:port"
+                backendsQuery.add(stripQuotes(ctx.backend.getText()));
+            }
+            return new ShowTrashCommand(backendsQuery);
         }
         return new ShowTrashCommand();
     }

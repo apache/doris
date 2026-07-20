@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -1769,4 +1770,51 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertInstanceOf(Not.class, expression);
         Assertions.assertInstanceOf(IsFalse.class, expression.child(0));
     }
+
+    @Test
+    public void testShowTrashCommand() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // Case 1: SHOW TRASH without ON clause (backendsQuery should be null)
+        String sql1 = "SHOW TRASH";
+        Plan plan1 = nereidsParser.parseSingle(sql1);
+        Assertions.assertInstanceOf(ShowTrashCommand.class, plan1);
+        ShowTrashCommand cmd1 = (ShowTrashCommand) plan1;
+        Assertions.assertNull(cmd1.getBackendsQuery());
+
+        // Case 2: SHOW TRASH ON with legacy single backend syntax (backward compatibility)
+        String sql2 = "SHOW TRASH ON \"be1:9050\"";
+        Plan plan2 = nereidsParser.parseSingle(sql2);
+        Assertions.assertInstanceOf(ShowTrashCommand.class, plan2);
+        ShowTrashCommand cmd2 = (ShowTrashCommand) plan2;
+
+        Assertions.assertNotNull(cmd2.getBackendsQuery());
+        Assertions.assertEquals(1, cmd2.getBackendsQuery().size());
+        Assertions.assertEquals("be1:9050", cmd2.getBackendsQuery().get(0));
+
+        // Case 3: SHOW TRASH ON with new parenthesized single backend syntax
+        String sql3 = "SHOW TRASH ON (\"be1:9050\")";
+        Plan plan3 = nereidsParser.parseSingle(sql3);
+        Assertions.assertInstanceOf(ShowTrashCommand.class, plan3);
+        ShowTrashCommand cmd3 = (ShowTrashCommand) plan3;
+
+        Assertions.assertNotNull(cmd3.getBackendsQuery());
+        Assertions.assertEquals(1, cmd3.getBackendsQuery().size());
+        Assertions.assertEquals("be1:9050", cmd3.getBackendsQuery().get(0));
+
+        // Case 4: SHOW TRASH ON with multiple backends (new syntax only)
+        String sql4 = "SHOW TRASH ON (\"be1:9050\", \"be2:9050\", \"be3:9050\")";
+        Plan plan4 = nereidsParser.parseSingle(sql4);
+        Assertions.assertInstanceOf(ShowTrashCommand.class, plan4);
+        ShowTrashCommand cmd4 = (ShowTrashCommand) plan4;
+
+        Assertions.assertNotNull(cmd4.getBackendsQuery());
+        Assertions.assertEquals(3, cmd4.getBackendsQuery().size());
+        Assertions.assertEquals(Lists.newArrayList("be1:9050", "be2:9050", "be3:9050"), cmd4.getBackendsQuery());
+
+        // Case 5: Verify that legacy syntax does not support multiple backends (should throw exception)
+        String sql5 = "SHOW TRASH ON \"be1:9050\", \"be2:9050\"";
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(sql5));
+    }
+
 }
