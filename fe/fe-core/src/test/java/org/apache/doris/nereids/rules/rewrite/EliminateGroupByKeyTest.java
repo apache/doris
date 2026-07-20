@@ -250,6 +250,26 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
     }
 
     @Test
+    void testNestedAggregateUsesRewrittenRequireOutput() {
+        // Inner aggregate: GROUP BY id, name on unique-key table 'uni'.
+        // id → name FD (unique key) eliminates name from group-by,
+        // wrapping it with any_value(name) as a new alias (new ExprId).
+        // The outer EliminateGroupByKey must rewrite its project through the
+        // accumulated replaceMap before computing requireOutput; otherwise the
+        // stale ExprId would incorrectly cause name to be removed from output.
+        // Bug: proj.getInputSlots() returned old ExprIds → CheckAfterRewrite fails.
+        PlanChecker.from(connectContext)
+                .analyze("select t.id, t.name from "
+                        + "(select id, name from uni group by id, name) t "
+                        + "group by t.id, t.name")
+                .customRewrite(new EliminateGroupByKey())
+                .matches(
+                        logicalAggregate().when(agg ->
+                                agg.getGroupByExpressions().size() == 1
+                                        && agg.getGroupByExpressions().get(0).toSql().equals("id")));
+    }
+
+    @Test
     void testRepeatEliminateByEqual() {
         PlanChecker.from(connectContext)
                 .analyze("select count(1) from (select a,b from eli_gbk_t where a=b group by grouping sets((a,b),(b,a))) t group by a,b;")
