@@ -1138,12 +1138,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                     getTable().getQualifiedDbName(), getTable().getName())) {
             return true;
         }
-        // LogicalOlapTableStreamScan(INCREMENTAL): stream scans can return
-        // multiple row versions with the same key.  WinMagic runs before
-        // stream normalization, so the rewrite would group those versions
-        // under a single PARTITION BY and multiply the window aggregate.
-        if (this instanceof LogicalOlapTableStreamScan
-                && ((LogicalOlapTableStreamScan) this).isIncremental()) {
+        // Stream scans and other scan subclasses that can return duplicate
+        // key rows are handled via producesDuplicateRows() which defaults
+        // to false and is overridden by subclasses with special semantics.
+        // This follows the Open/Closed principle: adding a new scan subclass
+        // with duplicate-producing behavior does not require modifying
+        // LogicalOlapScan.
+        if (producesDuplicateRows()) {
             return true;
         }
         // Row-binlog incremental scan (TableScanParams.INCREMENTAL_READ):
@@ -1294,5 +1295,15 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return Objects.equals(left.get().getParamType(), right.get().getParamType())
                 && Objects.equals(left.get().getMapParams(), right.get().getMapParams())
                 && Objects.equals(left.get().getListParams(), right.get().getListParams());
+    }
+
+    /**
+     * Override point for scan subclasses that can return duplicate rows
+     * even for declared unique keys.  The base {@code LogicalOlapScan}
+     * returns {@code false}; subclasses that introduce special scan modes
+     * (e.g. incremental stream scans) override this to return {@code true}.
+     */
+    protected boolean producesDuplicateRows() {
+        return false;
     }
 }
