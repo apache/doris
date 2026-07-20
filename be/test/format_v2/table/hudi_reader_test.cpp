@@ -23,8 +23,8 @@
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
 
-#include <filesystem>
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
