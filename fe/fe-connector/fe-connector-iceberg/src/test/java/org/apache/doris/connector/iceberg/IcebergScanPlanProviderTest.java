@@ -1759,7 +1759,7 @@ public class IcebergScanPlanProviderTest {
         // to BE. MUTATION: removing the convertDelete call site -> this returns a carrier instead of throwing.
         DeleteFile delete = deletionVectorFile("s3://b/db/t1/dv.puffin", 200L, 100L);
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class, () ->
-                provider().convertDelete(delete, Collections.emptyMap()));
+                provider().convertDelete(delete, UnaryOperator.identity()));
         Assertions.assertTrue(e.getMessage().contains("exceeds file size"));
         Assertions.assertTrue(e.getMessage().contains("dv.puffin"));
     }
