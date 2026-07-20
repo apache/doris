@@ -42,6 +42,7 @@
 #include "format_v2/parquet/reader/native/delta_bit_pack_decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
+#include "format_v2/parquet/reader/plain_fixed_predicate.h"
 #include "io/fs/buffered_reader.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
@@ -52,6 +53,26 @@
 
 namespace doris::format::parquet::native {
 namespace {
+
+TEST(ParquetV2NativeDecoderTest, PlainFixedPredicateEvaluatesPhysicalValuesWithoutColumn) {
+    const std::array<int32_t, 6> values = {1, 4, 7, 10, 13, 16};
+    std::array<uint8_t, values.size()> matches {};
+    matches.fill(1);
+    const auto greater_equal = PlainFixedPredicate::create(PlainFixedPredicateType::INT32,
+                                                           PlainFixedPredicateOp::GE, int32_t {7});
+    const auto less_than = PlainFixedPredicate::create(PlainFixedPredicateType::INT32,
+                                                       PlainFixedPredicateOp::LT, int32_t {16});
+
+    ASSERT_TRUE(greater_equal
+                        .evaluate(reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                  sizeof(int32_t), matches.data())
+                        .ok());
+    ASSERT_TRUE(less_than
+                        .evaluate(reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                  sizeof(int32_t), matches.data())
+                        .ok());
+    EXPECT_EQ(matches, (std::array<uint8_t, values.size()> {0, 0, 1, 1, 1, 0}));
+}
 
 class RejectFixedConsumer final : public ParquetFixedValueConsumer {
 public:
@@ -117,6 +138,45 @@ public:
 
     size_t width = 0;
     std::vector<uint8_t> bytes;
+};
+
+class ScriptedDictionaryMaterializationSource final : public ParquetDecodeSource {
+public:
+    ScriptedDictionaryMaterializationSource(std::vector<uint32_t> ids, bool prefer_indices)
+            : _ids(std::move(ids)), _prefer_indices(prefer_indices) {}
+
+    Status decode_fixed_values(size_t, ParquetFixedValueConsumer&) override {
+        return Status::NotSupported("scripted dictionary source has no fixed values");
+    }
+
+    Status decode_binary_values(size_t, ParquetBinaryValueConsumer&) override {
+        return Status::NotSupported("scripted dictionary source has no binary values");
+    }
+
+    Status skip_values(size_t) override { return Status::OK(); }
+
+    Status decode_dictionary_indices(size_t num_values, std::vector<uint32_t>* indices) override {
+        DORIS_CHECK_EQ(num_values, _ids.size());
+        ++index_batches;
+        *indices = _ids;
+        return Status::OK();
+    }
+
+    Status decode_dictionary_values(size_t num_values,
+                                    ParquetDictionaryValueConsumer& consumer) override {
+        DORIS_CHECK_EQ(num_values, _ids.size());
+        ++direct_batches;
+        return consumer.consume_indices(_ids.data(), _ids.size());
+    }
+
+    bool prefer_dictionary_index_materialization(size_t) const override { return _prefer_indices; }
+
+    size_t direct_batches = 0;
+    size_t index_batches = 0;
+
+private:
+    std::vector<uint32_t> _ids;
+    bool _prefer_indices;
 };
 
 const RowRanges& scripted_row_ranges() {
@@ -606,7 +666,65 @@ Status materialize_selected_dictionary_strings(const std::vector<std::string>& d
     return Status::OK();
 }
 
-TEST(ParquetV2NativeDecoderTest, NullableSparsePlainSelectionRetainsCheaperRangeFallback) {
+TEST(ParquetV2NativeDecoderTest, PlainFixedPredicateMapsNullableSparseRowsDirectly) {
+    const std::vector<int32_t> physical_values {1, 4, 7, 10, 13};
+    constexpr size_t LOGICAL_VALUES = 7;
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE;
+    header.__set_compressed_page_size(physical_values.size() * sizeof(int32_t));
+    header.__set_uncompressed_page_size(physical_values.size() * sizeof(int32_t));
+    header.__isset.data_page_header = true;
+    header.data_page_header.__set_num_values(LOGICAL_VALUES);
+    header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    std::vector<uint8_t> payload(physical_values.size() * sizeof(int32_t));
+    memcpy(payload.data(), physical_values.data(), payload.size());
+    auto bytes = serialize_page(header, payload);
+
+    MemoryBufferedReader reader(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(LOGICAL_VALUES);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    ParquetPageReadContext page_context(false, "");
+    ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, LOGICAL_VALUES,
+                                                 nullptr, page_context);
+    ASSERT_TRUE(chunk_reader.init().ok());
+    ASSERT_TRUE(chunk_reader.load_page_data().ok());
+
+    const std::vector<uint16_t> null_runs {1, 1, 2, 1, 2};
+    const std::vector<uint8_t> input_filter {1, 0, 1, 1, 1, 0, 1};
+    FilterMap filter;
+    ASSERT_TRUE(filter.init(input_filter.data(), input_filter.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(null_runs, LOGICAL_VALUES, nullptr, &filter, 0).ok());
+    const std::vector<PlainFixedPredicate> predicates {
+            PlainFixedPredicate::create(PlainFixedPredicateType::INT32, PlainFixedPredicateOp::GE,
+                                        int32_t {4}),
+            PlainFixedPredicate::create(PlainFixedPredicateType::INT32, PlainFixedPredicateOp::LT,
+                                        int32_t {13})};
+    NullMap selected_nulls;
+    IColumn::Filter physical_matches;
+    IColumn::Filter row_filter;
+    bool used_filter = false;
+    ASSERT_TRUE(chunk_reader
+                        .filter_plain_values(predicates, select_vector, &selected_nulls,
+                                             &physical_matches, &row_filter, &used_filter)
+                        .ok());
+
+    EXPECT_TRUE(used_filter);
+    EXPECT_EQ(selected_nulls, (NullMap {0, 0, 0, 1, 0}));
+    EXPECT_EQ(physical_matches, (IColumn::Filter {0, 1, 1, 0}));
+    EXPECT_EQ(row_filter, (IColumn::Filter {0, 1, 1, 0, 0}));
+    EXPECT_EQ(chunk_reader.remaining_num_values(), 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, NullableSparsePlainPrimitiveSelectionBatchesPhysicalPayload) {
     constexpr size_t LOGICAL_VALUES = 4095;
     std::vector<uint16_t> null_runs(LOGICAL_VALUES, 1);
     std::vector<int32_t> physical_values((LOGICAL_VALUES + 1) / 2);
@@ -629,10 +747,9 @@ TEST(ParquetV2NativeDecoderTest, NullableSparsePlainSelectionRetainsCheaperRange
     EXPECT_EQ(assert_cast<const ColumnInt32&>(*column).get_data(),
               (ColumnInt32::Container {-7, 0, 500, 0, 1000, 0}));
     EXPECT_EQ(null_map, (NullMap {0, 0, 0, 1, 0, 1}));
-    // Fixed-width PLAIN skips are pointer arithmetic, so compact-and-expand would add work.
-    EXPECT_EQ(statistics.hybrid_selection_batches, 0);
-    EXPECT_EQ(statistics.hybrid_selection_ranges, 0);
-    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 1);
+    EXPECT_EQ(statistics.hybrid_selection_batches, 1);
+    EXPECT_EQ(statistics.hybrid_selection_ranges, 3);
+    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
 }
 
 TEST(ParquetV2NativeDecoderTest, NullableSparsePlainDecimalSelectionBatchesPhysicalPayload) {
@@ -729,7 +846,7 @@ TEST(ParquetV2NativeDecoderTest, NullableSparseDictionarySelectionBatchesPhysica
     constexpr size_t LOGICAL_VALUES = 4095;
     std::vector<int32_t> dictionary(16);
     std::iota(dictionary.begin(), dictionary.end(), 100);
-    // One value followed by nineteen NULLs exercises StarRocks' sparse-null threshold (<10%).
+    // One value followed by nineteen NULLs exercises the sparse-null threshold (<10%).
     std::vector<uint16_t> null_runs;
     for (size_t row = 0; row < LOGICAL_VALUES;) {
         null_runs.push_back(1);
@@ -778,6 +895,105 @@ TEST(ParquetV2NativeDecoderTest, DictionaryMaterializationSkipsFailureScanWhenDi
     ASSERT_TRUE(state.materialize_dictionary(*output).ok());
     EXPECT_EQ(output->get_data(), (ColumnInt32::Container {40, 10, 30, 20, 40}));
     EXPECT_EQ(state.dictionary_failure_scan_rows, 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryMaterializationUsesCacheAwareExecutionShape) {
+    auto verify_strategy = [](bool prefer_indices,
+                              ParquetDictionaryMaterializationStrategy expected_strategy,
+                              size_t expected_direct_batches, size_t expected_index_batches) {
+        ParquetMaterializationState state;
+        state.typed_dictionary = ColumnInt32::create();
+        assert_cast<ColumnInt32&>(*state.typed_dictionary).get_data() = {10, 20, 30, 40};
+        ScriptedDictionaryMaterializationSource source({3, 0, 2, 1, 3}, prefer_indices);
+        auto output = ColumnInt32::create();
+
+        const auto status = state.materialize_dictionary(*output, source, 5);
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(output->get_data(), (ColumnInt32::Container {40, 10, 30, 20, 40}));
+        EXPECT_EQ(state.dictionary_materialization_strategy, expected_strategy);
+        EXPECT_EQ(source.direct_batches, expected_direct_batches);
+        EXPECT_EQ(source.index_batches, expected_index_batches);
+    };
+
+    verify_strategy(false, ParquetDictionaryMaterializationStrategy::DIRECT, 1, 0);
+    verify_strategy(true, ParquetDictionaryMaterializationStrategy::INDICES, 0, 1);
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryRepeatedRunsGatherDirectlyIntoDestination) {
+    const std::array<int32_t, 2> dictionary_values {10, 20};
+    auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
+    memcpy(dictionary.get(), dictionary_values.data(), sizeof(dictionary_values));
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(
+            Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::RLE_DICTIONARY, decoder)
+                    .ok());
+    decoder->set_type_length(sizeof(int32_t));
+    ASSERT_TRUE(decoder->set_dict(dictionary, sizeof(dictionary_values), dictionary_values.size())
+                        .ok());
+
+    faststring encoded_ids;
+    RleEncoder<uint32_t> encoder(&encoded_ids, 1);
+    for (size_t row = 0; row < 64; ++row) {
+        encoder.Put(1);
+    }
+    encoder.Flush();
+    std::vector<uint8_t> payload(encoded_ids.size() + 1);
+    payload[0] = 1;
+    memcpy(payload.data() + 1, encoded_ids.data(), encoded_ids.size());
+    Slice id_slice(payload.data(), payload.size());
+    ASSERT_TRUE(decoder->set_data(&id_slice).ok());
+
+    DataTypeInt32 type;
+    auto output = type.create_column();
+    ParquetMaterializationState state;
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .encoding = ParquetValueEncoding::DICTIONARY};
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*output, *decoder, context, 64, state).ok());
+    EXPECT_EQ(state.dictionary_materialization_strategy,
+              ParquetDictionaryMaterializationStrategy::DIRECT);
+    ASSERT_EQ(output->size(), 64);
+    for (size_t row = 0; row < output->size(); ++row) {
+        EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_element(row), 20);
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryDirectGatherRollsBackLateCorruptRun) {
+    const std::array<int32_t, 2> dictionary_values {10, 20};
+    auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
+    memcpy(dictionary.get(), dictionary_values.data(), sizeof(dictionary_values));
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(
+            Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::RLE_DICTIONARY, decoder)
+                    .ok());
+    decoder->set_type_length(sizeof(int32_t));
+    ASSERT_TRUE(decoder->set_dict(dictionary, sizeof(dictionary_values), dictionary_values.size())
+                        .ok());
+
+    faststring encoded_ids;
+    RleEncoder<uint32_t> encoder(&encoded_ids, 2);
+    for (size_t row = 0; row < 8; ++row) {
+        encoder.Put(0);
+    }
+    for (size_t row = 0; row < 8; ++row) {
+        encoder.Put(3);
+    }
+    encoder.Flush();
+    std::vector<uint8_t> payload(encoded_ids.size() + 1);
+    payload[0] = 2;
+    memcpy(payload.data() + 1, encoded_ids.data(), encoded_ids.size());
+    Slice id_slice(payload.data(), payload.size());
+    ASSERT_TRUE(decoder->set_data(&id_slice).ok());
+
+    DataTypeInt32 type;
+    auto output = type.create_column();
+    ParquetMaterializationState state;
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .encoding = ParquetValueEncoding::DICTIONARY};
+    const auto status =
+            type.get_serde()->read_column_from_parquet(*output, *decoder, context, 16, state);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_TRUE(output->empty());
 }
 
 TEST(ParquetV2NativeDecoderTest, DictionaryIndexBoundsCheckHandlesVectorTailAndUnsignedIds) {
@@ -865,9 +1081,9 @@ TEST(ParquetV2NativeDecoderTest, NullableSparseSelectionHandlesEmptyOutputShapes
     EXPECT_EQ(assert_cast<const ColumnInt32&>(*all_null_column).get_data(),
               (ColumnInt32::Container {8, 0, 0, 0}));
     EXPECT_EQ(all_null_map, (NullMap {0, 1, 1, 1}));
-    EXPECT_EQ(statistics.hybrid_selection_batches, 0);
+    EXPECT_EQ(statistics.hybrid_selection_batches, 1);
     EXPECT_EQ(statistics.hybrid_selection_ranges, 0);
-    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 1);
+    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
 
     auto dictionary_all_null_column = type.create_column();
     assert_cast<ColumnInt32&>(*dictionary_all_null_column).get_data().push_back(8);
@@ -897,9 +1113,9 @@ TEST(ParquetV2NativeDecoderTest, NullableSparseSelectionHandlesEmptyOutputShapes
     EXPECT_EQ(assert_cast<const ColumnInt32&>(*all_filtered_column).get_data(),
               (ColumnInt32::Container {9}));
     EXPECT_EQ(all_filtered_map, (NullMap {0}));
-    EXPECT_EQ(statistics.hybrid_selection_batches, 0);
+    EXPECT_EQ(statistics.hybrid_selection_batches, 1);
     EXPECT_EQ(statistics.hybrid_selection_ranges, 0);
-    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 1);
+    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
 
     auto dictionary_all_filtered_column = type.create_column();
     assert_cast<ColumnInt32&>(*dictionary_all_filtered_column).get_data().push_back(9);

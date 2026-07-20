@@ -44,8 +44,10 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
@@ -257,6 +259,38 @@ private:
 VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::Op op,
                                                int32_t value) {
     return VExprContext::create_shared(std::make_shared<Int32ZoneMapExpr>(column_id, op, value));
+}
+
+VExprContextSPtr create_int32_function_conjunct(int column_id, const std::string& function_name,
+                                                TExprOpcode::type opcode, int32_t value) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TFunctionName fn_name;
+    fn_name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({nullable_int_type->to_thrift(), int_type->to_thrift()});
+    fn.__set_ret_type(result_type->to_thrift());
+    fn.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(result_type->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(2);
+    node.__set_is_nullable(true);
+    auto root = VectorizedFnCall::create_shared(node);
+    root->add_child(
+            VSlotRef::create_shared(column_id, column_id, -1, nullable_int_type, "plain_id"));
+    root->add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(value)));
+    auto context = VExprContext::create_shared(std::move(root));
+    // Direct evaluation does not execute the expression, but a fallback must still fail this test
+    // instead of silently using an unprepared test-only context.
+    context->_prepared = true;
+    context->_opened = true;
+    return context;
 }
 
 VExprContextSPtr create_int32_pair_sum_conjunct(int left_column_id, int right_column_id,
@@ -1127,6 +1161,37 @@ TEST_F(ParquetScanTest, PredicateOnlyColumnDropsPayloadAfterFiltering) {
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {30, 40, 50, 60}));
     EXPECT_EQ(block.get_by_position(0).column->size(), rows);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
+TEST_F(ParquetScanTest, PredicateOnlyPlainComparisonUsesPhysicalDirectPath) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40, 50, 60}));
+    EXPECT_EQ(block.get_by_position(0).column->size(), rows);
+    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectRows"), 6);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
 }

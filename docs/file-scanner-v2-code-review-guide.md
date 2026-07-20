@@ -150,14 +150,21 @@ format-specific checklist when reviewing Parquet or ORC.
 - Check direct materialization for PLAIN, RLE/dictionary, DELTA_BINARY_PACKED,
   DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, and BYTE_STREAM_SPLIT. Filtering must advance encoded
   values without allocating output; null runs must append defaults without advancing payload.
-- For a filtered page fragment without definition-level NULLs, require one SerDe entry and one
-  batch-level selected-decode dispatch. Selection ranges belong to persistent reader scratch;
-  per-range virtual SerDe/decoder calls in the hot path are a review blocker. Fixed PLAIN should
+- For predicate-only fixed-width PLAIN primitives, allow direct comparison only after proving the
+  whole Column Chunk uses compatible PLAIN value pages and the expression has identical physical
+  comparison semantics. The fallback decision must precede definition-level consumption. Verify
+  sparse input selection, interleaved NULLs, reversed literal comparisons, multiple ANDed
+  comparisons, mixed-encoding fallback, and a stable row-shaped hidden-slot placeholder.
+- For a filtered scalar page fragment, require one SerDe entry and one batch-level selected-decode
+  dispatch. Nullable selections must first map logical rows to selected non-NULL physical ranges,
+  decode those ranges once, and restore NULL slots in place; falling back per NULL run is a review
+  blocker for a scalar destination that supports in-place expansion. Selection ranges belong to
+  persistent reader scratch; per-range virtual SerDe/decoder calls in the hot path are a review
+  blocker. Fixed PLAIN should
   bulk-gather spans, BYTE_ARRAY PLAIN should scan lengths once, dictionary decode should validate
   every ID before gathering selected IDs, and stateful encodings should batch-decode/reconstruct and
-  compact. A NULL-interleaving fallback is acceptable only when it preserves logical output order
-  without a decoded intermediate column and is counted by
-  `HybridSelectionNullFallbackBatches`.
+  compact. Any remaining NULL-interleaving fallback must preserve logical output order without a
+  decoded intermediate column and be counted by `HybridSelectionNullFallbackBatches`.
 - Review complex types as a level/shape problem around scalar leaf materialization. Parent offsets,
   null maps, sibling alignment, page-spanning rows, and child payload counts must remain correct
   without materializing an intermediate complex column.
@@ -271,8 +278,8 @@ format-specific checklist when reviewing Parquet or ORC.
   file-version key, and assess FileCache, MergeRange, prefetch, requests, and read amplification
   together.
 - Require counters for Statistics/Dictionary/Bloom pruning, Page Index selected ranges and skipped
-  rows/pages, raw and filtered rows, dictionary-row filtering, lazy-read savings, cache sources, and
-  remote I/O.
+  rows/pages, raw and filtered rows, dictionary-row filtering, PLAIN direct-predicate batches/rows,
+  lazy-read savings, cache sources, and remote I/O.
 - Differential tests must cover absent/invalid statistics, missing or partial Page Index, mixed
   dictionary/plain encoding, Bloom false positives, NULL/NaN/type conversion, cross-Page batches,
   nested/repeated columns, multiple Row Groups/Splits, and all/none filtered.

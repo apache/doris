@@ -18,8 +18,10 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <set>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 
@@ -29,7 +31,10 @@
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "exprs/vcompound_pred.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_statistics.h"
@@ -95,6 +100,108 @@ bool should_sample_adaptive_predicate(size_t samples, size_t batch_sequence) {
 } // namespace detail
 
 namespace {
+
+std::optional<PlainFixedPredicateOp> plain_predicate_op(std::string_view function_name,
+                                                        bool reverse) {
+    PlainFixedPredicateOp op;
+    if (function_name == "eq") {
+        op = PlainFixedPredicateOp::EQ;
+    } else if (function_name == "ne") {
+        op = PlainFixedPredicateOp::NE;
+    } else if (function_name == "lt") {
+        op = PlainFixedPredicateOp::LT;
+    } else if (function_name == "le") {
+        op = PlainFixedPredicateOp::LE;
+    } else if (function_name == "gt") {
+        op = PlainFixedPredicateOp::GT;
+    } else if (function_name == "ge") {
+        op = PlainFixedPredicateOp::GE;
+    } else {
+        return std::nullopt;
+    }
+    if (!reverse) {
+        return op;
+    }
+    switch (op) {
+    case PlainFixedPredicateOp::LT:
+        return PlainFixedPredicateOp::GT;
+    case PlainFixedPredicateOp::LE:
+        return PlainFixedPredicateOp::GE;
+    case PlainFixedPredicateOp::GT:
+        return PlainFixedPredicateOp::LT;
+    case PlainFixedPredicateOp::GE:
+        return PlainFixedPredicateOp::LE;
+    case PlainFixedPredicateOp::EQ:
+    case PlainFixedPredicateOp::NE:
+        return op;
+    }
+    __builtin_unreachable();
+}
+
+std::optional<std::vector<PlainFixedPredicate>> compile_plain_fixed_predicates(
+        const VExprContextSPtrs& conjuncts, const DataTypePtr& column_type, size_t block_position) {
+    const auto primitive_type = remove_nullable(column_type)->get_primitive_type();
+    if (primitive_type != TYPE_INT && primitive_type != TYPE_BIGINT &&
+        primitive_type != TYPE_FLOAT && primitive_type != TYPE_DOUBLE) {
+        return std::nullopt;
+    }
+    std::vector<PlainFixedPredicate> predicates;
+    predicates.reserve(conjuncts.size());
+    for (const auto& conjunct : conjuncts) {
+        const auto* function =
+                conjunct == nullptr ? nullptr
+                                    : dynamic_cast<const VectorizedFnCall*>(conjunct->root().get());
+        if (function == nullptr || function->children().size() != 2) {
+            return std::nullopt;
+        }
+        const auto* left_slot = dynamic_cast<const VSlotRef*>(function->children()[0].get());
+        const auto* right_slot = dynamic_cast<const VSlotRef*>(function->children()[1].get());
+        const auto* left_literal = dynamic_cast<const VLiteral*>(function->children()[0].get());
+        const auto* right_literal = dynamic_cast<const VLiteral*>(function->children()[1].get());
+        const bool reverse = right_slot != nullptr && left_literal != nullptr;
+        const auto* slot = reverse ? right_slot : left_slot;
+        const auto* literal = reverse ? left_literal : right_literal;
+        if (slot == nullptr || literal == nullptr ||
+            static_cast<size_t>(slot->column_id()) != block_position) {
+            return std::nullopt;
+        }
+        if (!remove_nullable(literal->get_data_type())->equals(*remove_nullable(column_type))) {
+            return std::nullopt;
+        }
+        const auto op = plain_predicate_op(function->function_name(), reverse);
+        if (!op.has_value()) {
+            return std::nullopt;
+        }
+        Field value;
+        literal->get_column_ptr()->get(0, value);
+        if (value.is_null()) {
+            return std::nullopt;
+        }
+        switch (primitive_type) {
+        case TYPE_INT:
+            predicates.push_back(PlainFixedPredicate::create(PlainFixedPredicateType::INT32, *op,
+                                                             value.get<TYPE_INT>()));
+            break;
+        case TYPE_BIGINT:
+            predicates.push_back(PlainFixedPredicate::create(PlainFixedPredicateType::INT64, *op,
+                                                             value.get<TYPE_BIGINT>()));
+            break;
+        case TYPE_FLOAT:
+            predicates.push_back(PlainFixedPredicate::create(PlainFixedPredicateType::FLOAT, *op,
+                                                             value.get<TYPE_FLOAT>()));
+            break;
+        case TYPE_DOUBLE:
+            predicates.push_back(PlainFixedPredicate::create(PlainFixedPredicateType::DOUBLE, *op,
+                                                             value.get<TYPE_DOUBLE>()));
+            break;
+        default:
+            __builtin_unreachable();
+        }
+    }
+    return predicates.empty()
+                   ? std::nullopt
+                   : std::optional<std::vector<PlainFixedPredicate>>(std::move(predicates));
+}
 
 detail::PredicateConjunctSchedule build_predicate_conjunct_schedule(
         const format::FileScanRequest& request);
@@ -1508,10 +1615,14 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         return Status::OK();
     };
 
-    auto read_predicate_column = [&](ParquetColumnReader* column_reader, size_t block_position,
-                                     ColumnId local_id, bool* used_dictionary_filter) -> Status {
+    auto read_predicate_column =
+            [&](ParquetColumnReader* column_reader, size_t block_position, ColumnId local_id,
+                const VExprContextSPtrs* single_column_conjuncts, bool* used_dictionary_filter,
+                bool* used_plain_filter) -> Status {
         DORIS_CHECK(used_dictionary_filter != nullptr);
+        DORIS_CHECK(used_plain_filter != nullptr);
         *used_dictionary_filter = false;
+        *used_plain_filter = false;
         DCHECK(remove_nullable(column_reader->type())
                        ->equals(*remove_nullable(file_block->get_by_position(block_position).type)))
                 << column_reader->type()->get_name() << " "
@@ -1549,6 +1660,47 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 remember_column_selection(cast_set<uint32_t>(block_position));
                 *used_dictionary_filter = true;
                 return Status::OK();
+            }
+        }
+
+        if (single_column_conjuncts != nullptr &&
+            request.is_predicate_only(format::LocalColumnId(cast_set<int32_t>(local_id)))) {
+            auto predicates = compile_plain_fixed_predicates(
+                    *single_column_conjuncts, file_block->get_by_position(block_position).type,
+                    block_position);
+            if (predicates.has_value()) {
+                const uint16_t selected_rows_before = *selected_rows;
+                IColumn::Filter compact_filter;
+                bool used_filter = false;
+                RETURN_IF_ERROR(column_reader->select_with_plain_filter(
+                        *selection, *selected_rows, batch_rows, *predicates, &compact_filter,
+                        &used_filter));
+                if (used_filter) {
+                    DORIS_CHECK_EQ(compact_filter.size(), selected_rows_before);
+                    update_counter_if_not_null(_scan_profile.plain_predicate_direct_batches, 1);
+                    update_counter_if_not_null(_scan_profile.plain_predicate_direct_rows,
+                                               selected_rows_before);
+                    const uint16_t new_selected_rows = count_selected_rows(compact_filter);
+                    const auto filtered_rows = static_cast<int64_t>(selected_rows_before) -
+                                               static_cast<int64_t>(new_selected_rows);
+                    if (conjunct_filtered_rows != nullptr) {
+                        *conjunct_filtered_rows += filtered_rows;
+                    }
+                    if (new_selected_rows != selected_rows_before) {
+                        *selected_rows = apply_compact_filter_to_selection(
+                                compact_filter, selection, selected_rows_before);
+                    }
+                    // Predicate-only values are dead after this exact comparison. Preserve only a
+                    // row-shaped placeholder so later block positions keep their stable identity.
+                    auto placeholder = column->clone_empty();
+                    placeholder->insert_many_defaults(*selected_rows);
+                    file_block->replace_by_position(block_position, std::move(placeholder));
+                    read_column_positions.push_back(cast_set<uint32_t>(block_position));
+                    remember_column_selection(cast_set<uint32_t>(block_position));
+                    *predicate_columns_filtered = true;
+                    *used_plain_filter = true;
+                    return Status::OK();
+                }
             }
         }
 
@@ -1674,8 +1826,10 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             auto position_it = request.local_positions.find(format::LocalColumnId(fid));
             DORIS_CHECK(position_it != request.local_positions.end());
             bool used_dictionary_filter = false;
+            bool used_plain_filter = false;
             RETURN_IF_ERROR(read_predicate_column(column_reader.get(), position_it->second.value(),
-                                                  fid, &used_dictionary_filter));
+                                                  fid, nullptr, &used_dictionary_filter,
+                                                  &used_plain_filter));
         }
         return Status::OK();
     };
@@ -1714,16 +1868,21 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                                                          predicate_batch_sequence);
             const int64_t start_ns = sample ? MonotonicNanos() : 0;
             bool used_dictionary_filter = false;
-            RETURN_IF_ERROR(read_predicate_column(reader_it->second.get(), block_position, fid,
-                                                  &used_dictionary_filter));
+            bool used_plain_filter = false;
             const auto conjunct_it = schedule.single_column_conjuncts.find(block_position);
+            const VExprContextSPtrs* column_conjuncts =
+                    conjunct_it == schedule.single_column_conjuncts.end() ? nullptr
+                                                                          : &conjunct_it->second;
+            RETURN_IF_ERROR(read_predicate_column(reader_it->second.get(), block_position, fid,
+                                                  column_conjuncts, &used_dictionary_filter,
+                                                  &used_plain_filter));
             if (*selected_rows != 0 && conjunct_it != schedule.single_column_conjuncts.end()) {
                 if (used_dictionary_filter) {
                     const auto residual_it = _current_dictionary_residual_conjuncts.find(fid);
                     DORIS_CHECK(residual_it != _current_dictionary_residual_conjuncts.end());
                     RETURN_IF_ERROR(execute_scheduled_dictionary_residual_conjuncts_with_profile(
                             residual_it->second));
-                } else {
+                } else if (!used_plain_filter) {
                     RETURN_IF_ERROR(execute_scheduled_conjuncts_with_profile(conjunct_it->second));
                 }
             }

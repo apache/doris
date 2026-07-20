@@ -276,6 +276,104 @@ TEST(ParquetSchemaTest, NativeSchemaBoundsRecursiveDepth) {
             rejected.parse_from_thrift(nested_native_schema(MAX_NATIVE_SCHEMA_DEPTH + 1)).ok());
 }
 
+TEST(ParquetSchemaTest, NativeListTupleCompatibilityRequiresEnclosingListName) {
+    auto root = []() {
+        tparquet::SchemaElement schema;
+        schema.__set_name("schema");
+        schema.__set_num_children(1);
+        return schema;
+    };
+    auto list = [](const std::string& name) {
+        tparquet::SchemaElement schema;
+        schema.__set_name(name);
+        schema.__set_num_children(1);
+        schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        schema.__set_converted_type(tparquet::ConvertedType::LIST);
+        return schema;
+    };
+    auto wrapper = [](const std::string& name) {
+        tparquet::SchemaElement schema;
+        schema.__set_name(name);
+        schema.__set_num_children(1);
+        schema.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+        return schema;
+    };
+    auto item = []() {
+        tparquet::SchemaElement schema;
+        schema.__set_name("item");
+        schema.__set_type(tparquet::Type::INT32);
+        schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        return schema;
+    };
+
+    NativeFieldDescriptor mismatched;
+    ASSERT_TRUE(mismatched.parse_from_thrift({root(), list("xs"), wrapper("other_tuple"), item()})
+                        .ok());
+    const auto* mismatched_element = &mismatched.get_column(0)->children[0];
+    EXPECT_EQ(remove_nullable(mismatched_element->data_type)->get_primitive_type(), TYPE_INT);
+
+    NativeFieldDescriptor matching;
+    ASSERT_TRUE(matching.parse_from_thrift({root(), list("xs"), wrapper("xs_tuple"), item()})
+                        .ok());
+    const auto* matching_element = &matching.get_column(0)->children[0];
+    EXPECT_EQ(remove_nullable(matching_element->data_type)->get_primitive_type(), TYPE_STRUCT);
+    ASSERT_EQ(matching_element->children.size(), 1);
+    EXPECT_EQ(matching_element->children[0].name, "item");
+}
+
+TEST(ParquetSchemaTest, NativeListPreservesRepeatedAndAnnotatedElementWrappers) {
+    auto root = []() {
+        tparquet::SchemaElement schema;
+        schema.__set_name("schema");
+        schema.__set_num_children(1);
+        return schema;
+    };
+    auto group = [](const std::string& name, tparquet::FieldRepetitionType::type repetition) {
+        tparquet::SchemaElement schema;
+        schema.__set_name(name);
+        schema.__set_num_children(1);
+        schema.__set_repetition_type(repetition);
+        return schema;
+    };
+    auto outer_list = group("outer", tparquet::FieldRepetitionType::OPTIONAL);
+    outer_list.__set_converted_type(tparquet::ConvertedType::LIST);
+
+    auto repeated_wrapper = group("list", tparquet::FieldRepetitionType::REPEATED);
+    tparquet::SchemaElement repeated_items;
+    repeated_items.__set_name("items");
+    repeated_items.__set_type(tparquet::Type::INT32);
+    repeated_items.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    NativeFieldDescriptor repeated;
+    ASSERT_TRUE(repeated
+                        .parse_from_thrift(
+                                {root(), outer_list, repeated_wrapper, repeated_items})
+                        .ok());
+    const auto* repeated_element = &repeated.get_column(0)->children[0];
+    EXPECT_EQ(remove_nullable(repeated_element->data_type)->get_primitive_type(), TYPE_STRUCT);
+    ASSERT_EQ(repeated_element->children.size(), 1);
+    EXPECT_EQ(repeated_element->children[0].name, "items");
+    EXPECT_EQ(remove_nullable(repeated_element->children[0].data_type)->get_primitive_type(),
+              TYPE_ARRAY);
+
+    auto annotated_wrapper = repeated_wrapper;
+    annotated_wrapper.__set_converted_type(tparquet::ConvertedType::LIST);
+    auto nested_wrapper = repeated_wrapper;
+    tparquet::SchemaElement value;
+    value.__set_name("value");
+    value.__set_type(tparquet::Type::INT32);
+    value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    NativeFieldDescriptor annotated;
+    ASSERT_TRUE(annotated
+                        .parse_from_thrift(
+                                {root(), outer_list, annotated_wrapper, nested_wrapper, value})
+                        .ok());
+    const auto* annotated_element = &annotated.get_column(0)->children[0];
+    EXPECT_EQ(remove_nullable(annotated_element->data_type)->get_primitive_type(), TYPE_ARRAY);
+    ASSERT_EQ(annotated_element->children.size(), 1);
+    EXPECT_EQ(remove_nullable(annotated_element->children[0].data_type)->get_primitive_type(),
+              TYPE_INT);
+}
+
 TEST(ParquetSchemaTest, NativeMetadataRejectsRowGroupChunkCardinalityAndMissingMetadata) {
     auto make_metadata = []() {
         tparquet::FileMetaData metadata;

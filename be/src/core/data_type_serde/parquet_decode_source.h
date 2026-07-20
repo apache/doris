@@ -140,10 +140,24 @@ public:
     }
 };
 
-// Physical value ranges selected from one page-bounded decode request. Definition-level NULLs are
-// intentionally excluded: the native ColumnReader uses this plan only when the batch has no NULL
-// leaf slots, so selected values can be appended in one pass without a temporary nullable column.
-// Ranges are sorted, disjoint, and expressed in the physical value stream's coordinate space.
+// Dictionary decoders publish validated IDs without knowing the destination Doris type. A
+// cache-resident dictionary can therefore fuse RLE decode with target-column gathering, while a
+// large sparse dictionary can still choose a compact ID buffer before random dictionary access.
+class ParquetDictionaryValueConsumer {
+public:
+    virtual ~ParquetDictionaryValueConsumer() = default;
+    virtual Status consume_indices(const uint32_t* indices, size_t num_values) = 0;
+    virtual Status consume_repeated(uint32_t index, size_t num_values) {
+        std::vector<uint32_t> indices(num_values, index);
+        return consume_indices(indices.data(), indices.size());
+    }
+};
+
+// Physical value ranges selected from one page-bounded decode request. Definition-level NULLs do
+// not occupy the encoded value stream, so the native ColumnReader merges the logical selection
+// with definition levels before constructing this plan. The SerDe sees only selected non-NULL
+// payload, while the reader restores selected NULL slots after the compact decode. Ranges are
+// sorted, disjoint, and expressed in the physical value stream's coordinate space.
 struct ParquetSelection {
     size_t total_values = 0;
     size_t selected_values = 0;
@@ -220,7 +234,24 @@ public:
         DORIS_CHECK_EQ(indices->size(), selection.selected_values);
         return Status::OK();
     }
+    virtual Status decode_dictionary_values(size_t num_values,
+                                            ParquetDictionaryValueConsumer& consumer) {
+        std::vector<uint32_t> indices;
+        RETURN_IF_ERROR(decode_dictionary_indices(num_values, &indices));
+        return consumer.consume_indices(indices.data(), indices.size());
+    }
+    virtual Status decode_selected_dictionary_values(
+            const ParquetSelection& selection, ParquetDictionaryValueConsumer& consumer) {
+        std::vector<uint32_t> indices;
+        RETURN_IF_ERROR(decode_selected_dictionary_indices(selection, &indices));
+        return consumer.consume_indices(indices.data(), indices.size());
+    }
+    virtual bool prefer_dictionary_index_materialization(size_t dictionary_bytes) const {
+        return false;
+    }
 };
+
+enum class ParquetDictionaryMaterializationStrategy : uint8_t { DIRECT, INDICES };
 
 // Dictionary values are materialized once into the selected Doris type. The state belongs to a
 // column reader rather than DataTypeSerDe because a SerDe instance can be shared by many files.
@@ -235,6 +266,8 @@ struct ParquetMaterializationState {
     bool capturing_dictionary_conversion_failures = false;
     bool dictionary_has_conversion_failures = false;
     size_t dictionary_failure_scan_rows = 0;
+    ParquetDictionaryMaterializationStrategy dictionary_materialization_strategy =
+            ParquetDictionaryMaterializationStrategy::INDICES;
 
     void reset_dictionary() {
         typed_dictionary.reset();
@@ -312,6 +345,49 @@ struct ParquetMaterializationState {
             }
         }
         return Status::OK();
+    }
+
+    Status materialize_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                  size_t num_values) {
+        DORIS_CHECK(typed_dictionary);
+        if (UNLIKELY(dictionary_has_conversion_failures) ||
+            source.prefer_dictionary_index_materialization(typed_dictionary->byte_size())) {
+            dictionary_materialization_strategy =
+                    ParquetDictionaryMaterializationStrategy::INDICES;
+            RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &dictionary_indices));
+            DORIS_CHECK_EQ(dictionary_indices.size(), num_values);
+            return materialize_dictionary(column);
+        }
+
+        class ColumnConsumer final : public ParquetDictionaryValueConsumer {
+        public:
+            ColumnConsumer(IColumn& destination, const IColumn& dictionary)
+                    : _destination(destination), _dictionary(dictionary) {}
+
+            Status consume_indices(const uint32_t* indices, size_t num_values) override {
+                _destination.insert_indices_from(_dictionary, indices, indices + num_values);
+                return Status::OK();
+            }
+
+            Status consume_repeated(uint32_t index, size_t num_values) override {
+                _destination.insert_many_from(_dictionary, index, num_values);
+                return Status::OK();
+            }
+
+        private:
+            IColumn& _destination;
+            const IColumn& _dictionary;
+        } consumer(column, *typed_dictionary);
+
+        dictionary_materialization_strategy = ParquetDictionaryMaterializationStrategy::DIRECT;
+        const size_t old_size = column.size();
+        const Status status = source.decode_dictionary_values(num_values, consumer);
+        if (!status.ok()) {
+            // Streaming direct gather may discover a corrupt late ID after earlier valid runs;
+            // restore the same all-or-nothing column invariant as the index-buffer path.
+            column.resize(old_size);
+        }
+        return status;
     }
 };
 

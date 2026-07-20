@@ -176,12 +176,15 @@ static void set_child_node_level(NativeFieldSchema* parent, int16_t repeated_par
     }
 }
 
-static bool is_struct_list_node(const tparquet::SchemaElement& schema) {
-    const std::string& name = schema.name;
-    static const Slice array_slice("array", 5);
-    static const Slice tuple_slice("_tuple", 6);
-    Slice slice(name);
-    return slice == array_slice || slice.ends_with(tuple_slice);
+static bool is_struct_list_node(const tparquet::SchemaElement& schema,
+                                const std::string& enclosing_list_name) {
+    // The legacy Parquet exception is exact: accepting every "*_tuple" wrapper changes a standard
+    // one-child LIST wrapper from ARRAY<T> to ARRAY<STRUCT<T>>.
+    return schema.name == "array" || schema.name == enclosing_list_name + "_tuple";
+}
+
+static bool has_logical_annotation(const tparquet::SchemaElement& schema) {
+    return schema.__isset.logicalType || schema.__isset.converted_type;
 }
 
 std::string NativeFieldSchema::debug_string() const {
@@ -536,7 +539,7 @@ Status NativeFieldDescriptor::parse_group_field(
 
 Status NativeFieldDescriptor::parse_list_field(
         const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
-        NativeFieldSchema* list_field) {
+        NativeFieldSchema* list_field, bool repeated_node_is_enclosing_list_element) {
     // the list definition:
     // spark and hive have three level schemas but with different schema name
     // spark: <column-name> - "list" - "element"
@@ -552,7 +555,8 @@ Status NativeFieldDescriptor::parse_list_field(
         return Status::InvalidArgument("List element should have the second level schema");
     }
 
-    if (first_level.repetition_type == tparquet::FieldRepetitionType::REPEATED) {
+    if (first_level.repetition_type == tparquet::FieldRepetitionType::REPEATED &&
+        !repeated_node_is_enclosing_list_element) {
         return Status::InvalidArgument("List element can't be a repeated schema");
     }
 
@@ -574,7 +578,22 @@ Status NativeFieldDescriptor::parse_list_field(
 
     size_t num_children = num_children_node(second_level);
     if (num_children > 0) {
-        if (num_children == 1 && !is_struct_list_node(second_level)) {
+        const bool structural_wrapper = is_struct_list_node(second_level, first_level.name);
+        const auto& only_child = t_schemas[curr_pos + 2];
+        if (num_children == 1 && !structural_wrapper &&
+            has_logical_annotation(second_level)) {
+            // The repeated node is already the outer LIST element. Preserve its own LIST/MAP
+            // annotation, but do not interpret its REPEATED marker as another outer array.
+            set_child_node_level(list_field, list_field->definition_level);
+            if (is_list_node(second_level)) {
+                RETURN_IF_ERROR(parse_list_field(t_schemas, curr_pos + 1, list_child, true));
+            } else if (is_map_node(second_level)) {
+                RETURN_IF_ERROR(parse_map_field(t_schemas, curr_pos + 1, list_child, true));
+            } else {
+                RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, list_child));
+            }
+        } else if (num_children == 1 && !structural_wrapper &&
+                   !is_repeated_node(only_child)) {
             // optional field, and the third level element is the nested structure in list
             // produce nested structure like: LIST<INT>, LIST<MAP>, LIST<LIST<...>>
             // skip bag/list, it's a repeated element.
@@ -606,7 +625,8 @@ Status NativeFieldDescriptor::parse_list_field(
 }
 
 Status NativeFieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElement>& t_schemas,
-                                              size_t curr_pos, NativeFieldSchema* map_field) {
+                                              size_t curr_pos, NativeFieldSchema* map_field,
+                                              bool repeated_node_is_enclosing_list_element) {
     // the map definition in parquet:
     // optional group <name> (MAP) {
     //   repeated group map (MAP_KEY_VALUE) {
@@ -623,7 +643,7 @@ Status NativeFieldDescriptor::parse_map_field(const std::vector<tparquet::Schema
         return Status::InvalidArgument(
                 "Map element should have only one child(name='map', type='MAP_KEY_VALUE')");
     }
-    if (is_repeated_node(map_schema)) {
+    if (is_repeated_node(map_schema) && !repeated_node_is_enclosing_list_element) {
         return Status::InvalidArgument("Map element can't be a repeated schema");
     }
     auto& map_key_value = t_schemas[curr_pos + 1];
@@ -638,7 +658,8 @@ Status NativeFieldDescriptor::parse_map_field(const std::vector<tparquet::Schema
 
     if (map_key_value.num_children == 1) {
         // The map with three levels is a SET
-        return parse_list_field(t_schemas, curr_pos, map_field);
+        return parse_list_field(t_schemas, curr_pos, map_field,
+                                repeated_node_is_enclosing_list_element);
     }
     if (map_key_value.num_children != 2) {
         // A standard map should have four levels

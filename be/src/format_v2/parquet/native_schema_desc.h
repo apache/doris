@@ -99,10 +99,12 @@ private:
                               NativeFieldSchema* physical_field);
 
     Status parse_list_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
-                            NativeFieldSchema* list_field);
+                            NativeFieldSchema* list_field,
+                            bool repeated_node_is_enclosing_list_element = false);
 
     Status parse_map_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
-                           NativeFieldSchema* map_field);
+                           NativeFieldSchema* map_field,
+                           bool repeated_node_is_enclosing_list_element = false);
 
     Status parse_struct_field(const std::vector<tparquet::SchemaElement>& t_schemas,
                               size_t curr_pos, NativeFieldSchema* struct_field);

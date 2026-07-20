@@ -34,6 +34,7 @@
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native/common.h"
+#include "format_v2/parquet/reader/plain_fixed_predicate.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 
@@ -189,6 +190,21 @@ public:
                                     bool* eof, bool is_dict_filter,
                                     int64_t real_column_size = -1) = 0;
 
+    // Evaluate a predicate-only scalar directly from fixed-width PLAIN page bytes. The default is
+    // a non-consuming fallback for nested and synthetic readers.
+    virtual Status read_plain_filter(const std::vector<PlainFixedPredicate>&, FilterMap&, size_t,
+                                     IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
+                                     bool* used_filter) {
+        DORIS_CHECK(row_filter != nullptr);
+        DORIS_CHECK(read_rows != nullptr);
+        DORIS_CHECK(eof != nullptr);
+        DORIS_CHECK(used_filter != nullptr);
+        row_filter->clear();
+        *read_rows = 0;
+        *used_filter = false;
+        return Status::OK();
+    }
+
     // Consume a nested batch while retaining only definition/repetition levels. This is used when
     // schema evolution makes every projected STRUCT child synthetic: the parent still needs one
     // physical leaf's shape, but decoding that leaf's strings or other payload would be wasted.
@@ -267,6 +283,9 @@ public:
                             const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
+    Status read_plain_filter(const std::vector<PlainFixedPredicate>& predicates,
+                             FilterMap& filter_map, size_t batch_size, IColumn::Filter* row_filter,
+                             size_t* read_rows, bool* eof, bool* used_filter) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
     Result<MutableColumnPtr> convert_dict_column_to_string_column(
@@ -375,6 +394,8 @@ private:
     std::vector<uint16_t> _null_run_lengths;
     std::unordered_set<size_t> _ancestor_null_indices;
     std::vector<uint8_t> _nested_filter_map_data;
+    NullMap _plain_predicate_nulls;
+    IColumn::Filter _plain_predicate_matches;
     FilterMap _nested_filter_map;
     ColumnSelectVector _select_vector;
     int64_t _convert_time = 0;
@@ -387,6 +408,9 @@ private:
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, const DataTypePtr& type,
                         FilterMap& filter_map, bool is_dict_filter);
+    Status _read_plain_filter_values(size_t num_values,
+                                     const std::vector<PlainFixedPredicate>& predicates,
+                                     FilterMap& filter_map, IColumn::Filter* row_filter);
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                bool* eof, bool is_dict_filter);

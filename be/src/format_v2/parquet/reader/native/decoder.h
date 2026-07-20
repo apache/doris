@@ -215,6 +215,29 @@ public:
         return Status::OK();
     }
 
+    Status decode_dictionary_values(size_t num_values,
+                                    ParquetDictionaryValueConsumer& consumer) override {
+        return _decode_dictionary_values(num_values, 0, dictionary_size(), consumer);
+    }
+
+    Status decode_selected_dictionary_values(
+            const ParquetSelection& selection,
+            ParquetDictionaryValueConsumer& consumer) override {
+        const size_t num_dictionary_values = dictionary_size();
+        size_t cursor = 0;
+        for (const auto& range : selection.ranges) {
+            DORIS_CHECK(range.first >= cursor);
+            RETURN_IF_ERROR(_decode_and_validate_skipped(range.first - cursor, cursor,
+                                                         num_dictionary_values));
+            RETURN_IF_ERROR(_decode_dictionary_values(range.count, range.first,
+                                                      num_dictionary_values, consumer));
+            cursor = range.first + range.count;
+        }
+        DORIS_CHECK(cursor <= selection.total_values);
+        return _decode_and_validate_skipped(selection.total_values - cursor, cursor,
+                                            num_dictionary_values);
+    }
+
     void release_scratch(size_t max_retained_bytes) override {
         release_vector_if_oversized(&_skip_indices, max_retained_bytes);
     }
@@ -259,6 +282,57 @@ protected:
                 }
             }
             skipped_values += batch_size;
+        }
+        return Status::OK();
+    }
+
+    Status _decode_dictionary_values(size_t num_values, size_t row_offset,
+                                     size_t num_dictionary_values,
+                                     ParquetDictionaryValueConsumer& consumer) {
+        constexpr size_t kLiteralBatchSize = 1024;
+        size_t decoded_values = 0;
+        while (decoded_values < num_values) {
+            const int32_t repeats = _index_batch_decoder->NextNumRepeats();
+            if (repeats > 0) {
+                const size_t run = std::min<size_t>(repeats, num_values - decoded_values);
+                const uint32_t index =
+                        _index_batch_decoder->GetRepeatedValue(cast_set<int32_t>(run));
+                if (UNLIKELY(static_cast<size_t>(index) >= num_dictionary_values)) {
+                    return Status::Corruption(
+                            "Parquet dictionary index {} at row {} exceeds dictionary size {}",
+                            index, row_offset + decoded_values, num_dictionary_values);
+                }
+                RETURN_IF_ERROR(consumer.consume_repeated(index, run));
+                decoded_values += run;
+                continue;
+            }
+
+            const int32_t literals = _index_batch_decoder->NextNumLiterals();
+            if (UNLIKELY(literals == 0)) {
+                return Status::IOError("Can't read enough Parquet dictionary indices");
+            }
+            const size_t batch = std::min(
+                    {static_cast<size_t>(literals), num_values - decoded_values,
+                     kLiteralBatchSize});
+            _skip_indices.resize(batch);
+            if (UNLIKELY(!_index_batch_decoder->GetLiteralValues(cast_set<int32_t>(batch),
+                                                                 _skip_indices.data()))) {
+                return Status::IOError("Can't read enough Parquet dictionary indices");
+            }
+            if (UNLIKELY(!dictionary_indices_in_bounds(_skip_indices.data(), batch,
+                                                       num_dictionary_values))) {
+                for (size_t row = 0; row < batch; ++row) {
+                    if (_skip_indices[row] < num_dictionary_values) {
+                        continue;
+                    }
+                    return Status::Corruption(
+                            "Parquet dictionary index {} at row {} exceeds dictionary size {}",
+                            _skip_indices[row], row_offset + decoded_values + row,
+                            num_dictionary_values);
+                }
+            }
+            RETURN_IF_ERROR(consumer.consume_indices(_skip_indices.data(), batch));
+            decoded_values += batch;
         }
         return Status::OK();
     }

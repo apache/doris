@@ -81,4 +81,15 @@ Status ParquetColumnReader::select_with_dictionary_filter(const SelectionVector&
                                 name());
 }
 
+Status ParquetColumnReader::select_with_plain_filter(const SelectionVector&, uint16_t, int64_t,
+                                                     const std::vector<PlainFixedPredicate>&,
+                                                     IColumn::Filter* row_filter,
+                                                     bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    row_filter->clear();
+    *used_filter = false;
+    return Status::OK();
+}
+
 } // namespace doris::format::parquet

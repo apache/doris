@@ -47,6 +47,7 @@
 #include "storage/cache/page_cache.h"
 #include "util/bit_util.h"
 #include "util/block_compression.h"
+#include "util/cpu_info.h"
 #include "util/unaligned.h"
 
 namespace cctz {
@@ -370,6 +371,20 @@ public:
         return _decoder.decode_selected_dictionary_indices(_selection, indices);
     }
 
+    Status decode_dictionary_values(size_t num_values,
+                                    ParquetDictionaryValueConsumer& consumer) override {
+        DORIS_CHECK_EQ(num_values, _selection.selected_values);
+        return _decoder.decode_selected_dictionary_values(_selection, consumer);
+    }
+
+    bool prefer_dictionary_index_materialization(size_t dictionary_bytes) const override {
+        // Avoid touching a dictionary larger than L2 for rows already removed by sparse selection.
+        // Cache-resident or dense batches instead fuse RLE decode and gather, eliminating the
+        // page-sized intermediate ID vector.
+        return _selection.selected_values < _selection.total_values &&
+               dictionary_bytes > static_cast<size_t>(CpuInfo::get_l2_cache_size());
+    }
+
 private:
     Decoder& _decoder;
     const ParquetSelection& _selection;
@@ -443,16 +458,6 @@ bool visit_nullable_expandable_column(IColumn& column, Visitor&& visitor) {
     VISIT_COLUMN(ColumnDictI32)
 #undef VISIT_COLUMN
     return false;
-}
-
-bool has_expensive_nullable_sparse_materialization(const IColumn& column) {
-    return check_and_get_column<ColumnDecimal32>(&column) != nullptr ||
-           check_and_get_column<ColumnDecimal64>(&column) != nullptr ||
-           check_and_get_column<ColumnDecimal128V2>(&column) != nullptr ||
-           check_and_get_column<ColumnDecimal128V3>(&column) != nullptr ||
-           check_and_get_column<ColumnDecimal256>(&column) != nullptr ||
-           check_and_get_column<ColumnDateV2>(&column) != nullptr ||
-           check_and_get_column<ColumnDateTimeV2>(&column) != nullptr;
 }
 
 template <typename ColumnType>
@@ -601,12 +606,35 @@ Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& ser
                                        selection.selected_values, selected_nulls);
     const bool expanded = visit_nullable_expandable_column(column, [&](auto& typed_column) {
         // Decode into the final nested column compactly, then expand in place. This preserves the
-        // V2 no-intermediate-column invariant while matching StarRocks' nullable sparse layout.
+        // V2 no-intermediate-column invariant while restoring the nullable sparse row layout.
         expand_nullable_values(typed_column, old_size, selection.selected_values, selected_nulls);
     });
     DORIS_CHECK(expanded);
     return Status::OK();
 }
+
+class PlainPredicateConsumer final : public ParquetFixedValueConsumer {
+public:
+    PlainPredicateConsumer(const std::vector<PlainFixedPredicate>& predicates,
+                           IColumn::Filter* matches)
+            : _predicates(predicates), _matches(matches) {
+        DORIS_CHECK(_matches != nullptr);
+    }
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        const size_t old_size = _matches->size();
+        _matches->resize_fill(old_size + num_values, 1);
+        for (const auto& predicate : _predicates) {
+            RETURN_IF_ERROR(predicate.evaluate(values, num_values, value_width,
+                                               _matches->data() + old_size));
+        }
+        return Status::OK();
+    }
+
+private:
+    const std::vector<PlainFixedPredicate>& _predicates;
+    IColumn::Filter* _matches;
+};
 
 } // namespace
 
@@ -1272,9 +1300,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
                                                      state, select_vector,
                                                      &_chunk_statistics.materialization_time);
             _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
-        } else if ((context.encoding == ParquetValueEncoding::DICTIONARY ||
-                    has_expensive_nullable_sparse_materialization(*doris_column)) &&
-                   visit_nullable_expandable_column(*doris_column, [](auto&) {})) {
+        } else if (visit_nullable_expandable_column(*doris_column, [](auto&) {})) {
             // Parquet omits NULL leaf values from the physical stream. For example, the logical
             // DATE sequence [d0, NULL, d1, NULL, d2] is physically encoded as [d0, d1, d2]. The
             // generic fallback follows the logical selection runs, so those NULLs split one
@@ -1286,9 +1312,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
             // Build selected non-NULL ranges in physical coordinates instead. In the example this
             // decodes [d0, d1, d2] compactly with one SerDe consumer, records [0, 1, 0, 1, 0] as
             // the logical NULL layout, and expands the final nested column backwards so unread
-            // compact values cannot be overwritten. Keep cheap non-decimal PLAIN numeric columns
-            // on the fallback: their skips are pointer arithmetic, while compact-and-expand would
-            // add a full output-column memory pass without amortizing expensive conversion work.
+            // compact values cannot be overwritten. Apply this to every expandable V2 scalar,
+            // including ordinary PLAIN primitives: otherwise nullable numeric predicates still
+            // fragment a physical span into millions of SerDe calls and defeat sparse decoding.
             ++_chunk_statistics.hybrid_selection_batches;
             status = decode_selected_nullable_values(
                     *doris_column, serde, *_page_decoder, context, state, select_vector,
@@ -1307,6 +1333,111 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
     }
     RETURN_IF_ERROR(status);
     _remaining_num_values -= select_vector.num_values();
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_plain_values(
+        const std::vector<PlainFixedPredicate>& predicates) const {
+    if (predicates.empty() || _current_encoding != tparquet::Encoding::PLAIN ||
+        (_metadata.type != tparquet::Type::INT32 && _metadata.type != tparquet::Type::INT64 &&
+         _metadata.type != tparquet::Type::FLOAT && _metadata.type != tparquet::Type::DOUBLE)) {
+        return false;
+    }
+    const size_t physical_width =
+            _metadata.type == tparquet::Type::INT32 || _metadata.type == tparquet::Type::FLOAT
+                    ? sizeof(uint32_t)
+                    : sizeof(uint64_t);
+    return std::ranges::all_of(predicates, [&](const auto& predicate) {
+        const bool matching_type = (_metadata.type == tparquet::Type::INT32 &&
+                                    predicate.type() == PlainFixedPredicateType::INT32) ||
+                                   (_metadata.type == tparquet::Type::INT64 &&
+                                    predicate.type() == PlainFixedPredicateType::INT64) ||
+                                   (_metadata.type == tparquet::Type::FLOAT &&
+                                    predicate.type() == PlainFixedPredicateType::FLOAT) ||
+                                   (_metadata.type == tparquet::Type::DOUBLE &&
+                                    predicate.type() == PlainFixedPredicateType::DOUBLE);
+        return matching_type && predicate.value_width() == physical_width;
+    });
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
+        const std::vector<PlainFixedPredicate>& predicates, ColumnSelectVector& select_vector,
+        NullMap* selected_nulls, IColumn::Filter* physical_matches, IColumn::Filter* row_filter,
+        bool* used_filter) {
+    DORIS_CHECK(selected_nulls != nullptr);
+    DORIS_CHECK(physical_matches != nullptr);
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    *used_filter = false;
+    row_filter->clear();
+    if (!can_filter_plain_values(predicates)) {
+        return Status::OK();
+    }
+    if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
+        return Status::IOError("Decode too many values in current page");
+    }
+
+    ParquetSelection selection;
+    selected_nulls->clear();
+    selected_nulls->reserve(select_vector.num_values() - select_vector.num_filtered());
+    size_t physical_cursor = 0;
+    auto build_selection = [&]<bool HAS_FILTER>() {
+        ColumnSelectVector::DataReadType read_type;
+        while (const size_t run_length = select_vector.get_next_run<HAS_FILTER>(&read_type)) {
+            switch (read_type) {
+            case ColumnSelectVector::CONTENT:
+                if (!selection.ranges.empty() &&
+                    selection.ranges.back().first + selection.ranges.back().count ==
+                            physical_cursor) {
+                    selection.ranges.back().count += run_length;
+                } else {
+                    selection.ranges.push_back({.first = physical_cursor, .count = run_length});
+                }
+                selection.selected_values += run_length;
+                selected_nulls->resize_fill(selected_nulls->size() + run_length, 0);
+                physical_cursor += run_length;
+                break;
+            case ColumnSelectVector::NULL_DATA:
+                selected_nulls->resize_fill(selected_nulls->size() + run_length, 1);
+                break;
+            case ColumnSelectVector::FILTERED_CONTENT:
+                physical_cursor += run_length;
+                break;
+            case ColumnSelectVector::FILTERED_NULL:
+                break;
+            }
+        }
+    };
+    if (select_vector.has_filter()) {
+        build_selection.template operator()<true>();
+    } else {
+        build_selection.template operator()<false>();
+    }
+    selection.total_values = physical_cursor;
+    DORIS_CHECK_EQ(selection.total_values, select_vector.num_values() - select_vector.num_nulls());
+    DORIS_CHECK_EQ(selected_nulls->size(),
+                   select_vector.num_values() - select_vector.num_filtered());
+
+    physical_matches->clear();
+    if (selection.selected_values == 0) {
+        RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
+    } else {
+        PlainPredicateConsumer consumer(predicates, physical_matches);
+        RETURN_IF_ERROR(_page_decoder->decode_selected_fixed_values(selection, consumer));
+        DORIS_CHECK_EQ(physical_matches->size(), selection.selected_values);
+    }
+
+    row_filter->reserve(selected_nulls->size());
+    size_t physical_row = 0;
+    for (const uint8_t is_null : *selected_nulls) {
+        row_filter->push_back(is_null != 0 ? 0 : (*physical_matches)[physical_row++]);
+    }
+    DORIS_CHECK_EQ(physical_row, physical_matches->size());
+    // Commit logical progress only after both the raw comparison and NULL remapping succeed.
+    _remaining_num_values -= select_vector.num_values();
+    *used_filter = true;
     return Status::OK();
 }
 

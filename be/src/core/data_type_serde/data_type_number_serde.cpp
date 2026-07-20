@@ -224,7 +224,7 @@ Status append_parquet_number(PaddedPODArray<DorisCppType>& data, const uint8_t* 
     if constexpr (std::is_same_v<DorisCppType, SourceType>) {
         // Identical fixed-width physical/logical types need no validation or conversion. Parquet
         // PLAIN values and Doris POD columns share the byte representation on supported targets,
-        // so preserve the dense vector-at-a-time memcpy invariant used by v1 and DuckDB.
+        // so preserve one dense vector-at-a-time memcpy instead of converting value by value.
         memcpy(data.data() + old_size, values, num_values * sizeof(SourceType));
         return Status::OK();
     }
@@ -614,9 +614,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_parquet(IColumn& column,
             DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
             state.dictionary_generation = source.dictionary_generation();
         }
-        RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
-        DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
-        return state.materialize_dictionary(column);
+        return state.materialize_dictionary(column, source, num_values);
     }
 }
 

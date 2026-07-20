@@ -35,6 +35,7 @@
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
+#include "format_v2/parquet/reader/plain_fixed_predicate.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -161,6 +162,14 @@ public:
     Status materialize_values(MutableColumnPtr& doris_column, const DataTypeSerDe& serde,
                               ParquetDecodeContext& context, ParquetMaterializationState& state,
                               ColumnSelectVector& select_vector);
+
+    // Evaluate selected fixed-width PLAIN values and return one keep byte per selected logical
+    // row. NULL comparisons are false and therefore never enter the physical consumer.
+    Status filter_plain_values(const std::vector<PlainFixedPredicate>& predicates,
+                               ColumnSelectVector& select_vector, NullMap* selected_nulls,
+                               IColumn::Filter* physical_matches, IColumn::Filter* row_filter,
+                               bool* used_filter);
+    bool can_filter_plain_values(const std::vector<PlainFixedPredicate>& predicates) const;
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }

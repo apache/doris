@@ -1099,6 +1099,150 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_plain_filter_values(
+        size_t num_values, const std::vector<PlainFixedPredicate>& predicates,
+        FilterMap& filter_map, IColumn::Filter* row_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    _null_run_lengths.clear();
+    if (_chunk_reader->max_def_level() > 0) {
+        LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
+        size_t has_read = 0;
+        bool prev_is_null = true;
+        while (has_read < num_values) {
+            level_t def_level = -1;
+            const size_t loop_read = def_decoder.get_next_run(&def_level, num_values - has_read);
+            if (loop_read == 0) {
+                return Status::Corruption(
+                        "Parquet definition level stream ended while filtering PLAIN values");
+            }
+            const bool is_null = def_level < _field_schema->definition_level;
+            if (!(prev_is_null ^ is_null)) {
+                _null_run_lengths.emplace_back(0);
+            }
+            size_t remaining = loop_read;
+            while (remaining > USHRT_MAX) {
+                _null_run_lengths.emplace_back(USHRT_MAX);
+                _null_run_lengths.emplace_back(0);
+                remaining -= USHRT_MAX;
+            }
+            _null_run_lengths.emplace_back(cast_set<uint16_t>(remaining));
+            prev_is_null = is_null;
+            has_read += loop_read;
+        }
+    } else {
+        size_t remaining = num_values;
+        while (remaining > USHRT_MAX) {
+            _null_run_lengths.emplace_back(USHRT_MAX);
+            _null_run_lengths.emplace_back(0);
+            remaining -= USHRT_MAX;
+        }
+        _null_run_lengths.emplace_back(cast_set<uint16_t>(remaining));
+    }
+    RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, nullptr, &filter_map,
+                                        _filter_map_index));
+    _filter_map_index += num_values;
+    bool used_filter = false;
+    RETURN_IF_ERROR(_chunk_reader->filter_plain_values(
+            predicates, _select_vector, &_plain_predicate_nulls, &_plain_predicate_matches,
+            row_filter, &used_filter));
+    // Chunk encodings are prevalidated before any definition level is consumed, so a false result
+    // here would make a materializing fallback observe an advanced level cursor.
+    DORIS_CHECK(used_filter);
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_plain_filter(
+        const std::vector<PlainFixedPredicate>& predicates, FilterMap& filter_map,
+        size_t batch_size, IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
+        bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(read_rows != nullptr);
+    DORIS_CHECK(eof != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    row_filter->clear();
+    *read_rows = 0;
+    *used_filter = false;
+    if (_in_nested || predicates.empty()) {
+        return Status::OK();
+    }
+    const auto source_primitive = remove_nullable(_field_schema->data_type)->get_primitive_type();
+    const bool matching_source_type =
+            std::ranges::all_of(predicates, [&](const PlainFixedPredicate& predicate) {
+                return (source_primitive == TYPE_INT &&
+                        predicate.type() == PlainFixedPredicateType::INT32) ||
+                       (source_primitive == TYPE_BIGINT &&
+                        predicate.type() == PlainFixedPredicateType::INT64) ||
+                       (source_primitive == TYPE_FLOAT &&
+                        predicate.type() == PlainFixedPredicateType::FLOAT) ||
+                       (source_primitive == TYPE_DOUBLE &&
+                        predicate.type() == PlainFixedPredicateType::DOUBLE);
+            });
+    if (!matching_source_type) {
+        return Status::OK();
+    }
+    // Levels use RLE/BIT_PACKED, while every value page must be PLAIN. Reject mixed-encoding
+    // chunks before touching either cursor so the caller can safely use the normal expression path.
+    const bool plain_only = std::ranges::all_of(
+            _chunk_meta.meta_data.encodings, [](const tparquet::Encoding::type encoding) {
+                return encoding == tparquet::Encoding::PLAIN ||
+                       encoding == tparquet::Encoding::RLE ||
+                       encoding == tparquet::Encoding::BIT_PACKED;
+            });
+    if (!plain_only) {
+        return Status::OK();
+    }
+
+    int64_t right_row = 0;
+    if constexpr (OFFSET_INDEX == false) {
+        RETURN_IF_ERROR(_chunk_reader->parse_page_header());
+        right_row = _chunk_reader->page_end_row();
+    } else {
+        right_row = _chunk_reader->page_end_row();
+    }
+    RowRanges read_ranges;
+    _generate_read_ranges(RowRange {_current_row_index, right_row}, &read_ranges);
+    if (read_ranges.count() == 0) {
+        _current_row_index = right_row;
+    } else {
+        RETURN_IF_ERROR(_chunk_reader->parse_page_header());
+        RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
+        if (!_chunk_reader->can_filter_plain_values(predicates)) {
+            return Status::OK();
+        }
+        size_t has_read = 0;
+        for (size_t idx = 0; idx < read_ranges.range_size(); ++idx) {
+            const auto range = read_ranges.get_range(idx);
+            const size_t skip_values = range.from() - _current_row_index;
+            RETURN_IF_ERROR(_skip_values(skip_values));
+            _current_row_index += skip_values;
+            const size_t values =
+                    std::min(static_cast<size_t>(range.to() - range.from()), batch_size - has_read);
+            IColumn::Filter fragment_filter;
+            RETURN_IF_ERROR(
+                    _read_plain_filter_values(values, predicates, filter_map, &fragment_filter));
+            row_filter->insert(row_filter->end(), fragment_filter.begin(), fragment_filter.end());
+            has_read += values;
+            *read_rows += values;
+            _current_row_index += values;
+            if (has_read == batch_size) {
+                break;
+            }
+        }
+    }
+
+    if (right_row == _current_row_index) {
+        if (!_chunk_reader->has_next_page()) {
+            *eof = true;
+        } else {
+            RETURN_IF_ERROR(_chunk_reader->next_page());
+        }
+    }
+    *used_filter = true;
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_levels(FilterMap& filter_map,
                                                                            size_t batch_size,
                                                                            size_t* read_rows,

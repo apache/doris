@@ -369,25 +369,26 @@ Selection inputs are borrowed only for the duration of the decode call.
 
 For a flat leaf, the fast path is valid only when the maximum repetition level is zero. It decodes
 definition-level runs and builds the four-way selection plan in persistent scratch whose capacity
-survives adaptive batch changes. When a filtered page fragment contains no definition-level NULL,
-the plan is normalized to sorted physical ranges and enters `DataTypeSerDe` and the encoding
-decoder once. This is the hybrid selection path: it keeps the dense direct-materialization path,
-but moves sparse range traversal inside the concrete decoder instead of repeatedly constructing a
-SerDe consumer for every selected run.
+survives adaptive batch changes. The plan is normalized to sorted physical non-NULL ranges and
+enters `DataTypeSerDe` and the encoding decoder once. If selected NULLs are interleaved, the reader
+separately records their logical positions, decodes the compact physical payload, and expands the
+final scalar column backwards in place. This is the hybrid selection path: it keeps the dense
+direct-materialization path, but moves sparse range traversal inside the concrete decoder instead
+of repeatedly constructing a SerDe consumer for every selected or NULL run.
 
 The encoding chooses the cheapest inner loop. PLAIN fixed-width values gather ranges with bulk
 copies; PLAIN BYTE_ARRAY scans every length once and publishes compact source offsets, cumulative
-output offsets, and coalesced surviving spans directly to the SerDe; dictionary
-encoding decodes and validates the complete ID batch before gathering selected IDs; BOOLEAN,
+output offsets, and coalesced surviving spans directly to the SerDe; dictionary encoding validates
+IDs in bounded batches and either gathers repeated/literal runs directly or builds one compact
+selected-ID batch when a sparse lookup would exceed the L2 cache; BOOLEAN,
 DELTA, and BYTE_STREAM_SPLIT batch-decode or reconstruct their stateful stream and compact selected
 values. This follows DuckDB's vector-at-a-time principle while preserving Doris's separate
 Decoder/SerDe ownership boundary. A filtered non-null value always advances and validates encoding
 state even when it is not copied, preventing the next batch from decoding shifted values.
 
-If selected NULL slots must be interleaved with values, v2 currently retains the four-run cursor
-path so defaults and null-map bits are appended at the exact logical positions without a decoded
-intermediate column. `HybridSelectionNullFallbackBatches` makes that conservative path visible;
-it is a correctness boundary, not an Arrow fallback.
+Scalar destinations with in-place expansion no longer use the per-run NULL fallback. The fallback
+remains only for unsupported destination shapes and is visible through
+`HybridSelectionNullFallbackBatches`; it is a correctness boundary, not an Arrow fallback.
 
 ### 7.2 Page and Encoding Kernel
 
@@ -399,7 +400,7 @@ that parsing step both feed the same level and value-decoder contracts.
 | Encoding family | Native responsibility |
 | --- | --- |
 | PLAIN | Fixed-width little-endian primitives, BOOLEAN bit packing, BYTE_ARRAY lengths, and FIXED_LEN_BYTE_ARRAY widths; identical POD types append by bulk copy, dense fixed-length strings use one byte-span copy plus offset synthesis, sparse fixed-width ranges consume contiguous spans directly, and variable strings reuse decoder-produced offsets without a `StringRef[]` staging pass |
-| RLE_DICTIONARY / PLAIN_DICTIONARY | Persist dictionary values for the Column Chunk, decode and validate the complete ID batch, then gather selected IDs |
+| RLE_DICTIONARY / PLAIN_DICTIONARY | Persist dictionary values for the Column Chunk, validate IDs in bounded batches, fuse RLE runs with direct gather for cache-resident dictionaries, and use one compact selected-ID gather for large sparse dictionaries |
 | RLE / BIT_PACKED levels | Decode definition/repetition levels and preserve runs across page and batch boundaries |
 | DELTA_BINARY_PACKED | Preserve block/mini-block state, decode one page-fragment batch, and compact selected values in-place |
 | DELTA_LENGTH_BYTE_ARRAY | Decode lengths and byte payload in lockstep, then retain selected references only |
@@ -486,7 +487,10 @@ through decoded dictionary IDs, so dictionary and plain pages have identical beh
 The typed dictionary is materialized through the logical SerDe once per decoder dictionary
 generation. Dictionary-entry predicate evaluation, dictionary-ID row filtering, and surviving
 row-value flattening reuse that same Doris column. A Row Group, file, type, or dictionary-generation
-change invalidates it, and every ID is checked before access.
+change invalidates it, and every ID is checked before access. Cache-resident or dense reads stream
+validated RLE runs directly into the destination column without a page-sized ID vector. Sparse
+reads whose dictionary exceeds L2 retain only selected IDs, then perform one gather; malformed late
+IDs roll back the destination to its pre-batch size.
 
 The persistent leaf reader owns reusable conversion objects, null map, selection ranges,
 definition/repetition levels, binary references, dictionary state, decompression buffers, and Doris
@@ -779,6 +783,17 @@ prefetch to the prefix with a meaningful probability of being reached, and a sus
 survival ratio estimate may warm output chunks early. This retains correctness because only
 independently safe conjuncts move and all readers still advance over the same logical batch.
 
+Predicate-only `INT`, `BIGINT`, `FLOAT`, and `DOUBLE` comparisons can bypass Doris-column
+materialization when every value page in the Column Chunk is fixed-width PLAIN and the expression
+is an exact `=`, `!=`, `<`, `<=`, `>`, or `>=` comparison with a literal. The scheduler compiles
+the conjunction into physical-value predicates, the decoder compares selected non-NULL spans in
+place, and the reader remaps the compact match bytes to logical nullable rows. NULL comparisons are
+false. Mixed encodings, projected predicate columns, casts, logical conversions, compound
+expressions, and unsupported types make the decision before either the definition-level or value
+cursor advances, so they safely retain ordinary expression evaluation. An exact direct result
+leaves only a row-shaped placeholder for the hidden predicate slot and avoids both predicate-column
+materialization and later predicate compaction.
+
 Selection state is scheduler-owned across adaptive batches. Its dense filter bitmap is cached by
 selection generation and batch shape, so every lazily materialized output reader consumes the same
 bitmap without rebuilding an O(batch-size) array. Logical sizes reset per batch while ordinary
@@ -856,6 +871,7 @@ flowchart TD
 | Dictionary row filter | How often were predicates rewritten, dictionaries read, bitmaps built, and attempts successful or rejected? |
 | Predicate / raw rows | How many rows were read and rejected, and was lazy materialization worthwhile? |
 | Predicate compaction | Did selection-first evaluation avoid repeated movement? Inspect `PredicateCompactionTime/Bytes/Count`; single-column rounds retain row mappings and compact at multi-column/delete/output boundaries. |
+| PLAIN direct predicate | How many eligible predicate-only physical batches and input rows bypassed Doris-column materialization? Inspect `PlainPredicateDirectBatches/Rows`. |
 | Avoided projected I/O | How many compressed bytes from projected physical chunks were avoided? `FilteredBytes` deliberately excludes unprojected nested children. |
 | Metadata lifecycle | How much time was spent reading/parsing the native footer and schema tree, natively reading/parsing page indexes, and evaluating row-group/page-index predicates? |
 | Parquet Page Cache | What were hit/miss/write counts and compressed/decompressed hit shapes? |

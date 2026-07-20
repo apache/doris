@@ -87,11 +87,7 @@ Status DataTypeVarbinarySerDe::read_column_from_parquet(IColumn& column,
         DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
         state.dictionary_generation = source.dictionary_generation();
     }
-    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
-    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
-    column.insert_indices_from(*state.typed_dictionary, state.dictionary_indices.data(),
-                               state.dictionary_indices.data() + num_values);
-    return Status::OK();
+    return state.materialize_dictionary(column, source, num_values);
 }
 
 void DataTypeVarbinarySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,

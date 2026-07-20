@@ -337,6 +337,60 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     return Status::OK();
 }
 
+Status NativeColumnReader::read_with_plain_filter(
+        int64_t rows, const uint8_t* filter_data, bool filter_all,
+        const std::vector<PlainFixedPredicate>& predicates, IColumn::Filter* row_filter,
+        int64_t* rows_read, bool* used_filter) {
+    DORIS_CHECK(rows >= 0);
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(rows_read != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    row_filter->clear();
+    *rows_read = 0;
+    *used_filter = false;
+    if (rows == 0) {
+        return Status::OK();
+    }
+
+    native::FilterMap filter;
+    RETURN_IF_ERROR(filter.init(filter_data, static_cast<size_t>(rows), filter_all));
+    _native_reader->reset_filter_map_index();
+    bool eof = false;
+    int64_t consecutive_empty_calls = 0;
+    while (*rows_read < rows && !eof) {
+        size_t loop_rows = 0;
+        IColumn::Filter loop_filter;
+        bool loop_used = false;
+        RETURN_IF_ERROR(_native_reader->read_plain_filter(
+                predicates, filter, static_cast<size_t>(rows - *rows_read), &loop_filter,
+                &loop_rows, &eof, &loop_used));
+        if (!loop_used) {
+            // A fallback is safe only before this call has consumed a logical row. Plain-only
+            // chunk validation makes the decision stable for all later page fragments.
+            DORIS_CHECK_EQ(*rows_read, 0);
+            row_filter->clear();
+            return Status::OK();
+        }
+        row_filter->insert(row_filter->end(), loop_filter.begin(), loop_filter.end());
+        if (loop_rows == 0 && !eof) {
+            if (++consecutive_empty_calls > _row_group_rows + 1) {
+                return Status::Corruption(
+                        "Native parquet PLAIN predicate made no progress for column {}", _name);
+            }
+            continue;
+        }
+        consecutive_empty_calls = 0;
+        *rows_read += static_cast<int64_t>(loop_rows);
+    }
+    if (*rows_read != rows) {
+        return Status::Corruption(
+                "Native parquet PLAIN predicate returned {} rows, expected {} for {}", *rows_read,
+                rows, _name);
+    }
+    *used_filter = true;
+    return Status::OK();
+}
+
 Status NativeColumnReader::validate_selected_span(int64_t rows) {
     DORIS_CHECK(rows >= 0);
     while (_selected_range_idx < _selected_ranges.size()) {
@@ -527,6 +581,34 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
     }
     update_reader_read_rows(cast_set<int64_t>(matched_ids.size()));
     update_reader_skip_rows(batch_rows - cast_set<int64_t>(matched_ids.size()));
+    return Status::OK();
+}
+
+Status NativeColumnReader::select_with_plain_filter(
+        const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
+        const std::vector<PlainFixedPredicate>& predicates, IColumn::Filter* row_filter,
+        bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    RETURN_IF_ERROR(validate_selected_span(batch_rows));
+    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
+    const uint8_t* filter_data = nullptr;
+    RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
+    int64_t rows_read = 0;
+    RETURN_IF_ERROR(read_with_plain_filter(batch_rows, filter_data, selected_rows == 0, predicates,
+                                           row_filter, &rows_read, used_filter));
+    if (!*used_filter) {
+        return Status::OK();
+    }
+    DORIS_CHECK_EQ(rows_read, batch_rows);
+    if (row_filter->size() != selected_rows) {
+        return Status::Corruption(
+                "Native parquet PLAIN predicate returned {} selected rows, expected {} for {}",
+                row_filter->size(), selected_rows, _name);
+    }
+    advance_selected_span(rows_read);
+    update_reader_read_rows(selected_rows);
+    update_reader_skip_rows(batch_rows - selected_rows);
     return Status::OK();
 }
 

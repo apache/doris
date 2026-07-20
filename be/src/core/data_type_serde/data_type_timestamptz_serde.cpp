@@ -434,9 +434,7 @@ Status DataTypeTimeStampTzSerDe::read_column_from_parquet(
         DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
         state.dictionary_generation = source.dictionary_generation();
     }
-    RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
-    DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
-    return state.materialize_dictionary(column);
+    return state.materialize_dictionary(column, source, num_values);
 }
 
 std::string DataTypeTimeStampTzSerDe::to_olap_string(const Field& field) const {
