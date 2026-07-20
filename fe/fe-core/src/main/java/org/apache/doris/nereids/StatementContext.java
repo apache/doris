@@ -30,6 +30,8 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -197,6 +199,14 @@ public class StatementContext implements Closeable {
     // filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
     private BitSet disableRules;
+
+    // A per-statement memoization arena for connectors: e.g. Iceberg loads a table once and shares that
+    // single object across read + write resolvers within the statement. Lazily built (see
+    // getOrCreateConnectorStatementScope), values stored opaquely by the connector. Like snapshots, it is
+    // NOT cleared on close()/releasePlannerResources -- it survives to statement GC. A reused
+    // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
+    // ExecuteCommand) so one execution's cached tables never leak into the next.
+    private ConnectorStatementScope connectorStatementScope;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -638,6 +648,35 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Returns this statement's connector scope, lazily creating it on first use (mirrors
+     * {@link #getOrCacheDisableRules}). A connector reaches it through
+     * {@link org.apache.doris.connector.api.ConnectorSession#getStatementScope()} to load a table once and
+     * share it across the statement's read + write resolvers.
+     */
+    public synchronized ConnectorStatementScope getOrCreateConnectorStatementScope() {
+        if (this.connectorStatementScope == null) {
+            this.connectorStatementScope = new ConnectorStatementScopeImpl();
+        }
+        return this.connectorStatementScope;
+    }
+
+    /**
+     * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
+     * Prepared-statement EXECUTE reuses one StatementContext across executions (see
+     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
+     * this is called at the start of each, so a prior execution's / attempt's cached tables and closeable state
+     * are released (closeAll is idempotent — a no-op if the query-finish callback already closed it) and never
+     * leak into the next. Callers invoke this only after the prior execution/attempt has finished (no off-thread
+     * pump still running), so close-before-drop is safe.
+     */
+    public synchronized void resetConnectorStatementScope() {
+        if (this.connectorStatementScope != null) {
+            this.connectorStatementScope.closeAll();
+        }
+        this.connectorStatementScope = null;
+    }
+
+    /**
      * Some value of the cacheKey may change, invalid cache when value change
      */
     public synchronized void invalidCache(String cacheKey) {
@@ -945,6 +984,17 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         releasePlannerResources();
+        // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
+        // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
+        // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()
+        // runs in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally
+        // (master side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which
+        // returns results asynchronously and defers cleanup to its own query-finish close) is not closed early
+        // here. Idempotent (closeAll is close-once), so a coordinated statement whose scope the primary already
+        // closed is a no-op. Command statements have no off-thread scan pump, so close-after-use holds.
+        if (connectorStatementScope != null && connectContext != null && connectContext.isReturnResultFromLocal()) {
+            connectorStatementScope.closeAll();
+        }
     }
 
     public List<Placeholder> getPlaceholders() {

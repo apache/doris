@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.foundation.util.ArgumentParsers;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.ExpireSnapshots;
@@ -42,8 +43,10 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -66,6 +69,11 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     public static final String MAX_CONCURRENT_DELETES = "max_concurrent_deletes";
     public static final String SNAPSHOT_IDS = "snapshot_ids";
     public static final String CLEAN_EXPIRED_METADATA = "clean_expired_metadata";
+
+    // Test-only gate for the delete-manifest dedup: the number of DISTINCT delete manifests read by the most
+    // recent buildDeleteFileContentMap call. Asserts each manifest is read once, not once per referencing snapshot.
+    @VisibleForTesting
+    int lastDeleteManifestReadCount;
 
     public IcebergExpireSnapshotsAction(Map<String, String> properties, List<String> partitionNames,
             ConnectorPredicate whereCondition) {
@@ -268,8 +276,17 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
         }
     }
 
-    private Map<String, FileContent> buildDeleteFileContentMap(Table icebergTable) {
+    @VisibleForTesting
+    Map<String, FileContent> buildDeleteFileContentMap(Table icebergTable) {
         Map<String, FileContent> deleteFileContentByPath = new HashMap<>();
+        // Dedup delete-manifest reads across snapshots. Iceberg manifests are immutable and adjacent snapshots
+        // carry the same delete manifests forward unchanged, so re-reading one yields the identical DeleteFile
+        // set (putIfAbsent already made the re-read a no-op). Reading each DISTINCT manifest exactly once
+        // collapses the O(snapshots x manifests) remote reads to O(distinct manifests) with a byte-identical map.
+        // NOTE: visited MUST live at method scope (outside the snapshot loop) — inside it, it would reset every
+        // snapshot and defeat the cross-snapshot dedup this fix targets.
+        Set<String> visitedDeleteManifests = new HashSet<>();
+        int reads = 0;
         try {
             for (Snapshot snapshot : icebergTable.snapshots()) {
                 List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
@@ -277,6 +294,10 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                     continue;
                 }
                 for (ManifestFile manifest : deleteManifests) {
+                    if (!visitedDeleteManifests.add(manifest.path())) {
+                        continue;
+                    }
+                    reads++;
                     try (CloseableIterable<DeleteFile> deleteFiles = ManifestFiles.readDeleteManifest(
                             manifest, icebergTable.io(), icebergTable.specs())) {
                         for (DeleteFile deleteFile : deleteFiles) {
@@ -289,6 +310,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to build delete file content map: " + e.getMessage(), e);
         }
+        lastDeleteManifestReadCount = reads;
         return deleteFileContentByPath;
     }
 

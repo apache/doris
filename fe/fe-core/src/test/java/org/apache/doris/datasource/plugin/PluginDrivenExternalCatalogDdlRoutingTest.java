@@ -37,6 +37,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
@@ -99,6 +100,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         connector = Mockito.mock(Connector.class);
         metadata = Mockito.mock(ConnectorMetadata.class);
         session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
 
         // Construct with the real Env singleton (the constructor is Env-safe), then
@@ -1350,6 +1352,11 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return sessionMock;
+        }
+
+        @Override
+        public ConnectorSession buildCrossStatementSession() {
+            return buildConnectorSession();
         }
 
         @Override

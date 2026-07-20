@@ -29,6 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.function.UnaryOperator;
 
 /**
  * Hand-written {@link ConnectorContext} test double (no Mockito), adapted verbatim from the paimon
@@ -60,6 +61,9 @@ final class RecordingConnectorContext implements ConnectorContext {
     final List<String> normalizedUris = new ArrayList<>();
     /** Number of times the connector invoked {@link #normalizeStorageUri} (1- or 2-arg). */
     int normalizeCount;
+    /** Number of times the connector built a scan-scoped normalizer via {@link #newStorageUriNormalizer}
+     * (should be once per scan — the perf hoist guard). */
+    int newNormalizerCount;
     /** The vended token the connector passed to the most recent 2-arg {@link #normalizeStorageUri} (T09). */
     Map<String, String> lastVendedToken;
 
@@ -117,6 +121,16 @@ final class RecordingConnectorContext implements ConnectorContext {
         // s3), so a test can prove the connector routes data/delete paths through this seam AND (2-arg) that
         // the per-table vended token is threaded to each. Identity for already-canonical s3:// paths.
         return rawUri == null ? null : rawUri.replaceFirst("^(oss|cos|obs|s3a)://", "s3://");
+    }
+
+    @Override
+    public UnaryOperator<String> newStorageUriNormalizer(Map<String, String> vendedToken) {
+        // Count the once-per-scan derivation (the perf hoist) but still record each per-URI normalize by
+        // delegating every apply back to the recording normalizeStorageUri — so existing recording assertions
+        // (normalizedUris / normalizeCount / lastVendedToken) keep firing, while newNormalizerCount proves the
+        // token->config derivation is entered once per scan, not once per file.
+        newNormalizerCount++;
+        return rawUri -> normalizeStorageUri(rawUri, vendedToken);
     }
 
     @Override

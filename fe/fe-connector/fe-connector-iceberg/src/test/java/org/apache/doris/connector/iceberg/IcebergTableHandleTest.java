@@ -354,4 +354,5 @@ public class IcebergTableHandleTest {
         Assertions.assertEquals(42L, h.getSnapshotId());
         Assertions.assertEquals(ImmutableSet.of("oss://b/db/t1/f1.parquet"), h.getRewriteFileScope());
     }
+
 }

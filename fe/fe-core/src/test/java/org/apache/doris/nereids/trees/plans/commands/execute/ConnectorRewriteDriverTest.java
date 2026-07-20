@@ -26,12 +26,14 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -40,6 +42,7 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -122,5 +125,43 @@ public class ConnectorRewriteDriverTest {
         UserException ex = Assertions.assertThrows(UserException.class, driver::run);
         Assertions.assertTrue(ex.getMessage().contains("plan boom"),
                 "the connector failure text must be preserved, got: " + ex.getMessage());
+    }
+
+    @Test
+    public void unionSourceFilePathsMergesAllGroupsAndDedupsByPath() {
+        // STEP 3 registers the UNION of every group's source files in ONE connector call (one planFiles() scan)
+        // instead of one call per group. Disjoint groups union straight; a path recurring across groups collapses
+        // to a single entry, so the connector never double-registers a file to delete. MUTATION: unioning only
+        // the first group (or not deduping) is killed here.
+        ConnectorRewriteGroup g1 = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://b/t/a.parquet", "s3://b/t/b.parquet"), 2, 2048L, 0);
+        ConnectorRewriteGroup g2 = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://b/t/c.parquet"), 1, 1024L, 0);
+        // Defensive: a path shared with g1 (bin-packing keeps groups disjoint, but the union must still dedup).
+        ConnectorRewriteGroup g3 = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://b/t/a.parquet", "s3://b/t/d.parquet"), 2, 2048L, 0);
+
+        Set<String> union = ConnectorRewriteDriver.unionSourceFilePaths(Arrays.asList(g1, g2, g3));
+
+        Assertions.assertEquals(
+                ImmutableSet.of("s3://b/t/a.parquet", "s3://b/t/b.parquet", "s3://b/t/c.parquet",
+                        "s3://b/t/d.parquet"),
+                union, "the union must contain each distinct source path exactly once across all groups");
+    }
+
+    @Test
+    public void unionSourceFilePathsSkipsEmptyGroupsAndEmptyPlan() {
+        // An empty group contributes nothing; an all-empty plan unions to the empty set (the connector treats
+        // that as a no-op registration — the same net state as the former loop making N early-returning calls).
+        ConnectorRewriteGroup withFiles = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://b/t/a.parquet"), 1, 1024L, 0);
+        ConnectorRewriteGroup empty = new ConnectorRewriteGroup(Collections.emptySet(), 0, 0L, 0);
+
+        Assertions.assertEquals(ImmutableSet.of("s3://b/t/a.parquet"),
+                ConnectorRewriteDriver.unionSourceFilePaths(Arrays.asList(withFiles, empty)),
+                "an empty group must not affect the union");
+        Assertions.assertTrue(
+                ConnectorRewriteDriver.unionSourceFilePaths(Collections.emptyList()).isEmpty(),
+                "an all-empty plan unions to the empty set");
     }
 }

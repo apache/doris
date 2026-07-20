@@ -205,7 +205,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
             this.zone = IcebergTimeUtils.resolveSessionZone(session);
             try {
                 context.executeAuthenticated(() -> {
-                    Table loaded = catalogOps.loadTable(db, tableName);
+                    // PERF-07: resolve the table through the per-statement scope so a row-level DML reuses the SAME
+                    // one object the scan already loaded (a write-only INSERT loads once here). openTransaction still
+                    // issues newTransaction()'s refresh, giving the commit a fresh OCC base off that shared object.
+                    Table loaded = IcebergStatementScope.sharedTable(session, db, tableName,
+                            () -> catalogOps.loadTable(db, tableName));
                     this.table = loaded;
                     applyBeginGuards(ctx, tableName);
                     this.transaction = openTransaction(loaded);

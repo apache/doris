@@ -825,6 +825,35 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
+    public void partitionScanIsCachedAcrossRepeatsAndConsumersAtSameSnapshot() {
+        // PERF-02 metric gate: buildMvccPartitionView (MTMV/RANGE) and listPartitions (selectedPartitionNum) both
+        // funnel through loadRawPartitions keyed by (table, currentSnapshotId). A shared IcebergPartitionCache must
+        // collapse repeated calls -- across queries AND across the two consumers at the same snapshot -- onto ONE
+        // remote PARTITIONS scan (restoring legacy cross-query partition-info caching + collapsing the MTMV 4~6x
+        // re-enumeration). MUTATION: not threading the cache into loadRawPartitions -> each call re-scans ->
+        // loadCountForTest > 1 -> red.
+        PartitionSpec spec = PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build();
+        Table table = dayPartitionedTable(spec, "ts_day=1970-04-11", "ts_day=1970-07-20");
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        IcebergPartitionCache cache = new IcebergPartitionCache(100, 1000);
+
+        ConnectorMvccPartitionView v1 = IcebergPartitionUtils.buildMvccPartitionView(table, -1L, id, cache);
+        IcebergPartitionUtils.buildMvccPartitionView(table, -1L, id, cache);
+        List<ConnectorPartitionInfo> parts = IcebergPartitionUtils.listPartitions(table, id, cache);
+
+        Assertions.assertEquals(1, cache.loadCountForTest(),
+                "the PARTITIONS scan must run exactly once across repeated views + both consumers at one snapshot");
+        Assertions.assertEquals(1, cache.size(), "one (table, snapshot) entry");
+        Assertions.assertEquals(2, parts.size(), "listPartitions still returns the two physical partitions");
+        // Parity: the cached view matches a fresh (uncached) enumeration.
+        List<String> cachedNames = v1.getPartitions().stream()
+                .map(ConnectorMvccPartition::getName).collect(Collectors.toList());
+        List<String> liveNames = IcebergPartitionUtils.buildMvccPartitionView(table, -1L).getPartitions().stream()
+                .map(ConnectorMvccPartition::getName).collect(Collectors.toList());
+        Assertions.assertEquals(liveNames, cachedNames, "cached partition view must equal a live enumeration");
+    }
+
+    @Test
     public void buildMvccPartitionViewResolvesPerPartitionSnapshotId() {
         // Two SEPARATE commits: ts_day=100 lands in snapshot S1, ts_day=200 in S2. Each partition's freshness is
         // the snapshot that last updated IT (S1 vs S2), NOT the table's current snapshot (S2 for both). This pins

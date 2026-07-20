@@ -982,6 +982,35 @@ under the License.
                     </check>
                 </configuration>
             </plugin>
+            <!--
+              Arch gate: the per-statement ConnectorMetadata funnel. Every fe-core read / scan /
+              DDL / MVCC seam must acquire metadata through PluginDrivenMetadata.get(session, connector),
+              so a statement reuses ONE ConnectorMetadata per catalog (closed deterministically at
+              statement end). A bare connector.getMetadata(session) elsewhere in fe-core is a build
+              error. Write-path seams still bypassing the funnel carry a getMetadata-funnel-exempt
+              marker until the write-sharing step reroutes them. See tools/check-fecore-metadata-funnel.sh
+              (self-test tools/check-fecore-metadata-funnel.test.sh).
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>check-fecore-metadata-funnel</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${project.basedir}/../../tools/check-fecore-metadata-funnel.sh</executable>
+                            <arguments>
+                                <argument>${project.basedir}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
         <extensions>
             <extension>

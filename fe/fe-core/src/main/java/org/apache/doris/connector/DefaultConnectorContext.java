@@ -66,6 +66,7 @@ import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -406,6 +407,37 @@ public class DefaultConnectorContext implements ConnectorContext, Closeable {
         Map<StorageProperties.Type, StorageProperties> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
         return LocationPath.of(rawUri, effective).toStorageLocation().toString();
+    }
+
+    @Override
+    public UnaryOperator<String> newStorageUriNormalizer(Map<String, String> rawVendedCredentials) {
+        // PERF: the vended token is scan-invariant, so derive the effective storage map (the expensive
+        // buildVendedStorageMap = StorageProperties.createAll + hadoop config build) ONCE per scan and reuse
+        // it for every per-file normalize, instead of rebuilding it per data/delete file. Each application is
+        // byte-identical to normalizeStorageUri(rawUri, token): the SAME empty-uri short-circuit, the SAME
+        // vended-replaces-static precedence, the SAME fail-loud LocationPath. The derivation is done LAZILY on
+        // the first non-empty URI (not eagerly at construction) so a scan that normalizes zero non-empty URIs
+        // triggers no derivation — preserving the exact exception timing of the per-call method. The returned
+        // normalizer is single-threaded per scan (the streaming pump drives one thread; the synchronous and
+        // position-delete loops are single-threaded), so the memo needs no lock.
+        return new UnaryOperator<String>() {
+            private Map<StorageProperties.Type, StorageProperties> effective;
+            private boolean built;
+
+            @Override
+            public String apply(String rawUri) {
+                if (Strings.isNullOrEmpty(rawUri)) {
+                    return rawUri;
+                }
+                if (!built) {
+                    Map<StorageProperties.Type, StorageProperties> vended =
+                            buildVendedStorageMap(rawVendedCredentials);
+                    effective = vended != null ? vended : storagePropertiesSupplier.get();
+                    built = true;
+                }
+                return LocationPath.of(rawUri, effective).toStorageLocation().toString();
+            }
+        };
     }
 
     @Override

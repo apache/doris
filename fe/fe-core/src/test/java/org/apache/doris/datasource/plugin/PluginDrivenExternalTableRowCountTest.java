@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -223,6 +224,7 @@ public class PluginDrivenExternalTableRowCountTest {
             long estimateBytes, List<Column> schema, List<Integer> partitionColumnIndexes) {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
                 .thenReturn(Optional.of(handle));
@@ -264,6 +266,7 @@ public class PluginDrivenExternalTableRowCountTest {
             Optional<ConnectorTableStatistics> stats, List<Column> schema) {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         if (stats == null) {
             Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
                     .thenReturn(Optional.empty());
@@ -323,6 +326,11 @@ public class PluginDrivenExternalTableRowCountTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return session;
+        }
+
+        @Override
+        public ConnectorSession buildCrossStatementSession() {
+            return buildConnectorSession();
         }
 
         @Override

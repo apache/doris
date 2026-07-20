@@ -66,4 +66,47 @@ public class PluginDrivenScanNodeScanProviderSelectionTest {
         Assertions.assertSame(hiveProvider, Deencapsulation.invoke(node, "resolveScanProvider"),
                 "after the handle changes the node must resolve the matching provider (per-table routing)");
     }
+
+    /**
+     * Guards that {@link PluginDrivenScanNode#resolveScanProvider()} MEMOIZES the resolved provider for a stable
+     * {@code currentHandle} so the per-split hot path ({@code getFileCompressType} / {@code getDeleteFiles}) stops
+     * re-allocating a provider on every split, while still RE-RESOLVING when pushdown/pin refines the handle.
+     *
+     * <p><b>WHY this matters (Rule 9):</b> providers are built fresh per call (SPI contract), so before this memo
+     * every split re-ran {@code connector.getScanPlanProvider(currentHandle)} plus a TCCL swap. A mutant that drops
+     * the memo (resolves per call) reintroduces that O(splits) allocation; a mutant that never re-resolves sends a
+     * table to a stale provider after the handle is refined. The call-count assertion pins both: exactly ONE resolve
+     * per distinct handle. Same {@code CALLS_REAL_METHODS} + {@code Deencapsulation} technique as
+     * {@link #resolvesProviderForCurrentHandle}.</p>
+     */
+    @Test
+    public void memoizesProviderForStableHandleAndReResolvesOnHandleChange() {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+
+        ConnectorTableHandle icebergHandle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTableHandle hiveHandle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorScanPlanProvider icebergProvider = Mockito.mock(ConnectorScanPlanProvider.class);
+        ConnectorScanPlanProvider hiveProvider = Mockito.mock(ConnectorScanPlanProvider.class);
+
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getScanPlanProvider(icebergHandle)).thenReturn(icebergProvider);
+        Mockito.when(connector.getScanPlanProvider(hiveHandle)).thenReturn(hiveProvider);
+        Deencapsulation.setField(node, "connector", connector);
+
+        // Stable handle: many resolves (mirroring the per-split getFileCompressType calls) resolve ONCE.
+        Deencapsulation.setField(node, "currentHandle", icebergHandle);
+        for (int i = 0; i < 3; i++) {
+            Assertions.assertSame(icebergProvider, Deencapsulation.invoke(node, "resolveScanProvider"),
+                    "a stable handle must return the memoized provider");
+        }
+        Mockito.verify(connector, Mockito.times(1)).getScanPlanProvider(icebergHandle);
+
+        // Handle refined by pushdown/pin (a NEW handle object): re-resolve exactly once for the new handle.
+        Deencapsulation.setField(node, "currentHandle", hiveHandle);
+        for (int i = 0; i < 2; i++) {
+            Assertions.assertSame(hiveProvider, Deencapsulation.invoke(node, "resolveScanProvider"),
+                    "after the handle changes the node must re-resolve to the matching provider");
+        }
+        Mockito.verify(connector, Mockito.times(1)).getScanPlanProvider(hiveHandle);
+    }
 }
