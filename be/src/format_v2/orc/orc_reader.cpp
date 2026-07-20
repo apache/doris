@@ -37,6 +37,7 @@
 #include <orc/sargs/Literal.hh>
 #include <orc/sargs/SearchArgument.hh>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -746,6 +747,7 @@ struct OrcReaderScanState {
     size_t orc_lazy_input_rows = 0;
     bool enable_lazy_materialization = true;
     bool enable_filter_by_min_max = true;
+    bool check_orc_init_sargs_success = false;
     bool orc_lazy_read_enabled = false;
     bool orc_lazy_selection_valid = false;
     OrcSargBuildOptions sarg_build_options;
@@ -880,6 +882,7 @@ Status OrcReader::init(RuntimeState* state) {
     if (state != nullptr) {
         _state->enable_lazy_materialization = state->query_options().enable_orc_lazy_mat;
         _state->enable_filter_by_min_max = state->query_options().enable_orc_filter_by_min_max;
+        _state->check_orc_init_sargs_success = state->query_options().check_orc_init_sargs_success;
         _state->timezone = state->timezone();
         _state->timezone_obj = state->timezone_obj();
         if (state->query_options().__isset.max_pushdown_conditions_per_column) {
@@ -1389,6 +1392,19 @@ Status OrcReader::_init_search_argument_from_local_filters() {
                            has_pushdown;
         }
         if (!has_pushdown) {
+            if (_state->check_orc_init_sargs_success) {
+                std::stringstream ss;
+                for (const auto& conjunct : _request->conjuncts) {
+                    if (conjunct != nullptr) {
+                        ss << conjunct->root()->debug_string() << "\n";
+                    }
+                }
+                return Status::InternalError(
+                        "Session variable check_orc_init_sargs_success is set, but "
+                        "_init_search_argument_from_local_filters returns false because all exprs "
+                        "can not be pushed down:\n {}",
+                        ss.str());
+            }
             return Status::OK();
         }
         builder->end();

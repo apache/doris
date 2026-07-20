@@ -195,6 +195,7 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
 
         sql """ use global_lazy_mat_db; """
 
+        sql """ set enable_file_scanner_v2 = true; """
 
         sql """
         set topn_lazy_materialization_threshold=1024;
