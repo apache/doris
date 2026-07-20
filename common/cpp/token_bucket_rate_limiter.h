@@ -59,12 +59,10 @@ public:
     // Returns the sleep duration in nanoseconds, or -1 when the count limit rejects the add.
     int64_t add(size_t amount);
 
-    // Return `amount` rate tokens to the bucket, capped at max_burst. This does not
-    // release the count charged by add().
-    void refund_tokens(size_t amount);
-
-    // Release `amount` from the count charged by add(). This does not return rate tokens.
-    void refund_count(size_t amount);
+    // Return `amount` tokens to the bucket (capped at max_burst) and roll back the
+    // cumulative counter. Used to reconcile a reservation with the actually consumed
+    // amount, e.g. a short read at EOF.
+    void refund(size_t amount);
 
     size_t get_max_speed() const { return _max_speed; }
 

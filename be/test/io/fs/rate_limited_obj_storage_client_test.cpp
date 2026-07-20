@@ -23,6 +23,13 @@
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
 
+namespace doris {
+
+extern bvar::Adder<int64_t> s3_get_bytes_rate_limit_rejected_count;
+extern bvar::Adder<int64_t> s3_put_bytes_rate_limit_rejected_count;
+
+} // namespace doris
+
 namespace doris::io {
 namespace {
 
@@ -145,6 +152,8 @@ TEST(RateLimitedObjStorageClientTest, get_rejected_by_count_limit_does_not_reach
     auto& manager = S3RateLimiterManager::instance();
     manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 1);
     manager.qps_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
+    manager.bytes_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+    manager.bytes_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
 
     auto fake = std::make_shared<FakeObjStorageClient>();
     RateLimitedObjStorageClient client(fake);
@@ -156,7 +165,7 @@ TEST(RateLimitedObjStorageClientTest, get_rejected_by_count_limit_does_not_reach
     auto resp = client.head_object(opts);
     EXPECT_NE(0, resp.resp.status.code);
     EXPECT_EQ(429, resp.resp.http_code);
-    EXPECT_NE(std::string::npos, resp.resp.status.msg.find("exceeds request limit"));
+    EXPECT_NE(std::string::npos, resp.resp.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(1, fake->calls); // rejected before reaching the provider
 
     // PUT uses an independent bucket and is unaffected.
@@ -170,7 +179,7 @@ TEST(RateLimitedObjStorageClientTest, get_object_settles_short_read) {
     auto& manager = S3RateLimiterManager::instance();
     manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
     auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
-    bytes->reset(1000, 1000, 1000);
+    bytes->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1000);
 
     auto fake = std::make_shared<FakeObjStorageClient>();
     fake->actual_read_size = 100; // short read: 600 requested, 100 returned
@@ -181,13 +190,12 @@ TEST(RateLimitedObjStorageClientTest, get_object_settles_short_read) {
     EXPECT_EQ(0, client.get_object(opts, nullptr, 0, 600, &size_return).status.code);
     EXPECT_EQ(100, size_return);
 
-    // The count reservation is released, while only the 500 unused rate tokens are
-    // returned. The resulting 900-token balance admits exactly this request immediately.
+    // Only 100 bytes remain cumulatively charged, so exactly 900 more are admitted.
     EXPECT_EQ(0, bytes->add(900));
-    bytes->reset(0, 0, 0);
+    EXPECT_EQ(-1, bytes->add(1));
 }
 
-TEST(RateLimitedObjStorageClientTest, bytes_limit_rejects_before_calling_inner) {
+TEST(RateLimitedObjStorageClientTest, put_object_charges_payload_bytes) {
     RateLimiterConfigGuard guard;
     config::enable_s3_rate_limiter = true;
     auto& manager = S3RateLimiterManager::instance();
@@ -199,18 +207,44 @@ TEST(RateLimitedObjStorageClientTest, bytes_limit_rejects_before_calling_inner) 
     RateLimitedObjStorageClient client(fake);
     ObjectStoragePathOptions opts {.bucket = "b", .key = "k"};
 
-    {
-        S3RateLimitGuard in_flight(S3RateLimitType::PUT, 1000);
-        ASSERT_TRUE(in_flight.ok());
+    std::string payload(600, 'x');
+    EXPECT_EQ(0, client.put_object(opts, payload).status.code);
+    EXPECT_EQ(0, bytes->add(400)); // exactly the cumulative count remainder
+    EXPECT_EQ(-1, bytes->add(1));
+}
 
-        auto resp = client.put_object(opts, "x");
-        EXPECT_NE(0, resp.status.code);
-        EXPECT_EQ(429, resp.http_code);
-        EXPECT_EQ(0, fake->calls);
-    }
+TEST(RateLimitedObjStorageClientTest, bytes_rejections_have_distinct_text_and_metrics) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+    manager.qps_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
+    manager.bytes_limiter(S3RateLimitType::GET)
+            ->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1);
+    manager.bytes_limiter(S3RateLimitType::PUT)
+            ->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1);
 
-    EXPECT_EQ(0, client.put_object(opts, std::string(1000, 'x')).status.code);
-    EXPECT_EQ(1, fake->calls);
+    const int64_t get_rejected_before = s3_get_bytes_rate_limit_rejected_count.get_value();
+    const int64_t put_rejected_before = s3_put_bytes_rate_limit_rejected_count.get_value();
+
+    auto fake = std::make_shared<FakeObjStorageClient>();
+    RateLimitedObjStorageClient client(fake);
+    ObjectStoragePathOptions opts {.bucket = "b", .key = "k"};
+
+    size_t size_return = 0;
+    auto get_resp = client.get_object(opts, nullptr, 0, 2, &size_return);
+    EXPECT_NE(0, get_resp.status.code);
+    EXPECT_EQ(429, get_resp.http_code);
+    EXPECT_NE(std::string::npos, get_resp.status.msg.find("exceeds bytes limit"));
+    EXPECT_EQ(get_rejected_before + 1, s3_get_bytes_rate_limit_rejected_count.get_value());
+
+    auto put_resp = client.put_object(opts, "xx");
+    EXPECT_NE(0, put_resp.status.code);
+    EXPECT_EQ(429, put_resp.http_code);
+    EXPECT_NE(std::string::npos, put_resp.status.msg.find("exceeds bytes limit"));
+    EXPECT_EQ(put_rejected_before + 1, s3_put_bytes_rate_limit_rejected_count.get_value());
+
+    EXPECT_EQ(0, fake->calls);
 }
 
 TEST(RateLimitedObjStorageClientTest, recursive_delete_charges_one_put_qps) {

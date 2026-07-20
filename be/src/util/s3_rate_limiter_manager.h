@@ -52,6 +52,12 @@ int64_t s3_rate_limiter_cpu_cores();
 // override a manual reset as soon as the config-resolved parameters differ.
 int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit);
 
+enum class S3RateLimitRejectReason {
+    NONE,
+    QPS,
+    BYTES,
+};
+
 // Owns the 4 process-wide token buckets (GET/PUT x QPS/bytes). Independent of
 // S3ClientFactory so that instantiating it never initializes the AWS SDK.
 class S3RateLimiterManager {
@@ -83,25 +89,26 @@ private:
 // The constructor charges the QPS bucket (may sleep when throttled; rejected only by
 // the legacy token_limit cumulative cap) and then reserves `estimated_bytes` from the
 // bytes bucket, clamped to at most 1 second worth of bandwidth so a single huge IO
-// cannot create unbounded upfront debt. The bytes bucket rejects a reservation when
-// admitting it would make the total waiting and executing bytes exceed that amount.
+// cannot create unbounded upfront debt (may sleep; normally does not reject because its
+// count limit is 0).
 //
-// settle(actual) returns only unused rate tokens when the actual transferred bytes are
-// smaller than the reservation (e.g. a short read at EOF). Destruction always releases
-// the full reservation from the bytes bucket count without returning rate tokens.
+// settle(actual) refunds the difference when the actual transferred bytes are smaller
+// than the reservation (e.g. a short read at EOF). An unsettled guard keeps the full
+// reservation charged, which is the conservative choice for failed requests.
 //
 // The guard pins the bucket generation it charged: if refresh() resets the bytes
-// bucket while the request is in flight, token settlement and count release apply to
-// the old generation instead of polluting the fresh bucket.
+// bucket while the request is in flight, settle() refunds on the old generation
+// (kept alive by the guard's shared_ptr) instead of polluting the fresh bucket.
 class S3RateLimitGuard {
 public:
     S3RateLimitGuard(S3RateLimitType type, size_t estimated_bytes);
-    ~S3RateLimitGuard();
+    ~S3RateLimitGuard() = default;
 
     S3RateLimitGuard(const S3RateLimitGuard&) = delete;
     S3RateLimitGuard& operator=(const S3RateLimitGuard&) = delete;
 
     bool ok() const { return _ok; }
+    S3RateLimitRejectReason reject_reason() const { return _reject_reason; }
     void settle(size_t actual_bytes);
 
 private:
@@ -109,6 +116,7 @@ private:
     std::shared_ptr<TokenBucketRateLimiter> _charged_bucket;
     bool _ok = true;
     bool _settled = false;
+    S3RateLimitRejectReason _reject_reason = S3RateLimitRejectReason::NONE;
 };
 
 } // namespace doris

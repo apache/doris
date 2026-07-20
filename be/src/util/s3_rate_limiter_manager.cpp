@@ -29,8 +29,12 @@ namespace doris {
 
 bvar::Adder<int64_t> s3_get_bytes_rate_limit_sleep_ns("s3_get_bytes_rate_limit_sleep_ns");
 bvar::Adder<int64_t> s3_get_bytes_rate_limit_sleep_count("s3_get_bytes_rate_limit_sleep_count");
+bvar::Adder<int64_t> s3_get_bytes_rate_limit_rejected_count(
+        "s3_get_bytes_rate_limit_rejected_count");
 bvar::Adder<int64_t> s3_put_bytes_rate_limit_sleep_ns("s3_put_bytes_rate_limit_sleep_ns");
 bvar::Adder<int64_t> s3_put_bytes_rate_limit_sleep_count("s3_put_bytes_rate_limit_sleep_count");
+bvar::Adder<int64_t> s3_put_bytes_rate_limit_rejected_count(
+        "s3_put_bytes_rate_limit_rejected_count");
 
 namespace {
 
@@ -38,10 +42,12 @@ std::function<void(int64_t)> bytes_rate_limiter_metric_func(S3RateLimitType type
     switch (type) {
     case S3RateLimitType::GET:
         return metric_func_factory(s3_get_bytes_rate_limit_sleep_ns,
-                                   s3_get_bytes_rate_limit_sleep_count);
+                                   s3_get_bytes_rate_limit_sleep_count,
+                                   &s3_get_bytes_rate_limit_rejected_count);
     case S3RateLimitType::PUT:
         return metric_func_factory(s3_put_bytes_rate_limit_sleep_ns,
-                                   s3_put_bytes_rate_limit_sleep_count);
+                                   s3_put_bytes_rate_limit_sleep_count,
+                                   &s3_put_bytes_rate_limit_rejected_count);
     default:
         return [](int64_t) {};
     }
@@ -115,7 +121,7 @@ S3RateLimiterManager::S3RateLimiterManager() {
         _qps_limiters[index_of(type)] = std::make_unique<S3RateLimiterHolder>(
                 limit.qps, limit.burst, limit.count_limit, s3_rate_limiter_metric_func(type));
         _bytes_limiters[index_of(type)] = std::make_unique<S3RateLimiterHolder>(
-                limit.bytes_per_second, limit.bytes_per_second, limit.bytes_per_second,
+                limit.bytes_per_second, limit.bytes_per_second, 0,
                 bytes_rate_limiter_metric_func(type));
     }
 }
@@ -150,10 +156,8 @@ void S3RateLimiterManager::refresh() {
         }
 
         auto* bytes = bytes_limiter(type);
-        const auto bytes_per_second = static_cast<size_t>(limit.bytes_per_second);
-        if (bytes->get_max_speed() != bytes_per_second ||
-            bytes->get_max_burst() != bytes_per_second || bytes->get_limit() != bytes_per_second) {
-            bytes->reset(bytes_per_second, bytes_per_second, bytes_per_second);
+        if (bytes->get_max_speed() != static_cast<size_t>(limit.bytes_per_second)) {
+            bytes->reset(limit.bytes_per_second, limit.bytes_per_second, 0);
             LOG(INFO) << "reset S3 " << to_string(type)
                       << " bytes rate limiter, bytes_per_second=" << limit.bytes_per_second
                       << ", cores=" << cores;
@@ -171,6 +175,7 @@ S3RateLimitGuard::S3RateLimitGuard(S3RateLimitType type, size_t estimated_bytes)
     if (qps->is_enabled() &&
         apply_s3_rate_limit(type, qps, config::s3_rate_limiter_log_interval) < 0) {
         _ok = false;
+        _reject_reason = S3RateLimitRejectReason::QPS;
         return;
     }
 
@@ -187,17 +192,12 @@ S3RateLimitGuard::S3RateLimitGuard(S3RateLimitType type, size_t estimated_bytes)
     // upper bound are excluded by the config contract (see config.cpp).
     _reserved = std::min(estimated_bytes, bytes->get_max_speed());
     if (_reserved > 0) {
-        // Pin the admitted bucket generation for settlement and count release.
+        // Pin the admitted bucket generation for settle().
         _charged_bucket = bytes->charge(_reserved);
         if (_charged_bucket == nullptr) {
             _ok = false;
+            _reject_reason = S3RateLimitRejectReason::BYTES;
         }
-    }
-}
-
-S3RateLimitGuard::~S3RateLimitGuard() {
-    if (_charged_bucket != nullptr) {
-        _charged_bucket->refund_count(_reserved);
     }
 }
 
@@ -207,7 +207,7 @@ void S3RateLimitGuard::settle(size_t actual_bytes) {
     }
     _settled = true;
     if (_charged_bucket != nullptr && _reserved > actual_bytes) {
-        _charged_bucket->refund_tokens(_reserved - actual_bytes);
+        _charged_bucket->refund(_reserved - actual_bytes);
     }
 }
 

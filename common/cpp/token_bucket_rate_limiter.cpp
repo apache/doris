@@ -132,17 +132,12 @@ int64_t TokenBucketRateLimiter::add(size_t amount) {
     return sleep_time_ns;
 }
 
-void TokenBucketRateLimiter::refund_tokens(size_t amount) {
+void TokenBucketRateLimiter::refund(size_t amount) {
     std::lock_guard<SimpleSpinLock> lock(*_mutex);
     if (_max_speed) {
         _remain_tokens = std::min<double>(_remain_tokens + amount, _max_burst);
     }
-}
-
-void TokenBucketRateLimiter::refund_count(size_t amount) {
-    std::lock_guard<SimpleSpinLock> lock(*_mutex);
-    CHECK_GE(_count, amount);
-    _count -= amount;
+    _count = (_count >= amount) ? _count - amount : 0;
 }
 
 TokenBucketRateLimiterHolder::TokenBucketRateLimiterHolder(size_t max_speed, size_t max_burst,

@@ -17,16 +17,19 @@
 
 #include "io/fs/rate_limited_obj_storage_client.h"
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "util/s3_rate_limiter_manager.h"
 
 namespace doris::io {
 namespace {
 
-ObjectStorageResponse rate_limited_response(S3RateLimitType type) {
+ObjectStorageResponse rate_limited_response(S3RateLimitType type, S3RateLimitRejectReason reason) {
+    CHECK(reason != S3RateLimitRejectReason::NONE);
+    const auto* limit_type = reason == S3RateLimitRejectReason::QPS ? "QPS" : "bytes";
     return {.status = convert_to_obj_response(Status::Error<ErrorCode::EXCEEDED_LIMIT, false>(
-                    "s3 {} request exceeds request limit, rejected by BE rate limiter",
-                    to_string(type))),
+                    "s3 {} request exceeds {} limit, rejected by BE rate limiter", to_string(type),
+                    limit_type)),
             .http_code = 429};
 }
 
@@ -36,7 +39,7 @@ ObjectStorageUploadResponse RateLimitedObjStorageClient::create_multipart_upload
         const ObjectStoragePathOptions& opts) {
     S3RateLimitGuard guard(S3RateLimitType::PUT, 0);
     if (!guard.ok()) {
-        return {.resp = rate_limited_response(S3RateLimitType::PUT)};
+        return {.resp = rate_limited_response(S3RateLimitType::PUT, guard.reject_reason())};
     }
     return _inner->create_multipart_upload(opts);
 }
@@ -45,7 +48,7 @@ ObjectStorageResponse RateLimitedObjStorageClient::put_object(const ObjectStorag
                                                               std::string_view stream) {
     S3RateLimitGuard guard(S3RateLimitType::PUT, stream.size());
     if (!guard.ok()) {
-        return rate_limited_response(S3RateLimitType::PUT);
+        return rate_limited_response(S3RateLimitType::PUT, guard.reject_reason());
     }
     return _inner->put_object(opts, stream);
 }
@@ -54,7 +57,7 @@ ObjectStorageUploadResponse RateLimitedObjStorageClient::upload_part(
         const ObjectStoragePathOptions& opts, std::string_view stream, int part_num) {
     S3RateLimitGuard guard(S3RateLimitType::PUT, stream.size());
     if (!guard.ok()) {
-        return {.resp = rate_limited_response(S3RateLimitType::PUT)};
+        return {.resp = rate_limited_response(S3RateLimitType::PUT, guard.reject_reason())};
     }
     return _inner->upload_part(opts, stream, part_num);
 }
@@ -64,7 +67,7 @@ ObjectStorageResponse RateLimitedObjStorageClient::complete_multipart_upload(
         const std::vector<ObjectCompleteMultiPart>& completed_parts) {
     S3RateLimitGuard guard(S3RateLimitType::PUT, 0);
     if (!guard.ok()) {
-        return rate_limited_response(S3RateLimitType::PUT);
+        return rate_limited_response(S3RateLimitType::PUT, guard.reject_reason());
     }
     return _inner->complete_multipart_upload(opts, completed_parts);
 }
@@ -73,7 +76,7 @@ ObjectStorageHeadResponse RateLimitedObjStorageClient::head_object(
         const ObjectStoragePathOptions& opts) {
     S3RateLimitGuard guard(S3RateLimitType::GET, 0);
     if (!guard.ok()) {
-        return {.resp = rate_limited_response(S3RateLimitType::GET)};
+        return {.resp = rate_limited_response(S3RateLimitType::GET, guard.reject_reason())};
     }
     return _inner->head_object(opts);
 }
@@ -84,7 +87,7 @@ ObjectStorageResponse RateLimitedObjStorageClient::get_object(const ObjectStorag
                                                               size_t* size_return) {
     S3RateLimitGuard guard(S3RateLimitType::GET, bytes_read);
     if (!guard.ok()) {
-        return rate_limited_response(S3RateLimitType::GET);
+        return rate_limited_response(S3RateLimitType::GET, guard.reject_reason());
     }
     auto resp = _inner->get_object(opts, buffer, offset, bytes_read, size_return);
     if (resp.status.code == 0) {
@@ -98,7 +101,7 @@ ObjectStorageResponse RateLimitedObjStorageClient::list_objects(
         const ObjectStoragePathOptions& opts, std::vector<FileInfo>* files) {
     S3RateLimitGuard guard(S3RateLimitType::GET, 0);
     if (!guard.ok()) {
-        return rate_limited_response(S3RateLimitType::GET);
+        return rate_limited_response(S3RateLimitType::GET, guard.reject_reason());
     }
     return _inner->list_objects(opts, files);
 }
@@ -107,7 +110,7 @@ ObjectStorageResponse RateLimitedObjStorageClient::delete_objects(
         const ObjectStoragePathOptions& opts, std::vector<std::string> objs) {
     S3RateLimitGuard guard(S3RateLimitType::PUT, 0);
     if (!guard.ok()) {
-        return rate_limited_response(S3RateLimitType::PUT);
+        return rate_limited_response(S3RateLimitType::PUT, guard.reject_reason());
     }
     return _inner->delete_objects(opts, std::move(objs));
 }
@@ -116,7 +119,7 @@ ObjectStorageResponse RateLimitedObjStorageClient::delete_object(
         const ObjectStoragePathOptions& opts) {
     S3RateLimitGuard guard(S3RateLimitType::PUT, 0);
     if (!guard.ok()) {
-        return rate_limited_response(S3RateLimitType::PUT);
+        return rate_limited_response(S3RateLimitType::PUT, guard.reject_reason());
     }
     return _inner->delete_object(opts);
 }
@@ -125,7 +128,7 @@ ObjectStorageResponse RateLimitedObjStorageClient::delete_objects_recursively(
         const ObjectStoragePathOptions& opts) {
     S3RateLimitGuard guard(S3RateLimitType::PUT, 0);
     if (!guard.ok()) {
-        return rate_limited_response(S3RateLimitType::PUT);
+        return rate_limited_response(S3RateLimitType::PUT, guard.reject_reason());
     }
     return _inner->delete_objects_recursively(opts);
 }
