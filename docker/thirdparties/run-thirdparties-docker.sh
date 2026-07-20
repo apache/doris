@@ -1483,11 +1483,21 @@ dump_kerberos_container_state() {
     sudo docker logs --tail 200 "${container}" >&2 || true
 }
 
+cleanup_kerberos_ready_wait() {
+    local wait_pid="$1"
+
+    [[ -n "${wait_pid}" ]] || return 0
+    sudo kill -TERM -- "-${wait_pid}" >/dev/null 2>&1 || true
+    wait "${wait_pid}" >/dev/null 2>&1 || true
+}
+
 wait_for_kerberos_ready() {
     local container="$1"
+    local wait_pid=""
+    local wait_status=0
 
     echo "Waiting for ${container} readiness event"
-    if ! sudo timeout --signal=TERM --kill-after=5s 20m bash -c '
+    setsid sudo timeout --signal=TERM --kill-after=5s 20m bash -c '
         log_dir=$(mktemp -d)
         mkfifo "${log_dir}/container.log"
         docker logs --follow "$1" >"${log_dir}/container.log" 2>&1 &
@@ -1505,11 +1515,32 @@ wait_for_kerberos_ready() {
             fi
         done <"${log_dir}/container.log"
         exit 1
-    ' _ "${container}"; then
+    ' _ "${container}" &
+    wait_pid=$!
+    trap 'cleanup_kerberos_ready_wait "${wait_pid}"' EXIT
+    trap 'exit 143' TERM
+    trap 'exit 130' INT
+    if ! wait "${wait_pid}"; then
+        wait_status=1
+    fi
+    wait_pid=""
+    trap - EXIT TERM INT
+    if [[ "${wait_status}" -ne 0 ]]; then
         echo "ERROR: timed out or container exited before ${container} became ready" >&2
         dump_kerberos_container_state "${container}"
         return 1
     fi
+}
+
+cleanup_kerberos_readiness_jobs() {
+    local pid
+
+    for pid in "$@"; do
+        kill "${pid}" >/dev/null 2>&1 || true
+    done
+    for pid in "$@"; do
+        wait "${pid}" >/dev/null 2>&1 || true
+    done
 }
 
 validate_kerberos_container() {
@@ -1562,6 +1593,9 @@ start_kerberos() {
         rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.jks
         rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.conf
         compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" up --build --remove-orphans -d
+        trap 'cleanup_kerberos_readiness_jobs "${readiness_pids[@]}"' EXIT
+        trap 'exit 143' TERM
+        trap 'exit 130' INT
         for container in "${containers[@]}"; do
             wait_for_kerberos_ready "${container}" &
             readiness_pids+=("$!")
@@ -1571,6 +1605,8 @@ start_kerberos() {
                 readiness_status=1
             fi
         done
+        readiness_pids=()
+        trap - EXIT TERM INT
         if [[ "${readiness_status}" -ne 0 ]]; then
             return 1
         fi
