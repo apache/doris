@@ -835,6 +835,58 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+TEST(MetaServiceTest, AddBuiltInGcpWorkloadIdentityVaultTest) {
+    auto meta_service = get_meta_service();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    std::string key;
+    instance_key({mock_instance}, &key);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    AlterObjStoreInfoRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_op(AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT);
+    auto* request_vault = req.mutable_vault();
+    request_vault->set_name(BUILT_IN_STORAGE_VAULT_NAME.data());
+    auto* obj = request_vault->mutable_obj_info();
+    obj->set_bucket("test_bucket");
+    obj->set_prefix("test_prefix");
+    obj->set_endpoint("Storage.GoogleApis.Com");
+    obj->set_region("us-central1");
+    obj->set_provider(ObjectStoreInfoPB::GCP);
+    obj->set_cred_provider_type(CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+
+    brpc::Controller cntl;
+    AlterObjStoreInfoResponse res;
+    meta_service->alter_storage_vault(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    std::unique_ptr<Transaction> read_txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&read_txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_EQ(read_txn->get(key, &val), TxnErrorCode::TXN_OK);
+    InstanceInfoPB stored_instance;
+    ASSERT_TRUE(stored_instance.ParseFromString(val));
+    ASSERT_EQ(stored_instance.resource_ids_size(), 1);
+    ASSERT_EQ(stored_instance.resource_ids(0), "1");
+    ASSERT_EQ(stored_instance.storage_vault_names(0), BUILT_IN_STORAGE_VAULT_NAME.data());
+
+    ASSERT_EQ(read_txn->get(storage_vault_key({mock_instance, "1"}), &val), TxnErrorCode::TXN_OK);
+    StorageVaultPB stored_vault;
+    ASSERT_TRUE(stored_vault.ParseFromString(val));
+    ASSERT_EQ(stored_vault.obj_info().endpoint(), GCS_XML_ENDPOINT);
+    ASSERT_EQ(stored_vault.obj_info().cred_provider_type(),
+              CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+    ASSERT_FALSE(stored_vault.obj_info().has_ak());
+    ASSERT_FALSE(stored_vault.obj_info().has_sk());
+    ASSERT_FALSE(stored_vault.obj_info().has_encryption_info());
+}
+
 TEST(MetaServiceTest, AlterHdfsStorageVaultTest) {
     auto meta_service = get_meta_service();
 

@@ -1693,7 +1693,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             ret != 0) {
             return;
         }
-        return;
+        break;
     }
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->vault(), code, msg);
