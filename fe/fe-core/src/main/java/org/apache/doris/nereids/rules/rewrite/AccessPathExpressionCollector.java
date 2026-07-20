@@ -338,6 +338,23 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             Expression fieldName = arguments.get(1);
             DataType fieldType = fieldName.getDataType();
             if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
+                // element_at(s, 'field') IS NULL has two-layer null semantics:
+                //   s IS NULL OR s.field IS NULL
+                // Always emit META [s, NULL] for the struct-level null map.
+                // Only emit META [s, field, NULL] when the selected field itself is nullable.
+                if (context.type == ColumnAccessPathType.META
+                        && isUnderIsNull(context.accessPathBuilder.getPathList())) {
+                    StructField field = resolveStructField(
+                            (StructType) first.getDataType(), fieldName);
+                    // Path 1: struct-level null check — bypass field prefix
+                    continueCollectAccessPath(first, copyContext(context));
+                    if (field != null && !field.isNullable()) {
+                        // Non-nullable leaf: struct-level NULL is sufficient
+                        return null;
+                    }
+                    // Nullable leaf: fall through to add field prefix → META [s, field, NULL]
+                }
+
                 if (fieldType.isIntegerLikeType()) {
                     int fieldIndex = ((Number) ((Literal) fieldName).getValue()).intValue();
                     List<StructField> fields = ((StructType) first.getDataType()).getFields();
@@ -652,6 +669,29 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             return continueCollectAccessPath(arg, nullContext);
         }
         return visit(isNull, context);
+    }
+
+    /**
+     * Resolve the StructField selected by a constant int/string literal.
+     * Returns null when the selector is not a recognized literal or index is out of bounds.
+     */
+    static StructField resolveStructField(StructType structType, Expression fieldExpr) {
+        if (!fieldExpr.isLiteral()) {
+            return null;
+        }
+        if (fieldExpr.getDataType().isIntegerLikeType()) {
+            int index = ((Number) ((Literal) fieldExpr).getValue()).intValue();
+            List<StructField> fields = structType.getFields();
+            if (index >= 1 && index <= fields.size()) {
+                return fields.get(index - 1);
+            }
+            return null;
+        }
+        if (fieldExpr.getDataType().isStringLikeType()) {
+            String name = ((Literal) fieldExpr).getStringValue().toLowerCase();
+            return structType.getField(name);
+        }
+        return null;
     }
 
     @Override
