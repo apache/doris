@@ -95,6 +95,14 @@ public class EliminateGroupByKey extends DefaultPlanRewriter<Map<ExprId, ExprId>
             return exprIdReplacer.rewriteExpr(proj, replaceMap);
         }
 
+        // Rewrite proj and the filter (if present) through the replaceMap accumulated
+        // by visitChildren, so that ExprId replacements from nested rewrites
+        // (e.g. inner aggregates) are reflected in the required-output slot set.
+        proj = (LogicalProject<? extends Plan>) exprIdReplacer.rewriteExpr(proj, replaceMap);
+        if (hasFilter) {
+            child = exprIdReplacer.rewriteExpr(child, replaceMap);
+        }
+
         // Compute requireOutput: slots needed by the Project (and Filter, if present)
         Set<Slot> requireOutput = new HashSet<>(proj.getInputSlots());
         if (hasFilter) {
@@ -104,7 +112,7 @@ public class EliminateGroupByKey extends DefaultPlanRewriter<Map<ExprId, ExprId>
         // Transform the aggregate
         EliminateResult result = eliminateGroupByKeyWithMap(agg, requireOutput);
         if (!result.changed) {
-            return exprIdReplacer.rewriteExpr(proj, replaceMap);
+            return proj;
         }
 
         // Merge into the global replaceMap so that all ancestor nodes get rewritten
