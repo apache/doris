@@ -202,8 +202,10 @@ void DelimitedTextReader::_init_profile() {
             _profile, "RawLinesRead", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
     _text_profile.rows_read_before_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "RowsReadBeforeFilter", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    // RuntimeProfile counter names are global within one profile, so the format prefix preserves
+    // independent ownership when Parquet and delimited readers are initialized in either order.
     _text_profile.rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "RowsFilteredByConjunct", TUnit::UNIT, file_scan_profile::FILE_READER, 1);
+            _profile, "DelimitedRowsFilteredByConjunct", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
     _text_profile.rows_filtered_by_delete_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "RowsFilteredByDeleteConjunct", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
     _text_profile.rows_returned = ADD_CHILD_COUNTER_WITH_LEVEL(

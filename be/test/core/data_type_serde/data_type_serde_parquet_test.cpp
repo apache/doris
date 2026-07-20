@@ -414,19 +414,84 @@ TEST(DataTypeSerDeParquetTest, MaterializesTimestampUnitsAndNegativeEpochDirectl
 }
 
 TEST(DataTypeSerDeParquetTest, MaterializesTimeUnitsDirectly) {
-    TestParquetDecodeSource source;
-    source.set_fixed_values<int64_t>({3723456789, -1000001});
-    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
-                                  .logical_type = ParquetLogicalType::TIME,
-                                  .time_unit = ParquetTimeUnit::MICROS};
-    ParquetMaterializationState state;
-    DataTypeTimeV2 type(6);
-    auto column = type.create_column();
+    struct TimeUnitCase {
+        ParquetTimeUnit unit;
+        int64_t units_per_day;
+        int64_t expected_last_micros;
+    };
+    const std::vector<TimeUnitCase> cases {
+            {ParquetTimeUnit::MILLIS, 86400000, 86399999000},
+            {ParquetTimeUnit::MICROS, 86400000000, 86399999999},
+            {ParquetTimeUnit::NANOS, 86400000000000, 86399999999},
+    };
 
-    ASSERT_TRUE(
-            type.get_serde()->read_column_from_parquet(*column, source, context, 2, state).ok());
-    EXPECT_EQ(type.to_string(*column, 0), "01:02:03.456789");
-    EXPECT_EQ(type.to_string(*column, 1), "-00:00:01.000001");
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(static_cast<int>(test_case.unit));
+        ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                      .logical_type = ParquetLogicalType::TIME,
+                                      .time_unit = test_case.unit};
+        DataTypeTimeV2 type(6);
+
+        TestParquetDecodeSource source;
+        source.set_fixed_values<int64_t>({0, test_case.units_per_day - 1});
+        ParquetMaterializationState state;
+        auto column = type.create_column();
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*column, source, context, 2, state)
+                            .ok());
+        const auto& data = assert_cast<const ColumnTimeV2&>(*column).get_data();
+        EXPECT_EQ(data[0], 0);
+        EXPECT_EQ(data[1], test_case.expected_last_micros);
+
+        TestParquetDecodeSource nullable_source;
+        nullable_source.set_fixed_values<int64_t>({-1, test_case.units_per_day});
+        IColumn::Filter null_map;
+        null_map.resize_fill(2, 0);
+        ParquetMaterializationState nullable_state;
+        nullable_state.conversion_failure_null_map = &null_map;
+        auto nullable_column = type.create_column();
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*nullable_column, nullable_source, context,
+                                                       2, nullable_state)
+                            .ok());
+        EXPECT_EQ(null_map, IColumn::Filter({1, 1}));
+
+        TestParquetDecodeSource strict_source;
+        strict_source.set_fixed_values<int64_t>({-1});
+        ParquetMaterializationState strict_state;
+        auto strict_column = type.create_column();
+        EXPECT_FALSE(type.get_serde()
+                             ->read_column_from_parquet(*strict_column, strict_source, context, 1,
+                                                        strict_state)
+                             .ok());
+        EXPECT_EQ(strict_column->size(), 0);
+
+        TestParquetDecodeSource unused_invalid_dictionary;
+        unused_invalid_dictionary.set_fixed_dictionary<int64_t>(
+                {-1, 0, test_case.units_per_day - 1, test_case.units_per_day}, {1, 2});
+        auto dictionary_context = context;
+        dictionary_context.encoding = ParquetValueEncoding::DICTIONARY;
+        ParquetMaterializationState dictionary_state;
+        auto dictionary_column = type.create_column();
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*dictionary_column,
+                                                       unused_invalid_dictionary,
+                                                       dictionary_context, 2, dictionary_state)
+                            .ok());
+        EXPECT_EQ(dictionary_column->size(), 2);
+
+        TestParquetDecodeSource referenced_invalid_dictionary;
+        referenced_invalid_dictionary.set_fixed_dictionary<int64_t>(
+                {-1, 0, test_case.units_per_day}, {0});
+        ParquetMaterializationState invalid_dictionary_state;
+        auto invalid_dictionary_column = type.create_column();
+        EXPECT_FALSE(type.get_serde()
+                             ->read_column_from_parquet(
+                                     *invalid_dictionary_column, referenced_invalid_dictionary,
+                                     dictionary_context, 1, invalid_dictionary_state)
+                             .ok());
+        EXPECT_EQ(invalid_dictionary_column->size(), 0);
+    }
 }
 
 TEST(DataTypeSerDeParquetTest, MaterializesTimestampTzDirectly) {

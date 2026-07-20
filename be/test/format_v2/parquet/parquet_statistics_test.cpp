@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr.h"
@@ -102,6 +103,29 @@ private:
     VExprSPtr _slot;
     std::vector<Field> _values;
     const std::string _expr_name = "BloomInExpr";
+};
+
+class DictionaryStringInExpr final : public VExpr {
+public:
+    DictionaryStringInExpr() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("DictionaryStringInExpr is metadata-only");
+    }
+
+    bool can_evaluate_dictionary_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext&) const override {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
+
+private:
+    const std::string _expr_name = "DictionaryStringInExpr";
 };
 VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
     return {VExprContext::create_shared(
@@ -215,6 +239,81 @@ TEST(ParquetBloomFilterPruningTest, NativeRowGroupKeepsPresentUint32AboveInt32Ma
                         .ok());
     EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 0);
+}
+
+TEST(NativeParquetStatisticsTest, EmptyDictionaryRowGroupIsSkippedBeforeMetadataProbes) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement leaf;
+    leaf.__set_name("value");
+    leaf.__set_type(tparquet::Type::BYTE_ARRAY);
+    leaf.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::BYTE_ARRAY);
+    column_metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    column_metadata.__set_num_values(0);
+    column_metadata.__set_total_compressed_size(0);
+    column_metadata.__set_data_page_offset(0);
+    column_metadata.__set_dictionary_page_offset(0);
+    column_metadata.__set_encodings({tparquet::Encoding::RLE_DICTIONARY});
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_total_byte_size(0);
+    row_group.__set_num_rows(0);
+    tparquet::FileMetaData thrift_metadata;
+    thrift_metadata.__set_version(1);
+    thrift_metadata.__set_schema({root, leaf});
+    thrift_metadata.__set_num_rows(0);
+    thrift_metadata.__set_row_groups({row_group});
+
+    format::parquet::NativeParquetMetadata native_metadata(thrift_metadata, 0);
+    ASSERT_TRUE(native_metadata.init_schema(false, false).ok());
+    format::parquet::ParquetFileContext file_context;
+    file_context.native_file =
+            std::make_shared<StatisticsMemoryFileReader>(std::vector<uint8_t> {});
+    file_context.native_metadata = &native_metadata;
+
+    auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+    column_schema->type = std::make_shared<DataTypeString>();
+    column_schema->type_descriptor.doris_type = column_schema->type;
+    column_schema->type_descriptor.physical_type = tparquet::Type::BYTE_ARRAY;
+    column_schema->type_descriptor.is_string_like = true;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {VExprContext::create_shared(std::make_shared<DictionaryStringInExpr>())};
+    std::vector<int> selected_row_groups;
+    format::parquet::ParquetPruningStats pruning_stats;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        thrift_metadata, schema, request, nullptr, &selected_row_groups, true,
+                        &pruning_stats, nullptr, nullptr, &file_context)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+}
+
+TEST(NativeParquetStatisticsTest, InvalidCandidateRowGroupReturnsCorruption) {
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(1);
+    tparquet::FileMetaData metadata;
+    metadata.__set_row_groups({row_group});
+    format::FileScanRequest request;
+    const std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    const std::vector<int> candidates {1};
+    std::vector<int> selected_row_groups;
+
+    const auto status = format::parquet::select_row_groups_by_metadata(
+            metadata, schema, request, &candidates, &selected_row_groups, false, nullptr, nullptr,
+            nullptr, nullptr);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
 }
 TEST(NativeParquetStatisticsTest, LegacyBinaryFooterBoundsRequireComparableOrdering) {
     format::parquet::ParquetTypeDescriptor binary_type;

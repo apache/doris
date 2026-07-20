@@ -67,31 +67,41 @@ public:
         const size_t old_size = _data.size();
         _data.resize(old_size + num_values);
         for (size_t row = 0; row < num_values; ++row) {
-            int64_t micros;
+            int64_t raw_value;
             if (_context.physical_type == ParquetPhysicalType::INT32) {
                 DORIS_CHECK_EQ(value_width, sizeof(int32_t));
-                micros = static_cast<int64_t>(
-                                 unaligned_load<int32_t>(values + row * sizeof(int32_t))) *
-                         1000;
+                raw_value = unaligned_load<int32_t>(values + row * sizeof(int32_t));
             } else {
                 DORIS_CHECK(_context.physical_type == ParquetPhysicalType::INT64);
                 DORIS_CHECK_EQ(value_width, sizeof(int64_t));
-                micros = unaligned_load<int64_t>(values + row * sizeof(int64_t));
-                if (_context.time_unit == ParquetTimeUnit::MILLIS) {
-                    if (micros > std::numeric_limits<int64_t>::max() / 1000 ||
-                        micros < std::numeric_limits<int64_t>::min() / 1000) {
-                        if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
-                            _data[old_size + row] = TimeValue::TimeType();
-                            continue;
-                        }
-                        _data.resize(old_size);
-                        return Status::DataQualityError(
-                                "Parquet TIME value overflows microseconds");
-                    }
-                    micros *= 1000;
-                } else if (_context.time_unit == ParquetTimeUnit::NANOS) {
-                    micros /= 1000;
+                raw_value = unaligned_load<int64_t>(values + row * sizeof(int64_t));
+            }
+
+            int64_t units_per_day;
+            if (_context.time_unit == ParquetTimeUnit::MILLIS) {
+                units_per_day = 86400000;
+            } else if (_context.time_unit == ParquetTimeUnit::MICROS) {
+                units_per_day = 86400000000;
+            } else {
+                DORIS_CHECK(_context.time_unit == ParquetTimeUnit::NANOS);
+                units_per_day = 86400000000000;
+            }
+            // Validate the declared carrier before rescaling: truncating nanoseconds first could
+            // turn a value at or beyond 24:00:00 into an apparently valid TIMEV2 value.
+            if (raw_value < 0 || raw_value >= units_per_day) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = TimeValue::TimeType();
+                    continue;
                 }
+                _data.resize(old_size);
+                return Status::DataQualityError(
+                        "Parquet TIME value {} is outside the one-day domain", raw_value);
+            }
+            int64_t micros = raw_value;
+            if (_context.time_unit == ParquetTimeUnit::MILLIS) {
+                micros *= 1000;
+            } else if (_context.time_unit == ParquetTimeUnit::NANOS) {
+                micros /= 1000;
             }
             // Doris TIMEV2 stores signed microseconds in a double. Splitting into calendar fields
             // and immediately recombining them is an identity operation with several divisions.

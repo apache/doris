@@ -2261,6 +2261,8 @@ TEST_F(NewParquetReaderTest, ProfileNestsFormatReaderBelowFileReaderAndRecordsTo
     EXPECT_TRUE(children.at("ParquetReader").contains("ColumnReadTime"));
     EXPECT_TRUE(children.at("ParquetReader").contains("RowGroupsReadNum"));
     EXPECT_TRUE(children.at("ParquetReader").contains("FilteredRowsByGroup"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("FilteredBytes"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("FileNum"));
 }
 
 TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {

@@ -5723,8 +5723,8 @@ TEST_F(NewOrcReaderTest, ClosePublishesOrcLazyStatisticsToRuntimeProfile) {
     ASSERT_EQ(rows, 3);
     ASSERT_TRUE(reader->close().ok());
 
-    ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 2);
+    ASSERT_NE(profile.get_counter("OrcFilteredRowsByLazyRead"), nullptr);
+    EXPECT_EQ(profile.get_counter("OrcFilteredRowsByLazyRead")->value(), 2);
 }
 
 TEST_F(NewOrcReaderTest, DisableOrcLazyMaterializationKeepsLazyProfileZero) {
@@ -5753,8 +5753,8 @@ TEST_F(NewOrcReaderTest, DisableOrcLazyMaterializationKeepsLazyProfileZero) {
     ASSERT_EQ(rows, 3);
     ASSERT_TRUE(reader->close().ok());
 
-    ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
+    ASSERT_NE(profile.get_counter("OrcFilteredRowsByLazyRead"), nullptr);
+    EXPECT_EQ(profile.get_counter("OrcFilteredRowsByLazyRead")->value(), 0);
 }
 
 TEST_F(NewOrcReaderTest, ConditionCacheMissMarksSurvivingGranules) {

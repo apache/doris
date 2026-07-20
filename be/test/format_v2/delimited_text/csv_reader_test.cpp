@@ -446,7 +446,7 @@ TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     EXPECT_NE(_profile.get_counter("DeleteConjunctFilterTime"), nullptr);
     EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 3);
     EXPECT_EQ(counter_value(&_profile, "RowsReadBeforeFilter"), 3);
-    EXPECT_EQ(counter_value(&_profile, "RowsFilteredByConjunct"), 2);
+    EXPECT_EQ(counter_value(&_profile, "DelimitedRowsFilteredByConjunct"), 2);
     EXPECT_EQ(io_ctx->predicate_filtered_rows, 2);
     EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByDeleteConjunct"), 0);

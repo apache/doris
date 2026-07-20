@@ -865,9 +865,22 @@ Status select_row_groups_by_metadata(
         const int row_group_idx = candidate_row_groups == nullptr
                                           ? static_cast<int>(candidate_idx)
                                           : (*candidate_row_groups)[candidate_idx];
-        DORIS_CHECK(row_group_idx >= 0 &&
-                    row_group_idx < static_cast<int>(metadata.row_groups.size()));
+        if (row_group_idx < 0 || row_group_idx >= static_cast<int>(metadata.row_groups.size())) {
+            // Candidate ids originate in external split metadata; a corrupt id must not terminate
+            // the BE while planning an otherwise recoverable file scan.
+            return Status::Corruption("Invalid Parquet row group candidate {} for {} row groups",
+                                      row_group_idx, metadata.row_groups.size());
+        }
         const auto& row_group = metadata.row_groups[row_group_idx];
+        if (row_group.num_rows < 0) {
+            return Status::Corruption("Parquet row group {} has negative row count {}",
+                                      row_group_idx, row_group.num_rows);
+        }
+        if (row_group.num_rows == 0) {
+            // Native metadata probes construct positive row ranges; empty groups contribute no
+            // rows and must be discarded before dictionary, statistics, or Bloom reader setup.
+            continue;
+        }
         ParquetRowGroupPruneReason prune_reason = ParquetRowGroupPruneReason::NONE;
         if (has_expr_zonemap_filter(request, runtime_state) &&
             check_native_statistics(row_group, file_schema, request, pruning_stats, timezone)) {

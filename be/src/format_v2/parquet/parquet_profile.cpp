@@ -102,8 +102,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NestedBatches", TUnit::UNIT, parquet_profile, 1);
     lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByLazyRead",
                                                            TUnit::UNIT, parquet_profile, 1);
+    // Format-specific counters stay below ParquetReader so subtree consumers cannot silently
+    // attribute them to a different file format initialized on the same RuntimeProfile.
     filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredBytes", TUnit::BYTES,
-                                                  file_scan_profile::FILE_READER, 1);
+                                                  parquet_profile, 1);
     raw_rows_read =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RawRowsRead", TUnit::UNIT, parquet_profile, 1);
     column_read_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ColumnReadTime", parquet_profile, 1);
@@ -111,8 +113,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
     parse_footer_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ParseFooterTime", parquet_profile, 1);
     file_reader_create_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileReaderCreateTime", parquet_profile, 1);
-    open_file_num = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileNum", TUnit::UNIT,
-                                                 file_scan_profile::FILE_READER, 1);
+    open_file_num =
+            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileNum", TUnit::UNIT, parquet_profile, 1);
     page_index_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PageIndexReadCalls", TUnit::UNIT,
                                                          parquet_profile, 1);
     page_index_filter_time =
