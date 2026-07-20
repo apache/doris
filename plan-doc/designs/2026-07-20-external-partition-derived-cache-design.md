@@ -23,9 +23,10 @@ catalog-SPI 翻闸（CACHE-P1 决策）把 legacy fe-core 里引擎特定的"分
 - 通用框架，全 SPI 引擎（`SPI_READY_TYPES = jdbc, es, trino-connector, max_compute, paimon, iceberg, hms`）可受益；按收益接线（iceberg/paimon/hive/maxcompute 先接，jdbc/es 分区退化可暂 no-op）。
 
 **非目标**
-- 不引入全局 as-of 快照语义；跨查询沿用 `use_meta_cache` 的 bounded-staleness 契约。
+- 不引入全局 as-of 快照语义；跨查询采用 bounded-staleness 契约（TTL + 失效钩子）。
 - 不改变 `PruneFileScanPartition` 的二分裁剪算法（`PartitionPruner.binarySearchFiltering` 保持原样）。
 - 不为带谓词的 `listPartitions`（当前不存在此调用）设计缓存分桶。
+- **不考虑 `use_meta_cache=false`**：新 SPI 框架下 `use_meta_cache` **恒为 true**（连接器始终经元数据缓存），无直连绕过路径需设计。SHOW PARTITIONS / partitions-TVF 的"取新"仍由既有 per-call fresh 路径（`listPartitionNamesFresh` 等）承担，与本缓存正交、绕过缓存 A。
 
 ## 3. 现状梳理（设计所依赖的事实）
 
@@ -176,4 +177,3 @@ sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges      
 
 - jdbc/es/trino 连接器接入缓存 A（分区退化，收益低，待需求驱动）。
 - 若 profiling 显示某引擎 `getMvccPartitionView` 派生（dedup+buildRange+merge）仍是瓶颈，可在连接器内进一步拆分缓存粒度。
-- `use_meta_cache=false` 场景下两层缓存的一致行为（当前设计：`use_meta_cache` 为 catalog 级不可变属性，缓存开关独立于它，需在实现时确认交互并在 e2e 覆盖）。
