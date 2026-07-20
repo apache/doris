@@ -568,14 +568,13 @@ void IcebergTableReader::_append_equality_delete_row_count_carrier(
     DORIS_CHECK(request != nullptr);
     // Columnar readers establish a filter batch's row count from predicate columns. If all
     // equality keys are missing, the predicate consists only of NULL literals and the filter block
-    // would otherwise have zero rows. Read one physical column eagerly as a row-count carrier;
-    // normal final materialization ignores this hidden dependency.
-    const auto carrier_it = std::ranges::find_if(
-            _data_reader.file_schema, [](const format::ColumnDefinition& field) {
-                return field.column_type == format::ColumnType::DATA_COLUMN;
-            });
-    DORIS_CHECK(carrier_it != _data_reader.file_schema.end());
-    _append_file_scan_column(request, format::LocalColumnId(carrier_it->file_local_id()),
+    // would otherwise have zero rows. Use the virtual row-position column as the carrier instead
+    // of an arbitrary physical column. For example, a data file may start with an unsupported
+    // TIME_MILLIS leaf while the query projects only a supported `id`; selecting that TIME leaf as
+    // a hidden carrier would make Parquet reject a column the query never requested. Row position
+    // has one value per input row in both Parquet and ORC, is already used by delete predicates,
+    // and is explicitly excluded from physical logical-type validation.
+    _append_file_scan_column(request, format::LocalColumnId(format::ROW_POSITION_COLUMN_ID),
                              &request->predicate_columns);
 }
 

@@ -135,6 +135,10 @@ struct TableReadOptions {
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
+    // Table/global indices of explicit COUNT arguments. nullopt means an old FE did not send the
+    // semantic argument field, while an explicit empty vector means COUNT(*)/COUNT(1). Keeping
+    // those states separate prevents a rolling-upgrade plan from being reinterpreted by a new BE.
+    const std::optional<std::vector<GlobalIndex>> push_down_count_columns = std::nullopt;
     // Initial digest of predicates available during scanner open. Scanner-driven splits override it
     // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
     // A zero digest disables condition cache.
@@ -147,7 +151,7 @@ struct SplitReadOptions {
     // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters may
     // arrive after TableReader::init(), so scanner-driven splits replace the initial snapshot.
     // nullopt preserves the initial snapshot for standalone TableReader callers.
-    std::optional<VExprContextSPtrs> conjuncts;
+    std::optional<VExprContextSPtrs> conjuncts = std::nullopt;
     // Independent clones used for partition pruning because evaluation prepares and opens them
     // against a synthetic partition block before the file reader opens its row-level conjuncts.
     VExprContextSPtrs partition_prune_conjuncts;
@@ -207,6 +211,9 @@ public:
     virtual Status prepare_split(const SplitReadOptions& options);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
+    virtual bool current_split_uses_metadata_count() const {
+        return _current_split_uses_metadata_count;
+    }
 
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
@@ -220,6 +227,7 @@ public:
         }
         _delete_rows = nullptr;
         _remaining_table_level_count = -1;
+        _current_split_uses_metadata_count = false;
         _current_split_pruned = false;
         return Status::OK();
     }
@@ -315,6 +323,7 @@ public:
         _current_task.reset();
         _current_file_description.reset();
         _remaining_table_level_count = -1;
+        _current_split_uses_metadata_count = false;
         return Status::OK();
     }
 
@@ -397,6 +406,20 @@ protected:
         if (constant_filter_pruned_split) {
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
+        }
+        // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
+        // so the scan node still has an output tuple. Record only the current non-predicate file
+        // columns before table-format hooks add row-position or equality-delete dependencies. This
+        // marker is independent of aggregate eligibility: with position deletes, for example,
+        // metadata COUNT must fall back to reading rows, but an arbitrary unsupported TIME_MILLIS
+        // placeholder still must not be validated or decoded merely to carry the surviving count.
+        if (_push_down_agg_type == TPushAggOp::type::COUNT &&
+            _push_down_count_columns.has_value() && _push_down_count_columns->empty()) {
+            file_request->count_star_placeholder_columns.reserve(
+                    file_request->non_predicate_columns.size());
+            for (const auto& column : file_request->non_predicate_columns) {
+                file_request->count_star_placeholder_columns.push_back(column.column_id());
+            }
         }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
@@ -948,6 +971,9 @@ protected:
         RETURN_IF_ERROR(status);
         RETURN_IF_ERROR(
                 _materialize_aggregate_pushdown_rows(_push_down_agg_type, file_result, block));
+        if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+            _current_split_uses_metadata_count = true;
+        }
         *pushed_down = true;
         RETURN_IF_ERROR(close_current_reader());
         return Status::OK();
@@ -983,7 +1009,31 @@ protected:
             return false;
         }
         if (agg_type == TPushAggOp::type::COUNT) {
-            return true;
+            // Old FEs do not serialize push_down_count_slot_ids. During the supported BE-first
+            // rolling upgrade, nullopt therefore means "COUNT semantics are unknown", not
+            // COUNT(*). Fall back to reading rows until the FE explicitly sends either an empty
+            // list for COUNT(*) or one slot for COUNT(col).
+            if (!_push_down_count_columns.has_value()) {
+                return false;
+            }
+            // COUNT(*) needs no column metadata. COUNT(col) currently supports one direct file
+            // column; multiple COUNT arguments fall back to the normal scan so every upper
+            // aggregate receives the original rows.
+            if (_push_down_count_columns->empty()) {
+                return true;
+            }
+            if (_push_down_count_columns->size() != 1) {
+                return false;
+            }
+            const auto& mapping = _push_down_count_mapping();
+            // Metadata COUNT skips TableReader's normal materialization path. Only a trivial
+            // mapping is safe: for example, a nullable Parquet INT mapped to a NOT NULL table
+            // BIGINT normally needs both an INT->BIGINT cast and nullability validation. Counting
+            // footer values directly would bypass both operations and could hide invalid data.
+            return mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
+                   mapping.table_type != nullptr && mapping.is_trivial &&
+                   mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
+                   mapping.default_expr == nullptr;
         }
         // For MIN/MAX, only support direct file-to-table column mappings. The two emitted rows
         // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
@@ -1461,24 +1511,19 @@ protected:
         request->agg_type = agg_type;
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
-            // COUNT pushdown historically meant COUNT(*) and therefore carried no columns. For
-            // complex COUNT(col), materializing the full MAP/LIST/STRUCT value only to test the
-            // top-level NULL bit can be extremely expensive. When the scan projects exactly one
-            // directly-mapped complex column, pass that file column to the reader so formats such
-            // as Parquet can count the column shape from metadata/levels without decoding payload
-            // values like MAP value strings. Other COUNT cases stay on the existing row-count path
-            // to avoid changing count(*) semantics.
-            if (_data_reader.column_mapper->mappings().size() == 1) {
-                const auto& mapping = _data_reader.column_mapper->mappings()[0];
-                if (mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
-                    is_complex_type(remove_nullable(mapping.file_type)->get_primitive_type()) &&
-                    mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
-                    mapping.default_expr == nullptr) {
-                    FileAggregateRequest::Column column;
-                    column.projection =
-                            LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
-                    request->columns.push_back(std::move(column));
-                }
+            DORIS_CHECK(_push_down_count_columns.has_value());
+            // An empty explicit list is the semantic signal for COUNT(*). Do not inspect the
+            // mapping count: `SELECT COUNT(*) FROM t` may still project one nullable column because
+            // the planner keeps a placeholder slot. In a 10,000-row file where that arbitrary slot
+            // has 9,015 non-null values, passing the slot would ask Parquet/ORC metadata for
+            // COUNT(slot)=9,015 instead of the required row count 10,000.
+            if (!_push_down_count_columns->empty()) {
+                const auto& mapping = _push_down_count_mapping();
+                DORIS_CHECK(mapping.file_local_id.has_value());
+                FileAggregateRequest::Column column;
+                column.projection =
+                        LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
+                request->columns.push_back(std::move(column));
             }
             return Status::OK();
         }
@@ -1493,6 +1538,18 @@ protected:
             request->columns.push_back(std::move(column));
         }
         return Status::OK();
+    }
+
+    const ColumnMapping& _push_down_count_mapping() const {
+        DORIS_CHECK(_push_down_count_columns.has_value());
+        DORIS_CHECK(_push_down_count_columns->size() == 1);
+        const auto mapping_it =
+                std::ranges::find(_data_reader.column_mapper->mappings(),
+                                  _push_down_count_columns->front(), &ColumnMapping::global_index);
+        // FileScannerV2 translates FE SlotIds through the same projected-column list used to build
+        // the mapper, so a missing mapping is an FE/BE contract violation rather than a fallback.
+        DORIS_CHECK(mapping_it != _data_reader.column_mapper->mappings().end());
+        return *mapping_it;
     }
 
     Status _materialize_aggregate_pushdown_rows(TPushAggOp::type agg_type,
@@ -1599,6 +1656,7 @@ protected:
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
     size_t _batch_size = 0;
     uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;
@@ -1612,6 +1670,10 @@ protected:
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
+    // True only after the active split selects a table-level row-count shortcut or successfully
+    // materializes COUNT rows from file metadata. FileScannerV2 uses this result, rather than the
+    // raw aggregate opcode, to keep adaptive batching enabled for normal row-scan fallbacks.
+    bool _current_split_uses_metadata_count = false;
     // Snapshot supplied by FileScannerV2 for the active split. It gates every shortcut that emits
     // irreversible aggregate rows, not only the table-level row-count shortcut in prepare_split().
     bool _all_runtime_filters_applied_for_split = true;

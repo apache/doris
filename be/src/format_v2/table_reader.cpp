@@ -527,6 +527,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
     _file_slot_descs = options.file_slot_descs;
     _push_down_agg_type = options.push_down_agg_type;
+    _push_down_count_columns = options.push_down_count_columns;
     _initial_condition_cache_digest = options.condition_cache_digest;
     _condition_cache_digest = _initial_condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
@@ -861,6 +862,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
+    _current_split_uses_metadata_count = false;
     _current_reader_reached_eof = false;
     RETURN_IF_ERROR(_evaluate_partition_prune_conjuncts(options.partition_prune_conjuncts,
                                                         &_current_split_pruned));
@@ -875,12 +877,18 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     // active and no predicate can arrive later. The metadata path can return several batches for
     // one split; after its first synthetic batch there is no way to recover the real rows if a
     // runtime filter arrives before the next scheduler turn.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && options.all_runtime_filters_applied &&
+    // Table-level metadata only contains the number of rows; it cannot evaluate an expression or
+    // the NULL state of a COUNT argument. Require the new FE's explicit empty argument list, which
+    // means COUNT(*)/COUNT(1). A non-empty list means COUNT(col), while nullopt comes from an old FE
+    // whose COUNT semantics are unknown during a BE-first rolling upgrade.
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
+        _push_down_count_columns->empty() && options.all_runtime_filters_applied &&
         _conjuncts.empty() && options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =
                 options.current_range.table_format_params.table_level_row_count;
+        _current_split_uses_metadata_count = _is_table_level_count_active();
     }
     if (_is_table_level_count_active()) {
         return Status::OK();

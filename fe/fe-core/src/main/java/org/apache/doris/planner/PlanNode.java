@@ -866,9 +866,16 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     protected TPushAggOp pushDownAggNoGroupingOp = TPushAggOp.NONE;
+    // Explicit COUNT arguments. COUNT(*)/COUNT(1) intentionally keep this empty even though
+    // column pruning retains one placeholder scan slot.
+    protected List<SlotId> pushDownCountSlotIds = Collections.emptyList();
 
     public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
+    }
+
+    public void setPushDownCountSlotIds(List<SlotId> pushDownCountSlotIds) {
+        this.pushDownCountSlotIds = Lists.newArrayList(pushDownCountSlotIds);
     }
 
     public void setChildrenDistributeExprLists(List<List<Expr>> childrenDistributeExprLists) {

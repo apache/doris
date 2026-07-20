@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
@@ -34,6 +35,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPushAggOp;
 
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
@@ -67,6 +69,38 @@ public class PaimonScanNodeTest {
 
     @Mock
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
+
+    @Test
+    public void testCountColumnKeepsAllSplitsWhileCountStarUsesMergedRowCount() throws UserException {
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
+        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.emptyList()));
+        List<org.apache.paimon.table.source.Split> dataSplits = Arrays.asList(
+                mockCountDataSplit("f1.parquet", 4_000),
+                mockCountDataSplit("f2.parquet", 5_000),
+                mockCountDataSplit("f3.parquet", 6_000));
+        Mockito.doReturn(dataSplits).when(node).getPaimonSplitFromAPI();
+        Mockito.when(sv.isForceJniScanner()).thenReturn(true);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.getParallelExecInstanceNum(ArgumentMatchers.nullable(String.class))).thenReturn(1);
+
+        // Before the fix, the raw COUNT opcode made this path keep only parallel representative
+        // splits and attach the 15,000 metadata rows. BE rejects that shortcut for COUNT(col), so
+        // it would scan only those representatives and silently miss the discarded DataSplits.
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        node.setPushDownCountSlotIds(Collections.singletonList(new SlotId(7)));
+        List<org.apache.doris.spi.Split> countColumnSplits = node.getSplits(1);
+        Assert.assertEquals(3, countColumnSplits.size());
+        for (org.apache.doris.spi.Split split : countColumnSplits) {
+            Assert.assertFalse(((PaimonSplit) split).getRowCount().isPresent());
+        }
+
+        // COUNT(*) remains metadata-only. The 15,000 rows exceed the parallel threshold, so one
+        // configured execution instance retains one representative split carrying the full sum.
+        node.setPushDownCountSlotIds(Collections.emptyList());
+        List<org.apache.doris.spi.Split> countStarSplits = node.getSplits(1);
+        Assert.assertEquals(1, countStarSplits.size());
+        Assert.assertEquals(Optional.of(15_000L), ((PaimonSplit) countStarSplits.get(0)).getRowCount());
+    }
 
     @Test
     public void testSplitWeight() throws UserException {
@@ -743,5 +777,21 @@ public class PaimonScanNodeTest {
                 .withBucketPath("file://b1")
                 .withDataFiles(Collections.singletonList(dataFileMeta))
                 .build();
+    }
+
+    private DataSplit mockCountDataSplit(String fileName, long rowCount) {
+        DataFileMeta dataFileMeta = DataFileMeta.forAppend(fileName, 64L * 1024 * 1024, rowCount,
+                SimpleStats.EMPTY_STATS, 1L, 1L, 1L, Collections.<String>emptyList(), null,
+                FileSource.APPEND, Collections.<String>emptyList(), null, null,
+                Collections.<String>emptyList());
+        DataSplit dataSplit = Mockito.mock(DataSplit.class);
+        Mockito.when(dataSplit.rowCount()).thenReturn(rowCount);
+        Mockito.when(dataSplit.mergedRowCountAvailable()).thenReturn(true);
+        Mockito.when(dataSplit.mergedRowCount()).thenReturn(rowCount);
+        Mockito.when(dataSplit.partition()).thenReturn(BinaryRow.singleColumn(1));
+        Mockito.when(dataSplit.dataFiles()).thenReturn(Collections.singletonList(dataFileMeta));
+        Mockito.when(dataSplit.convertToRawFiles()).thenReturn(Optional.empty());
+        Mockito.when(dataSplit.deletionFiles()).thenReturn(Optional.empty());
+        return dataSplit;
     }
 }

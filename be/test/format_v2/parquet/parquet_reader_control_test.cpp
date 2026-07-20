@@ -1206,6 +1206,20 @@ TEST(ParquetColumnReaderFactoryTest, RejectsInvalidLeafIdBeforeCreatingRecordRea
     EXPECT_NE(status.to_string().find("Invalid parquet leaf column id"), std::string::npos);
 }
 
+TEST(ParquetColumnReaderFactoryTest, RejectsProjectedUnsupportedLogicalType) {
+    ParquetColumnSchema schema = int64_schema("unsupported_time");
+    schema.kind = ParquetColumnSchemaKind::PRIMITIVE;
+    schema.type_descriptor.unsupported_reason =
+            "Parquet TIME with isAdjustedToUTC=true is not supported";
+
+    ParquetColumnReaderFactory factory(nullptr, 1);
+    std::unique_ptr<ParquetColumnReader> reader;
+    const auto status = factory.create(schema, &reader);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(schema.type_descriptor.unsupported_reason),
+              std::string::npos);
+}
+
 TEST(ParquetColumnReaderFactoryTest, RejectsStructInvalidAndEmptyProjection) {
     auto schema = struct_schema_for_projection();
     ParquetColumnReaderFactory factory(nullptr, 0);

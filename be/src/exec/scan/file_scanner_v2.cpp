@@ -266,6 +266,10 @@ void FileScannerV2::TEST_report_file_cache_profile(
 bool FileScannerV2::TEST_should_skip_not_found(const Status& status, bool ignore_not_found) {
     return _should_skip_not_found(status, ignore_not_found);
 }
+
+bool FileScannerV2::TEST_should_skip_empty(const Status& status, bool stopped) {
+    return _should_skip_empty(status, stopped);
+}
 #endif
 
 bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
@@ -316,6 +320,8 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerV2GetBlockTime", 1);
+    _empty_file_counter =
+            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
     _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                      "NotFoundFileNum", TUnit::UNIT, 1);
     _file_counter =
@@ -388,6 +394,20 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                 *eof = false;
                 continue;
             }
+            if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
+                // END_OF_FILE here means the reader discovered a valid split with no data while
+                // opening or probing it, not that the Scanner has exhausted all splits. Examples
+                // are a zero-byte CSV with an explicit schema and a Doris Native file containing
+                // only its 12-byte header. Treat it like V1's empty-file path: finish this range,
+                // discard partial reader state, and let the loop fetch the next split.
+                RETURN_IF_ERROR(_table_reader->abort_split());
+                COUNTER_UPDATE(_empty_file_counter, 1);
+                _state->update_num_finished_scan_range(1);
+                _has_prepared_split = false;
+                block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
+                *eof = false;
+                continue;
+            }
             RETURN_IF_ERROR(status);
         }
         if (*eof) {
@@ -417,9 +437,12 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
 
         const auto format_type = get_range_format_type(*_params, _current_range);
         _init_adaptive_batch_size_state(format_type);
-        if (_should_run_adaptive_batch_size()) {
-            // JNI readers open eagerly in prepare_split(). Seed the probe size first so readers
-            // such as Paimon also use it for their first physical read batch.
+        if (_block_size_predictor != nullptr) {
+            // JNI readers open eagerly in prepare_split(). Always seed the probe before preparing
+            // the next split: its metadata-COUNT decision is not available yet, and the state
+            // exposed by TableReader can still describe the preceding split. Metadata shortcuts
+            // ignore this batch size, while row-scan fallbacks need it for their first physical
+            // read batch.
             _table_reader->set_batch_size(_predict_reader_batch_rows());
         }
         std::map<std::string, Field> partition_values;
@@ -429,6 +452,16 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
+            _state->update_num_finished_scan_range(1);
+            continue;
+        }
+        if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
+            // Schema discovery can reach EOF before a split becomes prepared. A header-only Native
+            // file follows this path, while a reader that discovers emptiness on its first
+            // get_block() follows the symmetric branch in _get_block_impl(). Both paths must
+            // advance exactly one scan range and preserve later files in the same scan.
+            RETURN_IF_ERROR(_table_reader->abort_split());
+            COUNTER_UPDATE(_empty_file_counter, 1);
             _state->update_num_finished_scan_range(1);
             continue;
         }
@@ -452,6 +485,21 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
+    std::optional<std::vector<format::GlobalIndex>> push_down_count_columns;
+    const auto& push_down_count_slot_ids = _local_state->get_push_down_count_slot_ids();
+    if (push_down_count_slot_ids.has_value()) {
+        push_down_count_columns.emplace();
+        push_down_count_columns->reserve(push_down_count_slot_ids->size());
+        for (const auto slot_id : *push_down_count_slot_ids) {
+            const auto global_index_it = _slot_id_to_global_index.find(slot_id);
+            if (global_index_it == _slot_id_to_global_index.end()) {
+                return Status::InternalError(
+                        "Pushed-down COUNT argument is not a projected file scan slot, slot_id={}",
+                        slot_id);
+            }
+            push_down_count_columns->push_back(global_index_it->second);
+        }
+    }
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(table_conjuncts),
@@ -462,6 +510,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .scanner_profile = _local_state->scanner_profile(),
             .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
+            .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
     return Status::OK();
@@ -532,6 +581,14 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
 
 bool FileScannerV2::_should_skip_not_found(const Status& status, bool ignore_not_found) {
     return ignore_not_found && status.is<ErrorCode::NOT_FOUND>();
+}
+
+bool FileScannerV2::_should_skip_empty(const Status& status, bool stopped) {
+    // Several readers use END_OF_FILE both for a valid zero-row split and for an interrupted IO.
+    // For example, DeletionVectorReader returns END_OF_FILE("stop read.") after try_stop() marks
+    // the shared IOContext. That status must unwind the stopped scanner; counting it as an empty
+    // file would incorrectly finish the scan range and increment EmptyFileNum.
+    return !stopped && status.is<ErrorCode::END_OF_FILE>();
 }
 
 bool FileScannerV2::_should_enable_file_meta_cache() const {
@@ -800,10 +857,17 @@ bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type for
 }
 
 bool FileScannerV2::_should_run_adaptive_batch_size() const {
-    // COUNT pushdown emits synthetic rows from file metadata and does not materialize file columns,
-    // so there is no useful row-width sample to learn from.
-    return _block_size_predictor != nullptr &&
-           _local_state->get_push_down_agg_type() != TPushAggOp::type::COUNT;
+    DORIS_CHECK(_table_reader != nullptr);
+    return _should_run_adaptive_batch_size(_block_size_predictor != nullptr,
+                                           _table_reader->current_split_uses_metadata_count());
+}
+
+bool FileScannerV2::_should_run_adaptive_batch_size(bool predictor_initialized,
+                                                    bool current_split_uses_metadata_count) {
+    // Metadata COUNT emits synthetic rows and has no physical row width to learn from. A raw COUNT
+    // opcode is not sufficient here: unsupported argument counts, mappings, filters, or deletes
+    // make TableReader fall back to materializing normal rows, which still need adaptive batching.
+    return predictor_initialized && !current_split_uses_metadata_count;
 }
 
 size_t FileScannerV2::_predict_reader_batch_rows() {

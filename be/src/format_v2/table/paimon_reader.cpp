@@ -106,6 +106,11 @@ bool PaimonHybridReader::current_split_pruned() const {
     return _current_split_reader->current_split_pruned();
 }
 
+bool PaimonHybridReader::current_split_uses_metadata_count() const {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->current_split_uses_metadata_count();
+}
+
 Status PaimonHybridReader::abort_split() {
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->abort_split();
@@ -173,6 +178,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
             .push_down_agg_type = _push_down_agg_type,
+            .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal

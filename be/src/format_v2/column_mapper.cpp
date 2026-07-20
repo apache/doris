@@ -811,6 +811,19 @@ static bool collect_struct_element_chain(const VExprSPtr& expr, std::vector<VExp
     return true;
 }
 
+static bool can_filter_before_table_nullability_alignment(const DataTypePtr& file_type,
+                                                          const DataTypePtr& table_type) {
+    DORIS_CHECK(file_type != nullptr);
+    DORIS_CHECK(table_type != nullptr);
+    // File-local conjuncts run before TableReader validates the materialized table schema. A
+    // nullable file value mapped to a required table value must therefore reach
+    // _align_column_nullability(). For example, with file STRUCT<a: Nullable(INT)>, table
+    // STRUCT<a: BIGINT>, rows [NULL, 20], and `s.a > 10`, filtering in the file domain would drop
+    // NULL first and hide the table-contract violation. The reverse direction is safe: a required
+    // file value can always be wrapped as a nullable table value after filtering.
+    return !file_type->is_nullable() || table_type->is_nullable();
+}
+
 static bool rewrite_struct_element_path_to_file_expr(
         const VExprSPtr& expr, const std::vector<ColumnMapping>& mappings,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
@@ -835,6 +848,22 @@ static bool rewrite_struct_element_path_to_file_expr(
     const auto rewrite_it = global_to_file_slot.find(slot_ref_global_index(*slot_ref));
     if (rewrite_it == global_to_file_slot.end()) {
         return false;
+    }
+
+    // Check every value-producing level, including the root struct. A nullable parent also makes
+    // a child access nullable even when the child type itself is required, so checking only the
+    // final leaf is insufficient. If any file level is more nullable than its table counterpart,
+    // keep the complete predicate above TableReader so schema validation observes all NULLs before
+    // row filtering.
+    if (!can_filter_before_table_nullability_alignment(rewrite_it->second.file_type,
+                                                       rewrite_it->second.table_type)) {
+        return false;
+    }
+    for (size_t idx = 0; idx < struct_element_chain.size(); ++idx) {
+        if (!can_filter_before_table_nullability_alignment(
+                    resolved.file_child_types[idx], struct_element_chain[idx]->data_type())) {
+            return false;
+        }
     }
 
     // File-local conjuncts are prepared against the file-reader Block, so both the root slot and
@@ -863,6 +892,209 @@ static bool rewrite_struct_element_path_to_file_expr(
         struct_element_chain[idx]->data_type() = resolved.file_child_types[idx];
     }
     return true;
+}
+
+static VExprSPtr cast_file_expr_to_table_type(const VExprSPtr& file_expr,
+                                              const DataTypePtr& table_type,
+                                              RewriteContext* rewrite_context) {
+    DORIS_CHECK(file_expr != nullptr);
+    DORIS_CHECK(table_type != nullptr);
+    DORIS_CHECK(rewrite_context != nullptr);
+    auto cast_expr = Cast::create_shared(table_type);
+    cast_expr->add_child(file_expr);
+    rewrite_context->add_created_expr(cast_expr);
+    return cast_expr;
+}
+
+// Prefer comparing in the physical file leaf type when a table predicate uses a promoted struct
+// child. For example, with table STRUCT<a: BIGINT>, old-file STRUCT<a: INT>, and `s.a = 10`, the
+// localized predicate should be `file_s.a::INT = 10::INT`, not
+// `CAST(file_s.a::INT AS BIGINT) = 10::BIGINT`. Converting one literal avoids a cast for every row.
+//
+// This rewrite is valid only when every possible file value survives file-to-table conversion and
+// the particular literal survives a table-to-file-to-table round trip. A value such as BIGINT
+// 2147483648 cannot be represented by an INT file leaf, so that case deliberately falls back to
+// `CAST(file_s.a AS BIGINT) = 2147483648`, which preserves the original table-level semantics.
+static bool rewrite_binary_struct_literal_predicate(
+        const VExprSPtr& expr, const std::vector<ColumnMapping>& filter_mappings,
+        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
+        RewriteContext* rewrite_context, bool* can_localize) {
+    DORIS_CHECK(can_localize != nullptr);
+    if (!is_binary_comparison_predicate(expr)) {
+        return false;
+    }
+    auto children = expr->children();
+    int struct_child_idx = -1;
+    int literal_child_idx = -1;
+    if (is_struct_element_expr(children[0])) {
+        struct_child_idx = 0;
+        literal_child_idx = 1;
+    } else if (is_struct_element_expr(children[1])) {
+        struct_child_idx = 1;
+        literal_child_idx = 0;
+    } else {
+        return false;
+    }
+
+    const auto table_leaf_type = children[struct_child_idx]->data_type();
+    DORIS_CHECK(table_leaf_type != nullptr);
+    auto table_literal = unwrap_literal_for_file_cast(children[literal_child_idx], table_leaf_type);
+    if (table_literal == nullptr ||
+        !rewrite_struct_element_path_to_file_expr(children[struct_child_idx], filter_mappings,
+                                                  global_to_file_slot, rewrite_context)) {
+        return false;
+    }
+
+    const auto file_leaf_type = children[struct_child_idx]->data_type();
+    DORIS_CHECK(file_leaf_type != nullptr);
+    const FileSlotRewriteInfo leaf_rewrite_info {
+            .block_position = 0,
+            .file_type = file_leaf_type,
+            .table_type = table_leaf_type,
+            .file_column_name = {},
+    };
+    auto file_literal =
+            rewrite_literal_to_file_type(table_literal, leaf_rewrite_info, rewrite_context);
+    if (file_literal != nullptr) {
+        children[literal_child_idx] = std::move(file_literal);
+    } else {
+        if (!is_lossless_file_to_table_numeric_cast(file_leaf_type, table_leaf_type)) {
+            // A narrowing or otherwise lossy cast can fail or produce NULL while TableReader
+            // materializes the table schema. Evaluating it here could filter the offending row
+            // before that validation, so keep the complete predicate above TableReader.
+            *can_localize = false;
+            return true;
+        }
+        children[struct_child_idx] = cast_file_expr_to_table_type(children[struct_child_idx],
+                                                                  table_leaf_type, rewrite_context);
+        children[literal_child_idx] = original_table_literal(table_literal, rewrite_context);
+    }
+    expr->set_children(std::move(children));
+    return true;
+}
+
+// IN must use one comparison type for its probe and every candidate. Rewrite the complete literal
+// set only when all values are exactly representable in the file leaf type; one unsafe value makes
+// the whole predicate fall back to a table-type cast. For example, an INT file leaf can evaluate
+// `BIGINT IN (10, 20)` as `INT IN (10, 20)`, but `BIGINT IN (10, 2147483648)` must stay BIGINT.
+static bool rewrite_in_struct_literal_predicate(
+        const VExprSPtr& expr, const std::vector<ColumnMapping>& filter_mappings,
+        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
+        RewriteContext* rewrite_context, bool* can_localize) {
+    DORIS_CHECK(can_localize != nullptr);
+    if (expr->node_type() != TExprNodeType::IN_PRED || expr->get_num_children() < 2 ||
+        !is_struct_element_expr(expr->children()[0])) {
+        return false;
+    }
+    auto children = expr->children();
+    const auto table_leaf_type = children[0]->data_type();
+    DORIS_CHECK(table_leaf_type != nullptr);
+    VExprSPtrs table_literals;
+    table_literals.reserve(children.size() - 1);
+    for (size_t child_idx = 1; child_idx < children.size(); ++child_idx) {
+        auto table_literal = unwrap_literal_for_file_cast(children[child_idx], table_leaf_type);
+        if (table_literal == nullptr) {
+            return false;
+        }
+        table_literals.push_back(std::move(table_literal));
+    }
+    if (!rewrite_struct_element_path_to_file_expr(children[0], filter_mappings, global_to_file_slot,
+                                                  rewrite_context)) {
+        return false;
+    }
+
+    const auto file_leaf_type = children[0]->data_type();
+    DORIS_CHECK(file_leaf_type != nullptr);
+    const FileSlotRewriteInfo leaf_rewrite_info {
+            .block_position = 0,
+            .file_type = file_leaf_type,
+            .table_type = table_leaf_type,
+            .file_column_name = {},
+    };
+    VExprSPtrs file_literals;
+    file_literals.reserve(table_literals.size());
+    for (const auto& table_literal : table_literals) {
+        auto file_literal =
+                rewrite_literal_to_file_type(table_literal, leaf_rewrite_info, rewrite_context);
+        if (file_literal == nullptr) {
+            if (!is_lossless_file_to_table_numeric_cast(file_leaf_type, table_leaf_type)) {
+                *can_localize = false;
+                return true;
+            }
+            children[0] =
+                    cast_file_expr_to_table_type(children[0], table_leaf_type, rewrite_context);
+            for (size_t literal_idx = 0; literal_idx < table_literals.size(); ++literal_idx) {
+                children[literal_idx + 1] =
+                        original_table_literal(table_literals[literal_idx], rewrite_context);
+            }
+            expr->set_children(std::move(children));
+            return true;
+        }
+        file_literals.push_back(std::move(file_literal));
+    }
+
+    for (size_t literal_idx = 0; literal_idx < file_literals.size(); ++literal_idx) {
+        children[literal_idx + 1] = std::move(file_literals[literal_idx]);
+    }
+    expr->set_children(std::move(children));
+    return true;
+}
+
+static VExprSPtr rewrite_struct_or_slot_expr_to_file_expr(
+        const VExprSPtr& expr,
+        const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
+        const std::vector<ColumnMapping>& filter_mappings, RewriteContext* rewrite_context,
+        bool* can_localize) {
+    if (is_struct_element_expr(expr)) {
+        const auto table_leaf_type = expr->data_type();
+        if (!rewrite_struct_element_path_to_file_expr(expr, filter_mappings, global_to_file_slot,
+                                                      rewrite_context)) {
+            // The scanner still evaluates the original table-level conjunct after TableReader
+            // finalizes the output block. Skipping an unlocalizable file conjunct is therefore
+            // safer than preparing a partially rewritten expression against the wrong struct
+            // layout. In particular, do not generate file-local conjuncts for computed complex
+            // parents such as `element_at(element_at(map_values(m), 1), 'field')`; only direct
+            // slot-rooted struct chains are supported here.
+            *can_localize = false;
+            return expr;
+        }
+        DORIS_CHECK(table_leaf_type != nullptr);
+        DORIS_CHECK(expr->data_type() != nullptr);
+        if (!expr->data_type()->equals(*table_leaf_type)) {
+            if (!is_lossless_file_to_table_numeric_cast(expr->data_type(), table_leaf_type)) {
+                *can_localize = false;
+                return expr;
+            }
+            // Path localization changes the leaf to the physical file type. For example, after an
+            // Iceberg evolution from STRUCT<a: INT> to STRUCT<a: BIGINT>, the localized old-file
+            // predicate is initially `element_at(file_col, 'a')::INT = 10::BIGINT`. Cast only the
+            // leaf back to BIGINT so the comparison has matching operands without forcing a cast
+            // of the entire evolved struct (whose children may also have been added or reordered).
+            return cast_file_expr_to_table_type(expr, table_leaf_type, rewrite_context);
+        }
+        return expr;
+    }
+
+    DORIS_CHECK(expr->is_slot_ref());
+    const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+    const auto rewrite_it = global_to_file_slot.find(slot_ref_global_index(*slot_ref));
+    if (rewrite_it == global_to_file_slot.end()) {
+        return expr;
+    }
+    const auto& rewrite_info = rewrite_it->second;
+    auto file_slot = create_file_slot_ref(*slot_ref, rewrite_info, rewrite_context);
+    if (rewrite_info.file_type->equals(*rewrite_info.table_type)) {
+        return file_slot;
+    }
+    if (needs_complex_file_slot_cast(rewrite_info.file_type, rewrite_info.table_type)) {
+        // Generic file-local expressions cannot safely cast an evolved complex file slot back to
+        // the table type. For example, ARRAY_CONTAINS(MAP_KEYS(m), 'person5') only reads map keys,
+        // but CAST(file_m AS table_m) first forces an incompatible old value struct into the new
+        // layout. Keep such predicates at table level, after TableReader materializes evolution.
+        *can_localize = false;
+        return expr;
+    }
+    return cast_file_expr_to_table_type(file_slot, rewrite_info.table_type, rewrite_context);
 }
 
 static VExprSPtr rewrite_table_expr_to_file_expr(
@@ -896,51 +1128,17 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
     if (rewrite_in_slot_literal_predicate(expr, global_to_file_slot, rewrite_context)) {
         return expr;
     }
-    if (is_struct_element_expr(expr)) {
-        if (!rewrite_struct_element_path_to_file_expr(expr, filter_mappings, global_to_file_slot,
-                                                      rewrite_context)) {
-            // The scanner still evaluates the original table-level conjunct after TableReader
-            // finalizes the output block. Skipping an unlocalizable file conjunct is therefore
-            // safer than preparing a partially rewritten expression against the wrong struct
-            // layout. In particular, do not generate file-local conjuncts for computed complex
-            // parents such as `element_at(element_at(map_values(m), 1), 'field')`; only direct
-            // slot-rooted struct chains are supported here.
-            *can_localize = false;
-        }
+    if (rewrite_binary_struct_literal_predicate(expr, filter_mappings, global_to_file_slot,
+                                                rewrite_context, can_localize)) {
         return expr;
     }
-    if (expr->is_slot_ref()) {
-        const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        const auto rewrite_it = global_to_file_slot.find(slot_ref_global_index(*slot_ref));
-        if (rewrite_it != global_to_file_slot.end()) {
-            const auto& rewrite_info = rewrite_it->second;
-            auto file_slot = create_file_slot_ref(*slot_ref, rewrite_info, rewrite_context);
-            if (rewrite_info.file_type->equals(*rewrite_info.table_type)) {
-                return file_slot;
-            }
-            if (needs_complex_file_slot_cast(rewrite_info.file_type, rewrite_info.table_type)) {
-                // Generic file-local expressions cannot safely cast an evolved complex file slot
-                // back to the table type. Example:
-                //
-                //   table filter: ARRAY_CONTAINS(MAP_KEYS(m), 'person5')
-                //   old file:     m MAP<STRING, STRUCT<name, age>>
-                //   table:        m MAP<STRING, STRUCT<age, full_name, gender>>
-                //
-                // Although MAP_KEYS only reads the key column, wrapping the file slot as
-                // `CAST(file_m AS table_m)` forces the value struct cast first and fails because
-                // the old and new value structs have different fields. Keep such filters at the
-                // table level, where TableReader materializes the evolved complex value before
-                // Scanner evaluates the original conjunct. Direct slot-rooted struct child paths
-                // are handled by rewrite_struct_element_path_to_file_expr() above.
-                *can_localize = false;
-                return expr;
-            }
-            auto cast_expr = Cast::create_shared(rewrite_info.table_type);
-            cast_expr->add_child(std::move(file_slot));
-            rewrite_context->add_created_expr(cast_expr);
-            return cast_expr;
-        }
+    if (rewrite_in_struct_literal_predicate(expr, filter_mappings, global_to_file_slot,
+                                            rewrite_context, can_localize)) {
         return expr;
+    }
+    if (is_struct_element_expr(expr) || expr->is_slot_ref()) {
+        return rewrite_struct_or_slot_expr_to_file_expr(expr, global_to_file_slot, filter_mappings,
+                                                        rewrite_context, can_localize);
     }
     // The input is a split-local cloned tree. A previous split-local clone may already have
     // inserted Cast(slot). Keep that rewrite idempotent: rewrite the cast child from table slot to
