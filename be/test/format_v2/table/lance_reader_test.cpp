@@ -34,6 +34,7 @@
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -154,11 +155,10 @@ std::pair<size_t, size_t> map_range(const ColumnMap& map, size_t row) {
 
 } // namespace
 
-TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedNumericTypesFixture) {
-    // Data source: docker/thirdparties/docker-compose/iceberg/scripts/
-    // create_preinstalled_scripts/lance/run02_create_numeric_types.sql.
+TEST(LanceTableReaderTypeTest, ReadsNumericTypesFromAllTypesFixture) {
+    // Data source: /mnt/disk2/zhangsida/test_lancedb/generate_all_types.py.
     const std::filesystem::path dataset_uri =
-            "./be/test/format_v2/table/lance/data/numeric_types.lance";
+            "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
     ASSERT_EQ(3U, fixture.fragment_ids.size());
@@ -184,7 +184,7 @@ TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedNumericTypesFixture) {
 
     Block block;
     add_output_columns(&block, columns);
-    std::array<bool, 4> seen_rows {};
+    std::array<bool, 5> seen_rows {};
     const auto read_split = [&](std::vector<int64_t> fragment_ids) {
         ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, std::move(fragment_ids)).ok());
         bool eos = false;
@@ -222,7 +222,7 @@ TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedNumericTypesFixture) {
             for (size_t row = 0; row < block.rows(); ++row) {
                 const auto row_id = row_ids.get_data()[row];
                 ASSERT_GE(row_id, 1);
-                ASSERT_LE(row_id, 3);
+                ASSERT_LE(row_id, 4);
                 EXPECT_FALSE(seen_rows[row_id]);
                 seen_rows[row_id] = true;
                 if (row_id == 3) {
@@ -249,7 +249,7 @@ TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedNumericTypesFixture) {
                         EXPECT_EQ(-9223372036854775807LL, bigint_values.get_data()[row]);
                         EXPECT_FLOAT_EQ(-1.25F, float_values.get_data()[row]);
                         EXPECT_DOUBLE_EQ(-1.25, double_values.get_data()[row]);
-                    } else {
+                    } else if (row_id == 2) {
                         EXPECT_EQ(0, bool_values.get_data()[row]);
                         EXPECT_EQ(127, tinyint_values.get_data()[row]);
                         EXPECT_EQ(32767, smallint_values.get_data()[row]);
@@ -257,6 +257,14 @@ TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedNumericTypesFixture) {
                         EXPECT_EQ(9223372036854775807LL, bigint_values.get_data()[row]);
                         EXPECT_FLOAT_EQ(3.5F, float_values.get_data()[row]);
                         EXPECT_DOUBLE_EQ(3.5, double_values.get_data()[row]);
+                    } else {
+                        EXPECT_EQ(0, bool_values.get_data()[row]);
+                        EXPECT_EQ(0, tinyint_values.get_data()[row]);
+                        EXPECT_EQ(0, smallint_values.get_data()[row]);
+                        EXPECT_EQ(0, int_values.get_data()[row]);
+                        EXPECT_EQ(0, bigint_values.get_data()[row]);
+                        EXPECT_FLOAT_EQ(0.0F, float_values.get_data()[row]);
+                        EXPECT_DOUBLE_EQ(0.0, double_values.get_data()[row]);
                     }
                 }
             }
@@ -267,16 +275,17 @@ TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedNumericTypesFixture) {
     EXPECT_TRUE(seen_rows[1]);
     EXPECT_TRUE(seen_rows[2]);
     EXPECT_TRUE(seen_rows[3]);
+    EXPECT_TRUE(seen_rows[4]);
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedDecimalTypesFixture) {
-    // Data source: /mnt/disk2/zhangsida/test_lancedb/create_lance_decimal_types.py.
+TEST(LanceTableReaderTypeTest, ReadsDecimalTypesFromAllTypesFixture) {
+    // Data source: /mnt/disk2/zhangsida/test_lancedb/generate_all_types.py.
     const std::filesystem::path dataset_uri =
-            "./be/test/format_v2/table/lance/data/python_decimal_types.lance";
+            "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
-    ASSERT_EQ(1U, fixture.fragment_ids.size());
+    ASSERT_EQ(3U, fixture.fragment_ids.size());
 
     const std::array<std::tuple<const char*, PrimitiveType, int, int>, 8> decimal_specs {{
             {"decimal_1_0", TYPE_DECIMAL32, 1, 0},
@@ -357,14 +366,13 @@ TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedDecimalTypesFixture) {
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedStringAndBinaryTypesFixture) {
-    // Data source: docker/thirdparties/docker-compose/iceberg/scripts/
-    // create_preinstalled_scripts/lance/run04_create_string_binary_types.sql.
+TEST(LanceTableReaderTypeTest, ReadsStringAndBinaryTypesFromAllTypesFixture) {
+    // Data source: /mnt/disk2/zhangsida/test_lancedb/generate_all_types.py.
     const std::filesystem::path dataset_uri =
-            "./be/test/format_v2/table/lance/data/string_binary_types.lance";
+            "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
-    ASSERT_EQ(4U, fixture.fragment_ids.size());
+    ASSERT_EQ(3U, fixture.fragment_ids.size());
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
             projected_column("text_value", TYPE_STRING, true),
@@ -433,13 +441,13 @@ TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedStringAndBinaryTypesFixture) {
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedComplexTypesFixture) {
-    // Data source: /mnt/disk2/zhangsida/test_lancedb/compare_spark_complex_types.py.
+TEST(LanceTableReaderTypeTest, ReadsComplexTypesFromAllTypesFixture) {
+    // Data source: /mnt/disk2/zhangsida/test_lancedb/generate_all_types.py.
     const std::filesystem::path dataset_uri =
-            "./be/test/format_v2/table/lance/data/python_spark_complex_types.lance";
+            "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
-    ASSERT_EQ(1U, fixture.fragment_ids.size());
+    ASSERT_EQ(3U, fixture.fragment_ids.size());
 
     const auto int_type = nullable_type(TYPE_INT);
     const auto string_type = nullable_type(TYPE_STRING);
@@ -473,7 +481,7 @@ TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedComplexTypesFixture) {
 
     Block block;
     add_output_columns(&block, columns);
-    std::array<bool, 4> seen_rows {};
+    std::array<bool, 5> seen_rows {};
     size_t total_rows = 0;
     bool eos = false;
     while (!eos) {
@@ -482,11 +490,20 @@ TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedComplexTypesFixture) {
             continue;
         }
         const auto& row_ids = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+        const auto& int_arrays_column =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
         const auto& attributes_column =
                 assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
         const auto& profiles = assert_cast<const ColumnNullable&>(*block.get_by_position(3).column);
+        const auto& visits_column =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(4).column);
         const auto& scores_column =
                 assert_cast<const ColumnNullable&>(*block.get_by_position(5).column);
+        const auto& int_arrays =
+                assert_cast<const ColumnArray&>(int_arrays_column.get_nested_column());
+        const auto& int_array_items = assert_cast<const ColumnNullable&>(int_arrays.get_data());
+        const auto& int_array_values =
+                assert_cast<const ColumnInt32&>(int_array_items.get_nested_column());
         const auto& attribute_map =
                 assert_cast<const ColumnMap&>(attributes_column.get_nested_column());
         const auto& attribute_keys = assert_cast<const ColumnNullable&>(attribute_map.get_keys());
@@ -496,6 +513,26 @@ TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedComplexTypesFixture) {
                 assert_cast<const ColumnNullable&>(attribute_map.get_values());
         const auto& attribute_item_values =
                 assert_cast<const ColumnInt32&>(attribute_items.get_nested_column());
+        const auto& profile_struct = assert_cast<const ColumnStruct&>(profiles.get_nested_column());
+        const auto& profile_cities =
+                assert_cast<const ColumnNullable&>(profile_struct.get_column(0));
+        const auto& profile_city_values =
+                assert_cast<const ColumnString&>(profile_cities.get_nested_column());
+        const auto& profile_levels =
+                assert_cast<const ColumnNullable&>(profile_struct.get_column(1));
+        const auto& profile_level_values =
+                assert_cast<const ColumnInt32&>(profile_levels.get_nested_column());
+        const auto& visits = assert_cast<const ColumnArray&>(visits_column.get_nested_column());
+        const auto& visit_items = assert_cast<const ColumnNullable&>(visits.get_data());
+        const auto& visit_struct =
+                assert_cast<const ColumnStruct&>(visit_items.get_nested_column());
+        const auto& visit_pages = assert_cast<const ColumnNullable&>(visit_struct.get_column(0));
+        const auto& visit_page_values =
+                assert_cast<const ColumnString&>(visit_pages.get_nested_column());
+        const auto& visit_durations =
+                assert_cast<const ColumnNullable&>(visit_struct.get_column(1));
+        const auto& visit_duration_values =
+                assert_cast<const ColumnInt32&>(visit_durations.get_nested_column());
         const auto& score_map = assert_cast<const ColumnMap&>(scores_column.get_nested_column());
         const auto& score_keys = assert_cast<const ColumnNullable&>(score_map.get_keys());
         const auto& score_key_values =
@@ -508,10 +545,19 @@ TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedComplexTypesFixture) {
         for (size_t row = 0; row < block.rows(); ++row) {
             const auto row_id = row_ids.get_data()[row];
             ASSERT_GE(row_id, 1);
-            ASSERT_LE(row_id, 3);
+            ASSERT_LE(row_id, 4);
             EXPECT_FALSE(seen_rows[row_id]);
             seen_rows[row_id] = true;
             if (row_id == 1) {
+                EXPECT_EQ(0, int_arrays_column.get_null_map_data()[row]);
+                const auto [int_begin, int_end] = array_range(int_arrays, row);
+                ASSERT_EQ(3U, int_end - int_begin);
+                EXPECT_EQ(0, int_array_items.get_null_map_data()[int_begin]);
+                EXPECT_EQ(1, int_array_values.get_data()[int_begin]);
+                EXPECT_EQ(1, int_array_items.get_null_map_data()[int_begin + 1]);
+                EXPECT_EQ(0, int_array_items.get_null_map_data()[int_begin + 2]);
+                EXPECT_EQ(3, int_array_values.get_data()[int_begin + 2]);
+
                 EXPECT_EQ(0, attributes_column.get_null_map_data()[row]);
                 const auto [attribute_begin, attribute_end] = map_range(attribute_map, row);
                 ASSERT_EQ(2U, attribute_end - attribute_begin);
@@ -520,6 +566,23 @@ TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedComplexTypesFixture) {
                 EXPECT_EQ("likes",
                           attribute_key_values.get_data_at(attribute_begin + 1).to_string());
                 EXPECT_EQ(2, attribute_item_values.get_data()[attribute_begin + 1]);
+
+                EXPECT_EQ(0, profiles.get_null_map_data()[row]);
+                EXPECT_EQ(0, profile_cities.get_null_map_data()[row]);
+                EXPECT_EQ("Beijing", profile_city_values.get_data_at(row).to_string());
+                EXPECT_EQ(0, profile_levels.get_null_map_data()[row]);
+                EXPECT_EQ(7, profile_level_values.get_data()[row]);
+
+                EXPECT_EQ(0, visits_column.get_null_map_data()[row]);
+                const auto [visit_begin, visit_end] = array_range(visits, row);
+                ASSERT_EQ(2U, visit_end - visit_begin);
+                EXPECT_EQ(0, visit_items.get_null_map_data()[visit_begin]);
+                EXPECT_EQ("home", visit_page_values.get_data_at(visit_begin).to_string());
+                EXPECT_EQ(0, visit_durations.get_null_map_data()[visit_begin]);
+                EXPECT_EQ(5, visit_duration_values.get_data()[visit_begin]);
+                EXPECT_EQ(0, visit_items.get_null_map_data()[visit_begin + 1]);
+                EXPECT_EQ("search", visit_page_values.get_data_at(visit_begin + 1).to_string());
+                EXPECT_EQ(1, visit_durations.get_null_map_data()[visit_begin + 1]);
 
                 EXPECT_EQ(0, scores_column.get_null_map_data()[row]);
                 const auto [score_begin, score_end] = map_range(score_map, row);
@@ -534,30 +597,49 @@ TEST(LanceTableReaderTypeTest, ReadsPythonGeneratedComplexTypesFixture) {
                 ASSERT_EQ(1U, ad_end - ad_begin);
                 EXPECT_EQ(3, score_array_values.get_data()[ad_begin]);
             } else if (row_id == 2) {
+                EXPECT_EQ(0, int_arrays_column.get_null_map_data()[row]);
+                const auto [int_begin, int_end] = array_range(int_arrays, row);
+                EXPECT_EQ(int_begin, int_end);
+
+                EXPECT_EQ(0, attributes_column.get_null_map_data()[row]);
                 const auto [attribute_begin, attribute_end] = map_range(attribute_map, row);
                 EXPECT_EQ(attribute_begin, attribute_end);
+
+                EXPECT_EQ(0, profiles.get_null_map_data()[row]);
+                EXPECT_EQ(0, profile_cities.get_null_map_data()[row]);
+                EXPECT_EQ("", profile_city_values.get_data_at(row).to_string());
+                EXPECT_EQ(0, profile_levels.get_null_map_data()[row]);
+                EXPECT_EQ(0, profile_level_values.get_data()[row]);
+
+                EXPECT_EQ(0, visits_column.get_null_map_data()[row]);
+                const auto [visit_begin, visit_end] = array_range(visits, row);
+                EXPECT_EQ(visit_begin, visit_end);
+
+                EXPECT_EQ(0, scores_column.get_null_map_data()[row]);
                 const auto [score_begin, score_end] = map_range(score_map, row);
                 EXPECT_EQ(score_begin, score_end);
             } else {
+                EXPECT_EQ(1, int_arrays_column.get_null_map_data()[row]);
                 EXPECT_EQ(1, attributes_column.get_null_map_data()[row]);
                 EXPECT_EQ(1, profiles.get_null_map_data()[row]);
+                EXPECT_EQ(1, visits_column.get_null_map_data()[row]);
                 EXPECT_EQ(1, scores_column.get_null_map_data()[row]);
             }
         }
         total_rows += block.rows();
     }
-    EXPECT_EQ(3U, total_rows);
+    EXPECT_EQ(4U, total_rows);
     EXPECT_TRUE(seen_rows[1]);
     EXPECT_TRUE(seen_rows[2]);
     EXPECT_TRUE(seen_rows[3]);
+    EXPECT_TRUE(seen_rows[4]);
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedVectorTypesFixture) {
-    // Data source: docker/thirdparties/docker-compose/iceberg/scripts/
-    // create_preinstalled_scripts/lance/run07_create_vector_types.sql.
+TEST(LanceTableReaderTypeTest, ReadsVectorTypesFromAllTypesFixture) {
+    // Data source: /mnt/disk2/zhangsida/test_lancedb/generate_all_types.py.
     const std::filesystem::path dataset_uri =
-            "./be/test/format_v2/table/lance/data/vector_types.lance";
+            "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
     ASSERT_EQ(3U, fixture.fragment_ids.size());
@@ -581,7 +663,7 @@ TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedVectorTypesFixture) {
 
     Block block;
     add_output_columns(&block, columns);
-    std::array<bool, 4> seen_rows {};
+    std::array<bool, 5> seen_rows {};
     size_t total_rows = 0;
     bool eos = false;
     while (!eos) {
@@ -615,34 +697,36 @@ TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedVectorTypesFixture) {
         for (size_t row = 0; row < block.rows(); ++row) {
             const auto row_id = row_ids.get_data()[row];
             ASSERT_GE(row_id, 1);
-            ASSERT_LE(row_id, 3);
+            ASSERT_LE(row_id, 4);
             EXPECT_FALSE(seen_rows[row_id]);
             seen_rows[row_id] = true;
             if (row_id == 1) {
                 expect_embedding(row, "origin", {0.0F, 0.0F, 0.0F});
             } else if (row_id == 2) {
                 expect_embedding(row, "unit-x", {1.0F, 0.0F, 0.0F});
-            } else {
+            } else if (row_id == 3) {
                 expect_embedding(row, "mixed", {-1.5F, 0.25F, 3.75F});
+            } else {
+                expect_embedding(row, "extra", {2.0F, -2.0F, 0.5F});
             }
         }
         total_rows += block.rows();
     }
-    EXPECT_EQ(3U, total_rows);
+    EXPECT_EQ(4U, total_rows);
     EXPECT_TRUE(seen_rows[1]);
     EXPECT_TRUE(seen_rows[2]);
     EXPECT_TRUE(seen_rows[3]);
+    EXPECT_TRUE(seen_rows[4]);
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderTypeTest, ReadsSparkGeneratedTemporalTypesFixture) {
-    // Data source: docker/thirdparties/docker-compose/iceberg/scripts/
-    // create_preinstalled_scripts/lance/run05_create_temporal_types.sql.
+TEST(LanceTableReaderTypeTest, ReadsTemporalTypesFromAllTypesFixture) {
+    // Data source: /mnt/disk2/zhangsida/test_lancedb/generate_all_types.py.
     const std::filesystem::path dataset_uri =
-            "./be/test/format_v2/table/lance/data/temporal_types.lance";
+            "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
-    ASSERT_EQ(4U, fixture.fragment_ids.size());
+    ASSERT_EQ(3U, fixture.fragment_ids.size());
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
             projected_column("date_value", TYPE_DATEV2, true),
