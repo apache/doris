@@ -33,6 +33,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
@@ -56,6 +57,7 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
@@ -177,6 +179,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Maps filtered conjunct indices (after CAST removal) back to original conjunct indices
     private List<Integer> filteredToOriginalIndex;
 
+    // Memoized resolveScanProvider() result, keyed on currentHandle identity. See resolveScanProvider().
+    // Volatile so the concurrent partition-batch appendBatch threads read a self-consistent (handle, provider).
+    private volatile ResolvedScanProvider resolvedScanProvider;
+
+    // This node's per-statement ConnectorMetadata. The funnel already memoizes it in the statement scope
+    // (keyed by catalogId); cached here as well so the per-method resolvers don't re-hit the scope map.
+    // Volatile mirrors resolvedScanProvider — keeps an off-path metadata() read race-free.
+    private volatile ConnectorMetadata cachedMetadata;
+
     public PluginDrivenScanNode(PlanNodeId id, TupleDescriptor desc,
             boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext, Connector connector,
@@ -185,6 +196,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         this.connector = connector;
         this.connectorSession = connectorSession;
         this.currentHandle = tableHandle;
+    }
+
+    // Lazily resolves this node's ConnectorMetadata through the per-statement funnel and caches it, so the
+    // per-method resolvers below share one instance for the statement instead of rebuilding it each time.
+    private ConnectorMetadata metadata() {
+        ConnectorMetadata m = cachedMetadata;
+        if (m == null) {
+            m = PluginDrivenMetadata.get(connectorSession, connector);
+            cachedMetadata = m;
+        }
+        return m;
     }
 
     /**
@@ -197,7 +219,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             PluginDrivenExternalTable table) {
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         String dbName = table.getDb() != null ? table.getDb().getRemoteName() : "";
         // Resolve through the table's sys-aware seam (NOT raw metadata.getTableHandle): for a normal
         // table this is identical to getTableHandle(session, dbName, remoteName), but for a
@@ -221,7 +243,35 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * {@code null} for connectors without scan capability.
      */
     private ConnectorScanPlanProvider resolveScanProvider() {
-        return connector.getScanPlanProvider(currentHandle);
+        // Memoized per currentHandle IDENTITY. The provider is a pure function of currentHandle (SPI contract:
+        // providers are built fresh/stateless per call and the selected provider does not change across a scan),
+        // so the per-split getFileCompressType / getDeleteFiles hot path reuses one instance instead of
+        // re-allocating + TCCL-swapping a provider per split. currentHandle is only refined (a new object) during
+        // early pushdown/pin, before split enumeration; an identity miss re-resolves — making this byte-identical
+        // to calling connector.getScanPlanProvider(currentHandle) every time. The immutable holder is published via
+        // one volatile write so the concurrent partition-batch appendBatch threads always read a self-consistent
+        // (handle, provider) pair; a null provider (no scan capability) is cached and returned correctly.
+        ResolvedScanProvider cached = resolvedScanProvider;
+        if (cached == null || cached.handle != currentHandle) {
+            cached = new ResolvedScanProvider(currentHandle, connector.getScanPlanProvider(currentHandle));
+            resolvedScanProvider = cached;
+        }
+        return cached.provider;
+    }
+
+    /**
+     * Immutable (handle, provider) pair for {@link #resolveScanProvider()}'s memo. Both fields final so a single
+     * volatile write of the holder safely publishes the pair to concurrent readers (no torn new-key/old-provider
+     * view). {@code provider} may be {@code null} for a connector without scan capability.
+     */
+    private static final class ResolvedScanProvider {
+        private final ConnectorTableHandle handle;
+        private final ConnectorScanPlanProvider provider;
+
+        ResolvedScanProvider(ConnectorTableHandle handle, ConnectorScanPlanProvider provider) {
+            this.handle = handle;
+            this.provider = provider;
+        }
     }
 
     /**
@@ -769,7 +819,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (conjuncts == null || conjuncts.isEmpty()) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(connectorSession, currentHandle, constraint);
@@ -809,7 +859,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (limit <= 0) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         Optional<LimitApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyLimit(connectorSession, currentHandle, limit);
         if (result.isPresent()) {
@@ -828,7 +878,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (columns.isEmpty()) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         Optional<ProjectionApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyProjection(connectorSession, currentHandle, columns);
         if (result.isPresent()) {
@@ -873,7 +923,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * split path and the serialized-table path read at the pinned snapshot.
      */
     private void pinMvccSnapshot() throws UserException {
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         // Version-aware lookup: a statement mixing main and @branch/@tag (or FOR-TIME) of the SAME table
         // pins one snapshot per reference; resolve THIS scan's reference by its own selector so it reads
         // its own snapshot (not whichever reference loaded first). getQueryTableSnapshot()/getScanParams()
@@ -1018,7 +1068,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (scope == null || scope.isEmpty()) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         currentHandle = applyRewriteFileScopePin(metadata, connectorSession, currentHandle, scope);
     }
 
@@ -1037,7 +1087,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (!hasTopnLazyMaterializeSlot(desc.getSlots())) {
             return;
         }
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         currentHandle = metadata.applyTopnLazyMaterialization(connectorSession, currentHandle);
     }
 
@@ -1174,6 +1224,18 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         String readTxnQueryId = connectorSession.getQueryId();
         QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId,
                 buildReadTransactionReleaseCallback(scanProvider, readTxnQueryId));
+
+        // Deterministic close of the per-statement metadata scope, on the SAME query-finish hook and the SAME
+        // query-id key as the read-transaction release above. This is the PRIMARY close: getSplits runs only for
+        // coordinated scans, all of which reach unregisterQuery, so it fires after off-thread pump quiescence and
+        // leaves no dangling registry entry. Object-capture (scope::closeAll binds THIS scope instance) so a retry
+        // / prepared-EXECUTE that swaps the StatementContext field can never let this callback touch a successor
+        // scope. Skip NONE (off-thread / no-ConnectContext builds carry NONE and hold nothing to close). Non-scan
+        // statements (DDL / SHOW / EXPLAIN via Command.run) never reach here and are closed by StatementContext.
+        ConnectorStatementScope statementScope = connectorSession.getStatementScope();
+        if (statementScope != ConnectorStatementScope.NONE) {
+            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId, statementScope::closeAll);
+        }
 
         // Push the Nereids partition-pruning result down to the connector so the read session
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,
@@ -1853,7 +1915,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * enabling optimized column selection (e.g., SELECT col1, col2 instead of SELECT *).
      */
     private List<ConnectorColumnHandle> buildColumnHandles() {
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         Map<String, ConnectorColumnHandle> allHandles =
                 metadata.getColumnHandles(connectorSession, currentHandle);
         if (allHandles.isEmpty()) {
@@ -1890,7 +1952,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return Optional.empty();
         }
         List<Expr> pushableConjuncts = conjuncts;
-        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        ConnectorMetadata metadata = metadata();
         if (!metadata.supportsCastPredicatePushdown(connectorSession)) {
             filteredToOriginalIndex = new ArrayList<>();
             pushableConjuncts = new ArrayList<>();

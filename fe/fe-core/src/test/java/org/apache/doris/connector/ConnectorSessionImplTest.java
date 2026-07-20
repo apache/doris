@@ -19,7 +19,10 @@ package org.apache.doris.connector;
 
 import org.apache.doris.connector.api.ConnectorDelegatedCredential;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -271,6 +274,37 @@ public class ConnectorSessionImplTest {
                 .build();
 
         Assertions.assertFalse(session.getDelegatedCredential().isPresent());
+    }
+
+    @Test
+    public void explicitNoneStatementScopeWinsOverLiveContext() {
+        // A cross-statement background loader (PluginDrivenExternalCatalog#buildCrossStatementSession) forces the
+        // per-statement scope to NONE so a metadata it resolves is never memoized into — nor closed with — the
+        // live statement's scope, even when the loader runs on a thread that has one (e.g. fetchRowCount reached
+        // synchronously from AnalysisManager.buildAnalysisJobInfo on the ANALYZE execution thread). This pins the
+        // builder guarantee that helper relies on: an explicit withStatementScope(NONE) wins over the scope
+        // captured from the live ConnectContext. MUTATION: capture ignoring the explicit override -> the loader
+        // binds to the live statement scope (the leak) -> red.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            StatementContext stmtCtx = new StatementContext();
+            ctx.setStatementContext(stmtCtx);
+            ConnectorStatementScope live = stmtCtx.getOrCreateConnectorStatementScope();
+
+            // A default session capture binds to the live statement scope (the path a loader must avoid).
+            ConnectorSession bound = ConnectorSessionBuilder.from(ctx).withCatalogId(1L).build();
+            Assertions.assertSame(live, bound.getStatementScope(),
+                    "a default session capture binds to the live statement scope");
+
+            // The forced-NONE session (what buildCrossStatementSession builds) wins over the live scope.
+            ConnectorSession crossStatement = ConnectorSessionBuilder.from(ctx).withCatalogId(1L)
+                    .withStatementScope(ConnectorStatementScope.NONE).build();
+            Assertions.assertSame(ConnectorStatementScope.NONE, crossStatement.getStatementScope(),
+                    "an explicit NONE scope wins over the live statement context (forced read-through)");
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     /** Minimal hand-written {@link ConnectorTransaction}; only identity matters for this test. */

@@ -67,3 +67,16 @@ BE 单次启动、优雅退出（`be.out` 仅退出时 LSAN leak summary，零 `
 ④ trino 改名 PR 收尾两笔（**需 release note**；BE 未跑全量构建 + fallback 无 e2e）；
 ⑤ 独立任务空间 `plan-doc/hive-catalog-shade-removal/`（**从它自己的 HANDOFF 进**）；
 ⑥ 并发 session 已结项的 QUIC 根治（`ae82ffd2573`）+ 插件包瘦身 Tier A（`dece64b9ff5`）明细。
+
+---
+
+# 📎 并行独立任务（与上面 CI 线无关）：热路径重操作审计（DORIS-27138 问题类）
+
+> 2026-07-17 独立调研，session 自包含，不影响 CI 线。用户待 review。
+
+- 问题类总结（三要素 + A/B/C/D 变体 + 审计清单）：`plan-doc/perf-heavy-op-hot-path-problem-class.md`
+- **fe-connector-iceberg 审计报告**（23 确认/1 驳回，分 P0/P1/P2 三层七簇）：`plan-doc/reviews/perf-audit-fe-connector-iceberg-2026-07-17.md`
+- 完整证据 JSON（全部调用链+双路对抗验证意见）：`plan-doc/reviews/perf-audit-fe-connector-iceberg-2026-07-17-findings.json`
+- **P0 三簇**：①无 Table 对象缓存,一次规划 3~7 次远程 loadTable；②#64134 planFiles 兜底复活（`IcebergWriterHelper.getFileFormat`,每查询 1-2 次整表扫）；③分区表每查询一次 PARTITIONS 元数据表扫描（CACHE-P1 弃二级缓存的代价）。
+- 旁获（与审计无关待单独处理）：`CreateDictionaryInfo.validateAndSet:164` 强转 `catalog.Table` ⇒ 外表 CREATE DICTIONARY 必 ClassCastException（功能缺口/潜在 bug）。
+- 下一步（等用户 review 后）：其余连接器（hive/paimon/hudi/mc）按同一问题类+同一 workflow 模式逐个审计。

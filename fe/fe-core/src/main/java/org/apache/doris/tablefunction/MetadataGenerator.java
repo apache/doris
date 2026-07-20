@@ -72,6 +72,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -1325,8 +1326,8 @@ public class MetadataGenerator {
     private static TFetchSchemaTableDataResult dealPluginDrivenCatalog(PluginDrivenExternalCatalog catalog,
             ExternalTable table) {
         List<TRow> dataBatch = Lists.newArrayList();
-        ConnectorSession session = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
+        ConnectorSession session = catalog.buildCrossStatementSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
         Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
                 session, table.getRemoteDbName(), table.getRemoteName());
         if (handle.isPresent()) {

@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.ConnectorColumnStatistics;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
@@ -82,6 +83,12 @@ public class HiveConnectorMetadataSiblingDelegationTest {
     private final RecordingSiblingMetadata siblingMetadata = new RecordingSiblingMetadata();
     private final RecordingSiblingConnector siblingConnector = new RecordingSiblingConnector(siblingMetadata);
 
+    // A session whose per-statement scope is NONE (offline): the sibling-metadata funnel runs its factory on every
+    // forward, so the sibling is consulted per call exactly as before the funnel — these forwarding assertions are
+    // byte-equivalent to the pre-funnel behavior. Per-statement REUSE (one sibling metadata across many forwards)
+    // is pinned by the "per-statement sibling-metadata funnel" tests below, which run under a live TestStatementScope.
+    private final ConnectorSession session = new ScopeSession(1L, "q1", ConnectorStatementScope.NONE);
+
     /**
      * The by-TYPE force-build supplier constructor arg. This suite exercises only per-handle (by-handle) sites —
      * which must ALL route via the peek resolver — and never calls getTableHandle (the only by-type site), so the
@@ -103,7 +110,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
      */
     private HiveConnectorMetadata withSibling() {
         return new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
-                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED, handle -> siblingConnector);
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> new SiblingOwner(siblingConnector, SiblingOwner.ICEBERG_LABEL));
     }
 
     private HiveTableHandle hiveHandle() {
@@ -115,34 +123,34 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         HiveConnectorMetadata md = withSibling();
 
         // ---- set (a): methods hive overrides — a foreign handle must NOT run hive logic, it must divert ----
-        md.getTableSchema(null, foreignHandle);
-        md.getColumnHandles(null, foreignHandle);
-        md.getTableStatistics(null, foreignHandle);
-        md.getColumnStatistics(null, foreignHandle, "c");
-        long size = md.estimateDataSizeByListingFiles(null, foreignHandle);
-        List<List<String>> timelineRows = md.getMetadataTableRows(null, foreignHandle, "timeline");
-        Optional<FilterApplicationResult<ConnectorTableHandle>> filter = md.applyFilter(null, foreignHandle, null);
-        List<String> partNames = md.listPartitionNames(null, foreignHandle);
-        md.listPartitions(null, foreignHandle, Optional.empty());
-        ConnectorMvccSnapshot pin = md.beginQuerySnapshot(null, foreignHandle).orElse(null);
-        md.getTableFreshness(null, foreignHandle);
-        md.getPartitionFreshnessMillis(null, foreignHandle, "p");
-        md.dropTable(null, foreignHandle);
-        md.truncateTable(null, foreignHandle, Collections.emptyList());
+        md.getTableSchema(session, foreignHandle);
+        md.getColumnHandles(session, foreignHandle);
+        md.getTableStatistics(session, foreignHandle);
+        md.getColumnStatistics(session, foreignHandle, "c");
+        long size = md.estimateDataSizeByListingFiles(session, foreignHandle);
+        List<List<String>> timelineRows = md.getMetadataTableRows(session, foreignHandle, "timeline");
+        Optional<FilterApplicationResult<ConnectorTableHandle>> filter = md.applyFilter(session, foreignHandle, null);
+        List<String> partNames = md.listPartitionNames(session, foreignHandle);
+        md.listPartitions(session, foreignHandle, Optional.empty());
+        ConnectorMvccSnapshot pin = md.beginQuerySnapshot(session, foreignHandle).orElse(null);
+        md.getTableFreshness(session, foreignHandle);
+        md.getPartitionFreshnessMillis(session, foreignHandle, "p");
+        md.dropTable(session, foreignHandle);
+        md.truncateTable(session, foreignHandle, Collections.emptyList());
 
         // ---- set (b): methods hive does NOT override — the silent gaps that must be filled by forwarding ----
-        md.getTableSchema(null, foreignHandle, null);
-        md.getMvccPartitionView(null, foreignHandle);
-        md.resolveTimeTravel(null, foreignHandle, null);
-        ConnectorTableHandle afterSnapshot = md.applySnapshot(null, foreignHandle, null);
-        List<ConnectorExpression> predicates = md.getSyntheticScanPredicates(null, foreignHandle, null);
-        ConnectorTableHandle afterScope = md.applyRewriteFileScope(null, foreignHandle, Collections.emptySet());
-        ConnectorTableHandle afterTopn = md.applyTopnLazyMaterialization(null, foreignHandle);
-        List<String> sysTables = md.listSupportedSysTables(null, foreignHandle);
-        Optional<ConnectorTableHandle> sysHandle = md.getSysTableHandle(null, foreignHandle, "snapshots");
+        md.getTableSchema(session, foreignHandle, null);
+        md.getMvccPartitionView(session, foreignHandle);
+        md.resolveTimeTravel(session, foreignHandle, null);
+        ConnectorTableHandle afterSnapshot = md.applySnapshot(session, foreignHandle, null);
+        List<ConnectorExpression> predicates = md.getSyntheticScanPredicates(session, foreignHandle, null);
+        ConnectorTableHandle afterScope = md.applyRewriteFileScope(session, foreignHandle, Collections.emptySet());
+        ConnectorTableHandle afterTopn = md.applyTopnLazyMaterialization(session, foreignHandle);
+        List<String> sysTables = md.listSupportedSysTables(session, foreignHandle);
+        Optional<ConnectorTableHandle> sysHandle = md.getSysTableHandle(session, foreignHandle, "snapshots");
         // "snapshots" (not "partitions"): hive's own logic returns false for it, so a true answer proves the
         // reply came from the sibling, not hive.
-        boolean sysIsTvf = md.isPartitionValuesSysTable(null, foreignHandle, "snapshots");
+        boolean sysIsTvf = md.isPartitionValuesSysTable(session, foreignHandle, "snapshots");
 
         // Every per-handle method reached the sibling (proves the divert covers the whole surface).
         Assertions.assertEquals(RecordingSiblingMetadata.EXPECTED_METHODS, siblingMetadata.calls,
@@ -186,24 +194,24 @@ public class HiveConnectorMetadataSiblingDelegationTest {
 
         // The set-(b) + beginQuerySnapshot branches reproduce the SPI default / hive pin WITHOUT the sibling and
         // without touching the (null) hmsClient — proving the guard falls through to the hive path for a hive handle.
-        Assertions.assertFalse(md.getMvccPartitionView(null, hive).isPresent(), "hive has no range partition view");
-        Assertions.assertFalse(md.resolveTimeTravel(null, hive, null).isPresent(), "hive has no time travel");
-        Assertions.assertSame(hive, md.applySnapshot(null, hive, null), "hive applySnapshot returns the handle");
-        Assertions.assertTrue(md.getSyntheticScanPredicates(null, hive, null).isEmpty(),
+        Assertions.assertFalse(md.getMvccPartitionView(session, hive).isPresent(), "hive has no range partition view");
+        Assertions.assertFalse(md.resolveTimeTravel(session, hive, null).isPresent(), "hive has no time travel");
+        Assertions.assertSame(hive, md.applySnapshot(session, hive, null), "hive applySnapshot returns the handle");
+        Assertions.assertTrue(md.getSyntheticScanPredicates(session, hive, null).isEmpty(),
                 "plain hive has no synthetic scan predicate");
-        Assertions.assertSame(hive, md.applyRewriteFileScope(null, hive, Collections.emptySet()),
+        Assertions.assertSame(hive, md.applyRewriteFileScope(session, hive, Collections.emptySet()),
                 "hive applyRewriteFileScope returns the handle");
-        Assertions.assertSame(hive, md.applyTopnLazyMaterialization(null, hive),
+        Assertions.assertSame(hive, md.applyTopnLazyMaterialization(session, hive),
                 "hive applyTopnLazyMaterialization returns the handle");
-        Assertions.assertEquals(Collections.singletonList("partitions"), md.listSupportedSysTables(null, hive),
+        Assertions.assertEquals(Collections.singletonList("partitions"), md.listSupportedSysTables(session, hive),
                 "hive exposes the partitions sys table (t$partitions), served by the partition_values TVF");
-        Assertions.assertTrue(md.isPartitionValuesSysTable(null, hive, "partitions"),
+        Assertions.assertTrue(md.isPartitionValuesSysTable(session, hive, "partitions"),
                 "hive's partitions sys table is TVF-backed");
-        Assertions.assertFalse(md.isPartitionValuesSysTable(null, hive, "snapshots"),
+        Assertions.assertFalse(md.isPartitionValuesSysTable(session, hive, "snapshots"),
                 "hive exposes no sys table other than partitions");
-        Assertions.assertFalse(md.getSysTableHandle(null, hive, "snapshots").isPresent(),
+        Assertions.assertFalse(md.getSysTableHandle(session, hive, "snapshots").isPresent(),
                 "hive's TVF-backed sys table has no native handle");
-        ConnectorMvccSnapshot pin = md.beginQuerySnapshot(null, hive).orElse(null);
+        ConnectorMvccSnapshot pin = md.beginQuerySnapshot(session, hive).orElse(null);
         Assertions.assertNotNull(pin);
         Assertions.assertEquals(-1L, pin.getSnapshotId(), "hive's pin is the empty (-1) last-modified pin");
         Assertions.assertTrue(pin.isLastModifiedFreshness(), "hive's pin flags last-modified freshness");
@@ -219,7 +227,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // raise a clear error, not NPE deep in a forward.
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(),
                 new FakeConnectorContext());
-        Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableSchema(null, foreignHandle),
+        Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableSchema(session, foreignHandle),
                 "a foreign handle with no sibling configured must fail loud");
     }
 
@@ -230,25 +238,25 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // The 14 ALTER-DDL mutators + 2 write validators: a foreign (iceberg-on-HMS) handle must divert, never
         // run the hive branch and never be cast. Change objects are null — the guard fires on the handle type
         // before any param is touched.
-        md.renameTable(null, foreignHandle, "new");
-        md.addColumn(null, foreignHandle, null, null);
-        md.addColumns(null, foreignHandle, Collections.emptyList());
-        md.dropColumn(null, foreignHandle, "c");
-        md.renameColumn(null, foreignHandle, "a", "b");
-        md.modifyColumn(null, foreignHandle, null, null);
-        md.reorderColumns(null, foreignHandle, Collections.emptyList());
-        md.createOrReplaceBranch(null, foreignHandle, null);
-        md.createOrReplaceTag(null, foreignHandle, null);
-        md.dropBranch(null, foreignHandle, null);
-        md.dropTag(null, foreignHandle, null);
-        md.addPartitionField(null, foreignHandle, null);
-        md.dropPartitionField(null, foreignHandle, null);
-        md.replacePartitionField(null, foreignHandle, null);
-        md.validateRowLevelDmlMode(null, foreignHandle, null);
-        md.validateStaticPartitionColumns(null, foreignHandle, Collections.emptyList());
+        md.renameTable(session, foreignHandle, "new");
+        md.addColumn(session, foreignHandle, null, null);
+        md.addColumns(session, foreignHandle, Collections.emptyList());
+        md.dropColumn(session, foreignHandle, "c");
+        md.renameColumn(session, foreignHandle, "a", "b");
+        md.modifyColumn(session, foreignHandle, null, null);
+        md.reorderColumns(session, foreignHandle, Collections.emptyList());
+        md.createOrReplaceBranch(session, foreignHandle, null);
+        md.createOrReplaceTag(session, foreignHandle, null);
+        md.dropBranch(session, foreignHandle, null);
+        md.dropTag(session, foreignHandle, null);
+        md.addPartitionField(session, foreignHandle, null);
+        md.dropPartitionField(session, foreignHandle, null);
+        md.replacePartitionField(session, foreignHandle, null);
+        md.validateRowLevelDmlMode(session, foreignHandle, null);
+        md.validateStaticPartitionColumns(session, foreignHandle, Collections.emptyList());
         // Empty list on purpose: a foreign handle must forward REGARDLESS of emptiness (the empty-early-return is
         // hive-only) — this would fail if the empty check were placed before the foreign-handle divert.
-        md.validateWritePartitionNames(null, foreignHandle, Collections.emptyList());
+        md.validateWritePartitionNames(session, foreignHandle, Collections.emptyList());
 
         Assertions.assertEquals(RecordingSiblingMetadata.EXPECTED_WRITE_METHODS, siblingMetadata.calls,
                 "every ALTER-DDL mutator + write validator must forward a foreign handle to the sibling");
@@ -263,12 +271,12 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // partition-NAME list form INSERT ... PARTITION(p1, p2) is unsupported on a hive table. UNLIKE the two
         // permissive validators, a hive handle here THROWS the EXACT legacy message on a non-empty list. The e2e
         // test_hive_write_type.groovy asserts on this literal substring, so it must stay byte-identical.
-        assertThrowsMessage(() -> md.validateWritePartitionNames(null, hive, Arrays.asList("p1", "p2")),
+        assertThrowsMessage(() -> md.validateWritePartitionNames(session, hive, Arrays.asList("p1", "p2")),
                 "Not support insert with partition spec in hive catalog.");
 
         // An empty list (a plain INSERT ... SELECT or a static PARTITION(col='val') INSERT) is legal plain-hive
         // and MUST return silently — a throw here would newly reject legal writes.
-        md.validateWritePartitionNames(null, hive, Collections.emptyList());
+        md.validateWritePartitionNames(session, hive, Collections.emptyList());
 
         Assertions.assertEquals(0, siblingConnector.getMetadataCount,
                 "a hive handle must never build/consult the iceberg sibling to validate partition names");
@@ -282,26 +290,26 @@ public class HiveConnectorMetadataSiblingDelegationTest {
 
         // Group-1: ALTER-DDL for a hive handle throws the EXACT inherited SPI-default message (byte-parity with
         // pre-override behavior) without building or consulting the sibling.
-        assertThrowsMessage(() -> md.renameTable(null, hive, "n"), "RENAME TABLE not supported");
-        assertThrowsMessage(() -> md.addColumn(null, hive, null, null), "ADD COLUMN not supported");
-        assertThrowsMessage(() -> md.addColumns(null, hive, Collections.emptyList()), "ADD COLUMNS not supported");
-        assertThrowsMessage(() -> md.dropColumn(null, hive, "c"), "DROP COLUMN not supported");
-        assertThrowsMessage(() -> md.renameColumn(null, hive, "a", "b"), "RENAME COLUMN not supported");
-        assertThrowsMessage(() -> md.modifyColumn(null, hive, null, null), "MODIFY COLUMN not supported");
-        assertThrowsMessage(() -> md.reorderColumns(null, hive, Collections.emptyList()),
+        assertThrowsMessage(() -> md.renameTable(session, hive, "n"), "RENAME TABLE not supported");
+        assertThrowsMessage(() -> md.addColumn(session, hive, null, null), "ADD COLUMN not supported");
+        assertThrowsMessage(() -> md.addColumns(session, hive, Collections.emptyList()), "ADD COLUMNS not supported");
+        assertThrowsMessage(() -> md.dropColumn(session, hive, "c"), "DROP COLUMN not supported");
+        assertThrowsMessage(() -> md.renameColumn(session, hive, "a", "b"), "RENAME COLUMN not supported");
+        assertThrowsMessage(() -> md.modifyColumn(session, hive, null, null), "MODIFY COLUMN not supported");
+        assertThrowsMessage(() -> md.reorderColumns(session, hive, Collections.emptyList()),
                 "REORDER COLUMNS not supported");
-        assertThrowsMessage(() -> md.createOrReplaceBranch(null, hive, null), "CREATE/REPLACE BRANCH not supported");
-        assertThrowsMessage(() -> md.createOrReplaceTag(null, hive, null), "CREATE/REPLACE TAG not supported");
-        assertThrowsMessage(() -> md.dropBranch(null, hive, null), "DROP BRANCH not supported");
-        assertThrowsMessage(() -> md.dropTag(null, hive, null), "DROP TAG not supported");
-        assertThrowsMessage(() -> md.addPartitionField(null, hive, null), "ADD PARTITION FIELD not supported");
-        assertThrowsMessage(() -> md.dropPartitionField(null, hive, null), "DROP PARTITION FIELD not supported");
-        assertThrowsMessage(() -> md.replacePartitionField(null, hive, null), "REPLACE PARTITION FIELD not supported");
+        assertThrowsMessage(() -> md.createOrReplaceBranch(session, hive, null), "CREATE/REPLACE BRANCH not supported");
+        assertThrowsMessage(() -> md.createOrReplaceTag(session, hive, null), "CREATE/REPLACE TAG not supported");
+        assertThrowsMessage(() -> md.dropBranch(session, hive, null), "DROP BRANCH not supported");
+        assertThrowsMessage(() -> md.dropTag(session, hive, null), "DROP TAG not supported");
+        assertThrowsMessage(() -> md.addPartitionField(session, hive, null), "ADD PARTITION FIELD not supported");
+        assertThrowsMessage(() -> md.dropPartitionField(session, hive, null), "DROP PARTITION FIELD not supported");
+        assertThrowsMessage(() -> md.replacePartitionField(session, hive, null), "REPLACE PARTITION FIELD not supported");
 
         // Group-2: validate* for a hive handle MUST return silently — a throw here would newly reject legal
         // plain-hive row-level DML / static-partition INSERTs.
-        md.validateRowLevelDmlMode(null, hive, null);
-        md.validateStaticPartitionColumns(null, hive, Collections.emptyList());
+        md.validateRowLevelDmlMode(session, hive, null);
+        md.validateStaticPartitionColumns(session, hive, Collections.emptyList());
 
         Assertions.assertEquals(0, siblingConnector.getMetadataCount,
                 "a hive handle must never build/consult the iceberg sibling for ALTER-DDL / validate");
@@ -315,7 +323,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // A foreign (iceberg-on-HMS) write must open the SIBLING's transaction, so iceberg's write plan can
         // downcast the session-bound transaction to IcebergConnectorTransaction — a HiveConnectorTransaction
         // (what the unconditional open would bind) would ClassCastException there.
-        ConnectorTransaction txn = md.beginTransaction(null, foreignHandle);
+        ConnectorTransaction txn = md.beginTransaction(session, foreignHandle);
 
         Assertions.assertSame(RecordingSiblingMetadata.SIBLING_TXN, txn,
                 "a foreign handle must open the sibling's transaction, not a hive one");
@@ -332,14 +340,15 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // sibling. The selection must be symmetric — hive and iceberg write plans downcast to different types.
         ConnectorTransaction hiveTxn = new NoOpConnectorTransaction(70099L, "HIVE");
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
-                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED, handle -> siblingConnector) {
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> new SiblingOwner(siblingConnector, SiblingOwner.ICEBERG_LABEL)) {
             @Override
             public ConnectorTransaction beginTransaction(ConnectorSession session) {
                 return hiveTxn;
             }
         };
 
-        Assertions.assertSame(hiveTxn, md.beginTransaction(null, hiveHandle()),
+        Assertions.assertSame(hiveTxn, md.beginTransaction(session, hiveHandle()),
                 "a hive handle must open the connector-level (hive) transaction, not the sibling's");
         Assertions.assertEquals(0, siblingConnector.getMetadataCount,
                 "a hive handle must never build/consult the iceberg sibling to open a transaction");
@@ -360,9 +369,10 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
-                handle -> new CapabilityDeclaringSiblingConnector(siblingCaps));
+                handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
+                        SiblingOwner.ICEBERG_LABEL));
 
-        ConnectorTableSchema schema = md.getTableSchema(null, foreignHandle);
+        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
         String csv = schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
         Assertions.assertNotNull(csv, "the delegated schema must carry the reflected per-table capability marker");
         List<String> names = Arrays.asList(csv.split(","));
@@ -382,7 +392,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // lacks auto-analyze) is pinned by foreignHandleSchemaWithholdsAutoAnalyzeFromRealHudiSibling below.
         // MUTATION: dropping the isEmpty() early-return and stamping an (empty) marker unconditionally -> red here.
         HiveConnectorMetadata md = withSibling(); // RecordingSiblingConnector declares no capabilities
-        ConnectorTableSchema schema = md.getTableSchema(null, foreignHandle);
+        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
         Assertions.assertNull(schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY),
                 "no marker when the sibling declares no capabilities");
     }
@@ -399,10 +409,10 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // flag) -> the marker would contain SUPPORTS_COLUMN_AUTO_ANALYZE -> red here.
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
-                handle -> new CapabilityDeclaringSiblingConnector(
-                        EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE)));
+                handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(
+                        EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE)), SiblingOwner.ICEBERG_LABEL));
 
-        ConnectorTableSchema schema = md.getTableSchema(null, foreignHandle);
+        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
         String csv = schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
         Assertions.assertNotNull(csv, "a non-empty hudi sibling must still stamp its declared capabilities");
         List<String> names = Arrays.asList(csv.split(","));
@@ -414,6 +424,102 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "hudi-on-HMS gains no Top-N lazy from a sibling that does not declare it");
         Assertions.assertFalse(names.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE.name()),
                 "hudi-on-HMS gains no nested-column prune from a sibling that does not declare it");
+    }
+
+    // ============== per-statement sibling-metadata funnel (HMS heterogeneous gateway) ==============
+    // Within one statement, the gateway obtains ONE sibling ConnectorMetadata per (catalogId, owner) and reuses it
+    // across every forward (read / scan / DDL / MVCC / the write-transaction open), keyed
+    // "metadata:<catalogId>:<ownerLabel>" on the session's per-statement scope — mirroring fe-core's own funnel for
+    // a plain connector. RecordingSiblingConnector.getMetadataCount is the load count.
+
+    @Test
+    public void liveScopeSharesOneSiblingMetadataAcrossEveryForwardIncludingTheWriteTxn() {
+        // Many read forwards (including the getTableSchema stray) + the per-handle beginTransaction open, all in one
+        // statement -> the sibling is built ONCE and every forward (reads AND the write transaction) reuses it.
+        // MUTATION: not memoizing -> a build per forward -> count > 1 -> red.
+        HiveConnectorMetadata md = withSibling();
+        ConnectorSession live = new ScopeSession(1L, "q1", new TestStatementScope());
+
+        md.getColumnHandles(live, foreignHandle);
+        md.listPartitionNames(live, foreignHandle);
+        md.getMetadataTableRows(live, foreignHandle, "timeline");
+        md.getTableSchema(live, foreignHandle);
+        md.beginTransaction(live, foreignHandle);
+
+        Assertions.assertEquals(1, siblingConnector.getMetadataCount,
+                "one sibling metadata per (catalog, owner) per statement — reads and the write txn share it");
+    }
+
+    @Test
+    public void noneScopeBuildsAFreshSiblingMetadataEachForward() {
+        // No live statement scope (offline / no ConnectContext): the funnel factory runs on every forward, exactly
+        // as before the funnel existed. This is the byte-equivalence guard for the NONE path.
+        HiveConnectorMetadata md = withSibling();
+
+        md.getColumnHandles(session, foreignHandle);
+        md.listPartitionNames(session, foreignHandle);
+        md.getColumnHandles(session, foreignHandle);
+
+        Assertions.assertEquals(3, siblingConnector.getMetadataCount,
+                "NONE scope -> the sibling metadata factory runs on every forward (pre-funnel behavior)");
+    }
+
+    @Test
+    public void byTypeDivertAndByHandleForwardShareOneSiblingMetadata() {
+        // The getTableHandle divert asks the sibling BY TYPE (icebergSiblingMetadata) before any handle exists; the
+        // later per-handle forwards resolve BY HANDLE. Both must mint the SAME funnel key for the same owner (the
+        // by-TYPE literal label == the by-HANDLE resolver-arm label), or the statement would hold two sibling
+        // metadata instances. Wire the iceberg by-TYPE supplier to the SAME recording connector the resolver
+        // returns, then drive both paths under one live scope. MUTATION: mismatched labels -> two builds -> red.
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+                () -> siblingConnector, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> new SiblingOwner(siblingConnector, SiblingOwner.ICEBERG_LABEL));
+        ConnectorSession live = new ScopeSession(1L, "q1", new TestStatementScope());
+
+        md.icebergSiblingMetadata(live);            // by-TYPE (getTableHandle divert path)
+        md.getColumnHandles(live, foreignHandle);   // by-HANDLE (per-handle forward)
+
+        Assertions.assertEquals(1, siblingConnector.getMetadataCount,
+                "the by-TYPE divert and the by-HANDLE forward key the same owner -> one shared sibling metadata");
+    }
+
+    @Test
+    public void differentCatalogIdIsolatesTheSiblingMetadata() {
+        // A statement joining two heterogeneous HMS catalogs shares one scope map; the catalog id in the key keeps
+        // each catalog's sibling metadata isolated. MUTATION: dropping catalogId from the key -> the two collide.
+        HiveConnectorMetadata md = withSibling();
+        TestStatementScope scope = new TestStatementScope();
+
+        md.getColumnHandles(new ScopeSession(1L, "q1", scope), foreignHandle);
+        md.getColumnHandles(new ScopeSession(2L, "q1", scope), foreignHandle);
+
+        Assertions.assertEquals(2, siblingConnector.getMetadataCount,
+                "a different catalog id keys a different sibling metadata (no cross-catalog collapse)");
+    }
+
+    @Test
+    public void icebergAndHudiSiblingsAreIsolatedWithinAStatement() {
+        // The whole point of the owner label: iceberg-on-HMS and hudi-on-HMS tables of ONE gateway share a catalog
+        // id, so ONLY the label ("iceberg" vs "hudi") keeps their metadata entries apart. Each owner is built once
+        // and never collapses onto the other. MUTATION: a shared (label-less) key -> one owner's metadata serves
+        // the other -> a count is 0 while the other is 2 -> red.
+        RecordingSiblingConnector hudiConnector = new RecordingSiblingConnector(new RecordingSiblingMetadata());
+        ForeignHandle hudiHandle = new ForeignHandle();
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> handle == hudiHandle
+                        ? new SiblingOwner(hudiConnector, SiblingOwner.HUDI_LABEL)
+                        : new SiblingOwner(siblingConnector, SiblingOwner.ICEBERG_LABEL));
+        ConnectorSession live = new ScopeSession(1L, "q1", new TestStatementScope());
+
+        md.getColumnHandles(live, foreignHandle);   // iceberg owner
+        md.getColumnHandles(live, hudiHandle);       // hudi owner
+        md.getColumnHandles(live, foreignHandle);   // iceberg owner again -> reuse
+
+        Assertions.assertEquals(1, siblingConnector.getMetadataCount,
+                "the iceberg owner is built once under its label");
+        Assertions.assertEquals(1, hudiConnector.getMetadataCount,
+                "the hudi owner is isolated under its own label and built once (never collapsed onto iceberg)");
     }
 
     private static void assertThrowsMessage(Executable exec, String expectedMessage) {
