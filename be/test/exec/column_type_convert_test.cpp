@@ -485,7 +485,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         src_data.push_back(Decimal256(327673345));
         src_data.push_back(Decimal256(655353345));
         src_data.push_back(Decimal256(655363345));
-        src_data.push_back(Decimal256(3333333333332345));
+        src_data.push_back(Decimal256(int64_t(3333333333332345)));
 
         auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
