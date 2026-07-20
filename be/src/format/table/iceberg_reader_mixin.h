@@ -300,6 +300,7 @@ protected:
     Status _shrink_block_if_need(Block* block);
     const schema::external::TStructField* _current_schema_root() const;
     const schema::external::TField* _find_current_schema_field(const std::string& name) const;
+    const schema::external::TField* _find_current_schema_field(int32_t field_id) const;
     Status _build_owned_initial_default_column(const schema::external::TField& field,
                                                const DataTypePtr& type, size_t rows,
                                                ColumnPtr* column) const;
@@ -728,6 +729,20 @@ const schema::external::TField* IcebergReaderMixin<BaseReader>::_find_current_sc
     const auto field = std::ranges::find_if(root->fields, [&](const auto& field_ptr) {
         return field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
                field_ptr.field_ptr->__isset.name && field_ptr.field_ptr->name == name;
+    });
+    return field == root->fields.end() ? nullptr : field->field_ptr.get();
+}
+
+template <typename BaseReader>
+const schema::external::TField* IcebergReaderMixin<BaseReader>::_find_current_schema_field(
+        int32_t field_id) const {
+    const auto* root = _current_schema_root();
+    if (root == nullptr) {
+        return nullptr;
+    }
+    const auto field = std::ranges::find_if(root->fields, [&](const auto& field_ptr) {
+        return field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
+               field_ptr.field_ptr->__isset.id && field_ptr.field_ptr->id == field_id;
     });
     return field == root->fields.end() ? nullptr : field->field_ptr.get();
 }

@@ -388,12 +388,21 @@ const schema::external::TField* find_external_root_field(const TFileScanRangePar
     if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
+    // A reused name identifies the newly added field, not an older sibling that retained that
+    // spelling as an alias. Exhaust exact current names before consulting historical aliases.
     for (const auto& field_ptr : schema->root_field.fields) {
         const auto* field = get_field_ptr(field_ptr);
-        if (field == nullptr) {
-            continue;
+        if (field != nullptr && field->__isset.name &&
+            to_lower(field->name) == to_lower(column.name)) {
+            return field;
         }
-        if (external_field_matches_name(*field, column.name)) {
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && field->__isset.name_mapping &&
+            std::ranges::any_of(field->name_mapping, [&](const std::string& alias) {
+                return to_lower(alias) == to_lower(column.name);
+            })) {
             return field;
         }
     }

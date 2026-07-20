@@ -1925,16 +1925,15 @@ TEST_F(IcebergReaderTest, v1_parquet_mixed_ids_prefer_existing_equality_field_id
     std::filesystem::create_directories(test_dir);
     const auto data_file = (test_dir / "data.parquet").string();
     const auto delete_file = (test_dir / "equality-delete.parquet").string();
-    // Iceberg's hasIds rule is existential: once any physical field has an ID, equality keys bind
-    // to that authoritative ID instead of an ID-less historical alias.
-    write_iceberg_three_int_parquet_file(data_file, "id", 0, {1, 2, 3}, "legacy_added",
-                                         std::nullopt, {5, 7, 9}, "stale_added", 1, {70, 70, 70});
-    write_iceberg_int_equality_delete_parquet_file(delete_file, "added_column", 1, 7);
+    // The hidden equality-delete column keeps the old physical name after the table field is
+    // renamed. An unrelated ID-less sibling must not downgrade its authoritative ID lookup.
+    write_iceberg_three_int_parquet_file(data_file, "id", 0, {1, 2, 3}, "unrelated", std::nullopt,
+                                         {70, 70, 70}, "old_key", 1, {5, 7, 9});
+    write_iceberg_int_equality_delete_parquet_file(delete_file, "old_key", 1, 7);
 
     schema::external::TStructField root_field;
-    root_field.__set_fields(
-            {make_external_int_field("id", 0, std::nullopt),
-             make_external_int_field("added_column", 1, std::nullopt, {"legacy_added"})});
+    root_field.__set_fields({make_external_int_field("id", 0, std::nullopt),
+                             make_external_int_field("new_key", 1, std::nullopt, {"old_key"})});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(-1);
     current_schema.__set_root_field(root_field);
@@ -2006,11 +2005,39 @@ TEST_F(IcebergReaderTest, v1_parquet_mixed_ids_prefer_existing_equality_field_id
     bool eof = false;
     const auto status = reader.get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(read_rows, 3);
-    ASSERT_EQ(block.rows(), 3);
+    ASSERT_EQ(read_rows, 2);
+    ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 0), "1");
-    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "2");
-    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 2), "3");
+    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "3");
+
+    TFileScanRangeParams legacy_scan_params = scan_params;
+    legacy_scan_params.__isset.iceberg_scan_semantics_version = false;
+    ShardedKVCache legacy_kv_cache(8);
+    IcebergParquetReader legacy_reader(&legacy_kv_cache, &profile, legacy_scan_params, scan_range,
+                                       1024, &ctz, &io_ctx, &runtime_state, cache.get());
+    io::FileReaderSPtr legacy_file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(data_file, &legacy_file_reader).ok());
+    legacy_reader.set_file_reader(legacy_file_reader);
+    ParquetInitContext legacy_context;
+    legacy_context.column_descs = &column_descriptors;
+    legacy_context.col_name_to_block_idx = &block_positions;
+    legacy_context.tuple_descriptor = tuple_descriptor;
+    legacy_context.params = &legacy_scan_params;
+    legacy_context.range = &scan_range;
+    const auto legacy_init_status = legacy_reader.init_reader(&legacy_context);
+    ASSERT_TRUE(legacy_init_status.ok()) << legacy_init_status;
+
+    Block legacy_block;
+    legacy_block.insert({id_type->create_column(), id_type, "id"});
+    size_t legacy_read_rows = 0;
+    bool legacy_eof = false;
+    const auto legacy_status =
+            legacy_reader.get_next_block(&legacy_block, &legacy_read_rows, &legacy_eof);
+    ASSERT_TRUE(legacy_status.ok()) << legacy_status;
+    ASSERT_EQ(legacy_read_rows, 2);
+    ASSERT_EQ(legacy_block.rows(), 2);
+    EXPECT_EQ(id_type->to_string(*legacy_block.get_by_position(0).column, 0), "1");
+    EXPECT_EQ(id_type->to_string(*legacy_block.get_by_position(0).column, 1), "3");
 
     std::filesystem::remove_all(test_dir);
 }
@@ -2022,16 +2049,14 @@ TEST_F(IcebergReaderTest, v1_orc_mixed_ids_prefer_existing_equality_field_id) {
     std::filesystem::create_directories(test_dir);
     const auto data_file = (test_dir / "data.orc").string();
     const auto delete_file = (test_dir / "equality-delete.orc").string();
-    // Mixed ORC schemas also stay in ID projection when any field has an ID; the key with ID 1 is
-    // authoritative even though an ID-less historical alias is present.
-    write_iceberg_three_int_orc_file(data_file, "id", 0, {1, 2, 3}, "legacy_added", std::nullopt,
-                                     {5, 7, 9}, "stale_added", 1, {70, 70, 70});
-    write_iceberg_int_orc_file(delete_file, "added_column", 1, {7});
+    // Exercise the same renamed, unprojected key with an old physical name in ORC.
+    write_iceberg_three_int_orc_file(data_file, "id", 0, {1, 2, 3}, "unrelated", std::nullopt,
+                                     {70, 70, 70}, "old_key", 1, {5, 7, 9});
+    write_iceberg_int_orc_file(delete_file, "old_key", 1, {7});
 
     schema::external::TStructField root_field;
-    root_field.__set_fields(
-            {make_external_int_field("id", 0, std::nullopt),
-             make_external_int_field("added_column", 1, std::nullopt, {"legacy_added"})});
+    root_field.__set_fields({make_external_int_field("id", 0, std::nullopt),
+                             make_external_int_field("new_key", 1, std::nullopt, {"old_key"})});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(-1);
     current_schema.__set_root_field(root_field);
@@ -2098,11 +2123,10 @@ TEST_F(IcebergReaderTest, v1_orc_mixed_ids_prefer_existing_equality_field_id) {
     bool eof = false;
     const auto status = reader.get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(read_rows, 3);
-    ASSERT_EQ(block.rows(), 3);
+    ASSERT_EQ(read_rows, 2);
+    ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 0), "1");
-    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "2");
-    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 2), "3");
+    EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "3");
 
     std::filesystem::remove_all(test_dir);
 }

@@ -110,15 +110,20 @@ const format::ColumnDefinition* find_schema_child_by_path(
                 });
         return child_it == schema_column->children.end() ? nullptr : &*child_it;
     }
-    const auto child_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
-        if (to_lower(child.name) == to_lower(child_path)) {
-            return true;
-        }
+    // Iceberg can reuse a historical name for a newly added sibling. Current names therefore
+    // have precedence across the entire struct; an earlier alias must not steal that access path.
+    const auto exact_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
+        return to_lower(child.name) == to_lower(child_path);
+    });
+    if (exact_it != schema_column->children.end()) {
+        return &*exact_it;
+    }
+    const auto alias_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
         return std::ranges::any_of(child.name_mapping, [&](const std::string& alias) {
             return to_lower(alias) == to_lower(child_path);
         });
     });
-    return child_it == schema_column->children.end() ? nullptr : &*child_it;
+    return alias_it == schema_column->children.end() ? nullptr : &*alias_it;
 }
 
 int32_t schema_field_id(const format::ColumnDefinition* schema_column) {
