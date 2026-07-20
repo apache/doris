@@ -78,24 +78,25 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
         STRUCT<name:STRING COMMENT '', count:BIGINT>
     """
 
-    spark_iceberg """REFRESH TABLE demo.${dbName}.${commentTable}"""
-    def commentMetadataRows = spark_iceberg """
-        DESCRIBE TABLE EXTENDED demo.${dbName}.${commentTable} AS JSON
-    """
-    assertEquals(1, commentMetadataRows.size())
-    def tableMetadata = new JsonSlurper().parseText(commentMetadataRows[0][0].toString())
-    def infoColumn = tableMetadata.columns.find { it.name == "info" }
-    assertNotNull(infoColumn, "info column should exist in Spark's Iceberg schema")
+    String loadTableUrl = "http://${externalEnvIp}:${restPort}/v1/namespaces/${dbName}/tables/${commentTable}"
+    def loadTableResponse = new JsonSlurper().parseText(new URL(loadTableUrl).getText("UTF-8"))
+    def tableMetadata = loadTableResponse.metadata
+    def currentSchema = tableMetadata.schemas.find {
+        it["schema-id"] == tableMetadata["current-schema-id"]
+    }
+    assertNotNull(currentSchema, "current schema should exist in Iceberg metadata")
+    def infoColumn = currentSchema.fields.find { it.name == "info" }
+    assertNotNull(infoColumn, "info column should exist in Iceberg metadata")
     def infoFields = infoColumn.type.fields.collectEntries { [(it.name): it] }
-    assertEquals("bigint", infoFields.metric.type.name)
-    assertEquals("metric doc", infoFields.metric.comment)
-    assertEquals("new note", infoFields.note.comment)
-    assertTrue(infoFields.clear_me.comment == null || infoFields.clear_me.comment == "")
-    assertEquals("payload doc", infoFields.payload.comment)
+    assertEquals("long", infoFields.metric.type)
+    assertEquals("metric doc", infoFields.metric.doc)
+    assertEquals("new note", infoFields.note.doc)
+    assertTrue(infoFields.clear_me.doc == null || infoFields.clear_me.doc == "")
+    assertEquals("payload doc", infoFields.payload.doc)
     def payloadFields = infoFields.payload.type.fields.collectEntries { [(it.name): it] }
-    assertTrue(payloadFields.name.comment == null || payloadFields.name.comment == "")
-    assertEquals("bigint", payloadFields.count.type.name)
-    assertEquals("count doc", payloadFields.count.comment)
+    assertTrue(payloadFields.name.doc == null || payloadFields.name.doc == "")
+    assertEquals("long", payloadFields.count.type)
+    assertEquals("count doc", payloadFields.count.doc)
 
     sql """
         CREATE TABLE ${dorisTable} (
