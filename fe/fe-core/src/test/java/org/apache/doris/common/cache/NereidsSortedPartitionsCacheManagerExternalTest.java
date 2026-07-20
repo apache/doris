@@ -18,27 +18,42 @@
 package org.apache.doris.common.cache;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 
@@ -58,6 +73,13 @@ import java.util.Optional;
  * .getSessionVariable()} unconditionally once {@code ConnectContext.get() != null}, so every test needs a
  * live {@link ConnectContext} (mirrors the lightweight idiom in {@code LogicalFileScanTest}: a plain
  * {@code new ConnectContext()} + {@code setThreadLocalInfo()}, no FE server bootstrap).</p>
+ *
+ * <p>The two tests at the bottom of this file additionally drive the REAL production wiring the
+ * FakeExternalTable-based tests above bypass: {@code PluginDrivenMvccExternalTable#getOriginPartitions}
+ * / {@code #getPartitionMetaVersion} / {@code #pinnedSnapshot} (via a {@code CALLS_REAL_METHODS} mock,
+ * the same technique as {@code LogicalFileScanTest}), and {@code ExternalMetaCacheMgr#invalidateTable}'s
+ * call into this manager (via a real {@link NereidsSortedPartitionsCacheManager} instance reached through
+ * a mocked {@code Env}).</p>
  */
 public class NereidsSortedPartitionsCacheManagerExternalTest {
 
@@ -191,5 +213,123 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         Assertions.assertNotNull(r);
         r.sortedPartitions.forEach(p ->
                 Assertions.assertTrue(t.parts.containsKey(p.id), "every range id is a key of the origin map"));
+    }
+
+    // ──────────────────── Real production wiring: PluginDrivenMvccExternalTable ────────────────────
+    //
+    // The tests above drive the manager with a hand-stubbed SupportBinarySearchFilteringPartitions mock
+    // and never touch PluginDrivenMvccExternalTable, so they miss the NEW wiring in
+    // getOriginPartitions/getPartitionMetaVersion/pinnedSnapshot (PluginDrivenMvccExternalTable.java
+    // around :628-651). This test drives those REAL method bodies: Mockito.CALLS_REAL_METHODS runs every
+    // unstubbed method for real, so only the connector round-trip (loadSnapshot) and the identity fields
+    // MvccTableInfo needs (getName/getDatabase) are stubbed -- mirroring the technique in
+    // LogicalFileScanTest#computeOutputBindsThisReferencesOwnVersionNotLatest.
+
+    @Test
+    public void testPluginDrivenMvccExternalTableRealOriginPartitionsAndVersion() throws Exception {
+        Map<String, PartitionItem> pinnedPartsT1 = Maps.newHashMap();
+        pinnedPartsT1.put("id=1", listItem(1));
+        ConnectorMvccSnapshot connectorSnapshotT1 = ConnectorMvccSnapshot.builder()
+                .snapshotId(42L).schemaId(7L).build();
+        PluginDrivenMvccSnapshot pinT1 = new PluginDrivenMvccSnapshot(
+                connectorSnapshotT1, pinnedPartsT1, Maps.newHashMap());
+
+        // A DIFFERENT pin for the SAME table at a second @tag reference. With two non-default versions
+        // pinned and no default ("") entry, the version-BLIND lookup (StatementContext#getSnapshot(TableIf))
+        // is ambiguous and gives up (see its javadoc); only the version-AWARE lookup that the
+        // LogicalFileScan branch of pinnedSnapshot uses resolves the exact t1 reference. MUTATION:
+        // collapsing pinnedSnapshot to the version-blind fallback makes this test observably diverge
+        // (an unresolved pin sends getOrMaterialize to materializeLatest() on a field-less mock, or the
+        // assertions below simply see the wrong values).
+        ConnectorMvccSnapshot connectorSnapshotT2 = ConnectorMvccSnapshot.builder()
+                .snapshotId(99L).schemaId(3L).build();
+        PluginDrivenMvccSnapshot pinT2 = new PluginDrivenMvccSnapshot(
+                connectorSnapshotT2, Maps.newHashMap(), Maps.newHashMap());
+
+        // NOTE: table's default answer is CALLS_REAL_METHODS, so every stub below MUST use the
+        // doReturn(...).when(table)... form (never when(table.foo()).thenReturn(...)) -- the latter would
+        // evaluate table.foo() for REAL as part of recording the stub, exactly the pitfall Mockito spies
+        // have, and several of these real bodies dereference fields this field-less mock never set.
+        PluginDrivenMvccExternalTable table =
+                Mockito.mock(PluginDrivenMvccExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.doReturn(TBL).when(table).getName();
+        Mockito.doReturn(database).when(table).getDatabase();
+        Mockito.when(database.getFullName()).thenReturn(DB);
+        Mockito.when(database.getCatalog()).thenReturn((CatalogIf) catalog);
+        Mockito.when(catalog.getName()).thenReturn(CTL);
+        // Not under test here (see LogicalFileScanTest precedent): bypass its real body, which needs
+        // schema/catalog wiring this bare mock doesn't carry.
+        Mockito.doReturn(SelectedPartitions.NOT_PRUNED).when(table).initSelectedPartitions(Mockito.any());
+
+        TableScanParams tagT1 = new TableScanParams("tag", ImmutableMap.of(), ImmutableList.of("t1"));
+        TableScanParams tagT2 = new TableScanParams("tag", ImmutableMap.of(), ImmutableList.of("t2"));
+        Mockito.doReturn(pinT1).when(table).loadSnapshot(Optional.empty(), Optional.of(tagT1));
+        Mockito.doReturn(pinT2).when(table).loadSnapshot(Optional.empty(), Optional.of(tagT2));
+
+        ConnectContext ctx = new ConnectContext();
+        StatementContext stmtCtx = new StatementContext(ctx, null);
+        ctx.setStatementContext(stmtCtx);
+        ctx.setThreadLocalInfo();
+        try {
+            // Pin via loadSnapshots (not a hand-rolled key) so the version key is computed by the SAME
+            // function the lookup uses -- the test must not hand-roll a key and accidentally agree with
+            // itself.
+            stmtCtx.loadSnapshots(table, Optional.empty(), Optional.of(tagT1));
+            stmtCtx.loadSnapshots(table, Optional.empty(), Optional.of(tagT2));
+
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
+                    Collections.singletonList(DB), Collections.emptyList(),
+                    Optional.empty(), Optional.empty(), Optional.of(tagT1), Optional.empty());
+
+            Map<?, PartitionItem> origin = table.getOriginPartitions(scan);
+            Object version = table.getPartitionMetaVersion(scan);
+
+            Assertions.assertEquals(pinnedPartsT1, origin,
+                    "getOriginPartitions must dispatch through the LogicalFileScan branch of pinnedSnapshot "
+                            + "and return exactly the t1 pin's partition map (not t2's, not latest's)");
+            Assertions.assertEquals("42@7", version,
+                    "getPartitionMetaVersion must return <snapshotId>@<schemaId> from the t1 pin's connector "
+                            + "snapshot, dispatched via the same LogicalFileScan branch");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    // ──────────────────── Real production wiring: ExternalMetaCacheMgr.invalidateTable ────────────────────
+
+    @Test
+    public void testExternalMetaCacheMgrInvalidateTableDropsRangesCacheEntry() throws Exception {
+        // Drives the REAL ExternalMetaCacheMgr.invalidateTable(...) (the new call at
+        // ExternalMetaCacheMgr.java:217-220), not NereidsSortedPartitionsCacheManager directly, so the
+        // production wiring between the two managers is exercised end-to-end.
+        newLiveConnectContext();
+        NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
+        FakeExternalTable t = new FakeExternalTable(true);
+        t.parts.put("id=1", listItem(1));
+        Assertions.assertTrue(rangesCacheMgr.get(t.table, (CatalogRelation) null).isPresent(),
+                "ranges built and cached before invalidation");
+        Assertions.assertEquals(1, rangesCacheMgr.getPartitionCaches().estimatedSize(),
+                "one entry cached before invalidation");
+
+        long catalogId = 7L;
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn(CTL);
+        Mockito.when(catalogMgr.getCatalog(catalogId)).thenReturn(catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            metaCacheMgr.invalidateTable(catalogId, DB, TBL);
+        }
+
+        Assertions.assertEquals(0, rangesCacheMgr.getPartitionCaches().estimatedSize(),
+                "ExternalMetaCacheMgr.invalidateTable must also drop the "
+                        + "NereidsSortedPartitionsCacheManager entry (ExternalMetaCacheMgr.java:217-220)");
     }
 }

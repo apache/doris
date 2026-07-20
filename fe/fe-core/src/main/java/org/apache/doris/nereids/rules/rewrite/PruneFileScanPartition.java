@@ -109,9 +109,12 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
         for (String name : prunedPartitions) {
             PartitionItem item = nameToPartitionItem.get(name);
-            // Both nameToPartitionItem and sortedPartitionRanges now come from the same frozen
-            // snapshot, so a missing item is an invariant violation rather than a partition to
-            // skip. Failing here surfaces the bug instead of silently returning a partial scan.
+            // Within THIS query, nameToPartitionItem and sortedPartitionRanges are built from the same
+            // frozen map. On a cross-query cache HIT, sortedPartitionRanges instead reuses ranges built by
+            // an earlier query keyed by the identical (snapshotId, schemaId) version token -- content is
+            // identical only via the MVCC determinism premise (same version token => same partition set),
+            // not because the two maps are literally the same object. A missing item here means that
+            // premise was violated, so fail loud rather than silently returning a partial scan.
             Preconditions.checkState(item != null,
                     "pruned partition %s is missing in the selected partitions snapshot", name);
             selectedPartitionItems.put(name, item);
