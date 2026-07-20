@@ -48,7 +48,6 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -405,7 +404,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             ++paimonSplitNum;
         }
 
-        boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
+        // Merged row counts contain only COUNT(*) semantics. COUNT(col) must keep every DataSplit
+        // because BE will read the argument column to account for NULL and schema-mapping rules.
+        boolean applyCountPushdown = isTableLevelCountStarPushdown();
         // Used to avoid repeatedly calculating partition info map for the same
         // partition data.
         // And for counting the number of selected partitions for this paimon table.

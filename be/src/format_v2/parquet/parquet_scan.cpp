@@ -177,9 +177,39 @@ std::vector<format::LocalColumnIndex> request_scan_columns(const format::FileSca
     scan_columns.reserve(request.predicate_columns.size() + request.non_predicate_columns.size());
     scan_columns.insert(scan_columns.end(), request.predicate_columns.begin(),
                         request.predicate_columns.end());
-    scan_columns.insert(scan_columns.end(), request.non_predicate_columns.begin(),
-                        request.non_predicate_columns.end());
+    for (const auto& column : request.non_predicate_columns) {
+        if (!request.is_count_star_placeholder(column.column_id())) {
+            scan_columns.push_back(column);
+        }
+    }
     return scan_columns;
+}
+
+std::vector<format::LocalColumnIndex> physical_non_predicate_columns(
+        const format::FileScanRequest& request) {
+    std::vector<format::LocalColumnIndex> columns;
+    columns.reserve(request.non_predicate_columns.size());
+    for (const auto& column : request.non_predicate_columns) {
+        if (!request.is_count_star_placeholder(column.column_id())) {
+            columns.push_back(column);
+        }
+    }
+    return columns;
+}
+
+void materialize_count_star_placeholders(const format::FileScanRequest& request, size_t rows,
+                                         Block* file_block) {
+    DORIS_CHECK(file_block != nullptr);
+    for (const auto& column : request.non_predicate_columns) {
+        if (!request.is_count_star_placeholder(column.column_id())) {
+            continue;
+        }
+        const auto block_position = request.local_positions.at(column.column_id()).value();
+        auto placeholder = file_block->get_by_position(block_position).column->assert_mutable();
+        DCHECK(placeholder->empty());
+        placeholder->insert_many_defaults(rows);
+        file_block->replace_by_position(block_position, std::move(placeholder));
+    }
 }
 
 std::vector<ParquetPageCacheRange> build_row_group_prefetch_ranges(
@@ -750,6 +780,9 @@ Status ParquetScanScheduler::open_next_row_group(
     }
     for (const auto& col : request.non_predicate_columns) {
         const auto local_id = col.local_id();
+        if (request.is_count_star_placeholder(col.column_id())) {
+            continue;
+        }
         if (local_id == format::ROW_POSITION_COLUMN_ID) {
             _current_non_predicate_columns[local_id] =
                     column_reader_factory.create_row_position_column_reader(
@@ -775,7 +808,8 @@ Status ParquetScanScheduler::open_next_row_group(
         // With no row-level filters there is no lazy-read decision to wait for, so start warming
         // output chunks immediately after their readers are created. Filtered scans still defer
         // this until at least one row survives the predicate phase.
-        prefetch_current_row_group_columns(file_context, file_schema, request.non_predicate_columns,
+        prefetch_current_row_group_columns(file_context, file_schema,
+                                           physical_non_predicate_columns(request),
                                            &_current_non_predicate_prefetched);
     }
     *has_row_group = true;
@@ -1374,6 +1408,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     _raw_rows_read += batch_rows;
     if (_current_predicate_columns.empty() && _current_non_predicate_columns.empty()) {
         *rows = static_cast<size_t>(batch_rows);
+        materialize_count_star_placeholders(request, *rows, file_block);
         if (_scan_profile.selected_rows != nullptr) {
             COUNTER_UPDATE(_scan_profile.selected_rows, batch_rows);
         }
@@ -1431,7 +1466,8 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         // Do not prefetch lazy output columns until at least one row survives filtering. This is
         // the same decision point where the v2 reader switches from predicate-only reads to
         // materializing non-predicate columns, so fully filtered batches avoid unnecessary IO.
-        prefetch_current_row_group_columns(file_context, file_schema, request.non_predicate_columns,
+        prefetch_current_row_group_columns(file_context, file_schema,
+                                           physical_non_predicate_columns(request),
                                            &_current_non_predicate_prefetched);
     }
 
@@ -1472,6 +1508,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
             file_block->replace_by_position(block_position, std::move(column));
         }
     }
+    materialize_count_star_placeholders(request, selected_rows, file_block);
     *rows = static_cast<size_t>(selected_rows);
     return Status::OK();
 }

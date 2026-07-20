@@ -33,12 +33,15 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
+import org.apache.doris.thrift.TPushAggOp;
 
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -153,6 +156,56 @@ public class IcebergScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("filter column file_path is not materialized"));
         }
+    }
+
+    private static class CountPlanningIcebergScanNode extends IcebergScanNode {
+        private final TableScan tableScan;
+        private final long snapshotCount;
+        private int snapshotCountCalls;
+
+        CountPlanningIcebergScanNode(SessionVariable sv, TableScan tableScan, long snapshotCount) {
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
+            this.tableScan = tableScan;
+            this.snapshotCount = snapshotCount;
+        }
+
+        @Override
+        public TableScan createTableScan() {
+            return tableScan;
+        }
+
+        @Override
+        public long getCountFromSnapshot() {
+            ++snapshotCountCalls;
+            return snapshotCount;
+        }
+    }
+
+    @Test
+    public void testTableLevelCountSplitPlanningRequiresCountStar() {
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(false);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(Mockito.mock(Snapshot.class));
+
+        // COUNT(required_col) carries a non-empty semantic argument list. Even though its result
+        // equals COUNT(*) for valid data, BE intentionally reads the column to enforce schema
+        // contracts. FE must therefore leave all real file tasks available to that fallback.
+        CountPlanningIcebergScanNode countColumnNode =
+                new CountPlanningIcebergScanNode(sv, tableScan, 30_000);
+        countColumnNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        countColumnNode.setPushDownCountSlotIds(Collections.singletonList(new SlotId(7)));
+        Assert.assertFalse(countColumnNode.isBatchMode());
+        Assert.assertEquals(0, countColumnNode.snapshotCountCalls);
+
+        // COUNT(*) has an explicitly empty argument list, so snapshot row count remains eligible
+        // and doGetSplits may retain only representative tasks for parallel materialization.
+        CountPlanningIcebergScanNode countStarNode =
+                new CountPlanningIcebergScanNode(sv, tableScan, 30_000);
+        countStarNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        countStarNode.setPushDownCountSlotIds(Collections.emptyList());
+        Assert.assertFalse(countStarNode.isBatchMode());
+        Assert.assertEquals(1, countStarNode.snapshotCountCalls);
     }
 
     @Test
@@ -290,6 +343,34 @@ public class IcebergScanNodeTest {
         method.invoke(node, rangeDesc, split);
 
         Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
+    }
+
+    @Test
+    public void testPositionDeleteSystemTableValidatesDeletionVectorMetadata() throws Exception {
+        DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
+        Mockito.when(deleteFile.path()).thenReturn("file:///tmp/delete-shared.puffin");
+        Mockito.when(deleteFile.format()).thenReturn(FileFormat.PUFFIN);
+        Mockito.when(deleteFile.fileSizeInBytes()).thenReturn(100L);
+        Mockito.when(deleteFile.contentOffset()).thenReturn(null);
+        Mockito.when(deleteFile.contentSizeInBytes()).thenReturn(10L);
+
+        PositionDeletesScanTask task = Mockito.mock(PositionDeletesScanTask.class);
+        Mockito.when(task.file()).thenReturn(deleteFile);
+        Mockito.when(task.start()).thenReturn(0L);
+        Mockito.when(task.length()).thenReturn(100L);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Method method = IcebergScanNode.class.getDeclaredMethod(
+                "createIcebergPositionDeleteSysSplit", PositionDeletesScanTask.class);
+        method.setAccessible(true);
+
+        try {
+            method.invoke(node, task);
+            Assert.fail("position_deletes planning should reject invalid deletion vector metadata");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getCause().getMessage().contains("delete-shared.puffin"));
+        }
     }
 
     @Test

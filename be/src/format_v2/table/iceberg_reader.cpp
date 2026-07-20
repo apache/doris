@@ -387,10 +387,8 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
     if (deletion_vector == nullptr) {
         return Status::OK();
     }
-    if (!deletion_vector->__isset.content_offset ||
-        !deletion_vector->__isset.content_size_in_bytes) {
-        return Status::InternalError("Deletion vector is missing content offset or length");
-    }
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_iceberg_deletion_vector_descriptor(*deletion_vector, bytes_read));
 
     const std::string data_file_path = iceberg_params.__isset.original_file_path
                                                ? iceberg_params.original_file_path
@@ -398,7 +396,7 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
     desc->key = build_iceberg_deletion_vector_cache_key(data_file_path, *deletion_vector);
     desc->path = deletion_vector->path;
     desc->start_offset = deletion_vector->content_offset;
-    desc->size = deletion_vector->content_size_in_bytes;
+    desc->size = static_cast<int64_t>(bytes_read);
     desc->file_size = -1;
     desc->format = DeleteFileDesc::Format::ICEBERG;
     *has_delete_file = true;
@@ -568,14 +566,13 @@ void IcebergTableReader::_append_equality_delete_row_count_carrier(
     DORIS_CHECK(request != nullptr);
     // Columnar readers establish a filter batch's row count from predicate columns. If all
     // equality keys are missing, the predicate consists only of NULL literals and the filter block
-    // would otherwise have zero rows. Read one physical column eagerly as a row-count carrier;
-    // normal final materialization ignores this hidden dependency.
-    const auto carrier_it = std::ranges::find_if(
-            _data_reader.file_schema, [](const format::ColumnDefinition& field) {
-                return field.column_type == format::ColumnType::DATA_COLUMN;
-            });
-    DORIS_CHECK(carrier_it != _data_reader.file_schema.end());
-    _append_file_scan_column(request, format::LocalColumnId(carrier_it->file_local_id()),
+    // would otherwise have zero rows. Use the virtual row-position column as the carrier instead
+    // of an arbitrary physical column. For example, a data file may start with an unsupported
+    // TIME_MILLIS leaf while the query projects only a supported `id`; selecting that TIME leaf as
+    // a hidden carrier would make Parquet reject a column the query never requested. Row position
+    // has one value per input row in both Parquet and ORC, is already used by delete predicates,
+    // and is explicitly excluded from physical logical-type validation.
+    _append_file_scan_column(request, format::LocalColumnId(format::ROW_POSITION_COLUMN_ID),
                              &request->predicate_columns);
 }
 

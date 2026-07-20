@@ -21,6 +21,7 @@
 #include <arrow/io/api.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
+#include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
 
 #include <cstring>
@@ -45,6 +46,8 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
+#include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
@@ -302,6 +305,32 @@ void write_table(const std::string& file_path, const std::shared_ptr<arrow::Tabl
     }
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_required_adjusted_time_parquet_file(const std::string& file_path) {
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    // Arrow intentionally writes time32 as local time (isAdjustedToUTC=false), so use Parquet's
+    // low-level writer to produce the unsupported required logical type needed by this aggregate
+    // regression. Required is important: Nereids may push COUNT(col) because NULL filtering cannot
+    // change its value, which is precisely the path where an empty aggregate request lost `col`.
+    const auto adjusted_time = ::parquet::schema::PrimitiveNode::Make(
+            "unsupported_time", ::parquet::Repetition::REQUIRED,
+            ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::MILLIS),
+            ::parquet::Type::INT32);
+    const auto schema_node = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED, {adjusted_time});
+    const auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(schema_node);
+    auto writer = ::parquet::ParquetFileWriter::Open(out, schema);
+    auto* row_group = writer->AppendRowGroup();
+    auto* time_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+    const int32_t values[] = {1000, 2000};
+    EXPECT_EQ(time_writer->WriteBatch(2, nullptr, nullptr, values), 2);
+    time_writer->Close();
+    row_group->Close();
+    writer->Close();
 }
 
 void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group_size = 2,
@@ -737,6 +766,15 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     EXPECT_EQ(count_result.count, 6);
     EXPECT_TRUE(count_result.columns.empty());
 
+    format::FileAggregateResult required_count_result;
+    format::FileAggregateRequest required_count_request;
+    required_count_request.agg_type = TPushAggOp::COUNT;
+    required_count_request.columns.push_back({.projection = field_projection(0)});
+    ASSERT_TRUE(reader->get_aggregate_result(required_count_request, &required_count_result).ok());
+    // The required scalar projection is retained for logical-type validation, but after that
+    // validation COUNT(id) can reuse the same selected-row-group footer count as COUNT(*).
+    EXPECT_EQ(required_count_result.count, 6);
+
     format::FileAggregateResult minmax_result;
     format::FileAggregateRequest minmax_request;
     minmax_request.agg_type = TPushAggOp::MINMAX;
@@ -751,6 +789,96 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     EXPECT_EQ(minmax_result.columns[0].max_value.get<TYPE_INT>(), 6);
     EXPECT_EQ(minmax_result.columns[1].min_value.get<TYPE_INT>(), 10);
     EXPECT_EQ(minmax_result.columns[1].max_value.get<TYPE_INT>(), 60);
+}
+
+TEST_F(ParquetScanTest, AggregateCountRejectsRequiredUnsupportedScalarProjection) {
+    write_required_adjusted_time_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    open_all_row_groups(reader.get());
+
+    format::FileAggregateRequest request;
+    request.agg_type = TPushAggOp::COUNT;
+    request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult result;
+    const auto status = reader->get_aggregate_result(request, &result);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported"),
+              std::string::npos);
+}
+
+TEST_F(ParquetScanTest, CountStarIgnoresUnsupportedPlannerPlaceholder) {
+    write_required_adjusted_time_parquet_file(_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    // A normal projection still requests the TIME_MILLIS value and must fail at open, before
+    // row-group pruning or physical INT32 statistics can hide the unsupported logical type.
+    auto projected_reader = create_reader();
+    ASSERT_TRUE(projected_reader->init(&state).ok());
+    auto projected_request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder projected_builder(projected_request.get());
+    ASSERT_TRUE(projected_builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+    const auto projected_status = projected_reader->open(projected_request);
+    EXPECT_TRUE(projected_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << projected_status;
+
+    // Metadata COUNT(*) carries the same retained scan slot, but its aggregate request has no
+    // semantic column. The placeholder must not make open fail before footer row counts are used.
+    auto metadata_count_reader = create_reader();
+    ASSERT_TRUE(metadata_count_reader->init(&state).ok());
+    auto metadata_count_request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder metadata_count_builder(metadata_count_request.get());
+    ASSERT_TRUE(metadata_count_builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+    metadata_count_request->count_star_placeholder_columns.push_back(format::LocalColumnId(0));
+    ASSERT_TRUE(metadata_count_reader->open(metadata_count_request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::COUNT;
+    format::FileAggregateResult aggregate_result;
+    ASSERT_TRUE(
+            metadata_count_reader->get_aggregate_result(aggregate_request, &aggregate_result).ok());
+    EXPECT_EQ(aggregate_result.count, 2);
+
+    // The marker is independent of aggregate eligibility. Simulate a position delete,
+    // which disables metadata COUNT and requires the reader to produce surviving rows. Parquet
+    // reads only the virtual row position, filters row 1, and fills a default placeholder for row 0
+    // without validating or decoding either unsupported TIME_MILLIS value.
+    auto count_star_reader = create_reader();
+    ASSERT_TRUE(count_star_reader->init(&state).ok());
+    auto count_star_request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder count_star_builder(count_star_request.get());
+    ASSERT_TRUE(count_star_builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(count_star_builder
+                        .add_predicate_column(format::LocalColumnId(format::ROW_POSITION_COLUMN_ID))
+                        .ok());
+    count_star_request->count_star_placeholder_columns.push_back(format::LocalColumnId(0));
+
+    const std::vector<int64_t> deleted_rows {1};
+    auto delete_predicate = std::make_shared<format::DeletePredicate>(deleted_rows);
+    const auto row_position = count_star_request->local_positions.at(
+            format::LocalColumnId(format::ROW_POSITION_COLUMN_ID));
+    delete_predicate->add_child(VSlotRef::create_shared(
+            cast_set<int>(row_position.value()), cast_set<int>(row_position.value()), -1,
+            std::make_shared<DataTypeInt64>(), format::ROW_POSITION_COLUMN_NAME));
+    auto delete_context = VExprContext::create_shared(std::move(delete_predicate));
+    ASSERT_TRUE(delete_context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(delete_context->open(&state).ok());
+    count_star_request->delete_conjuncts.push_back(std::move(delete_context));
+    ASSERT_TRUE(count_star_reader->open(count_star_request).ok());
+
+    std::vector<format::ColumnDefinition> file_schema;
+    ASSERT_TRUE(count_star_reader->get_schema(&file_schema).ok());
+    file_schema.push_back(format::row_position_column_definition());
+    auto block = build_file_block(file_schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(count_star_reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_EQ(block.get_by_position(0).column->size(), 1);
+    const auto& positions =
+            assert_cast<const ColumnInt64&>(*block.get_by_position(row_position.value()).column);
+    ASSERT_EQ(positions.size(), 1);
+    EXPECT_EQ(positions.get_element(0), 0);
 }
 
 TEST_F(ParquetScanTest, AggregateMinMaxRejectsInexactBinaryStatistics) {
