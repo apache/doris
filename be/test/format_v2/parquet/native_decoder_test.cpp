@@ -366,25 +366,24 @@ Status materialize_plain_int96(const std::vector<ParquetInt96Timestamp>& values,
                                            select_vector);
 }
 
-template <typename DataType>
-Status materialize_selected_plain_int32(const std::vector<int32_t>& physical_values,
-                                        size_t logical_values,
-                                        const std::vector<uint16_t>& run_length_null_map,
-                                        const std::vector<uint8_t>& filter_values,
-                                        const DataType& type, MutableColumnPtr* column,
-                                        NullMap* null_map, ColumnChunkReaderStatistics* statistics,
-                                        bool strict_mode = false,
-                                        const ParquetDecodeContext* context_override = nullptr) {
+template <typename PhysicalType, typename DataType>
+Status materialize_selected_plain_fixed(
+        const std::vector<PhysicalType>& physical_values, size_t logical_values,
+        const std::vector<uint16_t>& run_length_null_map, const std::vector<uint8_t>& filter_values,
+        tparquet::Type::type parquet_physical_type, ParquetPhysicalType decode_physical_type,
+        const DataType& type, MutableColumnPtr* column, NullMap* null_map,
+        ColumnChunkReaderStatistics* statistics, bool strict_mode = false,
+        const ParquetDecodeContext* context_override = nullptr) {
     tparquet::PageHeader header;
     header.type = tparquet::PageType::DATA_PAGE;
-    header.__set_compressed_page_size(physical_values.size() * sizeof(int32_t));
-    header.__set_uncompressed_page_size(physical_values.size() * sizeof(int32_t));
+    header.__set_compressed_page_size(physical_values.size() * sizeof(PhysicalType));
+    header.__set_uncompressed_page_size(physical_values.size() * sizeof(PhysicalType));
     header.__isset.data_page_header = true;
     header.data_page_header.__set_num_values(static_cast<int32_t>(logical_values));
     header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
     header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
     header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
-    std::vector<uint8_t> payload(physical_values.size() * sizeof(int32_t));
+    std::vector<uint8_t> payload(physical_values.size() * sizeof(PhysicalType));
     if (!payload.empty()) {
         memcpy(payload.data(), physical_values.data(), payload.size());
     }
@@ -392,13 +391,13 @@ Status materialize_selected_plain_int32(const std::vector<int32_t>& physical_val
 
     MemoryBufferedReader reader(bytes);
     tparquet::ColumnChunk chunk;
-    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_type(parquet_physical_type);
     chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
     chunk.meta_data.__set_num_values(static_cast<int64_t>(logical_values));
     chunk.meta_data.__set_total_compressed_size(bytes.size());
     chunk.meta_data.__set_data_page_offset(0);
     NativeFieldSchema field;
-    field.physical_type = tparquet::Type::INT32;
+    field.physical_type = parquet_physical_type;
     ParquetPageReadContext page_context(false, "");
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, logical_values,
                                                  nullptr, page_context);
@@ -406,7 +405,7 @@ Status materialize_selected_plain_int32(const std::vector<int32_t>& physical_val
     RETURN_IF_ERROR(chunk_reader.load_page_data());
 
     ParquetDecodeContext decode_context;
-    decode_context.physical_type = ParquetPhysicalType::INT32;
+    decode_context.physical_type = decode_physical_type;
     if (context_override != nullptr) {
         decode_context = *context_override;
     }
@@ -421,6 +420,35 @@ Status materialize_selected_plain_int32(const std::vector<int32_t>& physical_val
                                                     state, select_vector));
     *statistics = chunk_reader.statistics();
     return Status::OK();
+}
+
+template <typename DataType>
+Status materialize_selected_plain_int32(const std::vector<int32_t>& physical_values,
+                                        size_t logical_values,
+                                        const std::vector<uint16_t>& run_length_null_map,
+                                        const std::vector<uint8_t>& filter_values,
+                                        const DataType& type, MutableColumnPtr* column,
+                                        NullMap* null_map, ColumnChunkReaderStatistics* statistics,
+                                        bool strict_mode = false,
+                                        const ParquetDecodeContext* context_override = nullptr) {
+    return materialize_selected_plain_fixed(physical_values, logical_values, run_length_null_map,
+                                            filter_values, tparquet::Type::INT32,
+                                            ParquetPhysicalType::INT32, type, column, null_map,
+                                            statistics, strict_mode, context_override);
+}
+
+template <typename DataType>
+Status materialize_selected_plain_int64(const std::vector<int64_t>& physical_values,
+                                        size_t logical_values,
+                                        const std::vector<uint16_t>& run_length_null_map,
+                                        const std::vector<uint8_t>& filter_values,
+                                        const DataType& type, MutableColumnPtr* column,
+                                        NullMap* null_map, ColumnChunkReaderStatistics* statistics,
+                                        const ParquetDecodeContext& context) {
+    return materialize_selected_plain_fixed(physical_values, logical_values, run_length_null_map,
+                                            filter_values, tparquet::Type::INT64,
+                                            ParquetPhysicalType::INT64, type, column, null_map,
+                                            statistics, false, &context);
 }
 
 template <typename DataType>
@@ -640,6 +668,60 @@ TEST(ParquetV2NativeDecoderTest, NullableSparsePlainDecimalSelectionBatchesPhysi
     EXPECT_EQ(null_map, (NullMap {0, 0, 1, 0, 1}));
     EXPECT_EQ(statistics.hybrid_selection_batches, 1);
     EXPECT_EQ(statistics.hybrid_selection_ranges, 3);
+    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, NullableSparsePlainDateSelectionBatchesPhysicalPayload) {
+    const std::vector<int32_t> physical_days {0, 1, 2, 3, 4};
+    constexpr size_t LOGICAL_VALUES = 9;
+    const std::vector<uint16_t> null_runs(LOGICAL_VALUES, 1);
+    const std::vector<uint8_t> filter {1, 1, 1, 0, 0, 1, 1, 1, 0};
+
+    DataTypeDateV2 type;
+    auto column = type.create_column();
+    NullMap null_map;
+    ColumnChunkReaderStatistics statistics;
+    const ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                        .logical_type = ParquetLogicalType::DATE};
+    ASSERT_TRUE(materialize_selected_plain_int32(physical_days, LOGICAL_VALUES, null_runs, filter,
+                                                 type, &column, &null_map, &statistics, false,
+                                                 &context)
+                        .ok());
+
+    ASSERT_EQ(column->size(), 6);
+    EXPECT_EQ(type.to_string(*column, 0), "1970-01-01");
+    EXPECT_EQ(type.to_string(*column, 2), "1970-01-02");
+    EXPECT_EQ(type.to_string(*column, 4), "1970-01-04");
+    EXPECT_EQ(null_map, (NullMap {0, 1, 0, 1, 0, 1}));
+    EXPECT_EQ(statistics.hybrid_selection_batches, 1);
+    EXPECT_EQ(statistics.hybrid_selection_ranges, 2);
+    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, NullableSparsePlainDateTimeSelectionBatchesPhysicalPayload) {
+    const std::vector<int64_t> physical_micros {0, 1'000'000, 2'000'000, 3'000'000, 4'000'000};
+    constexpr size_t LOGICAL_VALUES = 9;
+    const std::vector<uint16_t> null_runs(LOGICAL_VALUES, 1);
+    const std::vector<uint8_t> filter {1, 1, 1, 0, 0, 1, 1, 1, 0};
+
+    DataTypeDateTimeV2 type(6);
+    auto column = type.create_column();
+    NullMap null_map;
+    ColumnChunkReaderStatistics statistics;
+    const ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                        .logical_type = ParquetLogicalType::TIMESTAMP,
+                                        .time_unit = ParquetTimeUnit::MICROS};
+    ASSERT_TRUE(materialize_selected_plain_int64(physical_micros, LOGICAL_VALUES, null_runs, filter,
+                                                 type, &column, &null_map, &statistics, context)
+                        .ok());
+
+    ASSERT_EQ(column->size(), 6);
+    EXPECT_EQ(type.to_string(*column, 0), "1970-01-01 00:00:00.000000");
+    EXPECT_EQ(type.to_string(*column, 2), "1970-01-01 00:00:01.000000");
+    EXPECT_EQ(type.to_string(*column, 4), "1970-01-01 00:00:03.000000");
+    EXPECT_EQ(null_map, (NullMap {0, 1, 0, 1, 0, 1}));
+    EXPECT_EQ(statistics.hybrid_selection_batches, 1);
+    EXPECT_EQ(statistics.hybrid_selection_ranges, 2);
     EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
 }
 

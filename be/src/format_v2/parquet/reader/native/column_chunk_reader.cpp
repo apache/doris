@@ -445,12 +445,14 @@ bool visit_nullable_expandable_column(IColumn& column, Visitor&& visitor) {
     return false;
 }
 
-bool is_decimal_column(const IColumn& column) {
+bool has_expensive_nullable_sparse_materialization(const IColumn& column) {
     return check_and_get_column<ColumnDecimal32>(&column) != nullptr ||
            check_and_get_column<ColumnDecimal64>(&column) != nullptr ||
            check_and_get_column<ColumnDecimal128V2>(&column) != nullptr ||
            check_and_get_column<ColumnDecimal128V3>(&column) != nullptr ||
-           check_and_get_column<ColumnDecimal256>(&column) != nullptr;
+           check_and_get_column<ColumnDecimal256>(&column) != nullptr ||
+           check_and_get_column<ColumnDateV2>(&column) != nullptr ||
+           check_and_get_column<ColumnDateTimeV2>(&column) != nullptr;
 }
 
 template <typename ColumnType>
@@ -1271,11 +1273,22 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
                                                      &_chunk_statistics.materialization_time);
             _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
         } else if ((context.encoding == ParquetValueEncoding::DICTIONARY ||
-                    is_decimal_column(*doris_column)) &&
+                    has_expensive_nullable_sparse_materialization(*doris_column)) &&
                    visit_nullable_expandable_column(*doris_column, [](auto&) {})) {
-            // Nullable DECIMAL conversion is substantially heavier than PLAIN cursor arithmetic.
-            // Keep its SerDe/consumer alive for the whole sparse request so NULLs cannot turn one
-            // physical batch into thousands of tiny conversion calls.
+            // Parquet omits NULL leaf values from the physical stream. For example, the logical
+            // DATE sequence [d0, NULL, d1, NULL, d2] is physically encoded as [d0, d1, d2]. The
+            // generic fallback follows the logical selection runs, so those NULLs split one
+            // contiguous physical span into decode(d0), insert-NULL, decode(d1), insert-NULL,
+            // decode(d2). On nullable sparse scans this repeatedly enters SerDe and turns decimal
+            // scaling, date conversion, timestamp/timezone conversion, or dictionary-ID
+            // materialization into many tiny calls even though the physical values are adjacent.
+            //
+            // Build selected non-NULL ranges in physical coordinates instead. In the example this
+            // decodes [d0, d1, d2] compactly with one SerDe consumer, records [0, 1, 0, 1, 0] as
+            // the logical NULL layout, and expands the final nested column backwards so unread
+            // compact values cannot be overwritten. Keep cheap non-decimal PLAIN numeric columns
+            // on the fallback: their skips are pointer arithmetic, while compact-and-expand would
+            // add a full output-column memory pass without amortizing expensive conversion work.
             ++_chunk_statistics.hybrid_selection_batches;
             status = decode_selected_nullable_values(
                     *doris_column, serde, *_page_decoder, context, state, select_vector,
