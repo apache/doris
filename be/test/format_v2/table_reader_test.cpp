@@ -1015,6 +1015,10 @@ struct FakeFileReaderState {
     std::optional<FileAggregateRequest> last_aggregate_request;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
     std::shared_ptr<io::IOContext> io_ctx;
+    const UInt8* string_payload = nullptr;
+    const UInt8* map_key_payload = nullptr;
+    const UInt8* map_value_payload = nullptr;
+    const ColumnArray::Offset64* map_offsets = nullptr;
 };
 
 class FakeFileReader final : public FileReader {
@@ -1075,6 +1079,7 @@ public:
                 auto column = ColumnString::create();
                 column->insert_data("one", 3);
                 column->insert_data("two", 3);
+                _state->string_payload = column->get_chars().data();
                 file_block->replace_by_position(block_position.value(),
                                                 make_not_null_nullable_column(std::move(column)));
             } else if (file_column_id == LocalColumnId(2)) {
@@ -1095,6 +1100,30 @@ public:
                 file_block->replace_by_position(
                         block_position.value(),
                         make_not_null_nullable_column(std::move(struct_column)));
+            } else if (file_column_id == LocalColumnId(3)) {
+                auto keys = ColumnString::create();
+                keys->insert_data("first", 5);
+                keys->insert_data("second", 6);
+                keys->insert_data("third", 5);
+                _state->map_key_payload = keys->get_chars().data();
+
+                auto values = ColumnString::create();
+                values->insert_data("one", 3);
+                values->insert_data("two", 3);
+                values->insert_data("three", 5);
+                _state->map_value_payload = values->get_chars().data();
+
+                auto offsets = ColumnArray::ColumnOffsets::create();
+                offsets->insert_value(1);
+                offsets->insert_value(3);
+                _state->map_offsets = offsets->get_data().data();
+
+                auto map_column = ColumnMap::create(
+                        make_not_null_nullable_column(std::move(keys)),
+                        make_not_null_nullable_column(std::move(values)), std::move(offsets));
+                file_block->replace_by_position(
+                        block_position.value(),
+                        make_not_null_nullable_column(std::move(map_column)));
             } else {
                 return Status::InvalidArgument("Unexpected fake file column id {}",
                                                file_column_id.value());
@@ -1677,6 +1706,94 @@ TEST(TableReaderTest, SlotlessConjunctDisablesAggregatePushdown) {
     EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
     EXPECT_EQ(block.rows(), 2);
     EXPECT_TRUE(predicate_executed);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, DirectMappingTransfersFileColumnOwnership) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(1, "value", std::make_shared<DataTypeString>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_NE(fake_state->string_payload, nullptr);
+
+    const auto& result = assert_cast<const ColumnString&>(expect_not_null_table_column(block, 0));
+    EXPECT_EQ(result.get_chars().data(), fake_state->string_payload);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, DirectMapMappingTransfersNestedColumnOwnership) {
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto map_type = std::make_shared<DataTypeMap>(string_type, string_type);
+    auto file_map = make_file_column(3, "attributes", map_type);
+    file_map.children = {make_file_column(0, "key", string_type),
+                         make_file_column(1, "value", string_type)};
+    std::vector<ColumnDefinition> file_schema = {file_map};
+
+    auto table_map = make_table_column(3, "attributes", map_type);
+    table_map.children = {make_table_column(0, "key", string_type),
+                          make_table_column(1, "value", string_type)};
+    std::vector<ColumnDefinition> projected_columns = {table_map};
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_NE(fake_state->map_key_payload, nullptr);
+    ASSERT_NE(fake_state->map_value_payload, nullptr);
+    ASSERT_NE(fake_state->map_offsets, nullptr);
+
+    const auto& result = assert_cast<const ColumnMap&>(expect_not_null_table_column(block, 0));
+    const auto& keys = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(result.get_keys()));
+    const auto& values = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(result.get_values()));
+    EXPECT_EQ(keys.get_chars().data(), fake_state->map_key_payload);
+    EXPECT_EQ(values.get_chars().data(), fake_state->map_value_payload);
+    EXPECT_EQ(result.get_offsets().data(), fake_state->map_offsets);
     ASSERT_TRUE(reader.close().ok());
 }
 

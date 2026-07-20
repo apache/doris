@@ -705,15 +705,29 @@ protected:
     // Finalize file-local block to table/global schema block.
     Status finalize_chunk(Block* block, const size_t rows) {
         SCOPED_TIMER(_profile.finalize_timer);
-        size_t idx = 0;
+        std::vector<ColumnPtr> materialized_columns;
+        materialized_columns.reserve(_data_reader.column_mapper->mappings().size());
         for (const auto& mapping : _data_reader.column_mapper->mappings()) {
             ColumnPtr column;
             RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
                                                         &column));
-            block->replace_by_position(idx, IColumn::mutate(std::move(column)));
-            idx++;
+            materialized_columns.push_back(std::move(column));
         }
+        for (size_t idx = 0; idx < materialized_columns.size(); ++idx) {
+            block->replace_by_position(idx, std::move(materialized_columns[idx]));
+        }
+        // Table-format virtual columns can depend on auxiliary file-local columns such as Iceberg
+        // row positions, so materialize them before releasing the file block.
         RETURN_IF_ERROR(materialize_virtual_columns(block));
+        // Projection results can alias columns owned by the file-local block. Release those
+        // owners before requesting mutable output columns so direct mappings transfer their
+        // payload instead of triggering a COW deep clone.
+        _data_reader.block_template.clear_column_data(
+                cast_set<int64_t>(_data_reader.file_block_layout.size()));
+        for (size_t idx = 0; idx < block->columns(); ++idx) {
+            block->replace_by_position(
+                    idx, IColumn::mutate(std::move(block->get_by_position(idx).column)));
+        }
         // Enforce CHAR/VARCHAR length declared by the table schema after all file-to-table
         // materialization has finished.
         RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
@@ -1229,7 +1243,7 @@ protected:
                         rows, st.to_string(), mapping.debug_string());
             }
             ColumnPtr result_column = current_block->get_by_position(res_id).column;
-            *column = _detach_column(std::move(result_column));
+            *column = std::move(result_column);
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
@@ -1239,7 +1253,7 @@ protected:
                         mapping.default_expr, current_block, &result));
                 ColumnPtr result_column = result.column;
                 RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
+                *column = std::move(result_column);
             } else {
                 DORIS_CHECK(mapping.constant_index.has_value());
                 Block eval_block;
@@ -1250,12 +1264,12 @@ protected:
                         mapping.default_expr, &eval_block, &result));
                 ColumnPtr result_column = result.column;
                 RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
+                *column = std::move(result_column);
             }
             return Status::OK();
         }
         ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
-        *column = _detach_column(std::move(result_column));
+        *column = std::move(result_column);
         return Status::OK();
     }
 
