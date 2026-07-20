@@ -127,22 +127,43 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
-    public void testCaseInsensitiveTableUnregisterClearsCanonicalColdIdMap() {
+    public void testCaseInsensitiveTableUnregisterFallsBackToHotObjectWhenNamesAreCold() {
         CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 230L, "db_ci", "db_ci");
         db.setInitializedForTest(true);
-        TestExternalTable table = new TestExternalTable(231L, "Foo", "Foo", catalog, db);
-        db.registerTable(table);
+
+        // Seed only the object/id cache so unregister must resolve the canonical key from the hot object entry.
+        TestExternalTable table = new TestExternalTable(232L, "Foo", "Foo", catalog, db);
+        db.addTableForTest(table);
 
         Assertions.assertNull(db.getCachedTableNamesForTest());
-        Assertions.assertNull(db.getCachedTableForTest("Foo"));
-        Assertions.assertEquals("Foo", db.getCachedTableNameByIdForTest(231L));
+        Assertions.assertSame(table, db.getCachedTableForTest("Foo"));
+        Assertions.assertEquals("Foo", db.getCachedTableNameByIdForTest(232L));
 
         db.unregisterTable("foo");
 
         Assertions.assertNull(db.getCachedTableNamesForTest());
         Assertions.assertNull(db.getCachedTableForTest("Foo"));
-        Assertions.assertNull(db.getCachedTableNameByIdForTest(231L));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(232L));
+    }
+
+    @Test
+    public void testCaseInsensitiveTableUnregisterClearsCanonicalColdIdMap() {
+        CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 231L, "db_ci", "db_ci");
+        db.setInitializedForTest(true);
+        TestExternalTable table = new TestExternalTable(233L, "Foo", "Foo", catalog, db);
+        db.registerTable(table);
+
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("Foo"));
+        Assertions.assertEquals("Foo", db.getCachedTableNameByIdForTest(233L));
+
+        db.unregisterTable("foo");
+
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("Foo"));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(233L));
     }
 
     @Test

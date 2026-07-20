@@ -478,6 +478,51 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testLowerCaseDatabaseUnregisterUsesLowerCaseInvalidationKey() {
+        NameMissCatalogProvider.reset();
+        try {
+            NameMissCatalogProvider.putDatabase("MixedDb");
+            NameMissCatalog catalog = new NameMissCatalog(1);
+            catalog.setInitializedForTest(true);
+
+            // Load the lower-case local key first so unregister must clean names/object/id through that key.
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("mixeddb");
+            Assertions.assertNotNull(db);
+            Assertions.assertTrue(catalog.getCachedDatabaseNamesForTest().containsLocalName("mixeddb"));
+            Assertions.assertSame(db, catalog.getCachedDatabaseForTest("mixeddb"));
+            Assertions.assertEquals("mixeddb", catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+
+            catalog.unregisterDatabase("MixedDb");
+
+            Assertions.assertFalse(catalog.getCachedDatabaseNamesForTest().containsLocalName("mixeddb"));
+            Assertions.assertNull(catalog.getCachedDatabaseForTest("mixeddb"));
+            Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+        } finally {
+            NameMissCatalogProvider.reset();
+        }
+    }
+
+    @Test
+    public void testCaseInsensitiveDatabaseUnregisterFallsBackToHotObjectWhenNamesAreCold() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog(2);
+        catalog.setInitializedForTest(true);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 103L, "MixedDb", "MixedDb");
+
+        // Seed only the object/id cache so unregister must resolve the canonical key from the hot object entry.
+        catalog.addDatabaseForTest(db);
+
+        Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertSame(db, catalog.getCachedDatabaseForTest("MixedDb"));
+        Assertions.assertEquals("MixedDb", catalog.getCachedDatabaseNameByIdForTest(103L));
+
+        catalog.unregisterDatabase("mixeddb");
+
+        Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("MixedDb"));
+        Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(103L));
+    }
+
+    @Test
     public void testCaseInsensitiveDatabaseUnregisterClearsCanonicalColdIdMap() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog(2);
         catalog.setInitializedForTest(true);
