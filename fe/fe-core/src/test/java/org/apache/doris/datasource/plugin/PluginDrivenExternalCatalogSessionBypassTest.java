@@ -64,6 +64,8 @@ public class PluginDrivenExternalCatalogSessionBypassTest {
                 "session=user + credential must bypass the shared table-name cache (per-user metadata)");
         Assertions.assertTrue(userSession.shouldBypassDbNameCache(credentialed()),
                 "session=user + credential must bypass the shared db-name cache (per-user metadata)");
+        Assertions.assertTrue(userSession.shouldBypassSchemaCache(credentialed()),
+                "session=user + credential must bypass the shared schema cache (list != load metadata disclosure)");
     }
 
     @Test
@@ -76,9 +78,12 @@ public class PluginDrivenExternalCatalogSessionBypassTest {
         // bypassing into a per-user read that has no identity to authorize with.
         Assertions.assertFalse(userSession.shouldBypassTableNameCache(SessionContext.empty()));
         Assertions.assertFalse(userSession.shouldBypassDbNameCache(SessionContext.empty()));
+        Assertions.assertFalse(userSession.shouldBypassSchemaCache(SessionContext.empty()));
         Assertions.assertFalse(userSession.shouldBypassTableNameCache(null),
                 "a null session context must not bypass (no credential to key a per-user read)");
         Assertions.assertFalse(userSession.shouldBypassDbNameCache(null));
+        Assertions.assertFalse(userSession.shouldBypassSchemaCache(null),
+                "a null session context must not bypass the schema cache either");
     }
 
     @Test
@@ -89,5 +94,6 @@ public class PluginDrivenExternalCatalogSessionBypassTest {
 
         Assertions.assertFalse(plain.shouldBypassTableNameCache(credentialed()));
         Assertions.assertFalse(plain.shouldBypassDbNameCache(credentialed()));
+        Assertions.assertFalse(plain.shouldBypassSchemaCache(credentialed()));
     }
 }

@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 /**
  * A {@link ConnectorContext} decorator that pins the thread-context classloader (TCCL) to the iceberg plugin
@@ -165,6 +166,15 @@ final class TcclPinningConnectorContext implements ConnectorContext {
     @Override
     public String normalizeStorageUri(String rawUri, Map<String, String> rawVendedCredentials) {
         return delegate.normalizeStorageUri(rawUri, rawVendedCredentials);
+    }
+
+    @Override
+    public UnaryOperator<String> newStorageUriNormalizer(Map<String, String> rawVendedCredentials) {
+        // Delegate to the raw engine context so the connector gets DefaultConnectorContext's once-per-scan
+        // hoist. Without this override the SPI default would fold back to THIS wrapper's per-call
+        // normalizeStorageUri, silently defeating the optimization. Like normalizeStorageUri, this path runs
+        // entirely in fe-core (LocationPath/StorageProperties, no plugin reflection), so no TCCL pin is needed.
+        return delegate.newStorageUriNormalizer(rawVendedCredentials);
     }
 
     @Override

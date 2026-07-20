@@ -42,8 +42,10 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -137,12 +139,16 @@ public class ConnectorRewriteDriver {
             // STEP 2: run one INSERT-SELECT per group concurrently, all sharing the transaction.
             runGroups(groups, txnId, connectorTx);
 
-            // STEP 3: register the union of source data files to remove. AFTER the groups ran, so the first
-            // group's write loaded the table + pinned the OCC snapshot that the connector re-derives against;
-            // BEFORE commit, which consumes the registered files in the RewriteFiles op.
-            for (ConnectorRewriteGroup group : groups) {
-                connectorTx.registerRewriteSourceFiles(group.getDataFilePaths());
-            }
+            // STEP 3: register the UNION of every group's source data files in a SINGLE call. The connector
+            // re-derives them from the table at the pinned OCC snapshot with ONE planFiles() scan; the former
+            // per-group loop repeated that full-table scan once per group (G groups = G+1 scans). Ordering is
+            // unchanged — still AFTER the groups ran (so the first group's write loaded the table + pinned the
+            // OCC snapshot that the connector re-derives against) and BEFORE commit (which consumes the
+            // registered files in the RewriteFiles op). Every per-group call scanned the SAME pinned snapshot, so
+            // one union scan is equivalent; the connector's registration accumulates and dedups by path, and the
+            // planner emits path-DISJOINT groups (iceberg: planFiles() yields one task per data file, bin-packed
+            // into disjoint groups), so the union reconstructs exactly the per-group calls' accumulated file set.
+            connectorTx.registerRewriteSourceFiles(unionSourceFilePaths(groups));
         } catch (Exception e) {
             txnManager.rollback(txnId);
             if (e instanceof UserException) {
@@ -165,6 +171,20 @@ public class ConnectorRewriteDriver {
 
         return buildResult(rewrittenDataFilesCount, addedDataFilesCount, rewrittenBytesCount,
                 removedDeleteFilesCount);
+    }
+
+    /**
+     * Unions every group's source data-file paths into one dedup'd set, so the connector re-derives them all in
+     * a single {@code planFiles()} scan (STEP 3) instead of one scan per group. Bin-packed groups are
+     * path-disjoint so this is a straight union; the connector's own per-path dedup keeps the registered file set
+     * exact regardless. Package-visible for unit testing (the full distributed STEP 3 needs a live cluster).
+     */
+    static Set<String> unionSourceFilePaths(List<ConnectorRewriteGroup> groups) {
+        Set<String> sourceFilePaths = new HashSet<>();
+        for (ConnectorRewriteGroup group : groups) {
+            sourceFilePaths.addAll(group.getDataFilePaths());
+        }
+        return sourceFilePaths;
     }
 
     private void runGroups(List<ConnectorRewriteGroup> groups, long txnId, ConnectorTransaction connectorTx)

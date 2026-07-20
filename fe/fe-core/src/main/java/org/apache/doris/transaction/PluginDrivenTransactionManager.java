@@ -115,6 +115,16 @@ public class PluginDrivenTransactionManager implements TransactionManager {
     }
 
     /**
+     * Whether transaction {@code id} is still open here, i.e. registered by {@link #begin(ConnectorTransaction)}
+     * and not yet committed or rolled back (both {@link #commit(long)} and {@link #rollback(long)} remove it).
+     * The statement scope's end-of-statement backstop uses this to tell a mid-flight-aborted transaction from
+     * one the executor already finished, so it rolls back only genuine orphans and never a committed write.
+     */
+    public boolean isActive(long id) {
+        return transactions.containsKey(id);
+    }
+
+    /**
      * Internal transaction record. When {@code connectorTx} is non-null (every plugin-driven
      * write) the SPI is the source of truth and commit/rollback delegate to it; close() always
      * runs after delegation. {@code connectorTx} is null only for the no-arg {@link #begin()}

@@ -81,7 +81,7 @@ public class PluginDrivenExternalDatabase extends ExternalDatabase<PluginDrivenE
             return "";
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorDatabaseMetadata dbMetadata = metadata.getDatabase(session, getRemoteName());
         return dbMetadata.getProperties().getOrDefault(ConnectorDatabaseMetadata.LOCATION_PROPERTY, "");
     }

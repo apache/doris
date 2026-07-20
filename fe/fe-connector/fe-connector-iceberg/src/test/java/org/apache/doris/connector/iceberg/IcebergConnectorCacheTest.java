@@ -129,6 +129,48 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
+    public void latestSnapshotCacheDisabledForSessionUser() {
+        // The latest-snapshot cache is an AUTHORIZATION-sensitive projection (snapshotId/schemaId) that
+        // beginQuerySnapshot reads WITHOUT a preceding per-user loadTable, so a shared hit would bypass the
+        // per-user authorization. It is disabled (null) under iceberg.rest.session=user (kept otherwise, incl.
+        // vended-credentials, since a snapshot id carries no token). MUTATION: dropping the session=user gate ->
+        // non-null for session -> red.
+        Assertions.assertNotNull(
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext())
+                        .latestSnapshotCacheForTest(),
+                "a plain catalog builds the latest-snapshot cache");
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        Assertions.assertNotNull(
+                new IcebergConnector(vended, new RecordingConnectorContext()).latestSnapshotCacheForTest(),
+                "a vended-credentials catalog still builds the latest-snapshot cache (an id carries no token)");
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        Assertions.assertNull(
+                new IcebergConnector(session, new RecordingConnectorContext()).latestSnapshotCacheForTest(),
+                "a session=user catalog must NOT build the latest-snapshot cache (per-user authz bypass)");
+    }
+
+    @Test
+    public void invalidateHooksAreNoThrowForSessionUserWithNulledCaches() {
+        // Under session=user the latest-snapshot / partition / format caches are all null. The REFRESH hooks must
+        // still be no-throw (the invalidate* methods null-guard each cache). MUTATION: an unguarded invalidate call
+        // on a nulled cache -> NPE -> red.
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        IcebergConnector connector = new IcebergConnector(session, new RecordingConnectorContext());
+        Assertions.assertNull(connector.latestSnapshotCacheForTest());
+        Assertions.assertNull(connector.partitionCacheForTest());
+        Assertions.assertNull(connector.formatCacheForTest());
+        Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db1", "t1"));
+        Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db1"));
+        Assertions.assertDoesNotThrow(connector::invalidateAll);
+    }
+
+    @Test
     public void refreshCatalogInvalidateAllDropsManifestCache() {
         // H-5: REFRESH CATALOG -> Connector.invalidateAll() must drop the connector's OWN manifest cache too
         // (legacy catalog-wide group.invalidateAll parity), not just the latest-snapshot cache. REFRESH TABLE
@@ -164,5 +206,249 @@ public class IcebergConnectorCacheTest {
                         .withPath("/data/f1.parquet").withFileSizeInBytes(100).withRecordCount(1).build())
                 .commit();
         return table;
+    }
+
+    // ==================== PERF-01: cross-query table cache gate + invalidation ====================
+
+    private static Table fakeTable(String name) {
+        return new FakeIcebergTable(name,
+                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())),
+                PartitionSpec.unpartitioned(), "s3://b/" + name, Collections.emptyMap());
+    }
+
+    @Test
+    public void crossQueryTableCacheEnabledForPlainCatalog() {
+        // A plain catalog (no per-user session, no REST vended credentials) has query-independent credentials,
+        // so the cross-query RAW-table cache is built and enabled at the default 24h TTL — restoring the legacy
+        // IcebergExternalMetaCache table cache. MUTATION: leaving it null/disabled for a plain catalog -> the
+        // 3~7x remote loadTable amplification is not collapsed across queries -> assert below red.
+        IcebergTableCache cache =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).tableCacheForTest();
+        Assertions.assertNotNull(cache, "a plain catalog must build the cross-query table cache");
+        Assertions.assertTrue(cache.isEnabled(), "the default 24h TTL enables the cache");
+    }
+
+    @Test
+    public void crossQueryTableCacheDisabledForVendedCredentials() {
+        // REST vended-credentials: the cached raw table's FileIO carries a server-vended token that expires
+        // within the query (iceberg keeps it fresh by reloading the table each query). A 24h-TTL cross-query hit
+        // would hand BE an expired token (403 mid-scan), so this layer MUST be off (null); the query-scoped fat
+        // handle still dedups within one query. MUTATION: building the cache for a vended catalog -> non-null -> red.
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        Assertions.assertNull(
+                new IcebergConnector(vended, new RecordingConnectorContext()).tableCacheForTest(),
+                "a REST vended-credentials catalog must NOT build the cross-query table cache");
+    }
+
+    @Test
+    public void crossQueryTableCacheDisabledForPerUserSession() {
+        // iceberg.rest.session=user: the cached raw table carries per-user delegated FileIO, so sharing it
+        // across users would leak credentials. This layer MUST be off (null) — the fat handle keeps within-query
+        // dedup. MUTATION: building the cache for a session=user catalog -> tableCacheForTest non-null -> red.
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        Assertions.assertNull(
+                new IcebergConnector(session, new RecordingConnectorContext()).tableCacheForTest(),
+                "a per-user session catalog must NOT build the cross-query table cache");
+    }
+
+    @Test
+    public void refreshHooksInvalidateCrossQueryTableCache() {
+        // The REFRESH hooks must clear the cross-query table cache (else external DDL/writes would stay invisible
+        // beyond the pin): REFRESH TABLE drops one table, REFRESH DATABASE drops that db's tables, REFRESH
+        // CATALOG drops everything — mirroring the latest-snapshot cache. MUTATION: an invalidate* hook not
+        // touching tableCache -> a stale entry survives -> a size assert below red.
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergTableCache cache = connector.tableCacheForTest();
+        Assertions.assertNotNull(cache);
+
+        cache.getOrLoad(TableIdentifier.of("db1", "t1"), () -> fakeTable("db1.t1"));
+        cache.getOrLoad(TableIdentifier.of("db1", "t2"), () -> fakeTable("db1.t2"));
+        cache.getOrLoad(TableIdentifier.of("db2", "t1"), () -> fakeTable("db2.t1"));
+        Assertions.assertEquals(3, cache.size());
+
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops only that table");
+
+        connector.invalidateDb("db1");
+        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops that db's remaining tables");
+
+        connector.invalidateAll();
+        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
+
+    // ============ PERF-02: partition-view cache (session=user gated) + invalidation ============
+
+    private static IcebergPartitionCache.Key partKey(String db, String tbl, long snapshotId) {
+        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+    }
+
+    @Test
+    public void partitionCacheBuiltUnlessSessionUser() {
+        // The partition-view cache stores pure metadata (no FileIO/credential), so unlike the table cache it stays
+        // built for a REST vended-credentials catalog (a partition list carries no token). But under
+        // iceberg.rest.session=user it is an AUTHORIZATION-sensitive projection -- a shared (no user dimension) hit
+        // would disclose one user's partitions to a "can-list-cannot-load" principal -- so it is disabled (null)
+        // there, holding the "session=user => no live cross-query metadata cache" invariant.
+        // MUTATION: dropping the session=user gate -> non-null for session -> red; gating on the vended flag ->
+        // null for vended -> red.
+        Assertions.assertNotNull(
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).partitionCacheForTest(),
+                "a plain catalog builds the partition cache");
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        Assertions.assertNotNull(
+                new IcebergConnector(vended, new RecordingConnectorContext()).partitionCacheForTest(),
+                "a vended-credentials catalog still builds the partition cache (metadata carries no credentials)");
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        Assertions.assertNull(
+                new IcebergConnector(session, new RecordingConnectorContext()).partitionCacheForTest(),
+                "a session=user catalog must NOT build the partition cache (per-user authz must not be bypassed)");
+    }
+
+    @Test
+    public void refreshHooksInvalidatePartitionCache() {
+        // The REFRESH hooks must clear the partition-view cache too (else external DDL/writes would stay invisible
+        // beyond the pin): REFRESH TABLE drops that table's snapshot entries, REFRESH DATABASE that db's, REFRESH
+        // CATALOG everything. MUTATION: an invalidate* hook not touching partitionCache -> a stale entry survives
+        // -> a size assert below red.
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergPartitionCache cache = connector.partitionCacheForTest();
+        Assertions.assertNotNull(cache);
+        cache.getOrLoad(partKey("db1", "t1", 1L), Collections::emptyList);
+        cache.getOrLoad(partKey("db1", "t1", 2L), Collections::emptyList);
+        cache.getOrLoad(partKey("db1", "t2", 1L), Collections::emptyList);
+        cache.getOrLoad(partKey("db2", "t1", 1L), Collections::emptyList);
+        Assertions.assertEquals(4, cache.size());
+
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops both snapshot entries of db1.t1");
+
+        connector.invalidateDb("db1");
+        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops db1's remaining table");
+
+        connector.invalidateAll();
+        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
+
+    private static IcebergFormatCache.Key fmtKey(String db, String tbl, long snapshotId) {
+        return new IcebergFormatCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+    }
+
+    @Test
+    public void formatCacheBuiltUnlessSessionUser() {
+        // The inferred-format cache stores a pure metadata format-name string (no FileIO/credential), so like the
+        // partition cache it stays built for a REST vended-credentials catalog. But under iceberg.rest.session=user
+        // it is an AUTHORIZATION-sensitive projection, so it is disabled (null) there (same treatment as the
+        // partition cache). MUTATION: dropping the session=user gate -> non-null for session -> red; gating on the
+        // vended flag -> null for vended -> red.
+        Assertions.assertNotNull(
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).formatCacheForTest(),
+                "a plain catalog builds the format cache");
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        Assertions.assertNotNull(
+                new IcebergConnector(vended, new RecordingConnectorContext()).formatCacheForTest(),
+                "a vended-credentials catalog still builds the format cache (a format name carries no credentials)");
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        Assertions.assertNull(
+                new IcebergConnector(session, new RecordingConnectorContext()).formatCacheForTest(),
+                "a session=user catalog must NOT build the format cache (per-user authz must not be bypassed)");
+    }
+
+    @Test
+    public void refreshHooksInvalidateFormatCache() {
+        // The REFRESH hooks must clear the inferred-format cache too (else a rewrite that changed the write format
+        // would stay invisible beyond the pin): REFRESH TABLE drops that table's snapshot entries, REFRESH DATABASE
+        // that db's, REFRESH CATALOG everything. MUTATION: an invalidate* hook not touching formatCache -> a stale
+        // entry survives -> a size assert below red.
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergFormatCache cache = connector.formatCacheForTest();
+        Assertions.assertNotNull(cache);
+        cache.getOrLoad(fmtKey("db1", "t1", 1L), () -> "parquet");
+        cache.getOrLoad(fmtKey("db1", "t1", 2L), () -> "orc");
+        cache.getOrLoad(fmtKey("db1", "t2", 1L), () -> "parquet");
+        cache.getOrLoad(fmtKey("db2", "t1", 1L), () -> "parquet");
+        Assertions.assertEquals(4, cache.size());
+
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops both snapshot entries of db1.t1");
+
+        connector.invalidateDb("db1");
+        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops db1's remaining table");
+
+        connector.invalidateAll();
+        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
+
+    private static Map<String, String> restProps(boolean vended, boolean sessionUser) {
+        Map<String, String> m = new HashMap<>();
+        m.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        if (vended) {
+            m.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        }
+        if (sessionUser) {
+            m.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        }
+        return m;
+    }
+
+    private static IcebergCommentCache commentCacheOf(Map<String, String> props) {
+        return new IcebergConnector(props, new RecordingConnectorContext()).commentCacheForTest();
+    }
+
+    @Test
+    public void commentCacheBuiltOnlyForVendedNonSessionCatalog() {
+        // PERF-05: the comment cache fills the gap PERF-01's tableCache leaves for vended-credentials catalogs, but
+        // ONLY when NOT session=user -- a session=user comment cache would serve one user's comment to another
+        // whose per-user loadTable authorization was never checked (a metadata disclosure). Plain catalogs already
+        // reuse tableCache for the comment path, so no comment cache there either.
+        // Plain catalog -> null (tableCache covers the comment path; no redundant cache).
+        Assertions.assertNull(commentCacheOf(Collections.emptyMap()),
+                "a plain catalog must NOT build the comment cache (tableCache already serves it)");
+        // Vended, non-session -> built (the one flavor it is safe + useful for).
+        Assertions.assertNotNull(commentCacheOf(restProps(true, false)),
+                "a vended-credentials (non-session) catalog must build the comment cache");
+        // session=user -> null (per-user authorization must not be bypassed by a shared cache).
+        Assertions.assertNull(commentCacheOf(restProps(false, true)),
+                "a session=user catalog must NOT build the comment cache (per-user authz)");
+        // vended AND session=user -> null (session=user wins; !isUserSessionEnabled() gates it off).
+        Assertions.assertNull(commentCacheOf(restProps(true, true)),
+                "vended + session=user must NOT build the comment cache (session=user takes precedence)");
+    }
+
+    @Test
+    public void refreshHooksInvalidateCommentCache() {
+        // The REFRESH hooks must clear the comment cache too (else an external ALTER comment stays invisible beyond
+        // the pin): REFRESH TABLE drops that table, REFRESH DATABASE that db, REFRESH CATALOG everything. MUTATION:
+        // an invalidate* hook not touching commentCache -> a stale comment survives -> a size assert below red.
+        IcebergConnector connector = new IcebergConnector(restProps(true, false), new RecordingConnectorContext());
+        IcebergCommentCache cache = connector.commentCacheForTest();
+        Assertions.assertNotNull(cache);
+        cache.getOrLoad(TableIdentifier.of("db1", "t1"), () -> "c1");
+        cache.getOrLoad(TableIdentifier.of("db1", "t2"), () -> "c2");
+        cache.getOrLoad(TableIdentifier.of("db2", "t1"), () -> "c3");
+        Assertions.assertEquals(3, cache.size());
+
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops db1.t1");
+
+        connector.invalidateDb("db1");
+        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops db1's remaining table");
+
+        connector.invalidateAll();
+        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
     }
 }

@@ -27,6 +27,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -126,6 +127,7 @@ public class PluginDrivenExternalTablePartitionTest {
 
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("max_compute", metadata, session);
         ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
@@ -155,7 +157,7 @@ public class PluginDrivenExternalTablePartitionTest {
                 Collections.emptyList(), Collections.emptyList());
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog(
-                "max_compute", metadata, Mockito.mock(ConnectorSession.class));
+                "max_compute", metadata, noneScopedSession());
         PluginDrivenExternalTable table = tableWithCacheValue(
                 cacheValue, catalog, mockDb("REMOTE_DB"), "REMOTE_TBL");
 
@@ -169,6 +171,7 @@ public class PluginDrivenExternalTablePartitionTest {
     public void testInitSchemaExtractsPartitionColumnsMappingRemoteNames() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("max_compute", metadata, session);
         ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
@@ -209,6 +212,7 @@ public class PluginDrivenExternalTablePartitionTest {
     public void testInitSchemaNoPartitionsWhenPropAbsent() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("max_compute", metadata, session);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
@@ -274,6 +278,14 @@ public class PluginDrivenExternalTablePartitionTest {
 
     // ==================== helpers ====================
 
+    /** A ConnectorSession mock that reports the off-context NONE statement scope (matches the real
+     * interface default), so the PluginDrivenMetadata funnel does not NPE on getStatementScope(). */
+    private static ConnectorSession noneScopedSession() {
+        ConnectorSession s = Mockito.mock(ConnectorSession.class);
+        Mockito.when(s.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        return s;
+    }
+
     private static ConnectorPartitionInfo partition(String name, String year, String month) {
         Map<String, String> values = new LinkedHashMap<>();
         values.put("YEAR", year);
@@ -305,7 +317,7 @@ public class PluginDrivenExternalTablePartitionTest {
     private static PluginDrivenExternalTable tableWithCacheValue(SchemaCacheValue cacheValue) {
         return tableWithCacheValue(cacheValue,
                 new TestablePluginCatalog("max_compute", Mockito.mock(ConnectorMetadata.class),
-                        Mockito.mock(ConnectorSession.class)),
+                        noneScopedSession()),
                 mockDb("REMOTE_DB"), "REMOTE_TBL");
     }
 
@@ -374,6 +386,11 @@ public class PluginDrivenExternalTablePartitionTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return session;
+        }
+
+        @Override
+        public ConnectorSession buildCrossStatementSession() {
+            return buildConnectorSession();
         }
 
         @Override

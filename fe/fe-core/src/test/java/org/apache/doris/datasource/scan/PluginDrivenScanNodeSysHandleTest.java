@@ -23,6 +23,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SessionContext;
@@ -69,6 +70,7 @@ public class PluginDrivenScanNodeSysHandleTest {
     public void createThreadsSysHandleNotBaseHandleForSysTable() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         // Two DISTINCT handles: a base-table handle and the connector's system-table handle.
         // The base handle stands in for the NORMAL PaimonTableHandle (forceJni=false) that raw
         // getTableHandle would yield; the sys handle stands in for the force-JNI sys handle.
@@ -121,6 +123,7 @@ public class PluginDrivenScanNodeSysHandleTest {
         // fix is behavior-preserving for normal tables (max_compute/jdbc/etc.).
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
 
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
@@ -196,6 +199,11 @@ public class PluginDrivenScanNodeSysHandleTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return session;
+        }
+
+        @Override
+        public ConnectorSession buildCrossStatementSession() {
+            return buildConnectorSession();
         }
 
         @Override

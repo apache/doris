@@ -73,7 +73,7 @@ final class IcebergManifestCache {
     // (ConnectorSession.getQueryId()), so VERBOSE EXPLAIN can report THIS scan's hits/misses/failures (the
     // "manifest cache:" line). The provider that PLANS the scan and the (transient, fresh-per-call) provider that
     // renders EXPLAIN are different instances, so per-scan state cannot live on the provider; the long-lived
-    // per-catalog cache is their only shared survivor — same rationale as IcebergRewritableDeleteStash.
+    // per-catalog cache is their only shared survivor (the queryId keys this per-scan tally onto it).
     // {@link #takeStats} is the primary eviction (EXPLAIN drains its entry); a non-EXPLAIN query records but
     // never drains, so its leaked entry is aged out by the lazy TTL sweep in {@link #touch}.
     private final Map<String, ScanStats> statsByQuery = new ConcurrentHashMap<>();

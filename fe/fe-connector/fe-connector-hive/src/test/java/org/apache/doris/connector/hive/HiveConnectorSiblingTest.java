@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
@@ -25,8 +26,11 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Pins the HMS-cutover embedded-sibling holders: a flipped hms gateway lazily builds ONE embedded iceberg
@@ -298,6 +302,36 @@ public class HiveConnectorSiblingTest {
                 "invalidate hooks must only forward to ALREADY-BUILT siblings, never force-build one");
     }
 
+    @Test
+    public void icebergSiblingWithoutUserSessionCapabilityIsAccepted() {
+        // The normal case: an hms-flavor sibling declares no SUPPORTS_USER_SESSION, so the fail-loud guard is
+        // inert and the sibling is returned as-is.
+        FakeSibling plainSibling = new FakeSibling();
+        HiveConnector connector =
+                new HiveConnector(new HashMap<>(), new RecordingSiblingContext(plainSibling));
+
+        Assertions.assertSame(plainSibling, connector.getOrCreateIcebergSibling(),
+                "a sibling without SUPPORTS_USER_SESSION must be accepted");
+    }
+
+    @Test
+    public void icebergSiblingDeclaringUserSessionFailsLoud() {
+        // Cache-isolation security invariant: the hive gateway FRONT DOOR is never session=user, so fe-core keys
+        // its per-user schema/name cache bypass off the front door and would NOT bypass for a delegated sibling.
+        // The iceberg sibling is forced iceberg.catalog.type=hms and can never be session=user; if a future change
+        // ever broke that, building the sibling must FAIL LOUD rather than silently leak cross-user metadata.
+        // MUTATION: dropping the guard -> the session=user sibling is accepted -> no throw -> red.
+        FakeSibling userSessionSibling =
+                new FakeSibling(EnumSet.of(ConnectorCapability.SUPPORTS_USER_SESSION));
+        HiveConnector connector =
+                new HiveConnector(new HashMap<>(), new RecordingSiblingContext(userSessionSibling));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                connector::getOrCreateIcebergSibling);
+        Assertions.assertTrue(ex.getMessage().contains("SUPPORTS_USER_SESSION"),
+                "the failure must name the broken session=user invariant");
+    }
+
     /**
      * A bare {@link Connector} stand-in for the cross-loader iceberg/hudi sibling; records lifecycle
      * ({@code close}) and invalidation forwarding.
@@ -307,6 +341,20 @@ public class HiveConnectorSiblingTest {
         int invalidateAllCount;
         String lastInvalidatedTable;
         String lastInvalidatedDb;
+        private final Set<ConnectorCapability> capabilities;
+
+        FakeSibling() {
+            this(Collections.emptySet());
+        }
+
+        FakeSibling(Set<ConnectorCapability> capabilities) {
+            this.capabilities = capabilities;
+        }
+
+        @Override
+        public Set<ConnectorCapability> getCapabilities() {
+            return capabilities;
+        }
 
         @Override
         public ConnectorMetadata getMetadata(ConnectorSession session) {

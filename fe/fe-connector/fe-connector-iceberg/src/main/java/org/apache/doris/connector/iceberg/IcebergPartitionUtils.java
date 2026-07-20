@@ -36,6 +36,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type;
@@ -530,6 +531,16 @@ final class IcebergPartitionUtils {
      *        handle), or {@code < 0} to enumerate at the table's current (latest) snapshot.
      */
     static ConnectorMvccPartitionView buildMvccPartitionView(Table table, long pinnedSnapshotId) {
+        return buildMvccPartitionView(table, pinnedSnapshotId, null, null);
+    }
+
+    /**
+     * Cache-aware overload (PERF-02): {@code id} + {@code cache} route the PARTITIONS scan through the
+     * per-catalog {@link IcebergPartitionCache} keyed by {@code (id, resolvedSnapshotId)}. {@code cache == null}
+     * reads live (offline tests / no-cache catalog).
+     */
+    static ConnectorMvccPartitionView buildMvccPartitionView(Table table, long pinnedSnapshotId,
+            TableIdentifier id, IcebergPartitionCache cache) {
         if (!isValidRelatedTable(table)) {
             return ConnectorMvccPartitionView.unpartitioned();
         }
@@ -562,7 +573,7 @@ final class IcebergPartitionUtils {
         // two rows rendering the same field=value name have byte-identical ranges, and feeding both to the merge
         // would make the name self-enclose and be dropped (0 partitions where master keeps 1).
         Map<String, RangeBuild> allByName = new LinkedHashMap<>();
-        for (IcebergRawPartition raw : loadRawPartitions(table, snapshotId)) {
+        for (IcebergRawPartition raw : loadRawPartitions(id, table, snapshotId, cache)) {
             RangeBuild rb = buildRange(raw.name, raw.values.get(0), raw.transforms.get(0), sourceType,
                     raw.lastUpdateTime, raw.lastSnapshotId);
             allByName.put(rb.name, rb);
@@ -602,6 +613,12 @@ final class IcebergPartitionUtils {
      * unpartitioned or empty table yields an empty list. Must run inside {@code context.executeAuthenticated}.
      */
     static List<String> listPartitionNames(Table table) {
+        return listPartitionNames(table, null, null);
+    }
+
+    /** Cache-aware overload (PERF-02): see {@link #buildMvccPartitionView(Table, long, TableIdentifier,
+     * IcebergPartitionCache)}. Keyed by the table's CURRENT snapshot id. */
+    static List<String> listPartitionNames(Table table, TableIdentifier id, IcebergPartitionCache cache) {
         if (table.spec().isUnpartitioned()) {
             return Collections.emptyList();
         }
@@ -609,7 +626,7 @@ final class IcebergPartitionUtils {
         if (current == null) {
             return Collections.emptyList();
         }
-        List<IcebergRawPartition> raws = loadRawPartitions(table, current.snapshotId());
+        List<IcebergRawPartition> raws = loadRawPartitions(id, table, current.snapshotId(), cache);
         List<String> names = new ArrayList<>(raws.size());
         for (IcebergRawPartition raw : raws) {
             names.add(raw.name);
@@ -629,6 +646,12 @@ final class IcebergPartitionUtils {
      * {@code context.executeAuthenticated}.
      */
     static List<ConnectorPartitionInfo> listPartitions(Table table) {
+        return listPartitions(table, null, null);
+    }
+
+    /** Cache-aware overload (PERF-02): see {@link #buildMvccPartitionView(Table, long, TableIdentifier,
+     * IcebergPartitionCache)}. Keyed by the table's CURRENT snapshot id. */
+    static List<ConnectorPartitionInfo> listPartitions(Table table, TableIdentifier id, IcebergPartitionCache cache) {
         if (table.spec().isUnpartitioned()) {
             return Collections.emptyList();
         }
@@ -638,7 +661,7 @@ final class IcebergPartitionUtils {
         }
         List<IcebergRawPartition> raws;
         try {
-            raws = loadRawPartitions(table, current.snapshotId());
+            raws = loadRawPartitions(id, table, current.snapshotId(), cache);
         } catch (ValidationException e) {
             if (!isDroppedPartitionSourceColumn(e)) {
                 // A different iceberg validation error (not the dropped-partition-source-column case) — fail loud.
@@ -706,7 +729,26 @@ final class IcebergPartitionUtils {
      * {@code last_updated_at} (row 9) / {@code last_updated_snapshot_id} (row 10) are optional, so a missing
      * value (NPE on the typed getter) degrades to {@code 0} / {@code UNKNOWN_SNAPSHOT_ID}, exactly like master.
      */
-    private static List<IcebergRawPartition> loadRawPartitions(Table table, long snapshotId) {
+    /**
+     * The cross-query PARTITIONS-scan de-duplication seam (PERF-02): when {@code cache} is non-null the raw
+     * partition list is served from / populated into the per-catalog {@link IcebergPartitionCache} keyed by
+     * {@code (id, snapshotId)} — a snapshot is immutable, so the derived partitions are a pure function of that
+     * key and safe to reuse across queries (restoring the legacy IcebergExternalMetaCache partition-info cache).
+     * A {@code null} cache (offline unit tests / the no-cache catalog) reads live every call. The cached list is
+     * unmodifiable so a shared entry cannot be mutated by a concurrent reader; the loader's exception (e.g. the
+     * dropped-partition-source-column {@link ValidationException}) propagates verbatim so callers keep their own
+     * degradation, and a failed scan is not cached.
+     */
+    private static List<IcebergRawPartition> loadRawPartitions(TableIdentifier id, Table table, long snapshotId,
+            IcebergPartitionCache cache) {
+        if (cache == null) {
+            return loadRawPartitionsUncached(table, snapshotId);
+        }
+        return cache.getOrLoad(new IcebergPartitionCache.Key(id, snapshotId),
+                () -> Collections.unmodifiableList(loadRawPartitionsUncached(table, snapshotId)));
+    }
+
+    private static List<IcebergRawPartition> loadRawPartitionsUncached(Table table, long snapshotId) {
         Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
         List<IcebergRawPartition> partitions = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
@@ -902,7 +944,7 @@ final class IcebergPartitionUtils {
     }
 
     /** One PARTITIONS-metadata-table row reduced to what the MTMV partition view needs (port of IcebergPartition). */
-    private static final class IcebergRawPartition {
+    static final class IcebergRawPartition {
         private final String name;
         // Partition-field SOURCE column names (lowercased), parallel to {@link #values}, so listPartitions can
         // build a value map keyed by the generic partition-column remote name (see IcebergConnectorMetadata

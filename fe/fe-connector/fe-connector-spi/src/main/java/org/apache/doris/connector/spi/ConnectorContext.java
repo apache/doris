@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.function.UnaryOperator;
 
 /**
  * Runtime context provided by fe-core to connector implementations.
@@ -206,6 +207,28 @@ public interface ConnectorContext {
      */
     default String normalizeStorageUri(String rawUri, Map<String, String> rawVendedCredentials) {
         return normalizeStorageUri(rawUri);
+    }
+
+    /**
+     * Scan-scoped batch form of {@link #normalizeStorageUri(String, Map)}: derives the vended storage
+     * configuration from the (scan-invariant) per-table token ONCE and returns a normalizer that applies
+     * it to many raw URIs cheaply. A vended-credentials scan normalizes O(N_files + N_deletes) paths but
+     * the token→storage-config derivation ({@code StorageProperties.createAll} + a hadoop config build) is
+     * a pure function of the token, so hoisting it out of the per-file loop turns O(N) heavy derivations
+     * into one. The connector builds the normalizer once (where it extracts the token) and reuses it for
+     * every data/delete/position-delete path in the scan.
+     *
+     * <p>The default returns a normalizer that delegates per call to {@link #normalizeStorageUri(String,
+     * Map)} — behavior-identical, no hoist — so a connector with no engine context (offline unit tests)
+     * and any connector that does not override the engine side are unaffected. The engine
+     * ({@code DefaultConnectorContext}) overrides this to perform the actual once-per-scan derivation.
+     *
+     * @param rawVendedCredentials the raw per-table vended token map (may be null/empty → static path)
+     * @return a URI normalizer for this scan; each application is byte-identical to
+     *         {@link #normalizeStorageUri(String, Map)} with the same token
+     */
+    default UnaryOperator<String> newStorageUriNormalizer(Map<String, String> rawVendedCredentials) {
+        return rawUri -> normalizeStorageUri(rawUri, rawVendedCredentials);
     }
 
     /**

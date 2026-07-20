@@ -20,6 +20,7 @@ package org.apache.doris.connector;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.connector.api.ConnectorDelegatedCredential;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 
 import java.util.Collections;
@@ -48,6 +49,10 @@ public class ConnectorSessionImpl implements ConnectorSession {
     // ConnectorDelegatedCredential); getSessionId() falls back to the queryId when no session id was captured.
     private final String sessionId;
     private final ConnectorDelegatedCredential delegatedCredential;
+    // The per-statement scope, captured at construction (the request thread, where the statement context is
+    // reachable) so off-thread scan pumps that reuse this one session still reach it. NONE when there is no
+    // live statement context (offline planning, tests) -- then getStatementScope() memoizes nothing.
+    private final ConnectorStatementScope statementScope;
     // Otherwise-immutable session; this is bound once by the insert executor at write time
     // for connectors using the SPI transaction model (e.g. maxcompute), and read back by the
     // connector's planWrite via getCurrentTransaction(). volatile for cross-thread visibility.
@@ -57,13 +62,13 @@ public class ConnectorSessionImpl implements ConnectorSession {
             long catalogId, String catalogName, Map<String, String> catalogProperties,
             Map<String, String> sessionProperties) {
         this(queryId, user, timeZone, locale, catalogId, catalogName, catalogProperties, sessionProperties,
-                null, null);
+                null, null, ConnectorStatementScope.NONE);
     }
 
     ConnectorSessionImpl(String queryId, String user, String timeZone, String locale,
             long catalogId, String catalogName, Map<String, String> catalogProperties,
             Map<String, String> sessionProperties, String sessionId,
-            ConnectorDelegatedCredential delegatedCredential) {
+            ConnectorDelegatedCredential delegatedCredential, ConnectorStatementScope statementScope) {
         this.queryId = queryId != null ? queryId : "";
         this.user = user != null ? user : "";
         this.timeZone = timeZone != null ? timeZone : "UTC";
@@ -76,6 +81,7 @@ public class ConnectorSessionImpl implements ConnectorSession {
                 ? Collections.unmodifiableMap(sessionProperties) : Collections.emptyMap();
         this.sessionId = sessionId;
         this.delegatedCredential = delegatedCredential;
+        this.statementScope = statementScope != null ? statementScope : ConnectorStatementScope.NONE;
     }
 
     @Override
@@ -172,6 +178,11 @@ public class ConnectorSessionImpl implements ConnectorSession {
     @Override
     public Optional<ConnectorTransaction> getCurrentTransaction() {
         return Optional.ofNullable(currentTransaction);
+    }
+
+    @Override
+    public ConnectorStatementScope getStatementScope() {
+        return statementScope;
     }
 
     @Override

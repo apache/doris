@@ -46,6 +46,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -282,7 +283,7 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // Route partition listing through the connector SPI.
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginCatalog.getConnector());
         ConnectorTableHandle handle = metadata
                 .getTableHandle(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(

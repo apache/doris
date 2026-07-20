@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -91,7 +92,7 @@ import java.util.function.Function;
  * write distribution and the vended-credentials overlay of the hadoop config are registered deviations
  * (DV-T0x-vended / -broker / -materialize) closed at the P6.6 cutover. At format-version&ge;3 the DELETE /
  * MERGE sink's {@code rewritable_delete_file_sets} is filled here from the scan-time supply the
- * {@link IcebergRewritableDeleteStash} carried across the scan&rarr;write seam (commit-bridge S4 part 2),
+ * per-statement {@link IcebergStatementScope} carried across the scan&rarr;write seam (commit-bridge S4 part 2),
  * replacing the legacy fe-resident rewritable-delete planner.</p>
  *
  * <p><b>Gate-closed / dormant.</b> Iceberg is not in {@code SPI_READY_TYPES} until P6.6, so nothing
@@ -137,22 +138,12 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     // single shared ops regardless of session (constant s -> catalogOps).
     private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     private final ConnectorContext context;
-    // commit-bridge supply (S4 part 2): the per-catalog stash the scan provider filled with each touched data
-    // file's non-equality delete supply. planWrite retrieves (and evicts) it by queryId to fill the v3
-    // rewritable_delete_file_sets. Nullable — null via the 3-arg ctor (offline tests), in which case no supply is
-    // attached (and the BE would resurrect rows, which is why the cutover wiring injects the real stash).
-    private final IcebergRewritableDeleteStash rewritableDeleteStash;
 
     public IcebergWritePlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
-        this(properties, catalogOps, context, null);
-    }
-
-    public IcebergWritePlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
-            ConnectorContext context, IcebergRewritableDeleteStash rewritableDeleteStash) {
         // Constant resolver: these ctors (offline tests) bind a single ops that ignores the session, so existing
         // behaviour/tests are byte-identical.
-        this(properties, session -> catalogOps, context, rewritableDeleteStash);
+        this(properties, session -> catalogOps, context);
     }
 
     /**
@@ -163,11 +154,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      */
     public IcebergWritePlanProvider(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
-            ConnectorContext context, IcebergRewritableDeleteStash rewritableDeleteStash) {
+            ConnectorContext context) {
         this.properties = properties;
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
-        this.rewritableDeleteStash = rewritableDeleteStash;
     }
 
     @Override
@@ -183,13 +173,24 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
 
-        // commit-bridge supply (S4 part 2): retrieve (and evict) the non-equality delete supply the scan provider
-        // stashed for this statement. Done once for every write op — DELETE/MERGE attach it to the sink so the BE
-        // OR-merges old deletes into the new deletion vector (a missing supply silently resurrects deleted rows);
-        // INSERT/OVERWRITE discard it, but the retrieve still evicts the stash entry (e.g. an INSERT ... SELECT
-        // FROM an iceberg source). Null when the stash is absent (offline tests) or nothing was stashed.
-        Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes = rewritableDeleteStash != null
-                ? rewritableDeleteStash.retrieveAndRemove(session.getQueryId()) : null;
+        // commit-bridge supply (S4 part 2): read the non-equality delete supply the scan seam accumulated into the
+        // per-statement scope. DELETE/MERGE attach it to the sink so the BE OR-merges old deletes into the new
+        // deletion vector (a missing supply silently resurrects deleted rows); INSERT/OVERWRITE/REWRITE ignore it
+        // (buildRewritableDeleteFileSets no-ops an empty map, same as the former null).
+        // Fail loud (never silently resurrect): a format-version>=3 row-level DML under an absent statement scope
+        // (ConnectorStatementScope.NONE — offline / no live statement) cannot have received the scan's supply (each
+        // NONE lookup is a throwaway map), so reject it rather than write a deletion vector that drops old deletes.
+        WriteOperation writeOp = writeContext.getWriteOperation();
+        if ((writeOp == WriteOperation.DELETE || writeOp == WriteOperation.UPDATE || writeOp == WriteOperation.MERGE)
+                && session.getStatementScope() == ConnectorStatementScope.NONE
+                && IcebergWriterHelper.getFormatVersion(table) >= 3) {
+            throw new DorisConnectorException("Iceberg row-level " + writeOp + " on a format-version>=3 table requires "
+                    + "a per-statement scope to carry the rewritable-delete supply from scan to write; none is present "
+                    + "(ConnectorStatementScope.NONE). Refusing to write a deletion vector that would drop old deletes "
+                    + "and resurrect previously-deleted rows.");
+        }
+        Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes =
+                IcebergStatementScope.rewritableDeleteSupply(session);
 
         // Dispatch on the write operation to the matching BE sink dialect (each is a distinct TDataSinkType,
         // byte-identical to the legacy fe-core planner sink). OVERWRITE shares TIcebergTableSink with INSERT
@@ -687,18 +688,24 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     private Table resolveTable(ConnectorSession session, IcebergTableHandle handle) {
-        // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim.
+        // Per-statement scope (PERF-07): the write-shaping derivations (sort columns / partitioning / explain)
+        // share the SAME one loaded RAW table as the statement's read + scan resolvers. For a row-level DML the
+        // scan has already populated the scope, so this is a hit (no write-side load); a write-only INSERT loads
+        // once here. Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces
+        // verbatim (it re-validates the credential even on a scope hit).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
-        if (context == null) {
-            return ops.loadTable(handle.getDbName(), handle.getTableName());
-        }
-        try {
-            return context.executeAuthenticated(
-                    () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
-        } catch (Exception e) {
-            throw new DorisConnectorException("Failed to load iceberg table "
-                    + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
-        }
+        return IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(), () -> {
+            if (context == null) {
+                return ops.loadTable(handle.getDbName(), handle.getTableName());
+            }
+            try {
+                return context.executeAuthenticated(
+                        () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
+            } catch (Exception e) {
+                throw new DorisConnectorException("Failed to load iceberg table "
+                        + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
+            }
+        });
     }
 
     private static TFileFormatType toTFileFormatType(FileFormat format) {
