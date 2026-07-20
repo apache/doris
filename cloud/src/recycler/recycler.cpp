@@ -1892,6 +1892,21 @@ int InstanceRecycler::abort_job_for_related_rowset(const RowsetMetaCloudPB& rows
         _finish_tablet_job(&req, &res, instance_id_, txn, txn_kv_.get(),
                            delete_bitmap_lock_white_list_.get(), resource_mgr_.get(), code, msg,
                            ss);
+        if (code == MetaServiceCode::JOB_EXPIRED || code == MetaServiceCode::INVALID_ARGUMENT) {
+            // Nothing left to abort — proceed to recycle. JOB_EXPIRED: an expired
+            // compaction job can never commit (COMMIT is rejected by the same
+            // expiration check), so its prepared rowset data is safe to delete.
+            // INVALID_ARGUMENT: the recorded job no longer matches this rowset's
+            // job (job id already removed, or the job key referenced by the job's
+            // embedded tablet idx is gone). Returning failure here would leave the
+            // rowset unrecyclable forever and pin the recycle_rowset queue
+            // watermark on it.
+            LOG(INFO) << "no abortable job for related rowset, proceed to recycle"
+                      << ", instance_id=" << instance_id_ << " tablet_id=" << tablet_idx.tablet_id()
+                      << " rowset_id=" << rowset_meta.rowset_id_v2() << " code=" << code
+                      << " msg=" << msg;
+            return 0;
+        }
         if (code != MetaServiceCode::OK) {
             LOG(WARNING) << "failed to abort job, instance_id=" << instance_id_
                          << " tablet_id=" << tablet_idx.tablet_id() << " code=" << code
