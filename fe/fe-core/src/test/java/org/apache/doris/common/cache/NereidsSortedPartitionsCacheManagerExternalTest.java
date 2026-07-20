@@ -111,4 +111,15 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         Assertions.assertFalse(r.isPresent(),
                 "manager must return empty when getDatabase()==null (guards the external wiring contract)");
     }
+
+    // ──────────────────── Task 2: ExternalTable.getSortedPartitionRanges delegation ────────────────────
+
+    @Test
+    public void testGetSortedPartitionRangesEmptyForNonSupportTable() {
+        // A plain ExternalTable does not implement SupportBinarySearchFilteringPartitions, so the
+        // delegation must short-circuit to empty WITHOUT touching Env/the cache manager.
+        ExternalTable table = new ExternalTable();
+        Assertions.assertFalse(table.getSortedPartitionRanges(null).isPresent(),
+                "base ExternalTable (not Support) yields empty");
+    }
 }
