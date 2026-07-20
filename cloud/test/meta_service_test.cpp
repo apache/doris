@@ -563,6 +563,43 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         sp->disable_processing();
     }
 
+    // case: normal create instance with a GCP Workload Identity vault
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_instance_with_gcp_workload_identity");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        auto* obj = req.mutable_vault()->mutable_obj_info();
+        obj->set_bucket("test_bucket");
+        obj->set_prefix("test_prefix");
+        obj->set_endpoint("Storage.GoogleApis.Com");
+        obj->set_region("us-central1");
+        obj->set_provider(ObjectStoreInfoPB::GCP);
+        obj->set_cred_provider_type(CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key(
+                                   {"test_instance_with_gcp_workload_identity", "1"}),
+                           &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB vault;
+        ASSERT_TRUE(vault.ParseFromString(val));
+        ASSERT_EQ(vault.obj_info().endpoint(), GCS_XML_ENDPOINT);
+        ASSERT_EQ(vault.obj_info().cred_provider_type(),
+                  CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+        ASSERT_FALSE(vault.obj_info().has_ak());
+        ASSERT_FALSE(vault.obj_info().has_sk());
+        ASSERT_FALSE(vault.obj_info().has_encryption_info());
+    }
+
     // case: request has invalid argument
     {
         brpc::Controller cntl;
@@ -10677,7 +10714,7 @@ TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpWorkloadIdentity) {
     {
         // A GCP vault created with HMAC keys...
         StorageVaultPB vault;
-        vault.mutable_obj_info()->set_endpoint("storage.googleapis.com");
+        vault.mutable_obj_info()->set_endpoint("Storage.GoogleApis.Com");
         vault.mutable_obj_info()->set_region("us-central1");
         vault.mutable_obj_info()->set_bucket("test_bucket");
         vault.mutable_obj_info()->set_prefix("test_prefix_hmac");
@@ -10717,6 +10754,30 @@ TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpWorkloadIdentity) {
                   CredProviderTypePB::GCP_WORKLOAD_IDENTITY)
                 << get_obj.obj_info().cred_provider_type();
         ASSERT_EQ(get_obj.obj_info().endpoint(), GCS_XML_ENDPOINT);
+    }
+
+    {
+        // An AWS role cannot be persisted on a GCP Workload Identity vault.
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name("gcp_hmac_vault");
+        req.mutable_vault()->mutable_obj_info()->set_role_arn(
+                "arn:aws:iam::123456789012:role/test-role");
+        req.mutable_vault()->mutable_obj_info()->set_cred_provider_type(
+                CredProviderTypePB::INSTANCE_PROFILE);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+
+        StorageVaultPB get_obj;
+        get_vault(hmac_vault_id, &get_obj);
+        ASSERT_EQ(get_obj.obj_info().cred_provider_type(),
+                  CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+        ASSERT_FALSE(get_obj.obj_info().has_role_arn());
     }
 
     {

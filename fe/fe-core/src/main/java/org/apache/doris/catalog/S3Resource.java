@@ -108,6 +108,7 @@ public class S3Resource extends Resource {
     protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
         this.properties = Maps.newHashMap(newProperties);
+        S3Properties.convertToStdProperties(this.properties);
 
         boolean useWorkloadIdentity =
                 S3Properties.isGcpWorkloadIdentityCredentialsProvider(properties);
@@ -272,6 +273,9 @@ public class S3Resource extends Resource {
         }
         // compatible with old version, Need convert if modified properties map uses old properties.
         S3Properties.convertToStdProperties(properties);
+        if (S3Properties.isGcpWorkloadIdentityCredentialsProvider(properties)) {
+            throw new DdlException("gcp_workload_identity is only supported for storage vaults");
+        }
         boolean needCheck = isNeedCheck(properties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("s3 info need check validity : {}", needCheck);
