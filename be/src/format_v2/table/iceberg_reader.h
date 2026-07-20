@@ -27,6 +27,7 @@
 #include "core/block/block.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/table/iceberg_schema_utils.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -57,9 +58,11 @@ public:
     Status prepare_split(const format::SplitReadOptions& options) override;
     std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
-        return !_data_reader.file_schema.empty() && _has_any_field_id(_data_reader.file_schema)
-                       ? format::TableColumnMappingMode::BY_FIELD_ID
-                       : format::TableColumnMappingMode::BY_NAME;
+        if (!_data_reader.file_schema.empty() &&
+            schema_has_any_field_id(_data_reader.file_schema)) {
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        return format::TableColumnMappingMode::BY_NAME;
     }
 
 protected:
@@ -80,23 +83,6 @@ protected:
 
 private:
     struct EqualityDeleteFilter;
-
-    bool _has_any_field_id(const std::vector<format::ColumnDefinition>& schema) const {
-        for (const auto& field : schema) {
-            // Iceberg's hasIds contract is existential. Ignore synthesized columns and keep ID
-            // projection as soon as any real field (including a nested field) carries an ID.
-            if (field.column_type != format::ColumnType::DATA_COLUMN) {
-                continue;
-            }
-            if (field.has_identifier_field_id()) {
-                return true;
-            }
-            if (_has_any_field_id(field.children)) {
-                return true;
-            }
-        }
-        return false;
-    }
     static constexpr int MIN_SUPPORT_DELETE_FILES_VERSION = 2;
     static constexpr int POSITION_DELETE = 1;
     static constexpr int EQUALITY_DELETE = 2;

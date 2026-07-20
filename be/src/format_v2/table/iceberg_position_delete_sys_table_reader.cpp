@@ -35,6 +35,7 @@
 #include "core/types.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/parquet_utils.h"
+#include "format_v2/table/iceberg_schema_utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
@@ -132,24 +133,14 @@ void set_iceberg_delete_field_id(ColumnDefinition* column) {
     }
 }
 
-bool has_field_id(const std::vector<ColumnDefinition>& schema) {
-    for (const auto& field : schema) {
-        if (!field.has_identifier_field_id()) {
-            return false;
-        }
-        if (!has_field_id(field.children)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 class PositionDeleteFileTableReader final : public format::TableReader {
 protected:
     format::TableColumnMappingMode mapping_mode() const override {
-        return !_data_reader.file_schema.empty() && has_field_id(_data_reader.file_schema)
-                       ? format::TableColumnMappingMode::BY_FIELD_ID
-                       : format::TableColumnMappingMode::BY_NAME;
+        if (!_data_reader.file_schema.empty() &&
+            schema_has_any_field_id(_data_reader.file_schema)) {
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        return format::TableColumnMappingMode::BY_NAME;
     }
 };
 

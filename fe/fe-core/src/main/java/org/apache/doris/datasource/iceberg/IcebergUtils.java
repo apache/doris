@@ -1952,7 +1952,11 @@ public class IcebergUtils {
             return;
         }
         for (MappedField mappedField : mappingFields.fields()) {
-            result.put(mappedField.id(), new ArrayList<>(mappedField.names()));
+            // Iceberg permits id-less wrapper entries; only their nested ID-bearing aliases can
+            // participate in Doris field-id lookup and in the immutable snapshot cache.
+            if (mappedField.id() != null) {
+                result.put(mappedField.id(), new ArrayList<>(mappedField.names()));
+            }
             extractMappingsFromNameMapping(mappedField.nestedMapping(), result);
         }
     }

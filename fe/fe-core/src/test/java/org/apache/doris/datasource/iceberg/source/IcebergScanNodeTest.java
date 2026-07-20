@@ -34,6 +34,7 @@ import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -146,6 +147,27 @@ public class IcebergScanNodeTest {
         Optional<Map<Integer, List<String>>> emptyMapping = extractNameMapping(node);
         Assert.assertTrue(emptyMapping.isPresent());
         Assert.assertTrue(emptyMapping.get().isEmpty());
+    }
+
+    @Test
+    public void testSnapshotCacheIgnoresIdlessNameMappingWrapper() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DEFAULT_NAME_MAPPING,
+                "[{\"names\":[\"legacy_wrapper\"],\"fields\":["
+                        + "{\"field-id\":7,\"names\":[\"legacy_child\"]}]}]"));
+
+        IcebergSnapshotCacheValue snapshotCacheValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(),
+                        Collections.emptyMap()),
+                new IcebergSnapshot(1L, 1L),
+                IcebergUtils.getNameMapping(table));
+
+        Assert.assertTrue(snapshotCacheValue.getNameMapping().isPresent());
+        Assert.assertEquals(Collections.singletonList("legacy_child"),
+                snapshotCacheValue.getNameMapping().get().get(7));
+        Assert.assertEquals(Collections.singleton(7),
+                snapshotCacheValue.getNameMapping().get().keySet());
     }
 
     @Test
