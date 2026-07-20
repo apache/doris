@@ -97,6 +97,14 @@ std::pair<size_t, double> TokenBucketRateLimiter::_update_remain_token(long now,
         }
         _count += amount;
         count_value = _count;
+        if (_limit && count_value > _limit) {
+            // Keep rejection side-effect free. Roll back before releasing the lock so
+            // concurrent callers cannot observe debt from a request that will not run.
+            _count -= amount;
+            if (_max_speed) {
+                _remain_tokens = std::min<double>(_remain_tokens + amount, _max_burst);
+            }
+        }
         tokens_value = _remain_tokens;
         _prev_ns_count = now;
     }
@@ -124,12 +132,17 @@ int64_t TokenBucketRateLimiter::add(size_t amount) {
     return sleep_time_ns;
 }
 
-void TokenBucketRateLimiter::refund(size_t amount) {
+void TokenBucketRateLimiter::refund_tokens(size_t amount) {
     std::lock_guard<SimpleSpinLock> lock(*_mutex);
     if (_max_speed) {
         _remain_tokens = std::min<double>(_remain_tokens + amount, _max_burst);
     }
-    _count = (_count >= amount) ? _count - amount : 0;
+}
+
+void TokenBucketRateLimiter::refund_count(size_t amount) {
+    std::lock_guard<SimpleSpinLock> lock(*_mutex);
+    CHECK_GE(_count, amount);
+    _count -= amount;
 }
 
 TokenBucketRateLimiterHolder::TokenBucketRateLimiterHolder(size_t max_speed, size_t max_burst,
@@ -166,8 +179,9 @@ std::shared_ptr<TokenBucketRateLimiter> TokenBucketRateLimiterHolder::charge(siz
         std::shared_lock read {rate_limiter_rw_lock};
         limiter = rate_limiter;
     }
-    metric_func(limiter->add(amount));
-    return limiter;
+    int64_t sleep_duration = limiter->add(amount);
+    metric_func(sleep_duration);
+    return sleep_duration < 0 ? nullptr : limiter;
 }
 
 int TokenBucketRateLimiterHolder::reset(size_t max_speed, size_t max_burst, size_t limit) {

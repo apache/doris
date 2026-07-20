@@ -115,7 +115,7 @@ S3RateLimiterManager::S3RateLimiterManager() {
         _qps_limiters[index_of(type)] = std::make_unique<S3RateLimiterHolder>(
                 limit.qps, limit.burst, limit.count_limit, s3_rate_limiter_metric_func(type));
         _bytes_limiters[index_of(type)] = std::make_unique<S3RateLimiterHolder>(
-                limit.bytes_per_second, limit.bytes_per_second, 0,
+                limit.bytes_per_second, limit.bytes_per_second, limit.bytes_per_second,
                 bytes_rate_limiter_metric_func(type));
     }
 }
@@ -150,8 +150,10 @@ void S3RateLimiterManager::refresh() {
         }
 
         auto* bytes = bytes_limiter(type);
-        if (bytes->get_max_speed() != static_cast<size_t>(limit.bytes_per_second)) {
-            bytes->reset(limit.bytes_per_second, limit.bytes_per_second, 0);
+        const auto bytes_per_second = static_cast<size_t>(limit.bytes_per_second);
+        if (bytes->get_max_speed() != bytes_per_second ||
+            bytes->get_max_burst() != bytes_per_second || bytes->get_limit() != bytes_per_second) {
+            bytes->reset(bytes_per_second, bytes_per_second, bytes_per_second);
             LOG(INFO) << "reset S3 " << to_string(type)
                       << " bytes rate limiter, bytes_per_second=" << limit.bytes_per_second
                       << ", cores=" << cores;
@@ -185,9 +187,17 @@ S3RateLimitGuard::S3RateLimitGuard(S3RateLimitType type, size_t estimated_bytes)
     // upper bound are excluded by the config contract (see config.cpp).
     _reserved = std::min(estimated_bytes, bytes->get_max_speed());
     if (_reserved > 0) {
-        // Debt model: may sleep, never rejects (count limit is 0). Pin the charged
-        // bucket generation for settle().
+        // Pin the admitted bucket generation for settlement and count release.
         _charged_bucket = bytes->charge(_reserved);
+        if (_charged_bucket == nullptr) {
+            _ok = false;
+        }
+    }
+}
+
+S3RateLimitGuard::~S3RateLimitGuard() {
+    if (_charged_bucket != nullptr) {
+        _charged_bucket->refund_count(_reserved);
     }
 }
 
@@ -197,7 +207,7 @@ void S3RateLimitGuard::settle(size_t actual_bytes) {
     }
     _settled = true;
     if (_charged_bucket != nullptr && _reserved > actual_bytes) {
-        _charged_bucket->refund(_reserved - actual_bytes);
+        _charged_bucket->refund_tokens(_reserved - actual_bytes);
     }
 }
 

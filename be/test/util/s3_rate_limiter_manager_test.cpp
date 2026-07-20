@@ -218,10 +218,47 @@ TEST(S3RateLimiterManagerTest, refresh_applies_bytes_limit_and_enables_bucket) {
     manager.refresh();
     EXPECT_TRUE(put_bytes->is_enabled());
     EXPECT_EQ(1000 * kCores, put_bytes->get_max_speed());
+    EXPECT_EQ(1000 * kCores, put_bytes->get_max_burst());
+    EXPECT_EQ(1000 * kCores, put_bytes->get_limit());
 
     config::s3_put_bytes_per_second_per_core = -1;
     manager.refresh();
     EXPECT_FALSE(put_bytes->is_enabled());
+}
+
+TEST(TokenBucketRateLimiterTest, rejected_add_rolls_back_count_and_tokens) {
+    TokenBucketRateLimiter limiter(1000, 1000, 600);
+
+    EXPECT_EQ(0, limiter.add(600));
+    EXPECT_EQ(-1, limiter.add(500));
+
+    // Releasing the admitted request makes room for another request. The rejected
+    // request must not leave either count or token debt behind.
+    limiter.refund_count(600);
+    EXPECT_EQ(0, limiter.add(400));
+    limiter.refund_count(400);
+}
+
+TEST(TokenBucketRateLimiterTest, token_refund_does_not_release_count) {
+    TokenBucketRateLimiter limiter(kNoThrottle, kNoThrottle, 600);
+
+    EXPECT_EQ(0, limiter.add(600));
+    limiter.refund_tokens(500);
+    EXPECT_EQ(-1, limiter.add(1));
+
+    limiter.refund_count(600);
+    EXPECT_EQ(0, limiter.add(600));
+    limiter.refund_count(600);
+}
+
+TEST(TokenBucketRateLimiterTest, count_refund_does_not_return_tokens) {
+    TokenBucketRateLimiter limiter(10000, 1000, 1000);
+
+    EXPECT_EQ(0, limiter.add(1000));
+    limiter.refund_count(1000);
+
+    EXPECT_GT(limiter.add(1000), 0);
+    limiter.refund_count(1000);
 }
 
 TEST(S3RateLimitGuardTest, disabled_limiter_admits_everything) {
@@ -242,49 +279,59 @@ TEST(S3RateLimitGuardTest, legacy_count_limit_rejects) {
     // No throttling, hard count limit of 2.
     manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 2);
 
-    S3RateLimitGuard g1(S3RateLimitType::GET, 0);
-    EXPECT_TRUE(g1.ok());
-    S3RateLimitGuard g2(S3RateLimitType::GET, 0);
-    EXPECT_TRUE(g2.ok());
+    {
+        S3RateLimitGuard g1(S3RateLimitType::GET, 0);
+        EXPECT_TRUE(g1.ok());
+    }
+    {
+        S3RateLimitGuard g2(S3RateLimitType::GET, 0);
+        EXPECT_TRUE(g2.ok());
+    }
+    // QPS guards do not release the legacy cumulative count on destruction.
     S3RateLimitGuard g3(S3RateLimitType::GET, 0);
     EXPECT_FALSE(g3.ok());
 }
 
-TEST(S3RateLimitGuardTest, settle_refunds_short_read) {
+TEST(S3RateLimitGuardTest, settle_refunds_only_short_read_tokens) {
     RateLimiterConfigGuard guard;
     config::enable_s3_rate_limiter = true;
     auto& manager = S3RateLimiterManager::instance();
     auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
     manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
-    // A large speed/burst removes wall-clock refill from the assertion. The count limit
-    // makes the refund observable exactly.
-    bytes->reset(kNoThrottle, kNoThrottle, 1000);
+    bytes->reset(kNoThrottle, kNoThrottle, 600);
 
     {
         S3RateLimitGuard g(S3RateLimitType::GET, 600);
         ASSERT_TRUE(g.ok());
         g.settle(100); // short read: 500 tokens must come back
+
+        // Token settlement does not release the in-flight reservation count.
+        S3RateLimitGuard rejected(S3RateLimitType::GET, 1);
+        EXPECT_FALSE(rejected.ok());
     }
-    // The guard leaves 100 cumulatively charged bytes, so exactly 900 more are admitted.
-    EXPECT_EQ(0, bytes->add(900));
-    EXPECT_EQ(-1, bytes->add(1));
+
+    S3RateLimitGuard admitted(S3RateLimitType::GET, 600);
+    EXPECT_TRUE(admitted.ok());
 }
 
-TEST(S3RateLimitGuardTest, put_payload_reservation_remains_charged_without_settle) {
+TEST(S3RateLimitGuardTest, put_payload_count_is_released_on_destruction) {
     RateLimiterConfigGuard guard;
     config::enable_s3_rate_limiter = true;
     auto& manager = S3RateLimiterManager::instance();
     auto* bytes = manager.bytes_limiter(S3RateLimitType::PUT);
     manager.qps_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
-    bytes->reset(kNoThrottle, kNoThrottle, 1000);
+    bytes->reset(kNoThrottle, kNoThrottle, 600);
 
     {
         S3RateLimitGuard g(S3RateLimitType::PUT, 600);
         ASSERT_TRUE(g.ok());
-        // No settle: e.g. the request failed. The reservation stays charged.
+
+        S3RateLimitGuard rejected(S3RateLimitType::PUT, 1);
+        EXPECT_FALSE(rejected.ok());
     }
-    EXPECT_EQ(0, bytes->add(400)); // exactly the cumulative count remainder
-    EXPECT_EQ(-1, bytes->add(1));
+
+    S3RateLimitGuard admitted(S3RateLimitType::PUT, 600);
+    EXPECT_TRUE(admitted.ok());
 }
 
 TEST(S3RateLimitGuardTest, settle_across_reset_does_not_pollute_new_bucket) {
@@ -293,20 +340,23 @@ TEST(S3RateLimitGuardTest, settle_across_reset_does_not_pollute_new_bucket) {
     auto& manager = S3RateLimiterManager::instance();
     auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
     manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
-    bytes->reset(kNoThrottle, kNoThrottle, 1000);
+    bytes->reset(kNoThrottle, kNoThrottle, 600);
 
-    {
-        S3RateLimitGuard g(S3RateLimitType::GET, 600);
-        ASSERT_TRUE(g.ok());
-        // The bucket is swapped while the request is in flight.
-        bytes->reset(kNoThrottle, kNoThrottle, 1000);
-        EXPECT_EQ(0, bytes->add(600));
-        g.settle(100); // refund lands on the OLD generation, not the fresh bucket
-    }
-    // The fresh generation remains charged for 600 bytes. A refund to the wrong
-    // generation would reduce its cumulative count to 100 and admit the last request.
-    EXPECT_EQ(0, bytes->add(400));
-    EXPECT_EQ(-1, bytes->add(1));
+    auto old_guard = std::make_unique<S3RateLimitGuard>(S3RateLimitType::GET, 600);
+    ASSERT_TRUE(old_guard->ok());
+
+    // The bucket is swapped while the old request is in flight.
+    bytes->reset(kNoThrottle, kNoThrottle, 1000);
+    S3RateLimitGuard fresh_guard(S3RateLimitType::GET, 600);
+    ASSERT_TRUE(fresh_guard.ok());
+
+    old_guard->settle(100);
+    old_guard.reset(); // token and count refunds must land on the old generation
+
+    S3RateLimitGuard fill_fresh_bucket(S3RateLimitType::GET, 400);
+    EXPECT_TRUE(fill_fresh_bucket.ok());
+    S3RateLimitGuard rejected(S3RateLimitType::GET, 1);
+    EXPECT_FALSE(rejected.ok());
 }
 
 TEST(S3RateLimitGuardTest, reservation_is_clamped_to_one_second_of_bandwidth) {
@@ -316,19 +366,17 @@ TEST(S3RateLimitGuardTest, reservation_is_clamped_to_one_second_of_bandwidth) {
     auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
     manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
     // Keep max_speed at 1000 to define the one-second reservation, but use a huge
-    // burst to make the test independent from elapsed time while observing the exact
-    // charged amount through the cumulative limit.
+    // burst to make the test independent from elapsed time.
     bytes->reset(1000, kNoThrottle, 1500);
 
-    {
-        // A huge IO only reserves max_speed (=1000). Since actual_bytes exceeds that
-        // reservation, settle() does not refund it.
-        S3RateLimitGuard g(S3RateLimitType::GET, 1000000);
-        ASSERT_TRUE(g.ok());
-        g.settle(2000);
-    }
-    EXPECT_EQ(0, bytes->add(500));
-    EXPECT_EQ(-1, bytes->add(1));
+    // A huge IO only reserves max_speed (=1000), leaving 500 bytes of count capacity.
+    S3RateLimitGuard g(S3RateLimitType::GET, 1000000);
+    ASSERT_TRUE(g.ok());
+    g.settle(2000);
+    S3RateLimitGuard fill_limit(S3RateLimitType::GET, 500);
+    EXPECT_TRUE(fill_limit.ok());
+    S3RateLimitGuard rejected(S3RateLimitType::GET, 1);
+    EXPECT_FALSE(rejected.ok());
 }
 
 } // namespace doris

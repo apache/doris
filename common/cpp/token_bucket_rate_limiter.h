@@ -55,14 +55,16 @@ public:
     TokenBucketRateLimiter(size_t max_speed, size_t max_burst, size_t limit);
     ~TokenBucketRateLimiter();
 
-    // Use `amount` remain_tokens, sleeps if required or throws exception on limit overflow.
-    // Returns duration of sleep in nanoseconds (to distinguish sleeping on different kinds of S3RateLimiters for metrics)
+    // Use `amount` remain_tokens and count, sleeping when rate tokens are insufficient.
+    // Returns the sleep duration in nanoseconds, or -1 when the count limit rejects the add.
     int64_t add(size_t amount);
 
-    // Return `amount` tokens to the bucket (capped at max_burst) and roll back the
-    // cumulative counter. Used to reconcile a reservation with the actually consumed
-    // amount, e.g. a short read at EOF.
-    void refund(size_t amount);
+    // Return `amount` rate tokens to the bucket, capped at max_burst. This does not
+    // release the count charged by add().
+    void refund_tokens(size_t amount);
+
+    // Release `amount` from the count charged by add(). This does not return rate tokens.
+    void refund_count(size_t amount);
 
     size_t get_max_speed() const { return _max_speed; }
 
@@ -100,9 +102,9 @@ public:
     TokenBucketRateLimiterResult add_with_config(size_t amount);
 
     // Charge `amount` like add(), but return the limiter generation the tokens were
-    // taken from. Callers that later refund a reservation must refund on the returned
-    // object, so that a concurrent reset() cannot make the refund pollute a fresh
-    // bucket that never saw the original charge.
+    // taken from, or nullptr when the count limit rejects the charge. Callers that later
+    // refund a reservation must refund on the returned object, so that a concurrent
+    // reset() cannot make the refund pollute a fresh bucket that never saw the charge.
     std::shared_ptr<TokenBucketRateLimiter> charge(size_t amount);
 
     int reset(size_t max_speed, size_t max_burst, size_t limit);

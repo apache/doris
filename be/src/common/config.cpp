@@ -1559,6 +1559,9 @@ DEFINE_Validator(s3_put_qps_max, [](int64_t config) -> bool { return config >= 0
 // CPU-aware S3 bandwidth limiter. Effective GET/PUT bytes/s = bytes_per_second_per_core *
 // BE cpu cores, capped by the corresponding bytes_per_second_max. -1 and 0 both disable
 // byte-rate limiting for that operation (there is no legacy fallback for bandwidth).
+// Waiting and executing reservations are capped at one second worth of effective bandwidth.
+// A byte reservation that would exceed that cap is rejected and its byte-rate token charge is
+// rolled back.
 // Note: the derived per-BE bytes/s should not be set below the single IO upper bound
 // per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
 // of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
