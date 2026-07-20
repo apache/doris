@@ -18,6 +18,11 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -165,6 +170,24 @@ public class IvmUtil {
      */
     public static String streamName(long mvId, String baseTableName) {
         return IVM_STREAM_PREFIX + mvId + "_" + baseTableName;
+    }
+
+    public static OlapTableStream getIvmStream(MTMV mtmv, OlapTable expectedBaseTable) {
+        Database database = (Database) mtmv.getDatabase();
+        String streamName = streamName(mtmv.getId(), expectedBaseTable.getName());
+        TableIf table = database.getTableNullable(streamName);
+        if (!(table instanceof OlapTableStream)) {
+            throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
+                    "IVM stream not found: " + streamName);
+        }
+        OlapTableStream stream = (OlapTableStream) table;
+        TableIf actualBaseTable = stream.getBaseTableNullable();
+        if (stream.isDisabled() || stream.isStale()
+                || actualBaseTable == null || actualBaseTable.getId() != expectedBaseTable.getId()) {
+            throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
+                    "IVM stream is unavailable or references a different base table: " + streamName);
+        }
+        return stream;
     }
 
     /**

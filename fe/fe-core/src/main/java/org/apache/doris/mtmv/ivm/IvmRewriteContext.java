@@ -18,8 +18,16 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.mtmv.BaseTableInfo;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Statement-level input for internal IVM rewrite flows.
@@ -34,11 +42,26 @@ public class IvmRewriteContext {
     private final Mode mode;
     private final MTMV mtmv;
     private final boolean includeUpToDateStreams;
+    private final Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds;
+    private final Optional<StreamReadMode> fullRefreshNonPctReadMode;
 
     public IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeUpToDateStreams) {
+        this(mode, mtmv, includeUpToDateStreams, Collections.emptyMap(), Optional.empty());
+    }
+
+    private IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeUpToDateStreams,
+            Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds,
+            Optional<StreamReadMode> fullRefreshNonPctReadMode) {
         this.mode = Objects.requireNonNull(mode, "mode can not be null");
         this.mtmv = mode == Mode.NORMALIZE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.includeUpToDateStreams = includeUpToDateStreams;
+        Map<BaseTableInfo, Set<Long>> resetPartitionIds = new HashMap<>();
+        Objects.requireNonNull(fullRefreshResetPartitionIds, "fullRefreshResetPartitionIds can not be null")
+                .forEach((baseTableInfo, partitionIds) -> resetPartitionIds.put(baseTableInfo,
+                        Collections.unmodifiableSet(new HashSet<>(partitionIds))));
+        this.fullRefreshResetPartitionIds = Collections.unmodifiableMap(resetPartitionIds);
+        this.fullRefreshNonPctReadMode = Objects.requireNonNull(
+                fullRefreshNonPctReadMode, "fullRefreshNonPctReadMode can not be null");
     }
 
     public static IvmRewriteContext normalize() {
@@ -57,6 +80,13 @@ public class IvmRewriteContext {
         return new IvmRewriteContext(Mode.FULL, mtmv, false);
     }
 
+    public static IvmRewriteContext full(MTMV mtmv,
+            Map<BaseTableInfo, Set<Long>> resetPartitionIds,
+            StreamReadMode nonPctReadMode) {
+        return new IvmRewriteContext(Mode.FULL, mtmv, false, resetPartitionIds,
+                Optional.of(Objects.requireNonNull(nonPctReadMode, "nonPctReadMode can not be null")));
+    }
+
     public Mode getMode() {
         return mode;
     }
@@ -67,5 +97,17 @@ public class IvmRewriteContext {
 
     public boolean isIncludeUpToDateStreams() {
         return includeUpToDateStreams;
+    }
+
+    public boolean hasFullRefreshStreamScans() {
+        return !fullRefreshResetPartitionIds.isEmpty() || fullRefreshNonPctReadMode.isPresent();
+    }
+
+    public Optional<Set<Long>> getFullRefreshResetPartitionIds(BaseTableInfo baseTableInfo) {
+        return Optional.ofNullable(fullRefreshResetPartitionIds.get(baseTableInfo)).map(HashSet::new);
+    }
+
+    public Optional<StreamReadMode> getFullRefreshNonPctReadMode() {
+        return fullRefreshNonPctReadMode;
     }
 }

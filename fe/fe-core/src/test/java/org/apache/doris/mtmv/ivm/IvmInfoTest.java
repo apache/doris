@@ -40,4 +40,22 @@ class IvmInfoTest {
         IvmInfo recovered = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(info), IvmInfo.class);
         Assertions.assertEquals(1, recovered.getRefreshVersion());
     }
+
+    @Test
+    void testCopyConstructor() {
+        IvmInfo info = new IvmInfo();
+        info.setEnableIvm(true);
+        info.setBinlogBroken(true);
+        info.setPlanSignature("abc123");
+        info.advanceRefreshVersion();
+        info.increaseBinlogBrokenGeneration();
+
+        IvmInfo copy = new IvmInfo(info);
+
+        Assertions.assertTrue(copy.isEnableIvm());
+        Assertions.assertTrue(copy.isBinlogBroken());
+        Assertions.assertEquals("abc123", copy.getPlanSignature());
+        Assertions.assertEquals(1, copy.getRefreshVersion());
+        Assertions.assertEquals(1, copy.getBinlogBrokenGeneration());
+    }
 }
