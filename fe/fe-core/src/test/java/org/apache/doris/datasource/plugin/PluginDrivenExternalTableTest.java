@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
@@ -85,6 +86,17 @@ public class PluginDrivenExternalTableTest {
         ConnectContext.remove();
     }
 
+    /**
+     * A ConnectorSession mock that reports the off-context {@link ConnectorStatementScope#NONE} scope, so the
+     * {@code PluginDrivenMetadata.get(session, connector)} funnel runs {@code connector.getMetadata(session)} on
+     * every call instead of NPE-ing on a null scope (a plain mock's getStatementScope() would return null).
+     */
+    private static ConnectorSession noneScopedSession() {
+        ConnectorSession s = Mockito.mock(ConnectorSession.class);
+        Mockito.when(s.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        return s;
+    }
+
     // ==================== §4.4 W3: per-handle write-admission capability probes ====================
 
     /**
@@ -105,7 +117,9 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(connector.requiresMaterializeStaticPartitionValues(Mockito.any())).thenReturn(true);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(Mockito.mock(ConnectorSession.class));
+        ConnectorSession session = noneScopedSession();
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
         return table;
@@ -164,7 +178,9 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(Mockito.mock(ConnectorSession.class));
+        ConnectorSession session = noneScopedSession();
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
         return table;
@@ -204,7 +220,9 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(Mockito.mock(ConnectorSession.class));
+        ConnectorSession session = noneScopedSession();
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
         return table;
@@ -260,6 +278,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(handlePresent ? Optional.of(handle) : Optional.empty());
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getWritePlanProvider()).thenReturn(writeProviderPresent ? provider : null);
         // Production now selects the write provider per-handle; a plain Mockito mock does not run the interface
@@ -270,6 +289,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
 
         PluginDrivenExternalTable table =
                 Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
@@ -619,6 +639,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(metadata.viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
                 .thenReturn(viewExists);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getCapabilities()).thenReturn(caps);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
@@ -628,6 +649,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         try {
             Mockito.when(catalog.getDbOrAnalysisException(Mockito.anyString())).thenReturn(db);
         } catch (Exception ignore) {
@@ -666,6 +688,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(metadata.viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
                 .thenReturn(true);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getCapabilities()).thenReturn(EnumSet.noneOf(ConnectorCapability.class));
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
@@ -674,6 +697,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         PluginDrivenExternalTable table =
                 Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
@@ -721,6 +745,7 @@ public class PluginDrivenExternalTableTest {
                                 new ConnectorColumn("vid", ConnectorType.of("INT"), "", true, null, true),
                                 new ConnectorColumn("vname", ConnectorType.of("STRING"), "", true, null, true))));
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
@@ -728,6 +753,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         PluginDrivenExternalTable table =
                 Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
@@ -759,6 +785,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(Optional.empty());
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
@@ -766,6 +793,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         PluginDrivenExternalTable table =
                 Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
@@ -818,6 +846,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(metadata.fromRemoteColumnName(Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.anyString())).thenAnswer(inv -> inv.getArgument(3));
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
@@ -825,6 +854,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         PluginDrivenExternalTable table =
                 Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
@@ -851,6 +881,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(metadata.viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
                 .thenReturn(true);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getCapabilities()).thenReturn(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW));
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
@@ -859,6 +890,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
 
         PluginDrivenSysExternalTable sys =
                 Mockito.mock(PluginDrivenSysExternalTable.class, Mockito.CALLS_REAL_METHODS);

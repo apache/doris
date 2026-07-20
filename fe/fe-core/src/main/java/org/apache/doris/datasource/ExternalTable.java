@@ -433,8 +433,16 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getSchemaCacheValue(this, new SchemaCacheKey(getOrBuildNameMapping()));
+        SchemaCacheKey key = new SchemaCacheKey(getOrBuildNameMapping());
+        if (catalog.shouldBypassSchemaCache(SessionContext.current())) {
+            // session=user + delegated credential: the remote loadTable returns PER-USER schema and authorizes
+            // per user, so the shared name-keyed schema cache must be bypassed (mirror the db/table-name-cache
+            // bypass) — read schema live under the current session's credential. This is exactly what the cache
+            // miss-loader would do (initSchemaAndUpdateTime); calling it directly just skips the shared cache so
+            // one user's schema is never served to another who could list but not load the table.
+            return initSchemaAndUpdateTime(key);
+        }
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCacheValue(this, key);
     }
 
     /**

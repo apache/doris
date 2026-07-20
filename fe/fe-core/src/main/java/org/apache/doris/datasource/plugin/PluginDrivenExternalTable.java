@@ -130,7 +130,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
     public ConnectorTableHandle resolveWriteTargetHandle() {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        return resolveConnectorTableHandle(session, pluginCatalog.getConnector().getMetadata(session))
+        return resolveConnectorTableHandle(session, PluginDrivenMetadata.get(session, pluginCatalog.getConnector()))
                 .orElseThrow(() -> new DorisConnectorException(
                         "Cannot resolve the connector table handle for write target " + getName()));
     }
@@ -156,7 +156,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorMvccSnapshot connectorSnapshot = ((PluginDrivenMvccSnapshot) snapshot).getConnectorSnapshot();
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginCatalog.getConnector());
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyList();
@@ -186,7 +186,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     private Optional<ConnectorTableHandle> resolveWriteCapabilityHandle(Connector connector) {
         ConnectorSession session = ((PluginDrivenExternalCatalog) catalog).buildConnectorSession();
-        return resolveConnectorTableHandle(session, connector.getMetadata(session));
+        return resolveConnectorTableHandle(session, PluginDrivenMetadata.get(session, connector));
     }
 
     /**
@@ -456,8 +456,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         Connector connector = pluginCatalog.getConnector();
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorSession session = pluginCatalog.buildCrossStatementSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
 
         String dbName = db != null ? db.getRemoteName() : "";
         String tableName = getRemoteName();
@@ -573,7 +573,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         String dbName = db != null ? db.getRemoteName() : "";
         return metadata.viewExists(session, dbName, getRemoteName());
     }
@@ -591,7 +591,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         String dbName = db != null ? db.getRemoteName() : "";
         ConnectorViewDefinition definition = metadata.getViewDefinition(session, dbName, getRemoteName());
         return definition.getSql();
@@ -614,7 +614,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Optional.empty();
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Optional.empty();
@@ -724,7 +724,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // so a read-only connector now resolves the handle here — a no-op for a write-capable connector, which
         // resolved it regardless.
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyList();
@@ -817,7 +817,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
@@ -878,7 +878,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
@@ -915,7 +915,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Collections.emptyList();
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyList();
@@ -947,7 +947,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
             Connector connector = pluginCatalog.getConnector();
             ConnectorSession session = pluginCatalog.buildConnectorSession();
-            ConnectorMetadata metadata = connector.getMetadata(session);
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
             String tableName = getRemoteName();
             String comment = metadata.getTableComment(session, remoteDbName, tableName);
             if (escapeQuota && comment != null) {
@@ -978,7 +978,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
@@ -1048,8 +1048,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return Optional.empty();
         }
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorSession session = pluginCatalog.buildCrossStatementSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Optional.empty();
@@ -1083,8 +1083,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return Collections.emptyList();
         }
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorSession session = pluginCatalog.buildCrossStatementSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyList();
@@ -1149,8 +1149,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         makeSureInitialized();
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorSession session = pluginCatalog.buildCrossStatementSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
 
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
@@ -1301,7 +1301,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
 
         String dbName = db != null ? db.getRemoteName() : "";
         List<Column> schema = getFullSchema();

@@ -128,4 +128,18 @@ public interface ConnectorSession {
     default long allocateTransactionId() {
         throw new UnsupportedOperationException("transaction id allocation not supported");
     }
+
+    /**
+     * Returns the per-statement scope for this session — a memoization arena that lives exactly as long
+     * as the current SQL statement, letting a connector load a table (and derive per-statement state)
+     * once and share that single object across every read + write resolver in the statement.
+     *
+     * <p>The default is {@link ConnectorStatementScope#NONE} (no memoization = load every time), so
+     * every existing implementation is unaffected. The engine session implementation overrides it with a
+     * scope hung on the statement, captured at session construction (the request thread, where the
+     * statement context is reachable) so off-thread scan pumps that reuse the session still reach it.</p>
+     */
+    default ConnectorStatementScope getStatementScope() {
+        return ConnectorStatementScope.NONE;
+    }
 }

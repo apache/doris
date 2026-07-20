@@ -27,6 +27,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
@@ -262,6 +263,9 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        // The write seams now resolve metadata through the per-statement funnel, which reads the session's
+        // statement scope; offline tests use NONE (a fresh getMetadata per call, byte-identical to pre-funnel).
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
