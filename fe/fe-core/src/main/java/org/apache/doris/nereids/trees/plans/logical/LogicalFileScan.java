@@ -26,6 +26,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -217,7 +218,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         // NOT_PRUNED means the Nereids planner does not handle the partition pruning.
         // This can be treated as the initial value of SelectedPartitions.
         // Or used to indicate that the partition pruning is not processed.
-        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false);
+        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false,
+                Optional.empty());
         /**
          * total partition number
          */
@@ -238,11 +240,18 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public final boolean hasPartitionPredicate;
 
         /**
+         * sorted partition ranges for binary search filtering.
+         * Frozen at construction time to ensure consistency with selectedPartitions.
+         * Empty if binary search is not applicable (e.g., default partition only).
+         */
+        public final Optional<SortedPartitionRanges<String>> sortedPartitionRanges;
+
+        /**
          * Constructor for SelectedPartitions.
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned) {
-            this(totalPartitionNum, selectedPartitions, isPruned, false);
+            this(totalPartitionNum, selectedPartitions, isPruned, false, Optional.empty());
         }
 
         /**
@@ -250,11 +259,21 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, Optional.empty());
+        }
+
+        /**
+         * Constructor for SelectedPartitions with sorted partition ranges.
+         */
+        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
+            this.sortedPartitionRanges = sortedPartitionRanges;
         }
 
         @Override
@@ -269,12 +288,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             return isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
                     && Objects.equals(
-                    selectedPartitions.keySet(), that.selectedPartitions.keySet());
+                    selectedPartitions.keySet(), that.selectedPartitions.keySet())
+                    && Objects.equals(
+                    sortedPartitionRanges.isPresent(), that.sortedPartitionRanges.isPresent());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate);
+            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges.isPresent());
         }
     }
 
