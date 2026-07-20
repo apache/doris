@@ -105,6 +105,10 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     // by checkFilter().  These must stay BELOW the window because they are part
     // of the inner aggregate's filter, not extra outer-only predicates.
     private final Set<Expression> matchedInnerFilterConjuncts = Sets.newHashSet();
+    // The sole table that appears in the outer plan but not the inner plan.
+    // Identified by checkRelation() and reused by checkUniqueCorrelatedTable()
+    // and rewrite().
+    private CatalogRelation outerOnlyTable = null;
 
     /**
      * the entrance of this rule. we only override one visitor: visitLogicalFilter
@@ -147,6 +151,8 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         innerPlans.clear();
         functions.clear();
         innerOuterSlotMap.clear();
+        matchedInnerFilterConjuncts.clear();
+        outerOnlyTable = null;
 
         outerPlans.addAll(apply.child(0).collect(LogicalPlan.class::isInstance));
         innerPlans.addAll(apply.child(1).collect(LogicalPlan.class::isInstance));
@@ -336,6 +342,15 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
         createSlotMapping(outerTables, innerTables);
 
+        // Identify and stash the sole outer-only table for downstream checks
+        // and for rewrite().  checkRelation() already validated that exactly
+        // one outer-only table exists.
+        outerOnlyTable = outerTables.stream()
+                .filter(node -> outerIds.contains(node.getTable().getId()))
+                .findFirst().get();
+        Preconditions.checkState(outerOnlyTable != null,
+                "outerOnlyTable must be non-null after checkRelation validation");
+
         Set<ExprId> correlatedRelationOutput = outerTables.stream()
                 .filter(node -> outerIds.contains(node.getTable().getId()))
                 .map(LogicalRelation.class::cast)
@@ -361,29 +376,12 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
      * (PRIMARY KEY / UNIQUE), and rejects nullable slots.
      */
     private boolean checkUniqueCorrelatedTable(List<Slot> correlatedSlots) {
-        List<CatalogRelation> outerTables = outerPlans.stream()
-                .filter(CatalogRelation.class::isInstance)
-                .map(CatalogRelation.class::cast)
-                .collect(Collectors.toList());
-        List<CatalogRelation> innerTables = innerPlans.stream()
-                .filter(CatalogRelation.class::isInstance)
-                .map(CatalogRelation.class::cast)
-                .collect(Collectors.toList());
-
-        List<Long> outerIds = outerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
-        List<Long> innerIds = innerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
-
-        innerIds.forEach(outerIds::remove);
-        if (outerIds.size() != 1) {
-            return true;
-        }
-
-        CatalogRelation outerOnlyTable = outerTables.stream()
-                .filter(node -> outerIds.contains(node.getTable().getId()))
-                .findFirst().orElse(null);
-        if (outerOnlyTable == null) {
-            return true;
-        }
+        // outerOnlyTable was identified and stashed by checkRelation() which
+        // runs before this method in the check() && chain, so it is guaranteed
+        // non-null here.
+        Preconditions.checkState(outerOnlyTable != null,
+                "checkRelation() must run and set outerOnlyTable before "
+                + "checkUniqueCorrelatedTable()");
 
         // Check uniqueness and non-nullability via DataTrait on the correlated (outer-only) table.
         // Must use isUniqueAndNotNull: nullable unique keys are unsafe for window-rewrite
@@ -536,16 +534,14 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // We find shared tables by comparing table IDs that appear in both
         // outer and inner plans, then collect ALL output slots of those
         // tables (not just columns referenced in the inner query).
+        // outerOnlyTable is already identified by checkRelation().
         List<CatalogRelation> outerRels = outerPlans.stream()
                 .filter(CatalogRelation.class::isInstance)
                 .map(CatalogRelation.class::cast)
                 .collect(Collectors.toList());
-        List<CatalogRelation> innerRels = innerPlans.stream()
+        Set<Long> innerTableIds = innerPlans.stream()
                 .filter(CatalogRelation.class::isInstance)
-                .map(CatalogRelation.class::cast)
-                .collect(Collectors.toList());
-        Set<Long> innerTableIds = innerRels.stream()
-                .map(r -> r.getTable().getId())
+                .map(r -> ((CatalogRelation) r).getTable().getId())
                 .collect(Collectors.toSet());
         Set<ExprId> sharedOuterExprIds = outerRels.stream()
                 .filter(r -> innerTableIds.contains(r.getTable().getId()))
@@ -599,6 +595,11 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // Otherwise descendant predicates would be reinserted above the join
         // while the originals remain below the unsafe filter — evaluated
         // twice per joined row.
+        //
+        // Collecting stops at unsafe barriers (collectStrippableFilters line 773);
+        // stripping also stops at unsafe barriers (stripOuterFilters line 638).
+        // This barrier symmetry is intentional: safe filters underneath an
+        // unsafe filter stay in place — they are neither hoisted nor removed.
         List<LogicalFilter<Plan>> nestedOuterFilters = collectStrippableFilters(apply.left());
         Set<ExprId> extractedConjunctExprIds = Sets.newHashSet();
         for (LogicalFilter<Plan> nf : nestedOuterFilters) {

@@ -523,4 +523,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
     public boolean isIncremental() {
         return readMode == StreamReadMode.INCREMENTAL;
     }
+
+    @Override
+    protected boolean producesDuplicateRows() {
+        // INCREMENTAL stream scans return multiple row versions for the
+        // same key.  SNAPSHOT and RESET modes read a single consistent
+        // snapshot and do not produce duplicate key rows.
+        return isIncremental();
+    }
 }
