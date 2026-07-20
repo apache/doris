@@ -18,6 +18,7 @@
 #pragma once
 
 #include <arrow/result.h>
+#include <cctz/time_zone.h>
 
 #include <iostream>
 
@@ -74,6 +75,14 @@ Status arrow_pretty_print(const arrow::Array& rb, std::ostream* os);
 
 Status to_doris_status(const arrow::Status& status);
 arrow::Status to_arrow_status(const Status& status);
+
+// Returns the timezone to decode an Arrow timestamp `array` with. A timezone-aware Arrow timestamp
+// is decoded in its own advertised timezone, so a remote DATETIMEV2 wall-clock round-trips even
+// when the producer session timezone differs from the reader's default (apache/doris#65741). A
+// non-timestamp or timezone-naive array returns `default_ctz` (a naive timestamp is then read as
+// UTC inside the serde). Falls back to `default_ctz` when the advertised timezone cannot be parsed.
+cctz::time_zone resolve_arrow_reader_timezone(const arrow::Array& array,
+                                              const cctz::time_zone& default_ctz);
 
 template <typename T>
 inline void assign_from_result(T& output, const arrow::Result<T>& result) {

@@ -43,8 +43,12 @@ constexpr size_t MAX_ARROW_UTF8 = (1ULL << 31); // 2G
 
 class RowDescriptor;
 
+// When datetime_naive is true, TYPE_DATETIMEV2 maps to a timezone-naive Arrow timestamp.
+// This is used only by the Arrow Flight result path; other callers (Parquet export, Python
+// UDF, ...) keep the timezone-aware mapping to preserve their existing semantics.
+// See apache/doris#65741.
 Status convert_to_arrow_type(const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
-                             const std::string& timezone);
+                             const std::string& timezone, bool datetime_naive = false);
 
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
@@ -55,7 +59,7 @@ Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Sc
 
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
-                                       const std::string& timezone);
+                                       const std::string& timezone, bool datetime_naive = false);
 
 Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result);
 

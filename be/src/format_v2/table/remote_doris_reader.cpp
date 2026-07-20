@@ -312,12 +312,17 @@ Status RemoteDorisFileReader::_materialize_arrow_column(const arrow::RecordBatch
     const auto column_name = batch.schema()->field(arrow_column_idx)->name();
     auto columns_guard = file_block->mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
+    // Decode a timezone-aware Arrow timestamp in its own advertised timezone so a remote
+    // DATETIMEV2 wall-clock round-trips even when the producer session timezone differs from this
+    // reader's default (apache/doris#65741).
+    const auto& arrow_column = batch.column(arrow_column_idx);
+    const cctz::time_zone col_ctz = resolve_arrow_reader_timezone(*arrow_column, _ctz);
     try {
         RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_position.value())
                                 ->get_serde()
                                 ->read_column_from_arrow(*columns[block_position.value()],
-                                                         batch.column(arrow_column_idx).get(), 0,
-                                                         batch.num_rows(), _ctz));
+                                                         arrow_column.get(), 0, batch.num_rows(),
+                                                         col_ctz));
     } catch (const Exception& e) {
         return Status::InternalError(
                 "Failed to convert Remote Doris Arrow column '{}' (file_column_id={}) to Doris "

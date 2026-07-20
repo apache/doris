@@ -41,6 +41,12 @@ suite("test_select", "arrow_flight_sql") {
 
     qt_arrow_flight_sql_datetime "select * from ${tableName} order by id desc"
 
+    // apache/doris#65741: by default (session variable enable_arrow_flight_datetime_naive = false)
+    // DATETIME(V2) keeps the timezone-aware Arrow mapping, so the wall-clock value round-trips
+    // unchanged over Arrow Flight. The opt-in timezone-naive mapping is verified in the BE unit
+    // test DataTypeSerDeArrowTest.DateTimeV2ArrowTimezoneDependsOnNaiveFlag.
+    qt_arrow_flight_sql_datetime_cast "select cast('2026-07-02 01:36:22.069504' as datetime(6)) as ts"
+
     tableName = "test_select_jsonb"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
