@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cstring>
 #include <future>
 
 #include "block_file_cache_test_common.h"
 #include "cloud/config.h"
+#include "util/time.h"
 
 namespace doris::io {
 namespace {
@@ -91,6 +93,10 @@ protected:
         config::enable_cache_read_from_peer = false;
         config::file_cache_each_block_size = 1_mb;
         reset_async_reader_cache_factory();
+        // FDCache is process-wide and keyed by cache hash plus offset, while these tests recreate
+        // the same logical file on a different cache path for every case. Reset it together with
+        // FileCacheFactory so one case cannot read an open descriptor retained by another case.
+        ExecEnv::GetInstance()->set_file_cache_open_fd_cache(std::make_unique<io::FDCache>());
     }
 
     void TearDown() override {
@@ -196,6 +202,134 @@ TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_s
     EXPECT_EQ(counting_reader->last_size(), 1_mb + 1);
     EXPECT_EQ(stats.probe_miss, 2);
     wait_for_async_writes();
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       downloading_preallocated_tail_can_finalize_short_while_reader_waits) {
+    create_cache("cached_remote_reader_async_downloading_preallocated_tail");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+    ASSERT_EQ(reader->size(), 10_mb + 1);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    const size_t file_tail_offset = reader->size() - 1;
+    auto holder = cache()->get_or_set(reader->_cache_hash, file_tail_offset, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& downloading_tail = holder.file_blocks.front();
+    ASSERT_EQ(downloading_tail->range().right, file_tail_offset + 1_mb - 1);
+    ASSERT_EQ(downloading_tail->get_or_set_downloader(), FileBlock::get_caller_id());
+
+    std::mutex wait_mutex;
+    std::condition_variable wait_cv;
+    bool reader_reached_wait = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "CachedRemoteFileReader::_materialize_async_block:before_wait",
+            [&](auto&&) {
+                {
+                    std::lock_guard lock(wait_mutex);
+                    reader_reached_wait = true;
+                }
+                wait_cv.notify_all();
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    std::string result(1, '\0');
+    FileCacheStatistics stats;
+    IOContext context;
+    context.file_cache_stats = &stats;
+    size_t bytes_read = 0;
+    auto read_future = std::async(std::launch::async, [&]() {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        return reader->read_at(file_tail_offset, Slice(result.data(), result.size()), &bytes_read,
+                               &context);
+    });
+    {
+        std::unique_lock lock(wait_mutex);
+        ASSERT_TRUE(wait_cv.wait_for(lock, std::chrono::seconds(5),
+                                     [&]() { return reader_reached_wait; }));
+    }
+    EXPECT_EQ(read_future.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
+
+    const std::string tail_payload(1, '0');
+    ASSERT_TRUE(downloading_tail->append(Slice(tail_payload.data(), tail_payload.size())).ok());
+    ASSERT_TRUE(downloading_tail->finalize().ok());
+    ASSERT_EQ(read_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    ASSERT_TRUE(read_future.get().ok());
+
+    EXPECT_EQ(downloading_tail->range().left, file_tail_offset);
+    EXPECT_EQ(downloading_tail->range().right, file_tail_offset);
+    EXPECT_EQ(bytes_read, result.size());
+    EXPECT_EQ(result, tail_payload);
+    EXPECT_EQ(counting_reader->read_count(), 1);
+    EXPECT_EQ(counting_reader->last_offset(), 9_mb);
+    EXPECT_EQ(counting_reader->last_size(), 1_mb);
+    EXPECT_EQ(stats.bytes_read_from_local, 1);
+    EXPECT_EQ(stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(stats.probe_miss, 1);
+    EXPECT_EQ(stats.probe_downloading_hit, 1);
+    EXPECT_EQ(stats.block_wait_success, 1);
+    EXPECT_EQ(stats.async_cache_write_submitted, 1);
+    wait_for_async_writes();
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       partial_inflight_coverage_combines_with_existing_cache_block) {
+    create_cache("cached_remote_reader_async_partial_inflight_and_cache");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    auto holder = cache()->get_or_set(reader->_cache_hash, 0, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& cached_block = holder.file_blocks.front();
+    ASSERT_EQ(cached_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    const std::string cached_payload(1_mb, '0');
+    ASSERT_TRUE(cached_block->append(Slice(cached_payload.data(), cached_payload.size())).ok());
+    ASSERT_TRUE(cached_block->finalize().ok());
+
+    auto* service = cache()->async_write_service();
+    auto* inflight_index = cache()->inflight_write_buffer_index();
+    AsyncCacheWriteBufferPtr inflight_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
+    const std::string inflight_payload(1_mb, '1');
+    memcpy(inflight_buffer->data(), inflight_payload.data(), inflight_payload.size());
+    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(
+            inflight_buffer, 1_mb, 1_mb, MonotonicMicros(), service->current_write_epoch());
+    ASSERT_EQ(inflight_index->insert_if_absent(reader->_cache_hash, 1_mb, inflight_entry), nullptr);
+    Defer remove_inflight {[&]() {
+        static_cast<void>(inflight_index->remove_if(reader->_cache_hash, 1_mb, inflight_entry));
+    }};
+
+    std::string result(2_mb, '\0');
+    FileCacheStatistics stats;
+    IOContext context;
+    context.file_cache_stats = &stats;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(0, Slice(result.data(), result.size()), &bytes_read, &context).ok());
+
+    EXPECT_EQ(bytes_read, result.size());
+    EXPECT_EQ(result.substr(0, 1_mb), cached_payload);
+    EXPECT_EQ(result.substr(1_mb), inflight_payload);
+    EXPECT_EQ(counting_reader->read_count(), 0);
+    EXPECT_EQ(stats.bytes_read_from_local, 2_mb);
+    EXPECT_EQ(stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(stats.inflight_write_buffer_index_hit, 1);
+    EXPECT_EQ(stats.inflight_write_buffer_index_miss, 1);
+    EXPECT_EQ(stats.probe_downloaded_hit, 1);
+    EXPECT_EQ(stats.probe_miss, 0);
+    EXPECT_EQ(stats.async_cache_write_submitted, 0);
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest,
@@ -526,6 +660,9 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
 TEST_F(AsyncCachedRemoteFileReaderTest,
        external_table_reader_uses_async_write_and_reuses_downloaded_cache) {
     create_cache("cached_remote_reader_async_external_table");
+    // Disabling the optional inflight index must only remove memory reuse/deduplication; accepted
+    // tasks still persist through AsyncCacheWriteService and become readable cache blocks.
+    config::enable_async_file_cache_write_inflight_write_buffer_index = false;
     auto first_remote = std::make_shared<CountingFileReader>(open_remote_file());
     FileReaderOptions options;
     options.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
@@ -545,6 +682,8 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(first_result, std::string(first_result.size(), '0'));
     EXPECT_EQ(first_remote->read_count(), 1);
     EXPECT_EQ(first_stats.async_cache_write_submitted, 1);
+    EXPECT_EQ(first_stats.inflight_write_buffer_index_hit, 0);
+    EXPECT_EQ(first_stats.inflight_write_buffer_index_miss, 0);
     wait_for_async_writes();
 
     auto second_remote = std::make_shared<CountingFileReader>(open_remote_file());
