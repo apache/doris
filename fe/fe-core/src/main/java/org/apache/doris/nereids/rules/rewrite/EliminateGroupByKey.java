@@ -30,13 +30,18 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.Multimap;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -129,6 +134,42 @@ public class EliminateGroupByKey extends DefaultPlanRewriter<Map<ExprId, ExprId>
         }
         Plan newProj = exprIdReplacer.rewriteExpr(proj.withChildren(newChild), replaceMap);
         return newProj;
+    }
+
+    @Override
+    public Plan visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Map<ExprId, ExprId> replaceMap) {
+        // When a producer aggregate's output slot is wrapped with any_value(),
+        // a fresh ExprId is recorded in replaceMap. The CTE consumer's producerToConsumerSlotMap
+        // still references the old ExprId, so we must rebuild both maps with the new ExprIds.
+        Map<Slot, Slot> newConsumerToProducer = new LinkedHashMap<>();
+        Multimap<Slot, Slot> newProducerToConsumer = LinkedHashMultimap.create();
+        for (Slot producerSlot : cteConsumer.getConsumerToProducerOutputMap().values()) {
+            ExprId newExprId = resolveExprIdChain(producerSlot.getExprId(), replaceMap);
+            Slot effectiveProducerSlot = newExprId != null
+                    ? (Slot) producerSlot.withExprId(newExprId)
+                    : producerSlot;
+            for (Slot consumerSlot : cteConsumer.getProducerToConsumerOutputMap().get(producerSlot)) {
+                newProducerToConsumer.put(effectiveProducerSlot, consumerSlot);
+                newConsumerToProducer.put(consumerSlot, effectiveProducerSlot);
+            }
+        }
+        return cteConsumer.withTwoMaps(newConsumerToProducer, newProducerToConsumer);
+    }
+
+    /** Follow transitive ExprId chain to find the final replacement, or null if none. */
+    private static ExprId resolveExprIdChain(ExprId exprId, Map<ExprId, ExprId> replaceMap) {
+        ExprId newId = replaceMap.get(exprId);
+        if (newId == null) {
+            return null;
+        }
+        ExprId lastId = newId;
+        while (true) {
+            ExprId next = replaceMap.get(lastId);
+            if (next == null) {
+                return lastId;
+            }
+            lastId = next;
+        }
     }
 
     /** Result of eliminateGroupByKey: the new aggregate and a map of old->new ExprIds. */
