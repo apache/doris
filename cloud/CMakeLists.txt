@@ -364,11 +364,23 @@ endif()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(ASAN_LIBS -static-libasan)
-    set(LSAN_LIBS -static-liblsan)
-    set(UBSAN_LIBS -static-libubsan ${MALLOCLIB})
+    set(LSAN_LIBS -static-liblsan -lgcc_eh)
+    set(UBSAN_LIBS -static-libubsan -lgcc_eh ${MALLOCLIB})
     set(TSAN_LIBS -static-libtsan)
 else ()
-    set(UBSAN_LIBS -rtlib=compiler-rt ${MALLOCLIB})
+    # Clang: Linux needs -lgcc_eh, macOS does not
+    if (OS_LINUX)
+        set(ASAN_LIBS -rtlib=compiler-rt -lgcc_eh)
+        set(LSAN_LIBS -rtlib=compiler-rt -lgcc_eh)
+        set(UBSAN_LIBS -rtlib=compiler-rt -lgcc_eh ${MALLOCLIB})
+        set(TSAN_LIBS -rtlib=compiler-rt -lgcc_eh)
+    else ()
+        # macOS and other platforms: no -lgcc_eh
+        set(ASAN_LIBS -rtlib=compiler-rt)
+        set(LSAN_LIBS -rtlib=compiler-rt)
+        set(UBSAN_LIBS -rtlib=compiler-rt ${MALLOCLIB})
+        set(TSAN_LIBS -rtlib=compiler-rt)
+    endif ()
 endif ()
 
 # Add sanitize static link flags or tcmalloc
