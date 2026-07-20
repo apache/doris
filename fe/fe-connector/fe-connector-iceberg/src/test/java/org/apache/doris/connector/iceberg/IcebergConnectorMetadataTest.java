@@ -156,6 +156,34 @@ public class IcebergConnectorMetadataTest {
         return metadataWith(ops);
     }
 
+    @Test
+    public void getTableCommentIsMemoizedAcrossQueriesWhenCommentCachePresent() {
+        // PERF-05: information_schema.tables / SHOW TABLE STATUS calls getTableComment PER table. On a vended-
+        // credentials (non-session) catalog the connector attaches an IcebergCommentCache; repeated lookups of the
+        // SAME table across queries must collapse onto ONE remote loadTable. MUTATION: not routing getTableComment
+        // through the cache -> each call reloads -> loadCountForTest > 1 / >1 remote "loadTable:" -> red.
+        Map<String, String> props = new HashMap<>();
+        props.put("comment", "sales fact");
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(), "s3://bucket/db1/t1", props);
+        IcebergCommentCache cache = new IcebergCommentCache(100, 1000);
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, Collections.emptyMap(),
+                new RecordingConnectorContext(), new IcebergLatestSnapshotCache(0L, 1), null, null, cache);
+
+        Assertions.assertEquals("sales fact", metadata.getTableComment(null, "db1", "t1"));
+        Assertions.assertEquals("sales fact", metadata.getTableComment(null, "db1", "t1"));
+        Assertions.assertEquals("sales fact", metadata.getTableComment(null, "db1", "t1"));
+
+        Assertions.assertEquals(1, cache.loadCountForTest(),
+                "repeated getTableComment at one table must load the comment exactly once");
+        long remoteLoads = ops.log.stream().filter(s -> s.startsWith("loadTable:db1.t1")).count();
+        Assertions.assertEquals(1, remoteLoads, "exactly one remote loadTable across the repeats");
+        // Parity: the cached value equals a direct (uncached) read of the comment property.
+        Assertions.assertEquals("sales fact",
+                metadataWithTableProps(props).getTableComment(null, "db1", "t1"));
+    }
+
     private static void assertCopyOnWriteRejected(
             IcebergConnectorMetadata md, WriteOperation op, String operationLabel, String property) {
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,

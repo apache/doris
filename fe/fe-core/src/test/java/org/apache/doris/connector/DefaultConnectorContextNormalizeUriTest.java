@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -168,5 +169,58 @@ public class DefaultConnectorContextNormalizeUriTest {
         DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
         Assertions.assertEquals(TFileType.FILE_S3.name(),
                 restCtx.getBackendFileType("oss://bkt/warehouse/db/t/data", ossVendedToken()));
+    }
+
+    // ---- FIX-PERF-06: newStorageUriNormalizer hoists the (scan-invariant) token->storage-config
+    //      derivation to ONCE per scan; every application must stay byte-identical to a per-call
+    //      normalizeStorageUri(uri, token), across all four cases the per-call form covers. ----
+
+    @Test
+    public void newNormalizerVendedMatchesPerCallAndServesManyUris() {
+        // WHY: the scan-scoped normalizer bakes the vended token in once, then normalizes many paths;
+        // each application must equal normalizeStorageUri(uri, token) (REST empty-static -> vended
+        // replaces static), and ONE normalizer must serve multiple files (the whole point of the hoist).
+        // MUTATION: dropping the token (static-only) throws; a stale/rebuilt map yielding a different path
+        // -> red.
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
+        UnaryOperator<String> n = restCtx.newStorageUriNormalizer(ossVendedToken());
+        Assertions.assertEquals(restCtx.normalizeStorageUri("oss://bkt/a/f1.parquet", ossVendedToken()),
+                n.apply("oss://bkt/a/f1.parquet"));
+        Assertions.assertEquals("s3://bkt/a/f1.parquet", n.apply("oss://bkt/a/f1.parquet"));
+        // Reuse the SAME normalizer for a second, different path — one derivation, many applications.
+        Assertions.assertEquals("s3://bkt/b/f2.parquet", n.apply("oss://bkt/b/f2.parquet"));
+    }
+
+    @Test
+    public void newNormalizerStaticMapMatchesPerCallUnderEmptyToken() throws Exception {
+        // WHY: with a static OSS map and an empty token, the normalizer folds to the static-map path,
+        // byte-identical to the per-call form. MUTATION: an empty token suppressing the static map -> red.
+        DefaultConnectorContext ctx = ossContext();
+        UnaryOperator<String> n = ctx.newStorageUriNormalizer(Collections.emptyMap());
+        Assertions.assertEquals(
+                ctx.normalizeStorageUri("oss://bkt/warehouse/db/t/part-0.parquet", Collections.emptyMap()),
+                n.apply("oss://bkt/warehouse/db/t/part-0.parquet"));
+    }
+
+    @Test
+    public void newNormalizerShortCircuitsNullAndBlankWithoutForcingDerivation() throws Exception {
+        // WHY: same empty-uri short-circuit as normalizeStorageUri — a null/blank path returns unchanged
+        // and never reaches the fail-loud LocationPath, even on an empty static map + empty token (so a
+        // scan that only ever sees blank uris triggers no derivation/throw). MUTATION: NPE / fabricated
+        // output / forcing the derivation to throw -> red.
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
+        UnaryOperator<String> n = restCtx.newStorageUriNormalizer(Collections.emptyMap());
+        Assertions.assertNull(n.apply(null));
+        Assertions.assertEquals("", n.apply(""));
+    }
+
+    @Test
+    public void newNormalizerFailsLoudOnBadPathLikePerCall() {
+        // WHY: fail-loud parity — an empty static map + empty token has no credential, so applying to a
+        // real oss:// path must throw (not ship the raw path to BE), exactly like normalizeStorageUri.
+        // MUTATION: swallowing to the raw path -> red.
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
+        UnaryOperator<String> n = restCtx.newStorageUriNormalizer(Collections.emptyMap());
+        Assertions.assertThrows(RuntimeException.class, () -> n.apply("oss://bkt/a/part-0.parquet"));
     }
 }

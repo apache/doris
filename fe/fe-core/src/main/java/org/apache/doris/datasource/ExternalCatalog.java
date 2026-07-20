@@ -350,6 +350,25 @@ public abstract class ExternalCatalog
     }
 
     /**
+     * Returns whether the shared table-schema cache should be skipped for the current session (the schema-level
+     * analog of {@link #shouldBypassTableNameCache}).
+     *
+     * <p>The generic schema cache is keyed by table NAME only ({@link SchemaCacheKey} wraps a
+     * {@link org.apache.doris.datasource.NameMapping} with no user/identity dimension), so under a connector
+     * whose remote {@code loadTable} enforces PER-USER authorization (Iceberg REST {@code session=user}) a shared
+     * hit would serve one user's schema to another who could list the table but is NOT authorized to load it —
+     * the "list != load" metadata disclosure the db/table-name-cache bypasses already close. Such catalogs
+     * bypass the shared cache and read schema live under the current session's credential. Default {@code false}
+     * — every other catalog keeps the cache.</p>
+     *
+     * @param ctx session context for the current request
+     * @return true if the schema must be read live from the remote source for this session
+     */
+    protected boolean shouldBypassSchemaCache(SessionContext ctx) {
+        return false;
+    }
+
+    /**
      * check if the specified table exist.
      *
      * @param dbName

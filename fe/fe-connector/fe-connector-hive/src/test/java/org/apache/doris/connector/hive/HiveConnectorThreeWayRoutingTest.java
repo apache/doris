@@ -20,6 +20,7 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -192,15 +193,19 @@ public class HiveConnectorThreeWayRoutingTest {
         HiveConnector connector = new HiveConnector(props(), ctx);
 
         HiveConnectorMetadata md = connector.newMetadata(null);
+        // A NONE-scope session: the by-TYPE helpers now route through the per-statement metadata funnel (which
+        // reads session.getStatementScope()/getCatalogId()), so a null session would NPE after the force-build we
+        // assert. NONE makes the funnel run its factory straight through — the force-build order is unchanged.
+        ConnectorSession session = new ScopeSession(1L, "q1", ConnectorStatementScope.NONE);
 
         // The getTableHandle ICEBERG arm resolves BY TYPE via icebergSiblingMetadata, which force-builds the
         // iceberg sibling (createSiblingConnector("iceberg")). A transposed getMetadata would build hudi here.
-        md.icebergSiblingMetadata(null);
+        md.icebergSiblingMetadata(session);
         Assertions.assertEquals(1, ctx.icebergBuilds, "the iceberg by-TYPE arm must force-build the iceberg sibling");
         Assertions.assertEquals(0, ctx.hudiBuilds, "the iceberg by-TYPE arm must NOT build the hudi sibling");
 
         // Symmetrically the HUDI arm must resolve the hudi sibling, not rebuild iceberg.
-        md.hudiSiblingMetadata(null);
+        md.hudiSiblingMetadata(session);
         Assertions.assertEquals(1, ctx.hudiBuilds, "the hudi by-TYPE arm must force-build the hudi sibling");
         Assertions.assertEquals(1, ctx.icebergBuilds, "the hudi by-TYPE arm must not rebuild the iceberg sibling");
     }

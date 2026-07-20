@@ -43,6 +43,7 @@ import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.UnboundExpressionToConnectorPredicateConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.CommonResultSet;
@@ -125,7 +126,7 @@ public class ConnectorExecuteAction implements ExecuteAction {
         // (single-call and distributed) also need the session/handle. Resolving the handle first means a bad
         // table name now surfaces "Table not found" before "does not support EXECUTE".
         ConnectorSession session = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         ConnectorTableHandle tableHandle = metadata
                 .getTableHandle(session, table.getRemoteDbName(), table.getRemoteName())
                 .orElseThrow(() -> new AnalysisException("Table not found: " + table.getRemoteDbName()

@@ -20,6 +20,7 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.hms.HmsClient;
@@ -68,9 +69,14 @@ public class HiveConnectorMetadataTableHandleDivertTest {
 
     // getTableHandle routes BY TYPE (the two by-TYPE suppliers), NEVER via the by-handle owner resolver — so wire
     // the owner resolver to fail loud if anything reaches for it.
-    private static final Function<ConnectorTableHandle, Connector> OWNER_RESOLVER_UNUSED = handle -> {
+    private static final Function<ConnectorTableHandle, SiblingOwner> OWNER_RESOLVER_UNUSED = handle -> {
         throw new AssertionError("getTableHandle must divert BY TYPE, never via the by-handle owner resolver");
     };
+
+    // getTableHandle's by-TYPE divert routes through the per-statement sibling-metadata funnel, which reads
+    // session.getStatementScope() + getCatalogId(); a NONE scope makes the factory run every call (byte-equivalent
+    // to the pre-funnel divert), so these by-type routing assertions are unchanged.
+    private final ConnectorSession session = new ScopeSession(1L, "q1", ConnectorStatementScope.NONE);
 
     /** The foreign (non-hive) handle a sibling's getTableHandle produces post-flip. */
     private static final class ForeignHandle implements ConnectorTableHandle {
@@ -85,7 +91,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
     public void icebergTableDivertsToIcebergSiblingNotHudi() {
         HiveConnectorMetadata md = withSiblings(icebergTable());
 
-        Optional<ConnectorTableHandle> handle = md.getTableHandle(null, "db", "t");
+        Optional<ConnectorTableHandle> handle = md.getTableHandle(session, "db", "t");
 
         Assertions.assertTrue(handle.isPresent(), "an existing iceberg-on-HMS table must resolve a handle");
         Assertions.assertSame(icebergHandle, handle.get(),
@@ -106,7 +112,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
         icebergSibling.metadata.returnHandle = null;
         HiveConnectorMetadata md = withSiblings(icebergTable());
 
-        Assertions.assertFalse(md.getTableHandle(null, "db", "t").isPresent(),
+        Assertions.assertFalse(md.getTableHandle(session, "db", "t").isPresent(),
                 "an empty from the sibling must pass through unchanged");
         // Prove the empty was FORWARDED from the sibling (its getTableHandle was consulted), not short-circuited
         // to empty by the gateway — otherwise a broken `if (ICEBERG) return Optional.empty()` would pass this test.
@@ -120,7 +126,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
         // OWN foreign handle verbatim — NOT a HiveTableHandle stamped HUDI, and NOT routed to the iceberg sibling.
         HiveConnectorMetadata md = withSiblings(hiveTable(HUDI));
 
-        Optional<ConnectorTableHandle> handle = md.getTableHandle(null, "db", "t");
+        Optional<ConnectorTableHandle> handle = md.getTableHandle(session, "db", "t");
 
         Assertions.assertTrue(handle.isPresent(), "an existing hudi-on-HMS table must resolve a handle");
         Assertions.assertSame(hudiHandle, handle.get(),
@@ -141,7 +147,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
         hudiSibling.metadata.returnHandle = null;
         HiveConnectorMetadata md = withSiblings(hiveTable(HUDI));
 
-        Assertions.assertFalse(md.getTableHandle(null, "db", "t").isPresent(),
+        Assertions.assertFalse(md.getTableHandle(session, "db", "t").isPresent(),
                 "an empty from the hudi sibling must pass through unchanged");
         Assertions.assertEquals(1, hudiSibling.metadata.getTableHandleCalls,
                 "the hudi sibling is authoritative for hudi existence: its getTableHandle must be the source of empty");
@@ -151,7 +157,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
     public void hiveTableBuildsHiveHandleWithoutConsultingSibling() {
         HiveConnectorMetadata md = withSiblings(hiveTable(PARQUET));
 
-        Optional<ConnectorTableHandle> handle = md.getTableHandle(null, "db", "t");
+        Optional<ConnectorTableHandle> handle = md.getTableHandle(session, "db", "t");
 
         Assertions.assertTrue(handle.get() instanceof HiveTableHandle, "a hive table resolves a HiveTableHandle");
         Assertions.assertEquals(HiveTableType.HIVE, ((HiveTableHandle) handle.get()).getTableType());
@@ -167,7 +173,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
         // non-view table is still rejected (not swallowed into a hudi divert).
         HiveConnectorMetadata md = withSiblings(hiveTable(UNKNOWN_FORMAT));
 
-        Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableHandle(null, "db", "t"),
+        Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableHandle(session, "db", "t"),
                 "an unsupported non-view input format must fail loud, not be diverted to a sibling");
         Assertions.assertEquals(0, hudiSibling.getMetadataCalls,
                 "the UNKNOWN fail-loud must not consult the hudi sibling");
@@ -181,7 +187,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
                 new FakeHmsClient(icebergTable(), false), Collections.emptyMap(), new FakeConnectorContext(),
                 () -> icebergSibling, () -> hudiSibling, OWNER_RESOLVER_UNUSED);
 
-        Assertions.assertFalse(md.getTableHandle(null, "db", "t").isPresent(),
+        Assertions.assertFalse(md.getTableHandle(session, "db", "t").isPresent(),
                 "a non-existent table short-circuits to empty before any format detection or divert");
         Assertions.assertEquals(0, icebergSibling.getMetadataCalls, "a missing table must not build the iceberg sibling");
         Assertions.assertEquals(0, hudiSibling.getMetadataCalls, "a missing table must not build the hudi sibling");
@@ -194,7 +200,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
         HiveConnectorMetadata md = new HiveConnectorMetadata(
                 new FakeHmsClient(icebergTable(), true), Collections.emptyMap(), new FakeConnectorContext());
 
-        Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableHandle(null, "db", "t"),
+        Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableHandle(session, "db", "t"),
                 "an iceberg table with no sibling configured must fail loud");
     }
 
@@ -205,7 +211,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
         HiveConnectorMetadata md = new HiveConnectorMetadata(
                 new FakeHmsClient(hiveTable(HUDI), true), Collections.emptyMap(), new FakeConnectorContext());
 
-        Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableHandle(null, "db", "t"),
+        Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableHandle(session, "db", "t"),
                 "a hudi table with no sibling configured must fail loud");
     }
 
