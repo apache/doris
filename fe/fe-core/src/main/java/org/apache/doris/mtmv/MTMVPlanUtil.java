@@ -100,7 +100,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -489,6 +488,11 @@ public class MTMVPlanUtil {
 
     public static MTMVAnalyzeQueryInfo analyzeQueryWithSql(MTMV mtmv, ConnectContext ctx,
             Optional<IvmRewriteContext> ivmRewriteContext) throws UserException {
+        return analyzeQueryWithSql(mtmv, ctx, mtmv.getMvProperties(), ivmRewriteContext);
+    }
+
+    public static MTMVAnalyzeQueryInfo analyzeQueryWithSql(MTMV mtmv, ConnectContext ctx,
+            Map<String, String> mvProperties, Optional<IvmRewriteContext> ivmRewriteContext) throws UserException {
         String querySql = mtmv.getQuerySql();
         MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
         MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
@@ -515,7 +519,7 @@ public class MTMVPlanUtil {
         DistributionDescriptor distribution = new DistributionDescriptor(defaultDistributionInfo.getType().equals(
                 DistributionInfoType.HASH), defaultDistributionInfo.getAutoBucket(),
                 defaultDistributionInfo.getBucketNum(), Lists.newArrayList(mtmv.getDistributionColumnNames()));
-        return analyzeQuery(ctx, mtmv.getMvProperties(), mtmvPartitionDefinition, distribution, null,
+        return analyzeQuery(ctx, mvProperties, mtmvPartitionDefinition, distribution, null,
                 Maps.newHashMap(mtmv.getTableProperty().getProperties()), keys, logicalPlan, ivmRewriteContext);
     }
 
@@ -621,29 +625,30 @@ public class MTMVPlanUtil {
                 mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES));
     }
 
-    public static void validateAlterExcludedTriggerTables(MTMV mtmv, Map<String, String> mvProperties) {
+    public static void validateAlterExcludedTriggerTables(MTMV mtmv, Map<String, String> mvProperties,
+            ConnectContext ctx) {
         Set<TableNameInfo> oldExcludedTriggerTables = mtmv.getExcludedTriggerTables();
         Set<TableNameInfo> newExcludedTriggerTables = getExcludedTriggerTables(mvProperties);
-        for (TableNameInfo oldExcludedTriggerTable : oldExcludedTriggerTables) {
-            boolean isCovered = newExcludedTriggerTables.stream()
-                    .anyMatch(newExcludedTriggerTable -> isExcludedTriggerTableScopeCovered(
-                            oldExcludedTriggerTable, newExcludedTriggerTable));
-            if (!isCovered) {
-                throw new AnalysisException(
-                        "Cannot ALTER excluded_trigger_tables to narrow existing entry '"
-                                + oldExcludedTriggerTable
-                                + "'. Existing excluded trigger tables can only be expanded.");
-            }
+        MTMVRelation relation = mtmv.getRelation();
+        if (relation == null || relation.getBaseTables() == null) {
+            return;
         }
-    }
-
-    private static boolean isExcludedTriggerTableScopeCovered(TableNameInfo oldExcludedTriggerTable,
-            TableNameInfo newExcludedTriggerTable) {
-        return oldExcludedTriggerTable.getTbl().equals(newExcludedTriggerTable.getTbl())
-                && (StringUtils.isEmpty(newExcludedTriggerTable.getDb())
-                        || newExcludedTriggerTable.getDb().equals(oldExcludedTriggerTable.getDb()))
-                && (StringUtils.isEmpty(newExcludedTriggerTable.getCtl())
-                        || newExcludedTriggerTable.getCtl().equals(oldExcludedTriggerTable.getCtl()));
+        // A base table removed from excluded_trigger_tables starts participating in incremental refresh.
+        boolean includesNewTriggerTable = relation.getBaseTables().stream().anyMatch(baseTableInfo -> {
+            TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
+            return MTMVPartitionUtil.isTableExcluded(oldExcludedTriggerTables, baseTableName)
+                    && !MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName);
+        });
+        if (!includesNewTriggerTable) {
+            return;
+        }
+        try {
+            // Exclusions affect IVM normalization, so validate the complete MV plan with the new properties.
+            analyzeQueryWithSql(mtmv, ctx, mvProperties, Optional.of(IvmRewriteContext.normalize(mtmv)));
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
     }
 
     /**

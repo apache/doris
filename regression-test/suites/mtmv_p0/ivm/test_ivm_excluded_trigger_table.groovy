@@ -49,6 +49,14 @@ suite("test_ivm_excluded_trigger_table", "mtmv") {
            FROM test_ivm_excluded_trigger_table_agg_base;
     """
 
+    test {
+        sql """
+            ALTER MATERIALIZED VIEW test_ivm_excluded_trigger_table_mv
+            SET ("excluded_trigger_tables" = "");
+        """
+        exception "requires base tables to be"
+    }
+
     def queryMvRows = {
         sql("""SELECT k1, v1 FROM test_ivm_excluded_trigger_table_mv ORDER BY k1""")
                 .collect { row -> [row[0] as int, row[1] as int] }

@@ -265,6 +265,7 @@ public class AlterMTMVTest extends TestWithFeService {
 
     @Test
     public void testAlterIvmInfoPersistence() throws Exception {
+        Config.enable_table_stream = true;
         createDatabaseAndUse("alter_ivm_test");
         createTable("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
@@ -376,7 +377,7 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     @Test
-    public void testAlterIvmExcludedTriggerTablesCanOnlyExpandScope() throws Exception {
+    public void testAlterIvmExcludedTriggerTablesAllowsEquivalentScopeChanges() throws Exception {
         createDatabaseAndUse("alter_ivm_excluded_trigger_test");
         createTable("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
@@ -388,14 +389,18 @@ public class AlterMTMVTest extends TestWithFeService {
                 + " PROPERTIES ('replication_num' = '1',"
                 + " 'excluded_trigger_tables' = 'alter_ivm_excluded_trigger_test.ivm_base')\n"
                 + " AS SELECT k1, v1 FROM ivm_base");
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_ivm_excluded_trigger_test").get()
+                .getTableOrMetaException("ivm_excluded_mv");
 
         alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
                 + " SET ('excluded_trigger_tables' = 'ivm_base')");
 
-        Exception ex = Assertions.assertThrows(Exception.class,
-                () -> alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
-                        + " SET ('excluded_trigger_tables' = 'alter_ivm_excluded_trigger_test.ivm_base')"));
-        Assertions.assertTrue(ex.getMessage().contains("Existing excluded trigger tables can only be expanded"),
-                "unexpected message: " + ex.getMessage());
+        alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
+                + " SET ('excluded_trigger_tables' = 'alter_ivm_excluded_trigger_test.ivm_base')");
+
+        String streamName = IvmUtil.streamName(mtmv.getId(), "ivm_base");
+        Assertions.assertFalse(Env.getCurrentInternalCatalog()
+                .getDb("alter_ivm_excluded_trigger_test").get().getTable(streamName).isPresent());
     }
 }

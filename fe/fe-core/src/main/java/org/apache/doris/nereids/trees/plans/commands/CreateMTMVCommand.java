@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -129,10 +130,19 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
      * @param mtmv the MTMV
      * @param baseTable the base table to create stream for
      * @param baseTableDbName the database name of the base table
+     */
+    public static void createTableStream(ConnectContext ctx, Database mvDb, MTMV mtmv, TableIf baseTable,
+            String baseTableDbName) throws UserException {
+        createTableStream(ctx, mvDb, mtmv, baseTable, baseTableDbName, null);
+    }
+
+    /**
+     * Creates a stream and records its name for CREATE MTMV rollback.
+     *
      * @param createdStreamNames output list to collect created stream names (for rollback)
      */
-    static void createTableStream(ConnectContext ctx, Database mvDb, MTMV mtmv, TableIf baseTable,
-            String baseTableDbName, List<String> createdStreamNames) throws Exception {
+    private static void createTableStream(ConnectContext ctx, Database mvDb, MTMV mtmv, TableIf baseTable,
+            String baseTableDbName, List<String> createdStreamNames) throws UserException {
         String mvDbName = mvDb.getFullName();
         long mvId = mtmv.getId();
         String streamName = IvmUtil.streamName(mvId, baseTable.getName());

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -40,6 +41,7 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -65,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
@@ -283,6 +286,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
             Plan analyzedPlan = buildResult.planner.getAnalyzedPlan();
             lineagePlan = Optional.ofNullable(analyzedPlan);
+            if (!ctx.getStatementContext().getIvmRewriteContext().isPresent()) {
+                for (LogicalOlapTableStreamScan streamScan : analyzedPlan
+                        .<LogicalOlapTableStreamScan>collectToList(LogicalOlapTableStreamScan.class::isInstance)) {
+                    OlapTableStreamWrapper wrapper = streamScan.getTable();
+                    if (wrapper.getName().startsWith(IvmUtil.IVM_STREAM_PREFIX)) {
+                        throw new AnalysisException("IVM internal table stream cannot be used in INSERT INTO: "
+                                + wrapper.getName());
+                    }
+                }
+            }
             if (!needBeginTransaction) {
                 return insertExecutor;
             }
