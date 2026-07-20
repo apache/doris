@@ -64,11 +64,11 @@ public:
             auto rows =
                     std::min(_table_level_row_count, (int64_t)_state->query_options().batch_size);
             _table_level_row_count -= rows;
-            auto mutate_columns = block->mutate_columns();
+            auto columns_guard = block->mutate_columns_scoped();
+            auto& mutate_columns = columns_guard.mutable_columns();
             for (auto& col : mutate_columns) {
                 col->resize(rows);
             }
-            block->set_columns(std::move(mutate_columns));
             *read_rows = rows;
             if (_table_level_row_count == 0) {
                 *eof = true;
@@ -94,8 +94,10 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) final {
-        return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+            const std::unordered_map<std::string, bool>& partition_value_is_null = {}) final {
+        return _file_format_reader->set_fill_columns(partition_columns, missing_columns,
+                                                     partition_value_is_null);
     }
 
     bool fill_all_columns() const override { return _file_format_reader->fill_all_columns(); }

@@ -18,21 +18,29 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -40,6 +48,8 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.nio.channels.SocketChannel;
 import java.util.HashMap;
@@ -47,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectContextTest {
     @Mocked
@@ -70,6 +81,179 @@ public class ConnectContextTest {
 
     @Before
     public void setUp() throws Exception {
+    }
+
+    @Test
+    public void testResetConnectionClearsSessionState() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Auth auth = Mockito.mock(Auth.class);
+        ConnectScheduler connectScheduler = Mockito.mock(ConnectScheduler.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn("internal");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(internalCatalog);
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getQueryTimeout("testUser")).thenReturn(123);
+        Mockito.when(auth.getInsertTimeout("testUser")).thenReturn(456);
+        ctx.setUserQueryTimeout(123);
+        ctx.setUserInsertTimeout(456);
+        VariableMgr.setVar(ctx.getSessionVariable(),
+                new SetVar(SessionVariable.SQL_SELECT_LIMIT, new StringLiteral("0")));
+        ctx.getSessionVariable().setQueryTimeoutS(1);
+        ctx.getSessionVariable().setInsertTimeoutS(2);
+        ctx.setUserVar("user_var", new StringLiteral("value"));
+        ctx.changeDefaultCatalog("external_catalog");
+        ctx.currentDb = "test_db";
+        ctx.currentDbId = 10;
+        ctx.addLastDBOfCatalog("external_catalog", "test_db");
+        ctx.addPreparedQuery("1", "select 1");
+        long initialPreparedStmtId = ctx.getPreparedStmtId();
+        ctx.getSessionVariable().enableServeSidePreparedStatement = true;
+        ctx.addPreparedStatementContext(String.valueOf(initialPreparedStmtId),
+                new PreparedStatementContext(null, ctx, null, "select 1"));
+        long nextPreparedStmtId = ctx.getPreparedStmtId();
+        ctx.setRunningQuery("select 1");
+        TUniqueId queryId = new TUniqueId(100, 200);
+        ctx.setQueryId(queryId);
+        ctx.setTraceId("old_trace");
+        ctx.setConnectScheduler(connectScheduler);
+        ctx.setCommand(MysqlCommand.COM_QUERY);
+        ctx.updateReturnRows(10);
+        ctx.setOrUpdateInsertResult(1, "label", "test_db", "test_table", TransactionStatus.VISIBLE, 1, 0);
+
+        Assert.assertEquals(0, ctx.getSessionVariable().getSqlSelectLimit());
+        Assert.assertEquals(1, ctx.getSessionVariable().getQueryTimeoutS());
+        Assert.assertEquals(2, ctx.getSessionVariable().getInsertTimeoutS());
+        Assert.assertFalse(ctx.getUserVars().isEmpty());
+        Assert.assertNotNull(ctx.getInsertResult());
+
+        ctx.resetConnection();
+
+        Assert.assertEquals(-1, ctx.getSessionVariable().getSqlSelectLimit());
+        Assert.assertEquals(123, ctx.getSessionVariable().getQueryTimeoutS());
+        Assert.assertEquals(456, ctx.getSessionVariable().getInsertTimeoutS());
+        Assert.assertTrue(ctx.getUserVars().isEmpty());
+        Assert.assertEquals("external_catalog", ctx.getDefaultCatalog());
+        Assert.assertEquals("test_db", ctx.getDatabase());
+        Assert.assertEquals("test_db", ctx.getLastDBOfCatalog("external_catalog"));
+        Assert.assertNull(ctx.getPreparedQuery("1"));
+        Assert.assertNull(ctx.getRunningQuery());
+        Assert.assertNull(ctx.queryId());
+        Assert.assertNull(ctx.getLastQueryId());
+        Assert.assertNull(ctx.traceId());
+        Mockito.verify(connectScheduler).removeOldTraceId("old_trace");
+        Assert.assertEquals(nextPreparedStmtId, ctx.getPreparedStmtId());
+        Assert.assertTrue(initialPreparedStmtId != ctx.getPreparedStmtId());
+        Assert.assertNull(ctx.getInsertResult());
+        Assert.assertEquals(MysqlCommand.COM_SLEEP, ctx.getCommand());
+        Assert.assertEquals(0, ctx.getReturnRows());
+    }
+
+    @Test
+    public void testHandleResetConnectionDoesNotSetServerStatus() {
+        ConnectContext ctx = new ConnectContext();
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleResetConnection();
+
+        Assert.assertEquals(0, ctx.getState().serverStatus);
+    }
+
+    @Test
+    public void testHandleStmtResetReturnsOkForKnownStatement() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().enableServeSidePreparedStatement = true;
+        ctx.addPreparedStatementContext("1", new PreparedStatementContext(null, ctx, null, "select 1"));
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleStmtResetById(1);
+
+        Assert.assertEquals(MysqlStateType.OK, ctx.getState().getStateType());
+    }
+
+    @Test
+    public void testHandleStmtResetReturnsErrorForUnknownStatement() {
+        ConnectContext ctx = new ConnectContext();
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleStmtResetById(1);
+
+        Assert.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_STMT_HANDLER, ctx.getState().getErrorCode());
+        Assert.assertTrue(ctx.getState().getErrorMessage().contains("mysqld_stmt_reset"));
+    }
+
+    @Test
+    public void testHandleResetConnectionReturnsErrorOnResetFailure() {
+        ConnectContext ctx = new ConnectContext() {
+            @Override
+            public void resetConnection() throws DdlException {
+                throw new DdlException("reset connection failed");
+            }
+        };
+        ConnectProcessor processor = new ConnectProcessor(ctx) {
+        };
+
+        ctx.getState().reset();
+        processor.handleResetConnection();
+
+        Assert.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, ctx.getState().getErrorCode());
+        Assert.assertTrue(ctx.getState().getErrorMessage().contains("reset connection failed"));
+    }
+
+    @Test
+    public void testResetConnectionDropsMultipleTemporaryTables() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Auth auth = Mockito.mock(Auth.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn("internal");
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+        ctx.addTempTableToDB("test_db", "test_temp_table1");
+        ctx.addTempTableToDB("test_db", "test_temp_table2");
+
+        Database db = Mockito.mock(Database.class);
+        Table table1 = Mockito.mock(Table.class);
+        Table table2 = Mockito.mock(Table.class);
+        AtomicInteger droppedTableCount = new AtomicInteger();
+
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(internalCatalog.getDb("test_db")).thenReturn(Optional.of(db));
+        Mockito.when(db.getTable("test_temp_table1")).thenReturn(Optional.of(table1));
+        Mockito.when(db.getTable("test_temp_table2")).thenReturn(Optional.of(table2));
+        Mockito.doAnswer(invocation -> {
+            Table table = invocation.getArgument(1);
+            if (table == table1) {
+                ctx.removeTempTableFromDB("test_db", "test_temp_table1");
+            } else {
+                ctx.removeTempTableFromDB("test_db", "test_temp_table2");
+            }
+            droppedTableCount.incrementAndGet();
+            return null;
+        }).when(internalCatalog).dropTableWithoutCheck(Mockito.eq(db), Mockito.any(Table.class),
+                Mockito.eq(false), Mockito.eq(true));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ctx.resetConnection();
+        }
+
+        Assert.assertEquals(2, droppedTableCount.get());
+        Assert.assertTrue(ctx.getDbToTempTableNamesMap().isEmpty());
     }
 
     @Test

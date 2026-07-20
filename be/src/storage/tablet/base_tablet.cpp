@@ -129,8 +129,7 @@ Status parse_compaction_output_pk_entry(
 
     Slice rowid_slice(encoded_key.get_data() + unique_key_length + seq_col_length + 1,
                       rowid_length - 1);
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-    const auto* rowid_coder = get_key_coder(type_info->type());
+    const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
     uint32_t row_id = 0;
     RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                   reinterpret_cast<uint8_t*>(&row_id)));
@@ -447,7 +446,8 @@ void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
 
 Status BaseTablet::calc_delete_bitmap_between_segments(
         TabletSchemaSPtr schema, RowsetId rowset_id,
-        const std::vector<segment_v2::SegmentSharedPtr>& segments, DeleteBitmapPtr delete_bitmap) {
+        const std::vector<segment_v2::SegmentSharedPtr>& segments, DeleteBitmapPtr delete_bitmap,
+        int64_t queue_time_us) {
     size_t const num_segments = segments.size();
     if (num_segments < 2) {
         return Status::OK();
@@ -475,9 +475,9 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "
             "tablet: {}, rowset: {}, number of segments: {}, bitmap count: {}, bitmap cardinality: "
-            "{}, cost {} (us)",
+            "{}, queue_time_us: {}, cost {} (us)",
             tablet_id(), rowset_id.to_string(), num_segments,
-            delete_bitmap->get_delete_bitmap_count(), delete_bitmap->cardinality(),
+            delete_bitmap->get_delete_bitmap_count(), delete_bitmap->cardinality(), queue_time_us,
             watch.get_elapse_time_us());
     return Status::OK();
 }
@@ -664,7 +664,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                                               DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                               RowsetWriter* rowset_writer,
-                                              DeleteBitmapPtr tablet_delete_bitmap) {
+                                              DeleteBitmapPtr tablet_delete_bitmap,
+                                              int64_t queue_time_us) {
     OlapStopWatch watch;
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
@@ -726,8 +727,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
         size_t num_to_read = std::min<int64_t>(batch_size, remaining);
-        auto index_type =
-                DataTypeFactory::instance().create_data_type(pk_idx->type_info()->type(), 1, 0);
+        auto index_type = DataTypeFactory::instance().create_data_type(pk_idx->type(), 1, 0);
         auto index_column = index_type->create_column();
         Slice last_key_slice(last_key);
         RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
@@ -765,9 +765,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 Slice rowid_slice =
                         Slice(key.get_data() + key_without_seq.get_size() + seq_col_length + 1,
                               rowid_length - 1);
-                const auto* type_info =
-                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-                const auto* rowid_coder = get_key_coder(type_info->type());
+                const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
                 RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                               (uint8_t*)&row_id));
             }
@@ -910,7 +908,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
         auto cost_us = watch.get_elapse_time_us();
-        if (config::enable_mow_verbose_log || cost_us > 10 * 1000) {
+        if (config::enable_mow_verbose_log || cost_us > 10 * 1000 || queue_time_us > 10 * 1000) {
             LOG(INFO) << "calc segment delete bitmap for "
                       << partial_update_info->partial_update_mode_str()
                       << ", tablet: " << tablet_id() << " rowset: " << rowset_id
@@ -919,35 +917,38 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                       << " new generated rows: " << new_generated_rows
                       << " bitmap num: " << delete_bitmap->get_delete_bitmap_count()
                       << " bitmap cardinality: " << delete_bitmap->cardinality()
-                      << " cost: " << cost_us << "(us)";
+                      << " queue_time_us: " << queue_time_us << ", cost: " << cost_us << "(us)";
         }
         return Status::OK();
     }
     auto cost_us = watch.get_elapse_time_us();
-    if (config::enable_mow_verbose_log || cost_us > 10 * 1000) {
+    if (config::enable_mow_verbose_log || cost_us > 10 * 1000 || queue_time_us > 10 * 1000) {
         LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id()
                   << " rowset: " << rowset_id << " seg_id: " << seg->id()
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                   << " conflict rows: " << conflict_rows
                   << " bitmap num: " << delete_bitmap->get_delete_bitmap_count()
-                  << " bitmap cardinality: " << delete_bitmap->cardinality() << " cost: " << cost_us
-                  << "(us)";
+                  << " bitmap cardinality: " << delete_bitmap->cardinality()
+                  << " queue_time_us: " << queue_time_us << ", cost: " << cost_us << "(us)";
     }
     return Status::OK();
 }
 
 Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
-    MutableBlock mutable_input_block = MutableBlock::build_mutable_block(&in_block);
-    MutableBlock mutable_output_block = MutableBlock::build_mutable_block(&output_block);
+    ScopedMutableBlock scoped_input_block(&in_block);
+    auto& mutable_input_block = scoped_input_block.mutable_block();
+    ScopedMutableBlock scoped_output_block(&output_block);
+    auto& mutable_output_block = scoped_output_block.mutable_block();
 
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
             std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
     vec_row_comparator->set_block(&mutable_input_block);
 
     std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
-    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
-    row_in_blocks.reserve(in_block.rows());
-    for (size_t i = 0; i < in_block.rows(); ++i) {
+    const auto input_rows = mutable_input_block.rows();
+    DCHECK(input_rows <= std::numeric_limits<int>::max());
+    row_in_blocks.reserve(input_rows);
+    for (size_t i = 0; i < input_rows; ++i) {
         row_in_blocks.emplace_back(std::make_unique<RowInBlock>(i));
     }
     std::sort(row_in_blocks.begin(), row_in_blocks.end(),
@@ -959,12 +960,14 @@ Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
                   return value < 0;
               });
     std::vector<uint32_t> row_pos_vec;
-    row_pos_vec.reserve(in_block.rows());
+    row_pos_vec.reserve(input_rows);
     for (auto& block : row_in_blocks) {
         row_pos_vec.emplace_back(block->_row_pos);
     }
-    return mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
-                                         row_pos_vec.data() + in_block.rows());
+    scoped_input_block.restore();
+    RETURN_IF_ERROR(mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
+                                                  row_pos_vec.data() + input_rows));
+    return Status::OK();
 }
 
 // fetch value by row column
@@ -1049,7 +1052,8 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                                                 const std::vector<std::string>& default_values,
                                                 const Block& ref_block,
                                                 Block& default_value_block) {
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
+    auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
+    auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
     for (auto i = 0; i < cids.size(); ++i) {
         const auto& column = schema.column(cids[i]);
         if (column.has_default_value()) {
@@ -1059,7 +1063,6 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                     str, *mutable_default_value_columns[i]));
         }
     }
-    default_value_block.set_columns(std::move(mutable_default_value_columns));
     return Status::OK();
 }
 
@@ -1073,7 +1076,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
     // 3. write a new segment and modify rowset meta
     // 4. mark current keys deleted
     CHECK(output_block);
-    auto full_mutable_columns = output_block->mutate_columns();
+    auto full_mutable_columns_guard = output_block->mutate_columns_scoped();
+    auto& full_mutable_columns = full_mutable_columns_guard.mutable_columns();
     const auto& missing_cids = partial_update_info->missing_cids;
     const auto& update_cids = partial_update_info->update_cids;
     auto old_block = rowset_schema->create_block_by_cids(missing_cids);
@@ -1176,7 +1180,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
             }
         }
     }
-    output_block->set_columns(std::move(full_mutable_columns));
+    full_mutable_columns_guard.restore();
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
@@ -1281,7 +1285,8 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                                                              old_block, default_value_block));
 
     // 4. build the final block
-    auto full_mutable_columns = output_block->mutate_columns();
+    auto full_mutable_columns_guard = output_block->mutate_columns_scoped();
+    auto& full_mutable_columns = full_mutable_columns_guard.mutable_columns();
     DCHECK(rowset_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = rowset_schema->skip_bitmap_col_idx();
     const std::vector<BitmapValue>* skip_bitmaps =
@@ -1334,7 +1339,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         DCHECK_EQ(full_mutable_columns[cid]->size(), update_rows);
     }
 
-    output_block->set_columns(std::move(full_mutable_columns));
+    full_mutable_columns_guard.restore();
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
@@ -1821,8 +1826,7 @@ Status BaseTablet::calc_compaction_output_rowset_internal_delete_bitmap(
         auto scanner = std::make_unique<CompactionOutputPkScanner>();
         scanner->segment_id = segment_id;
         scanner->remaining = pk_index->num_rows();
-        scanner->index_type =
-                DataTypeFactory::instance().create_data_type(pk_index->type_info()->type(), 1, 0);
+        scanner->index_type = DataTypeFactory::instance().create_data_type(pk_index->type(), 1, 0);
         RETURN_IF_ERROR(pk_index->new_iterator(&scanner->iter, nullptr));
         RETURN_IF_ERROR(load_next_compaction_output_pk_entry(
                 output_rowset->rowset_id(), seq_col_length, output_row_sources, scanner.get()));

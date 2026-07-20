@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
@@ -188,6 +189,54 @@ Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
     return st;
 }
 
+ZoneMapFilterResult VExprContext::evaluate_zonemap_filter(const VExprContextSPtrs& conjuncts,
+                                                          const ZoneMapEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_zonemap_filter()) {
+            continue;
+        }
+        if (root->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_dictionary_filter(const VExprContextSPtrs& conjuncts,
+                                                             const DictionaryEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_dictionary_filter()) {
+            continue;
+        }
+        if (root->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_bloom_filter(const VExprContextSPtrs& conjuncts,
+                                                        const BloomFilterEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_bloom_filter()) {
+            continue;
+        }
+        if (root->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
 bool VExprContext::all_expr_inverted_index_evaluated() {
     return _index_context->has_index_result_for_expr(_root.get());
 }
@@ -329,9 +378,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
         ctxs[0]->_memory_usage += result_filter.allocated_bytes();
     }
     if (can_filter_all) {
-        for (auto& col : columns_to_filter) {
-            block->get_by_position(col).column->assume_mutable()->clear();
-        }
+        block->clear_column_data(columns_to_filter);
     } else {
         try {
             Block::filter_block_internal(block, columns_to_filter, result_filter);
@@ -367,10 +414,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
         ctxs[0]->_memory_usage += filter.allocated_bytes();
     }
     if (can_filter_all) {
-        for (auto& col : columns_to_filter) {
-            // NOLINTNEXTLINE(performance-move-const-arg)
-            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
-        }
+        block->clear_column_data(columns_to_filter);
     } else {
         RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, filter));
     }
@@ -433,41 +477,58 @@ Status VExprContext::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                 common_expr_to_slotref_map,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap,
+        segment_v2::AnnIndexStats& ann_index_stats, bool* ann_range_search_executed) {
+    if (ann_range_search_executed != nullptr) {
+        *ann_range_search_executed = false;
+    }
     if (_root == nullptr) {
         return Status::OK();
     }
 
+    AnnRangeSearchEvaluationResult evaluation_result;
     RETURN_IF_ERROR(_root->evaluate_ann_range_search(
             _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            row_bitmap, ann_index_stats));
+            rows_of_segment, row_bitmap, ann_index_stats, evaluation_result));
 
-    if (!_root->ann_range_search_executedd()) {
+    if (!evaluation_result.executed) {
         return Status::OK();
     }
+    if (ann_range_search_executed != nullptr) {
+        *ann_range_search_executed = true;
+    }
 
-    if (!_root->ann_dist_is_fulfilled()) {
+    DCHECK(_index_context != nullptr);
+    _index_context->set_index_result_for_expr(
+            _root.get(),
+            segment_v2::InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(row_bitmap),
+                                                  std::make_shared<roaring::Roaring>()));
+
+    if (!evaluation_result.dist_fulfilled) {
         // Do not perform index scan in this case.
         return Status::OK();
     }
 
-    auto src_col_idx = _ann_range_search_runtime.src_col_idx;
+    DCHECK_LT(_ann_range_search_runtime.src_col_idx, idx_to_cid.size());
+    const auto src_col_idx = cast_set<int>(_ann_range_search_runtime.src_col_idx);
+    const auto src_col_key = cast_set<ColumnId>(_ann_range_search_runtime.src_col_idx);
     auto slot_ref_map_it = common_expr_to_slotref_map.find(this);
     if (slot_ref_map_it == common_expr_to_slotref_map.end()) {
         return Status::OK();
     }
     auto& slot_ref_map = slot_ref_map_it->second;
-    ColumnId cid = idx_to_cid[src_col_idx];
-    if (slot_ref_map.find(cid) == slot_ref_map.end()) {
+    auto slot_ref_it = slot_ref_map.find(src_col_key);
+    if (slot_ref_it == slot_ref_map.end()) {
         return Status::OK();
     }
-    const VExpr* slot_ref_expr_addr = slot_ref_map.find(cid)->second;
-    _index_context->set_true_for_index_status(slot_ref_expr_addr, idx_to_cid[cid]);
+    const VExpr* slot_ref_expr_addr = slot_ref_it->second;
+    _index_context->set_true_for_index_status(slot_ref_expr_addr, src_col_idx);
 
     VLOG_DEBUG << fmt::format(
             "Evaluate ann range search for expr {}, src_col_idx {}, cid {}, row_bitmap "
             "cardinality {}",
-            _root->debug_string(), src_col_idx, cid, row_bitmap.cardinality());
+            _root->debug_string(), src_col_idx, idx_to_cid[_ann_range_search_runtime.src_col_idx],
+            row_bitmap.cardinality());
     return Status::OK();
 }
 

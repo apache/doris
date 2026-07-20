@@ -23,7 +23,6 @@
 
 #include "core/column/column.h"
 #include "core/column/column_string.h"
-#include "core/column/predicate_column.h"
 #include "core/pod_array.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -50,7 +49,7 @@ private:
     ColumnDictI32(const ColumnDictI32& src) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "copy not supported in ColumnDictionary");
     }
-    ColumnDictI32(FieldType type) : _type(type) {}
+    ColumnDictI32() = default;
 
 public:
     using Self = ColumnDictI32;
@@ -108,7 +107,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
-        return create(_type);
+        return create();
     }
 
     void insert(const Field& x) override {
@@ -232,7 +231,7 @@ public:
         _dict.initialize_hash_values_for_runtime_filter();
     }
 
-    uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
+    uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
 
     template <typename HybridSetType>
     void find_codes(const HybridSetType* values, std::vector<UInt8>& selected) const {
@@ -257,16 +256,7 @@ public:
         if (is_dict_sorted() && !is_dict_code_converted()) {
             convert_dict_codes_if_necessary();
         }
-        // if type is OLAP_FIELD_TYPE_CHAR, we need to construct TYPE_CHAR PredicateColumnType,
-        // because the string length will different from varchar and string which needed to be processed after.
-        auto create_column = [this]() -> MutableColumnPtr {
-            if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                return PredicateColumnType<TYPE_CHAR>::create();
-            }
-            return PredicateColumnType<TYPE_STRING>::create();
-        };
-
-        auto res = create_column();
+        auto res = ColumnString::create();
         res->reserve(_codes.capacity());
         for (int code : _codes) {
             auto value = _dict.get_value(code);
@@ -278,14 +268,6 @@ public:
     }
 
     inline const StringRef& get_value(value_type code) const { return _dict.get_value(code); }
-
-    inline StringRef get_shrink_value(value_type code) const {
-        StringRef result = _dict.get_value(code);
-        if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            result.size = strnlen(result.data, result.size);
-        }
-        return result;
-    }
 
     size_t dict_size() const { return _dict.size(); }
 
@@ -327,26 +309,13 @@ public:
             }
         }
 
-        inline uint32_t get_hash_value(Int32 code, FieldType type) const {
+        inline uint32_t get_hash_value(Int32 code) const {
             if (_compute_hash_value_flags[code]) {
                 return _hash_values[code];
             } else {
                 auto& sv = (*_dict_data)[code];
-                // The char data is stored in the disk with the schema length,
-                // and zeros are filled if the length is insufficient
-
-                // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
-                // Remove the suffix 0
-                // When writing data, use the CharField::consume function to fill in the trailing 0.
-
-                // For dictionary data of char type, sv.size is the schema length,
-                // so use strnlen to remove the 0 at the end to get the actual length.
-                size_t len = sv.size;
-                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                    len = strnlen(sv.data, sv.size);
-                }
                 uint32_t hash_val =
-                        crc32c::Extend(0, (const uint8_t*)sv.data, static_cast<uint32_t>(len));
+                        crc32c::Extend(0, (const uint8_t*)sv.data, static_cast<uint32_t>(sv.size));
                 _hash_values[code] = hash_val;
                 _compute_hash_value_flags[code] = 1;
                 return _hash_values[code];
@@ -485,7 +454,6 @@ private:
     bool _dict_code_converted = false;
     Dictionary _dict;
     Container _codes;
-    FieldType _type;
     std::pair<RowsetId, uint32_t> _rowset_segment_id;
     std::vector<StringRef> _strings;
 };

@@ -19,6 +19,7 @@
 
 #include <type_traits>
 
+#include "common/compiler_util.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
 #include "exec/common/hash_table/hash.h"
@@ -55,32 +56,18 @@ struct fixed_len_to_uint32_v2 {
     }
 };
 
-template <typename fixed_len_to_uint32_method, typename T, bool need_trim = false>
-uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* data,
-                         const uint8_t* nullmap, uint16_t* offsets, int number,
-                         const bool is_parse_column) {
-    auto get_element = [](const char* input_data, int idx) {
-        if constexpr (std::is_same_v<T, StringRef> && need_trim) {
-            const auto value = ((const StringRef*)(input_data))[idx];
-            int64_t size = value.size;
-            const char* data = value.data;
-            // CHAR type may pad the tail with \0, need to trim
-            while (size > 0 && data[size - 1] == '\0') {
-                size--;
-            }
-            return StringRef(value.data, size);
-        } else {
-            return ((const T*)(input_data))[idx];
-        }
-    };
-
+// Per-row probe driver. `read(idx)` yields the row value (T or StringRef).
+template <typename fixed_len_to_uint32_method, typename Accessor>
+inline ALWAYS_INLINE uint16_t find_batch_olap_impl(const BloomFilterAdaptor& bloom_filter,
+                                                   Accessor read, const uint8_t* nullmap,
+                                                   uint16_t* offsets, int number,
+                                                   const bool is_parse_column) {
     uint16_t new_size = 0;
     if (is_parse_column) {
         if (nullmap == nullptr) {
             for (uint16_t i = 0; i < number; i++) {
                 uint16_t idx = offsets[i];
-                if (!bloom_filter.test_element<fixed_len_to_uint32_method>(
-                            get_element(data, idx))) {
+                if (!bloom_filter.test_element<fixed_len_to_uint32_method>(read(idx))) {
                     continue;
                 }
                 offsets[new_size++] = idx;
@@ -93,8 +80,7 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
                         continue;
                     }
                 } else {
-                    if (!bloom_filter.test_element<fixed_len_to_uint32_method>(
-                                get_element(data, idx))) {
+                    if (!bloom_filter.test_element<fixed_len_to_uint32_method>(read(idx))) {
                         continue;
                     }
                 }
@@ -104,7 +90,7 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
     } else {
         if (nullmap == nullptr) {
             for (uint16_t i = 0; i < number; i++) {
-                if (!bloom_filter.test_element<fixed_len_to_uint32_method>(get_element(data, i))) {
+                if (!bloom_filter.test_element<fixed_len_to_uint32_method>(read(i))) {
                     continue;
                 }
                 offsets[new_size++] = i;
@@ -116,8 +102,7 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
                         continue;
                     }
                 } else {
-                    if (!bloom_filter.test_element<fixed_len_to_uint32_method>(
-                                get_element(data, i))) {
+                    if (!bloom_filter.test_element<fixed_len_to_uint32_method>(read(i))) {
                         continue;
                     }
                 }

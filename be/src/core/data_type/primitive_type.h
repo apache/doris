@@ -93,10 +93,12 @@ class DataTypeHLL;
 class DataTypeJsonb;
 class DataTypeArray;
 class DataTypeMap;
+class DataTypeNullable;
 class DataTypeVariant;
 class DataTypeStruct;
 class DataTypeBitMap;
 class DataTypeQuantileState;
+using DataTypeNullablePtr = std::shared_ptr<const DataTypeNullable>;
 template <PrimitiveType T>
 class ColumnVector;
 using ColumnUInt8 = ColumnVector<TYPE_BOOLEAN>;

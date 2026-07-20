@@ -62,6 +62,7 @@
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
+#include "storage/segment/encoding_info.h"
 #include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
@@ -125,8 +126,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
         }
         // encode the rowid into the primary key index
         if (_is_mow_with_cluster_key()) {
-            const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-            _rowid_coder = get_key_coder(type_info->type());
+            _rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
             // primary keys
             _primary_key_coders.swap(_key_coders);
             // cluster keys
@@ -147,11 +147,11 @@ SegmentWriter::~SegmentWriter() {
 }
 
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
-                                     const TabletColumn& column, TabletSchemaSPtr tablet_schema) {
+                                     const TabletColumn& column, const ColumnWriterOptions& opts) {
     meta->set_column_id(column_id);
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
-    meta->set_encoding(DEFAULT_ENCODING);
+    meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
     meta->set_default_value(column.default_value());
@@ -163,8 +163,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-        init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
-                         tablet_schema);
+        init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i), opts);
     }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
@@ -188,8 +187,9 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
                                             const TabletSchemaSPtr& schema) {
     ColumnWriterOptions opts;
     opts.meta = _footer.add_columns();
+    opts.storage_format = schema->storage_format();
 
-    init_column_meta(opts.meta, cid, column, schema);
+    init_column_meta(opts.meta, cid, column, opts);
 
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
     // except for columns whose type don't support zone map.
@@ -292,16 +292,11 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         }
     })
     if (column.is_row_store_column()) {
-        // smaller page size for row store column
+        // smaller page size for row store column; encoding is already set to PLAIN /
+        // PLAIN_V2 by init_column_meta via resolve_default_encoding().
         auto page_size = _tablet_schema->row_store_page_size();
         opts.data_page_size =
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
-        // Row store data is already serialized as a single blob. Keep it on plain pages
-        // to avoid introducing dictionary pages for the hidden row store column.
-        opts.meta->set_encoding(_tablet_schema->binary_plain_encoding_default_impl() ==
-                                                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                                        ? PLAIN_ENCODING_V2
-                                        : PLAIN_ENCODING);
     }
 
     opts.rowset_ctx = _opts.rowset_ctx;
@@ -311,10 +306,6 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.rowset_ctx != nullptr) {
         opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
     }
-    opts.encoding_preference = {.integer_type_default_use_plain_encoding =
-                                        _tablet_schema->integer_type_default_use_plain_encoding(),
-                                .binary_plain_encoding_default_impl =
-                                        _tablet_schema->binary_plain_encoding_default_impl()};
 
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
@@ -390,7 +381,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -399,14 +390,14 @@ void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<ColumnString*>(
-                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
-            row_store_column->clear();
+            auto row_store_column_ptr = block.get_by_position(i).column->clone_empty();
+            auto* row_store_column = static_cast<ColumnString*>(row_store_column_ptr.get());
             DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
             JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
                                                cast_set<int>(_tablet_schema->num_columns()), serdes,
                                                {_tablet_schema->row_columns_uids().begin(),
                                                 _tablet_schema->row_columns_uids().end()});
+            block.replace_by_position(i, std::move(row_store_column_ptr));
             break;
         }
     }
@@ -720,7 +711,7 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*block);
+        _serialize_block_to_row_column(*const_cast<Block*>(block));
     }
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
@@ -955,6 +946,10 @@ Status SegmentWriter::finalize_columns_data() {
 
 Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
+    // Record each index range separately. Vertical compaction writes column groups as
+    // data+index pairs, so a single [first index, EOF) range would include later column data.
+    // This SegmentWriter path is shared by cloud load, non-vertical compaction, schema change
+    // final output, and vertical compaction via VerticalBetaRowsetWriter.
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_inverted_index());
@@ -990,24 +985,36 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
             *index_size = _file_writer->bytes_appended() - index_start;
         }
     }
+    uint64_t file_index_end = _file_writer->bytes_appended();
+    _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
     // reset all column writers and data_conveter
     clear();
 
     return Status::OK();
 }
 
-Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
+Status SegmentWriter::finalize_footer(uint64_t* segment_file_size,
+                                      SegmentIndexFileCacheInfo* index_file_cache_info) {
+    uint64_t footer_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_footer());
     // finish
     RETURN_IF_ERROR(_file_writer->close(true));
     *segment_file_size = _file_writer->bytes_appended();
+    // The closed size completes the preload range recorded above. Local temporary rowsets, such as
+    // schema-change internal sorting output, are filtered by SegmentIndexFileCacheLoader.
+    _index_file_cache_info.segment_file_size = *segment_file_size;
+    _index_file_cache_info.add_index_range(footer_start, *segment_file_size - footer_start);
+    if (index_file_cache_info != nullptr) {
+        *index_file_cache_info = _index_file_cache_info;
+    }
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
     return Status::OK();
 }
 
-Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                               SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity
@@ -1017,12 +1024,10 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());
-    // Get the index start before finalize_footer since this function would write new data.
-    uint64_t index_start = _file_writer->bytes_appended();
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    RETURN_IF_ERROR(finalize_footer(segment_file_size, index_file_cache_info));
 
     if (timer.elapsed_time() > 5000000000l) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
@@ -1033,6 +1038,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     if (auto* cache_builder = _file_writer->cache_builder(); cache_builder != nullptr &&
                                                              cache_builder->_expiration_time == 0 &&
                                                              config::is_cloud_mode()) {
+        auto index_start = _index_file_cache_info.cache_start_offset();
         auto size = *index_size + *segment_file_size;
         auto holder = cache_builder->allocate_cache_holder(index_start, size, _tablet->tablet_id());
         for (auto& segment : holder->file_blocks) {
@@ -1128,7 +1134,7 @@ Status SegmentWriter::_write_primary_key_index() {
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
     // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
-    if (_tablet_schema->is_external_segment_column_meta_used()) {
+    if (_tablet_schema->storage_format() == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3) {
         _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
         VLOG_DEBUG << "use external column meta";
         // External ColumnMetaPB writing (optional)
@@ -1256,11 +1262,11 @@ Status SegmentWriter::_generate_short_key_index(std::vector<IOlapColumnDataAcces
     return Status::OK();
 }
 
-inline bool SegmentWriter::_is_mow() {
+bool SegmentWriter::_is_mow() {
     return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
 }
 
-inline bool SegmentWriter::_is_mow_with_cluster_key() {
+bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 

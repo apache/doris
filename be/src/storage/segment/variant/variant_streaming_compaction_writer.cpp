@@ -57,8 +57,7 @@ Status VariantStreamingCompactionWriter::init() {
 
 Status VariantStreamingCompactionWriter::_init_root_writer() {
     _root_writer = std::make_unique<ScalarColumnWriter>(
-            _opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*_tablet_column)),
-            _opts.file_writer);
+            _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
     RETURN_IF_ERROR(_root_writer->init());
     _opts.meta->set_num_rows(0);
     return Status::OK();
@@ -143,8 +142,10 @@ Status VariantStreamingCompactionWriter::_append_root_column(const ColumnVariant
     auto expected_root_type = make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
     variant->ensure_root_node_type(expected_root_type);
 
-    auto& nullable_column = assert_cast<ColumnNullable&>(*variant->get_root()->assume_mutable());
-    auto root_column = nullable_column.get_nested_column_ptr();
+    auto root_mut = variant->get_root();
+    auto& nullable_column = assert_cast<ColumnNullable&>(*root_mut);
+    auto root_column = IColumn::mutate(
+            static_cast<const ColumnNullable&>(nullable_column).get_nested_column_ptr());
     const size_t num_rows = chunk_variant.rows();
     variant_writer_helpers::maybe_remove_root_jsonb_with_empty_defaults(
             &root_column, num_rows, _streaming_plan.can_remove_root_jsonb());
@@ -159,10 +160,11 @@ Status VariantStreamingCompactionWriter::_append_root_column(const ColumnVariant
         } else {
             null_column->insert_many_defaults(num_rows);
         }
-        root_column = ColumnNullable::create(root_column->get_ptr(), std::move(null_column));
+        root_column = ColumnNullable::create(std::move(root_column), std::move(null_column));
     } else {
-        root_column = ColumnNullable::create(root_column->get_ptr(),
-                                             ColumnUInt8::create(root_column->size(), 0));
+        const size_t root_column_size = root_column->size();
+        root_column = ColumnNullable::create(std::move(root_column),
+                                             ColumnUInt8::create(root_column_size, 0));
     }
 
     auto converter = std::make_unique<OlapBlockDataConvertor>();

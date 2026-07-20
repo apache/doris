@@ -60,8 +60,10 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -142,7 +144,11 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                 TableIdentifier.of(dbName, tableName),
                 icebergSchema,
                 PartitionSpec.unpartitioned(),
-                ImmutableMap.of("format-version", "2"));
+                ImmutableMap.of(
+                        TableProperties.FORMAT_VERSION, "2",
+                        TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                        TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                        TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName()));
 
         List<Column> schema = ImmutableList.of(
                 new Column("id", PrimitiveType.INT),
@@ -172,7 +178,12 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Table mockedIcebergTable = Mockito.mock(Table.class);
         PartitionSpec mockedSpec = Mockito.mock(PartitionSpec.class);
         Mockito.doReturn(false).when(mockedSpec).isPartitioned();
-        Mockito.doReturn(ImmutableMap.of("format-version", "2")).when(mockedIcebergTable).properties();
+        Mockito.doReturn(ImmutableMap.of(
+                TableProperties.FORMAT_VERSION, "2",
+                TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName()))
+                .when(mockedIcebergTable).properties();
         Mockito.doReturn(mockedSpec).when(mockedIcebergTable).spec();
         Mockito.doReturn(ImmutableMap.<Integer, PartitionSpec>of()).when(mockedIcebergTable).specs();
         Mockito.doReturn(icebergSchema).when(mockedIcebergTable).schema();
@@ -186,6 +197,10 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).filter(ArgumentMatchers.<org.apache.iceberg.expressions.Expression>any());
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).planWith(ArgumentMatchers.any());
         Mockito.doReturn(null).when(mockedTableScan).snapshot();
+        // Keep the scan schema aligned with the mocked table schema. IcebergScanNode reads the
+        // selected scan schema when serializing initial defaults, and several tests temporarily
+        // replace the table schema to exercise partition transforms.
+        Mockito.doAnswer(invocation -> mockedIcebergTable.schema()).when(mockedTableScan).schema();
         Mockito.doReturn(CloseableIterable.withNoopClose(java.util.Collections.emptyList()))
                 .when(mockedTableScan).planFiles();
 

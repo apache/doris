@@ -70,6 +70,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().setRuntimeFilterType(8);
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
     }
 
     @Test
@@ -102,12 +103,12 @@ public class RuntimeFilterTest extends SSBTestBase {
 
     @Test
     public void testNestedJoinGenerateRuntimeFilter() {
-        String sql = SSBUtils.Q4_1;
+        String sql = SSBUtils.Q4_4;
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(4, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("p_partkey", "lo_partkey"), Pair.of("s_suppkey", "lo_suppkey"),
-                Pair.of("c_custkey", "lo_custkey"), Pair.of("lo_orderdate", "d_datekey")));
+                Pair.of("c_custkey", "lo_custkey"), Pair.of("d_datekey", "lo_orderdate")));
     }
 
     @Test
@@ -132,6 +133,25 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(2, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("s_suppkey", "c_custkey"), Pair.of("c_custkey", "lo_custkey")));
+    }
+
+    @Test
+    public void testDoNotPushDownNonNullPropagatingRuntimeFilterThroughOuterJoin() {
+        String sql = "select * from lineorder left outer join customer on lo_custkey = c_custkey"
+                + " inner join supplier on coalesce(c_custkey, 0) = s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size());
+    }
+
+    @Test
+    public void testPushDownNullPropagatingRuntimeFilterThroughOuterJoin() {
+        String sql = "select * from lineorder left outer join customer on lo_custkey = c_custkey"
+                + " inner join supplier on c_custkey = s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(2, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("c_custkey", "lo_custkey"),
+                Pair.of("s_suppkey", "c_custkey")));
     }
 
     @Test
@@ -316,8 +336,8 @@ public class RuntimeFilterTest extends SSBTestBase {
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .implement();
-        PhysicalPlan plan = checker.getPhysicalPlan();
+                .optimize();
+        PhysicalPlan plan = checker.getBestPlanTree();
         plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         System.out.println(plan.treeString());
         new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);

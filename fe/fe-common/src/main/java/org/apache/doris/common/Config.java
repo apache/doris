@@ -464,6 +464,13 @@ public class Config extends ConfigBase {
             "The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
+    @ConfField(description = {
+            "Jetty 在应用未消费完请求体时，额外尝试读取剩余内容的最大次数。"
+                    + "-1 表示不限制，0 表示不额外读取，正数表示最大读取次数。",
+            "The maximum number of extra reads Jetty performs for unconsumed request content. "
+                    + "-1 means unlimited, 0 means disabled, and a positive value limits the read attempts."})
+    public static int jetty_server_max_unconsumed_request_content_reads = -1;
+
     @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 1MB。",
             "The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
     public static int jetty_server_max_http_header_size = 1048576;
@@ -704,6 +711,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Stream Load 是否默认打开 memtable 前移",
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable forwarding group commit stream load to follower nodes."
+                    + " If true, stream load with group commit mode will be forwarded to a follower FE round robin."})
+    public static boolean enable_forward_group_commit_stream_load_to_follower = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Load 的最大超时时间，单位是秒。",
             "Maximal timeout for load job, in seconds."})
@@ -1317,11 +1329,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
 
+    /**
+     * streaming task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_min_timeout_sec = 300;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
+
+    // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 100;
@@ -2350,6 +2372,13 @@ public class Config extends ConfigBase {
     public static long max_external_table_split_file_meta_cache_num = 100000;
 
     /**
+     * Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session.
+     */
+    @ConfField(mutable = false, masterOnly = true, description = {
+            "Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session."})
+    public static long max_compute_write_max_block_count = 20000L;
+
+    /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
      */
@@ -2381,6 +2410,11 @@ public class Config extends ConfigBase {
             "The auto refresh time of external meta cache."
     })
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
+
+    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
+    public static boolean enable_external_meta_cache_manual_miss_load = true;
 
     /**
      * Github workflow test type, for setting some session variables
@@ -2960,6 +2994,14 @@ public class Config extends ConfigBase {
                 + " The default setting is false."
     })
     public static boolean enable_udf_in_load = false;
+
+    @ConfField(description = {
+        "开启python_udf, 默认为true。如果该配置为false，则禁止创建和使用python_udf。在一些场景下关闭该配置可防止命令注入攻击。",
+        "Used to enable python_udf, default is true. if this configuration is false, creation and use of python_udf "
+            + "is disabled. in some scenarios it may be necessary to disable this configuration to prevent "
+            + "command injection attacks."
+    })
+    public static boolean enable_python_udf = true;
 
     @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
@@ -3592,6 +3634,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
+            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
+            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
+            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    public static int cloud_warm_up_matched_tables_display_limit = 100;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 
@@ -3627,6 +3684,23 @@ public class Config extends ConfigBase {
             "streamload route policy, available options are "
             + "public-private/public/private/direct/random-be and empty string" })
     public static String streamload_redirect_policy = "";
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在返回 307 后额外丢弃请求体的最大字节数。"
+                    + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
+            "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
+                    + "0 disables the compatibility logic, and a positive value sets the byte limit."})
+    // Enable a generous bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
+    public static long stream_load_redirect_bounded_drain_max_bytes = 1024L * 1024 * 1024;
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
+                    + "0 表示不额外等待，用于给慢客户端或分段到达的数据保留一个有限的缓冲窗口。",
+            "The maximum idle wait time in milliseconds after FE detects no readable request body bytes "
+                    + "during Stream Load redirect drain. 0 disables the extra idle wait, while a positive value "
+                    + "keeps a bounded grace window for slow clients or delayed request body chunks."})
+    // Keep a small grace period for delayed body chunks after FE has already written the redirect.
+    public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下是否启用 group commit 的 streamload BE 转发功能。"
@@ -3975,4 +4049,15 @@ public class Config extends ConfigBase {
                     + "by default"
     })
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable adaptive random bucket load. When enabled, each BE computes its own local "
+                    + "bucket set (buckets whose primary replica it hosts) from the tablet location info "
+                    + "sent by FE, and rotates across those buckets once per-tablet write volume exceeds "
+                    + "the threshold (default 200 MB). This reduces import memory pressure and improves "
+                    + "throughput for random-distribution tables. Covers all load types uniformly.",
+            "是否启用自适应随机桶导入。开启后每个 BE 根据 FE 下发的 tablet 位置信息自行计算本地桶集合"
+                    + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
+                    + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
+    public static boolean enable_adaptive_random_bucket_load = true;
 }

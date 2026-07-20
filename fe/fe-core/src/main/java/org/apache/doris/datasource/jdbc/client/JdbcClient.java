@@ -318,7 +318,7 @@ public abstract class JdbcClient {
                 String currentDatabase = conn.getSchema();
                 remoteDatabaseNames.add(currentDatabase);
             } else {
-                rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
+                rs = conn.getMetaData().getSchemas(conn.getCatalog(), getSchemaPatternForDatabaseNameList());
                 while (rs.next()) {
                     remoteDatabaseNames.add(rs.getString("TABLE_SCHEM"));
                 }
@@ -329,6 +329,18 @@ public abstract class JdbcClient {
             close(rs, conn);
         }
         return filterDatabaseNames(remoteDatabaseNames);
+    }
+
+    /**
+     * Schema pattern passed to {@link java.sql.DatabaseMetaData#getSchemas(String, String)} when listing
+     * remote database names.
+     *
+     * <p>The default {@code null} follows JDBC semantics of "schema name should not be used to narrow
+     * the search", preserving the existing generic behavior. Subclasses should override this only when
+     * a driver treats {@code null} specially and does not return the schemas Doris expects.
+     */
+    protected String getSchemaPatternForDatabaseNameList() {
+        return null;
     }
 
     /**
@@ -385,6 +397,9 @@ public abstract class JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
+                if (!isExactTable(databaseMetaData, rs, remoteDbName, remoteTableName)) {
+                    continue;
+                }
                 tableSchema.add(new JdbcFieldSchema(rs));
             }
         } catch (SQLException e) {
@@ -475,13 +490,20 @@ public abstract class JdbcClient {
         return remoteTableName;
     }
 
-    protected boolean isTableModified(String modifiedTableName, String actualTableName) {
-        return false;
-    }
-
     protected ResultSet getRemoteColumns(DatabaseMetaData databaseMetaData, String catalogName, String remoteDbName,
             String remoteTableName) throws SQLException {
         return databaseMetaData.getColumns(catalogName, remoteDbName, remoteTableName, null);
+    }
+
+    protected boolean isExactTable(DatabaseMetaData databaseMetaData, ResultSet resultSet,
+            String remoteDbName, String remoteTableName) throws SQLException {
+        // JDBC treats schema and table names as patterns, so verify both identities on returned rows.
+        return remoteDbName.equals(getRemoteDatabaseName(resultSet))
+                && remoteTableName.equals(resultSet.getString("TABLE_NAME"));
+    }
+
+    protected String getRemoteDatabaseName(ResultSet resultSet) throws SQLException {
+        return resultSet.getString("TABLE_SCHEM");
     }
 
     protected List<String> filterDatabaseNames(List<String> remoteDbNames) {

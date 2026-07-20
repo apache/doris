@@ -21,8 +21,10 @@
 #include <rapidjson/rapidjson.h>
 
 #include <algorithm>
+#include <cctype>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -136,6 +138,41 @@ public:
 
 protected:
     TAIResource _config;
+
+    // Appends one provider-parsed text result to `results`.
+    // The adapter has already parsed the provider's outer response envelope before calling here.
+    // Example:
+    // provider response -> choices[0].message.content = "[\"1\",\"0\",\"1\"]"
+    // this helper       -> appends "1", "0", "1" into `results`
+    static Status append_parsed_text_result(std::string_view text,
+                                            std::vector<std::string>& results) {
+        size_t begin = 0;
+        size_t end = text.size();
+        while (begin < end && std::isspace(static_cast<unsigned char>(text[begin]))) {
+            ++begin;
+        }
+        while (begin < end && std::isspace(static_cast<unsigned char>(text[end - 1]))) {
+            --end;
+        }
+
+        if (begin < end && text[begin] == '[' && text[end - 1] == ']') {
+            rapidjson::Document doc;
+            doc.Parse(text.data() + begin, end - begin);
+            if (!doc.HasParseError() && doc.IsArray()) {
+                for (rapidjson::SizeType i = 0; i < doc.Size(); ++i) {
+                    if (!doc[i].IsString()) {
+                        return Status::InternalError(
+                                "Invalid batch result format, array element {} is not a string", i);
+                    }
+                    results.emplace_back(doc[i].GetString(), doc[i].GetStringLength());
+                }
+                return Status::OK();
+            }
+        }
+
+        results.emplace_back(text.data(), text.size());
+        return Status::OK();
+    }
 
     // return true if the model support dimension parameter
     virtual bool supports_dimension_param(const std::string& model_name) const { return false; }
@@ -304,24 +341,27 @@ public:
             for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
                 if (choices[i].HasMember("message") && choices[i]["message"].HasMember("content") &&
                     choices[i]["message"]["content"].IsString()) {
-                    results.emplace_back(choices[i]["message"]["content"].GetString());
+                    RETURN_IF_ERROR(append_parsed_text_result(
+                            choices[i]["message"]["content"].GetString(), results));
                 } else if (choices[i].HasMember("text") && choices[i]["text"].IsString()) {
                     // Some local LLMs use a simpler format
-                    results.emplace_back(choices[i]["text"].GetString());
+                    RETURN_IF_ERROR(
+                            append_parsed_text_result(choices[i]["text"].GetString(), results));
                 }
             }
         } else if (doc.HasMember("text") && doc["text"].IsString()) {
             // Format 2: Simple response with just "text" or "content" field
-            results.emplace_back(doc["text"].GetString());
+            RETURN_IF_ERROR(append_parsed_text_result(doc["text"].GetString(), results));
         } else if (doc.HasMember("content") && doc["content"].IsString()) {
-            results.emplace_back(doc["content"].GetString());
+            RETURN_IF_ERROR(append_parsed_text_result(doc["content"].GetString(), results));
         } else if (doc.HasMember("response") && doc["response"].IsString()) {
             // Format 3: Response field (Ollama `generate` format)
-            results.emplace_back(doc["response"].GetString());
+            RETURN_IF_ERROR(append_parsed_text_result(doc["response"].GetString(), results));
         } else if (doc.HasMember("message") && doc["message"].IsObject() &&
                    doc["message"].HasMember("content") && doc["message"]["content"].IsString()) {
             // Format 4: message/content field (Ollama `chat` format)
-            results.emplace_back(doc["message"]["content"].GetString());
+            RETURN_IF_ERROR(
+                    append_parsed_text_result(doc["message"]["content"].GetString(), results));
         } else {
             return Status::NotSupported("Unsupported response format from local AI.");
         }
@@ -664,7 +704,8 @@ public:
                                                  _config.provider_type, response_body);
                 }
 
-                results.emplace_back(output[i]["content"][0]["text"].GetString());
+                RETURN_IF_ERROR(append_parsed_text_result(
+                        output[i]["content"][0]["text"].GetString(), results));
             }
         } else if (doc.HasMember("choices") && doc["choices"].IsArray()) {
             /// for completions endpoint
@@ -694,7 +735,8 @@ public:
                                                  _config.provider_type, response_body);
                 }
 
-                results.emplace_back(choices[i]["message"]["content"].GetString());
+                RETURN_IF_ERROR(append_parsed_text_result(
+                        choices[i]["message"]["content"].GetString(), results));
             }
         } else {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
@@ -920,7 +962,8 @@ public:
                                              _config.provider_type);
             }
 
-            results.emplace_back(candidates[i]["content"]["parts"][0]["text"].GetString());
+            RETURN_IF_ERROR(append_parsed_text_result(
+                    candidates[i]["content"]["parts"][0]["text"].GetString(), results));
         }
 
         return Status::OK();
@@ -933,15 +976,30 @@ public:
         auto& allocator = doc.GetAllocator();
 
         /*{
-          "model": "models/gemini-embedding-001",
-          "content": {
-              "parts": [
-                {
-                  "text": "xxx"
-                }
-              ]
+          "requests": [
+            {
+              "model": "models/gemini-embedding-001",
+              "content": {
+                "parts": [
+                  {
+                    "text": "xxx"
+                  }
+                ]
+              },
+              "outputDimensionality": 1024
+            },
+            {
+              "model": "models/gemini-embedding-001",
+              "content": {
+                "parts": [
+                  {
+                    "text": "yyy"
+                  }
+                ]
+              },
+              "outputDimensionality": 1024
             }
-          "outputDimensionality": 1024
+          ]
         }*/
 
         // gemini requires the model format as `models/{model}`
@@ -949,18 +1007,23 @@ public:
         if (!model_name.starts_with("models/")) {
             model_name = "models/" + model_name;
         }
-        doc.AddMember("model", rapidjson::Value(model_name.c_str(), allocator), allocator);
-        add_dimension_params(doc, allocator);
 
-        rapidjson::Value content(rapidjson::kObjectType);
+        rapidjson::Value requests(rapidjson::kArrayType);
         for (const auto& input : inputs) {
+            rapidjson::Value request(rapidjson::kObjectType);
+            request.AddMember("model", rapidjson::Value(model_name.c_str(), allocator), allocator);
+            add_dimension_params(request, allocator);
+
+            rapidjson::Value content(rapidjson::kObjectType);
             rapidjson::Value parts(rapidjson::kArrayType);
             rapidjson::Value part(rapidjson::kObjectType);
             part.AddMember("text", rapidjson::Value(input.c_str(), allocator), allocator);
             parts.PushBack(part, allocator);
             content.AddMember("parts", parts, allocator);
+            request.AddMember("content", content, allocator);
+            requests.PushBack(request, allocator);
         }
-        doc.AddMember("content", content, allocator);
+        doc.AddMember("requests", requests, allocator);
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -978,6 +1041,20 @@ public:
         if (doc.HasParseError() || !doc.IsObject()) {
             return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
                                          response_body);
+        }
+        if (doc.HasMember("embeddings") && doc["embeddings"].IsArray()) {
+            const auto& embeddings = doc["embeddings"];
+            results.reserve(embeddings.Size());
+            for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
+                if (!embeddings[i].HasMember("values") || !embeddings[i]["values"].IsArray()) {
+                    return Status::InternalError("Invalid {} response format: {}",
+                                                 _config.provider_type, response_body);
+                }
+                std::transform(embeddings[i]["values"].Begin(), embeddings[i]["values"].End(),
+                               std::back_inserter(results.emplace_back()),
+                               [](const auto& val) { return val.GetFloat(); });
+            }
+            return Status::OK();
         }
         if (!doc.HasMember("embedding") || !doc["embedding"].IsObject()) {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
@@ -1109,8 +1186,7 @@ public:
             }
         }
 
-        results.emplace_back(std::move(result));
-        return Status::OK();
+        return append_parsed_text_result(result, results);
     }
 };
 
@@ -1127,8 +1203,7 @@ public:
 
     Status parse_response(const std::string& response_body,
                           std::vector<std::string>& results) const override {
-        results.emplace_back(response_body);
-        return Status::OK();
+        return append_parsed_text_result(response_body, results);
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,

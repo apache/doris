@@ -21,6 +21,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 
 #include "common/status.h"
 #include "io/fs/path.h"

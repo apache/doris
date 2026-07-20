@@ -149,6 +149,18 @@ public:
         memset(data.data() + old_size, 0, length * sizeof(data[0]));
     }
 
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        Self* output = assert_cast<Self*>(col_ptr);
+        auto& res_data = output->get_data();
+        DCHECK(res_data.empty())
+                << "filter_by_selector requires the destination column to be empty";
+        res_data.resize(sel_size);
+        for (size_t i = 0; i < sel_size; i++) {
+            res_data[i] = data[sel[i]];
+        }
+        return Status::OK();
+    }
+
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
@@ -171,6 +183,9 @@ public:
 
     void update_crc32c_batch(uint32_t* __restrict hashes,
                              const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_batch_default_on_null(uint32_t* __restrict hashes,
+                                             const uint8_t* __restrict null_map) const override;
 
     void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                               const uint8_t* __restrict null_map) const override;
@@ -205,7 +220,7 @@ public:
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (auto rhs_concrete = typeid_cast<const ColumnDecimal<T>*>(&rhs))
+        if (auto rhs_concrete = check_and_get_column<ColumnDecimal<T>>(&rhs))
             return scale == rhs_concrete->scale;
         return false;
     }

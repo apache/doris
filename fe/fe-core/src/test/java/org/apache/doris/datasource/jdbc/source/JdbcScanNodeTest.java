@@ -626,4 +626,89 @@ public class JdbcScanNodeTest {
         Assert.assertTrue(result.contains("\"ID\" = 1"));
         Assert.assertTrue(result.contains(" AND "));
     }
+
+    @Test
+    public void testBoolLiteralSQLServerBinaryPredicate() {
+        new Expectations() {{
+                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
+                result = new mockit.Delegate() {
+                    String getProperColumnName(TOdbcTableType tableType, String colName) {
+                        return "\"" + colName + "\"";
+                    }
+                };
+            }};
+
+        // SQL Server `bit` maps to Doris BOOLEAN. `bit_value = '1'` is folded to a boolean
+        // literal during analysis and must be pushed down as `= 1`, not `= TRUE`, otherwise
+        // SQL Server reports "Invalid column name 'TRUE'". See issue #64464.
+        SlotRef bitSlot = new SlotRef(null, "bit_value");
+
+        BinaryPredicate eqTrue = new BinaryPredicate(Operator.EQ, bitSlot, new BoolLiteral(true));
+        String result = JdbcScanNode.conjunctExprToString(TOdbcTableType.SQLSERVER, eqTrue, mockTable);
+        Assert.assertEquals("\"bit_value\" = 1", result);
+        Assert.assertFalse(result.contains("TRUE"));
+
+        BinaryPredicate eqFalse = new BinaryPredicate(Operator.EQ, bitSlot, new BoolLiteral(false));
+        result = JdbcScanNode.conjunctExprToString(TOdbcTableType.SQLSERVER, eqFalse, mockTable);
+        Assert.assertEquals("\"bit_value\" = 0", result);
+        Assert.assertFalse(result.contains("FALSE"));
+    }
+
+    @Test
+    public void testBoolLiteralSQLServerInPredicate() {
+        new Expectations() {{
+                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
+                result = new mockit.Delegate() {
+                    String getProperColumnName(TOdbcTableType tableType, String colName) {
+                        return "\"" + colName + "\"";
+                    }
+                };
+            }};
+
+        SlotRef bitSlot = new SlotRef(null, "bit_value");
+        List<Expr> inList = Arrays.asList(new BoolLiteral(true), new BoolLiteral(false));
+        InPredicate inPred = new InPredicate(bitSlot, inList, false);
+
+        String result = JdbcScanNode.conjunctExprToString(TOdbcTableType.SQLSERVER, inPred, mockTable);
+        Assert.assertEquals("\"bit_value\" IN (1, 0)", result);
+        Assert.assertFalse(result.contains("TRUE"));
+        Assert.assertFalse(result.contains("FALSE"));
+    }
+
+    @Test
+    public void testBoolLiteralOracleBinaryPredicate() {
+        new Expectations() {{
+                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
+                result = new mockit.Delegate() {
+                    String getProperColumnName(TOdbcTableType tableType, String colName) {
+                        return "\"" + colName + "\"";
+                    }
+                };
+            }};
+
+        // Oracle has no boolean type either; render as 1/0.
+        SlotRef flagSlot = new SlotRef(null, "FLAG");
+        BinaryPredicate eqTrue = new BinaryPredicate(Operator.EQ, flagSlot, new BoolLiteral(true));
+        String result = JdbcScanNode.conjunctExprToString(TOdbcTableType.ORACLE, eqTrue, mockTable);
+        Assert.assertEquals("\"FLAG\" = 1", result);
+    }
+
+    @Test
+    public void testBoolLiteralMysqlKeepsKeyword() {
+        new Expectations() {{
+                mockTable.getProperRemoteColumnName((TOdbcTableType) any, anyString);
+                result = new mockit.Delegate() {
+                    String getProperColumnName(TOdbcTableType tableType, String colName) {
+                        return "\"" + colName + "\"";
+                    }
+                };
+            }};
+
+        // MySQL accepts TRUE/FALSE and PostgreSQL requires it (strict boolean type),
+        // so the keyword rendering must be preserved for non-integer-boolean dialects.
+        SlotRef flagSlot = new SlotRef(null, "flag");
+        BinaryPredicate eqTrue = new BinaryPredicate(Operator.EQ, flagSlot, new BoolLiteral(true));
+        String result = JdbcScanNode.conjunctExprToString(TOdbcTableType.MYSQL, eqTrue, mockTable);
+        Assert.assertEquals("(\"flag\" = TRUE)", result);
+    }
 }

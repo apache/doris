@@ -65,6 +65,53 @@ void FileCacheMetrics::update_metrics_callback() {
             stats->num_io_bytes_read_from_peer);
 }
 
+FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
+                                               const FileCacheStatistics& previous) {
+    FileCacheStatistics diff;
+#define SUBTRACT_FIELD(field) diff.field = current.field - previous.field
+    SUBTRACT_FIELD(num_local_io_total);
+    SUBTRACT_FIELD(num_remote_io_total);
+    SUBTRACT_FIELD(num_peer_io_total);
+    SUBTRACT_FIELD(local_io_timer);
+    SUBTRACT_FIELD(bytes_read_from_local);
+    SUBTRACT_FIELD(bytes_read_from_remote);
+    SUBTRACT_FIELD(bytes_read_from_peer);
+    SUBTRACT_FIELD(remote_io_timer);
+    SUBTRACT_FIELD(peer_io_timer);
+    SUBTRACT_FIELD(remote_wait_timer);
+    SUBTRACT_FIELD(write_cache_io_timer);
+    SUBTRACT_FIELD(bytes_write_into_cache);
+    SUBTRACT_FIELD(num_skip_cache_io_total);
+    SUBTRACT_FIELD(read_cache_file_directly_timer);
+    SUBTRACT_FIELD(cache_get_or_set_timer);
+    SUBTRACT_FIELD(lock_wait_timer);
+    SUBTRACT_FIELD(get_timer);
+    SUBTRACT_FIELD(set_timer);
+
+    SUBTRACT_FIELD(inverted_index_num_local_io_total);
+    SUBTRACT_FIELD(inverted_index_num_remote_io_total);
+    SUBTRACT_FIELD(inverted_index_num_peer_io_total);
+    SUBTRACT_FIELD(inverted_index_bytes_read_from_local);
+    SUBTRACT_FIELD(inverted_index_bytes_read_from_remote);
+    SUBTRACT_FIELD(inverted_index_bytes_read_from_peer);
+    SUBTRACT_FIELD(inverted_index_local_io_timer);
+    SUBTRACT_FIELD(inverted_index_remote_io_timer);
+    SUBTRACT_FIELD(inverted_index_peer_io_timer);
+    SUBTRACT_FIELD(inverted_index_io_timer);
+
+    SUBTRACT_FIELD(segment_footer_index_num_local_io_total);
+    SUBTRACT_FIELD(segment_footer_index_num_remote_io_total);
+    SUBTRACT_FIELD(segment_footer_index_num_peer_io_total);
+    SUBTRACT_FIELD(segment_footer_index_bytes_read_from_local);
+    SUBTRACT_FIELD(segment_footer_index_bytes_read_from_remote);
+    SUBTRACT_FIELD(segment_footer_index_bytes_read_from_peer);
+    SUBTRACT_FIELD(segment_footer_index_local_io_timer);
+    SUBTRACT_FIELD(segment_footer_index_remote_io_timer);
+    SUBTRACT_FIELD(segment_footer_index_peer_io_timer);
+#undef SUBTRACT_FIELD
+    return diff;
+}
+
 FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
     static const char* cache_profile = "FileCache";
     ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
@@ -119,6 +166,25 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexPeerIOUseTimer", cache_profile, 1);
     inverted_index_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexIOTimer", cache_profile, 1);
+
+    segment_footer_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
+    segment_footer_index_num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexNumRemoteIOTotal", TUnit::UNIT, cache_profile, 1);
+    segment_footer_index_num_peer_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexNumPeerIOTotal", TUnit::UNIT, cache_profile, 1);
+    segment_footer_index_bytes_scanned_from_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexBytesScannedFromCache", TUnit::BYTES, cache_profile, 1);
+    segment_footer_index_bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexBytesScannedFromRemote", TUnit::BYTES, cache_profile, 1);
+    segment_footer_index_bytes_scanned_from_peer = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexBytesScannedFromPeer", TUnit::BYTES, cache_profile, 1);
+    segment_footer_index_local_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "SegmentFooterIndexLocalIOUseTimer", cache_profile, 1);
+    segment_footer_index_remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "SegmentFooterIndexRemoteIOUseTimer", cache_profile, 1);
+    segment_footer_index_peer_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "SegmentFooterIndexPeerIOUseTimer", cache_profile, 1);
 }
 
 void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) const {
@@ -156,6 +222,25 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(inverted_index_remote_io_timer, statistics->inverted_index_remote_io_timer);
     COUNTER_UPDATE(inverted_index_peer_io_timer, statistics->inverted_index_peer_io_timer);
     COUNTER_UPDATE(inverted_index_io_timer, statistics->inverted_index_io_timer);
+
+    COUNTER_UPDATE(segment_footer_index_num_local_io_total,
+                   statistics->segment_footer_index_num_local_io_total);
+    COUNTER_UPDATE(segment_footer_index_num_remote_io_total,
+                   statistics->segment_footer_index_num_remote_io_total);
+    COUNTER_UPDATE(segment_footer_index_num_peer_io_total,
+                   statistics->segment_footer_index_num_peer_io_total);
+    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_cache,
+                   statistics->segment_footer_index_bytes_read_from_local);
+    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_remote,
+                   statistics->segment_footer_index_bytes_read_from_remote);
+    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_peer,
+                   statistics->segment_footer_index_bytes_read_from_peer);
+    COUNTER_UPDATE(segment_footer_index_local_io_timer,
+                   statistics->segment_footer_index_local_io_timer);
+    COUNTER_UPDATE(segment_footer_index_remote_io_timer,
+                   statistics->segment_footer_index_remote_io_timer);
+    COUNTER_UPDATE(segment_footer_index_peer_io_timer,
+                   statistics->segment_footer_index_peer_io_timer);
 }
 
 } // namespace doris::io

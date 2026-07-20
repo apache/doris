@@ -266,6 +266,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
+    private void addRequestForShuffleJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
+        addShuffleJoinRequestProperty(hashJoin, ShuffleType.REQUIRE);
+    }
+
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
         DistributeHint hint = hashJoin.getDistributeHint();
@@ -275,24 +279,17 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             return null;
         }
         if (hint.distributeType == DistributeType.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
-            // shuffle join
             if (hashJoin.getDistributeHint().getSkewInfo() != null) {
                 addShuffleJoinRequestProperty(hashJoin, ShuffleType.REQUIRE_EQUAL);
             } else {
-                addShuffleJoinRequestProperty(hashJoin, ShuffleType.REQUIRE);
+                addRequestForShuffleJoin(hashJoin);
             }
             hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
-            // Scenario 3.3: when both children are Global AGG, try unified single shuffle key from join key ∩ gby
-            Optional<Pair<List<ExprId>, List<ExprId>>> optimalKeys =
-                    ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoin(hashJoin, context);
-            optimalKeys.ifPresent(pair -> addRequestPropertyToChildren(
-                    PhysicalProperties.createHash(pair.first, ShuffleType.REQUIRE),
-                    PhysicalProperties.createHash(pair.second, ShuffleType.REQUIRE)));
-            addShuffleJoinRequestProperty(hashJoin, ShuffleType.REQUIRE);
+            addRequestForShuffleJoin(hashJoin);
         }
 
         // for broadcast join
@@ -497,12 +494,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else if (agg.getAggPhase().isGlobal()) {
             // partition expressions already set by rule
             if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
-                List<Expression> partitionExprs = agg.getPartitionExpressions().get();
-                Optional<List<Expression>> bestGbyKeys =
-                        ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg, partitionExprs, connectContext);
-                bestGbyKeys.ifPresent(keys -> addRequestPropertyToChildren(
-                        PhysicalProperties.createHash(keys, ShuffleType.REQUIRE)));
-                addRequestPropertyToChildren(PhysicalProperties.createHash(partitionExprs, ShuffleType.REQUIRE));
+                addRequestPropertyToChildren(
+                        PhysicalProperties.createHash(agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
                 return null;
             }
             if (agg.getGroupByExpressions().isEmpty()) {
@@ -514,8 +507,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                     .map(SlotReference.class::cast)
                     .map(SlotReference::getExprId)
                     .collect(Collectors.toList());
-            // If the request received by agg is (a,b,c,d,e), the request sent by agg is (a,b,c,d,e,f,g,h,i,j),
-            // then agg can send (a,b,c,d,e) or further choose one from (a,b,c,d,e) when canShuffleKeyOpt applies.
             DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
             if (parentDist instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
@@ -531,17 +522,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                         intersectIdList.add(exprId);
                     }
                     if (shouldUseParent(intersectIdList, agg, context)) {
-                        List<ExprId> shuffleKeys =
-                                ShuffleKeyPruneUtils.selectOptimalShuffleKeyForAggWithParentHashRequest(
-                                agg, intersectIdList, context);
-                        addRequestPropertyToChildren(PhysicalProperties.createHash(shuffleKeys, ShuffleType.REQUIRE));
+                        addRequestPropertyToChildren(
+                                PhysicalProperties.createHash(intersectIdList, ShuffleType.REQUIRE));
                     }
                 }
             }
-            Optional<List<Expression>> bestGbyKeys =
-                    ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg, agg.getGroupByExpressions(), connectContext);
-            bestGbyKeys.ifPresent(keys -> addRequestPropertyToChildren(PhysicalProperties.createHash(
-                    keys, ShuffleType.REQUIRE)));
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
         }
         return null;
@@ -555,6 +540,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         Optional<GroupExpression> groupExpression = agg.getGroupExpression();
         if (!groupExpression.isPresent()) {
             return true;
+        }
+        if (agg.hasSourceRepeat()) {
+            return false;
         }
         Statistics aggChildStats = groupExpression.get().childStatistics(0);
         if (aggChildStats == null) {

@@ -248,7 +248,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 && Objects.equals(outputExpressions, that.outputExpressions)
                 && Objects.equals(partitionExpressions, that.partitionExpressions)
                 && Objects.equals(aggregateParam, that.aggregateParam)
-                && maybeUsingStream == that.maybeUsingStream;
+                && maybeUsingStream == that.maybeUsingStream
+                && hasSourceRepeat == that.hasSourceRepeat;
     }
 
     @Override
@@ -276,8 +277,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, groupExpression, logicalProperties.get(), hasSourceRepeat,
-                children.get(0));
+                aggregateParam, maybeUsingStream, groupExpression, logicalProperties.get(),
+                hasSourceRepeat, children.get(0));
     }
 
     @Override
@@ -413,7 +414,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public void computeUnique(DataTrait.Builder builder) {
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
 
-        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (groupByExpressions.stream().anyMatch(Expression::containsVolatileExpression)) {
             return;
         }
 
@@ -452,7 +453,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         builder.addUniformSlot(childFd);
 
-        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (groupByExpressions.stream().anyMatch(Expression::containsVolatileExpression)) {
             return;
         }
 

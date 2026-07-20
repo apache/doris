@@ -92,6 +92,23 @@ struct MockAggSourceOperator : public AggSourceOperatorX {
     std::unique_ptr<RowDescriptor> mock_row_descriptor;
 };
 
+class MockDistributionOperator final : public OperatorX<MockLocalState> {
+public:
+    MockDistributionOperator(ExchangeType exchange_type) : _exchange_type(exchange_type) {}
+
+    Status get_block_impl(RuntimeState* /*state*/, Block* /*block*/, bool* eos) override {
+        *eos = true;
+        return Status::OK();
+    }
+
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+        return {_exchange_type};
+    }
+
+private:
+    ExchangeType _exchange_type;
+};
+
 std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool is_merge,
                                                      bool without_key) {
     auto op = std::make_shared<MockAggsinkOperator>();
@@ -377,6 +394,96 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize) {
                 Block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3}),
                        ColumnHelper::create_column_with_name<DataTypeInt64>({2, 300, 1000})}));
     }
+}
+
+TEST_F(AggOperatorTestWithGroupBy, test_need_finalize_mem_reuse_with_shared_output_columns) {
+    OperatorContext ctx;
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
+            false, false));
+    sink_op->_pool = &ctx.pool;
+    EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
+    sink_op->_probe_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+
+    auto source_op = std::make_shared<MockAggSourceOperator>();
+    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+            {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx.pool});
+    source_op->_without_key = false;
+    source_op->_needs_finalize = true;
+    EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
+
+    auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
+
+    {
+        Block block {
+                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
+                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
+        auto st = sink_op->sink(&ctx.state, &block, true);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    }
+
+    Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({}),
+                 ColumnHelper::create_column_with_name<DataTypeInt64>({})};
+    auto old_key_column = block.get_by_position(0).column;
+    auto old_value_column = block.get_by_position(1).column;
+    bool eos = false;
+    auto st = source_op->get_block(&ctx.state, &block, &eos);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(old_key_column->size(), 0);
+    EXPECT_EQ(old_value_column->size(), 0);
+    EXPECT_TRUE(ColumnHelper::block_equal(
+            block, Block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3}),
+                          ColumnHelper::create_column_with_name<DataTypeInt64>({2, 300, 1000})}));
+}
+
+TEST_F(AggOperatorTestWithGroupBy, test_no_need_finalize_mem_reuse_with_shared_output_columns) {
+    OperatorContext ctx;
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
+            false, false));
+    sink_op->_pool = &ctx.pool;
+    EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
+    sink_op->_probe_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+
+    auto source_op = std::make_shared<MockAggSourceOperator>();
+    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+            {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx.pool});
+    source_op->_without_key = false;
+    source_op->_needs_finalize = false;
+    EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
+
+    auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
+
+    {
+        Block block {
+                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
+                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
+        auto st = sink_op->sink(&ctx.state, &block, true);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    }
+
+    const auto& aggregate_function = sink_op->_aggregate_evaluators[0]->function();
+    auto serialized_type = aggregate_function->get_serialized_type();
+    Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({}),
+                 ColumnWithTypeAndName(aggregate_function->create_serialize_column(),
+                                       serialized_type, "")};
+    auto old_key_column = block.get_by_position(0).column;
+    auto old_value_column = block.get_by_position(1).column;
+    bool eos = false;
+    auto st = source_op->get_block(&ctx.state, &block, &eos);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.rows(), 3);
+    EXPECT_EQ(old_key_column->size(), 0);
+    EXPECT_EQ(old_value_column->size(), 0);
+    EXPECT_TRUE(check_and_get_column<ColumnFixedLengthObject>(*block.get_by_position(1).column));
 }
 
 TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {

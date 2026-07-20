@@ -299,15 +299,17 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
                 if (can_merge_to_last_block) {
                     size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
-                    MutableBlock mutable_block(scan_task->cached_blocks.back().first.get());
-                    status = mutable_block.merge(*free_block);
-                    if (!status.ok()) {
-                        LOG(WARNING) << "Block merge failed: " << status.to_string();
-                        break;
+                    {
+                        auto* last_block = scan_task->cached_blocks.back().first.get();
+                        ScopedMutableBlock scoped_mutable_block(last_block);
+                        auto& mutable_block = scoped_mutable_block.mutable_block();
+                        status = mutable_block.merge(*free_block);
+                        if (!status.ok()) {
+                            LOG(WARNING) << "Block merge failed: " << status.to_string();
+                            break;
+                        }
+                        scan_task->cached_blocks.back().second = mutable_block.allocated_bytes();
                     }
-                    scan_task->cached_blocks.back().second = mutable_block.allocated_bytes();
-                    scan_task->cached_blocks.back().first.get()->set_columns(
-                            std::move(mutable_block.mutable_columns()));
 
                     // Return block succeed or not, this free_block is not used by this scan task any more.
                     // If block can be reused, its memory usage will be added back.

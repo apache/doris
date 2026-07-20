@@ -21,6 +21,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 
@@ -79,7 +80,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     };
@@ -436,12 +437,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                                                     status);
                             }
                             break;
-                        case TExprNodeType::BITMAP_PRED:
-                            RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
-                                                        context, root, slot,
-                                                        _slot_id_to_predicates[slot->id()], &pdt),
-                                                status);
-                            break;
                         case TExprNodeType::BLOOM_PRED:
                             RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
                                                         context, root, slot,
@@ -530,34 +525,6 @@ Status ScanLocalStateBase::_normalize_topn_filter(
         if (_push_down_topn(tmp)) {
             pred = tmp.get_predicate(_parent->node_id());
         }
-    }
-    return Status::OK();
-}
-
-Status ScanLocalStateBase::_normalize_bitmap_filter(
-        VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
-        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
-    std::shared_ptr<ColumnPredicate> pred = nullptr;
-    Defer defer = [&]() {
-        if (pred) {
-            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
-            predicates.emplace_back(pred);
-        } else {
-            // If exception occurs during processing, do not push down
-            *pdt = PushDownType::UNACCEPTABLE;
-        }
-    };
-    DCHECK(TExprNodeType::BITMAP_PRED == root->node_type());
-    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
-    *pdt = _should_push_down_bitmap_filter();
-    if (*pdt != PushDownType::UNACCEPTABLE) {
-        DCHECK(expr->get_num_children() == 1);
-        DCHECK(root->is_rf_wrapper());
-        pred = create_bitmap_filter_predicate(
-                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
-                slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
-                                                                   : slot->type(),
-                expr->get_bitmap_filter_func());
     }
     return Status::OK();
 }
@@ -1232,11 +1199,6 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
         _slot_id_to_slot_desc[slot->id()] = slot;
     }
     for (auto id : _topn_filter_source_node_ids) {
-        if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-            // compatible with older versions fe
-            continue;
-        }
-
         int cid = -1;
         if (state->get_query_ctx()->get_runtime_predicate(id).target_is_slot(node_id())) {
             auto s = _slot_id_to_slot_desc[state->get_query_ctx()
@@ -1287,7 +1249,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 }
 
 template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status ScanOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 

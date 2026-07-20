@@ -81,6 +81,7 @@ suite("test_base_compaction", "p2") {
         file """${getS3Url()}/regression/tpch/sf1/lineitem.csv.split01.gz"""
 
         time 10000 // limit inflight 10s
+        retryIfHttpError true
 
         // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 
@@ -116,6 +117,7 @@ suite("test_base_compaction", "p2") {
         file """${getS3Url()}/regression/tpch/sf1/lineitem.csv.split01.gz"""
 
         time 10000 // limit inflight 10s
+        retryIfHttpError true
 
         // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 
@@ -156,6 +158,7 @@ suite("test_base_compaction", "p2") {
         file """${getS3Url()}/regression/tpch/sf1/lineitem.csv.split00.gz"""
 
         time 10000 // limit inflight 10s
+        retryIfHttpError true
 
         // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 

@@ -205,6 +205,8 @@ public class IcebergVendedCredentialsProviderTest {
 
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
         Mockito.when(hdfsProperties.getBackendConfigProperties()).thenReturn(hdfsBackendProps);
+        Mockito.when(s3Properties.getFsCacheFingerprint()).thenReturn("fp-s3");
+        Mockito.when(hdfsProperties.getFsCacheFingerprint()).thenReturn("fp-hdfs");
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.S3, s3Properties);
@@ -212,11 +214,13 @@ public class IcebergVendedCredentialsProviderTest {
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Assertions.assertEquals(4, result.size());
+        Assertions.assertEquals(5, result.size());
         Assertions.assertEquals("testAccessKey", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("testSecretKey", result.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("testToken", result.get("AWS_TOKEN"));
         Assertions.assertEquals("hdfsValue", result.get("HDFS_PROPERTY"));
+        Assertions.assertEquals(StorageProperties.combinedFsCacheFingerprint(storagePropertiesMap.values()),
+                result.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
     }
 
     @Test
@@ -229,15 +233,17 @@ public class IcebergVendedCredentialsProviderTest {
         s3BackendProps.put("AWS_TOKEN", "testToken");
 
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
+        Mockito.when(s3Properties.getFsCacheFingerprint()).thenReturn("fp-s3");
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.S3, s3Properties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals(3, result.size());
         Assertions.assertEquals("testAccessKey", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("testToken", result.get("AWS_TOKEN"));
+        Assertions.assertEquals("fp-s3", result.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
         Assertions.assertFalse(result.containsKey("AWS_SECRET_KEY"));
     }
 }

@@ -420,6 +420,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        // HMSExternalTable may represent Hive, Hudi, or Iceberg tables.
+        // Only snapshot-aware table types should preload latest snapshot metadata.
+        return getDlaType() == DLAType.HUDI || getDlaType() == DLAType.ICEBERG;
+    }
+
+    @Override
     public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
         if (getDlaType() != DLAType.HIVE) {
             return Optional.empty();
@@ -1234,6 +1246,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public TFileFormatType getFileFormatType(SessionVariable sessionVariable) throws UserException {
         TFileFormatType type = null;
         Table table = getRemoteTable();
+        // now hive self only support mixed with orc/parquet files in table and different partitions
+        // But if mixed with orc/parquet files in table and same partition, will failed when read.
+        // now here hive used table format, so BE will regrard all files in table is same format.
         String inputFormatName = table.getSd().getInputFormat();
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
         if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {

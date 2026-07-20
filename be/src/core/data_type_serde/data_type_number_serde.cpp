@@ -20,13 +20,18 @@
 #include <arrow/builder.h>
 
 #include <cstdint>
+#include <limits>
+#include <type_traits>
 
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/decoded_column_view.h"
+#include "core/packed_int128.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/function/cast/cast_to_basic_number_common.h"
@@ -41,8 +46,138 @@
 #include "util/to_string.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
-// Type map的基本结构
+namespace {
+
+template <typename NativeType>
+const NativeType* decoded_values_as(const DecodedColumnView& view) {
+    return reinterpret_cast<const NativeType*>(view.values);
+}
+
+template <typename DorisCppType, typename SourceType>
+bool decoded_number_value_fits(SourceType value) {
+    if constexpr (std::is_floating_point_v<DorisCppType>) {
+        return true;
+    } else if constexpr (std::is_same_v<DorisCppType, UInt8>) {
+        return value == SourceType(0) || value == SourceType(1);
+    } else if constexpr (std::is_signed_v<SourceType>) {
+        const auto int128_value = static_cast<Int128>(value);
+        return int128_value >= static_cast<Int128>(std::numeric_limits<DorisCppType>::lowest()) &&
+               int128_value <= static_cast<Int128>(std::numeric_limits<DorisCppType>::max());
+    } else {
+        const auto uint128_value = static_cast<unsigned __int128>(value);
+        if constexpr (std::is_signed_v<DorisCppType>) {
+            return uint128_value <=
+                   static_cast<unsigned __int128>(std::numeric_limits<DorisCppType>::max());
+        } else {
+            return uint128_value <=
+                   static_cast<unsigned __int128>(std::numeric_limits<DorisCppType>::max());
+        }
+    }
+}
+
+template <PrimitiveType DorisType, typename SourceType>
+Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data =
+            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    const auto old_size = data.size();
+    const auto* values = decoded_values_as<SourceType>(view);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DorisCppType());
+            continue;
+        }
+        if (!decoded_number_value_fits<DorisCppType>(values[row])) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return Status::DataQualityError("Decoded value is out of range for {} at row {}",
+                                            column.get_name(), row);
+        }
+        data.push_back(static_cast<DorisCppType>(values[row]));
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType DorisType, typename SourceType, typename LogicalType>
+Status read_logical_integer_decoded_values_as(IColumn& column, const DecodedColumnView& view) {
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data =
+            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    const auto old_size = data.size();
+    const auto* values = decoded_values_as<SourceType>(view);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DorisCppType());
+            continue;
+        }
+        const auto logical_value = static_cast<LogicalType>(values[row]);
+        if (!decoded_number_value_fits<DorisCppType>(logical_value)) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return Status::DataQualityError(
+                    "Decoded logical integer value is out of range for {} at row {}",
+                    column.get_name(), row);
+        }
+        data.push_back(static_cast<DorisCppType>(logical_value));
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType DorisType, typename SourceType>
+Status read_integer_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.logical_integer_bit_width <= 0) {
+        return read_number_decoded_values<DorisType, SourceType>(column, view);
+    }
+
+    if (view.logical_integer_is_signed) {
+        switch (view.logical_integer_bit_width) {
+        case 8:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int8>(column,
+                                                                                       view);
+        case 16:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int16>(column,
+                                                                                        view);
+        case 32:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int32>(column,
+                                                                                        view);
+        case 64:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int64>(column,
+                                                                                        view);
+        default:
+            return Status::NotSupported("Unsupported decoded logical integer bit width {} for {}",
+                                        view.logical_integer_bit_width, column.get_name());
+        }
+    }
+
+    switch (view.logical_integer_bit_width) {
+    case 8:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt8>(column, view);
+    case 16:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt16>(column, view);
+    case 32:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt32>(column, view);
+    case 64:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt64>(column, view);
+    default:
+        return Status::NotSupported("Unsupported decoded logical integer bit width {} for {}",
+                                    view.logical_integer_bit_width, column.get_name());
+    }
+}
+
+} // namespace
+// Basic structure of the type map.
 template <typename Key, typename Value, typename... Rest>
 struct TypeMap {
     using KeyType = Key;
@@ -50,21 +185,21 @@ struct TypeMap {
     using Next = TypeMap<Rest...>;
 };
 
-// Type map的末端
+// End marker of the type map.
 template <>
 struct TypeMap<void, void> {};
 
-// TypeMapLookup 前向声明
+// Forward declaration of TypeMapLookup.
 template <typename Key, typename Map>
 struct TypeMapLookup;
 
-// Type map查找：找到匹配的键时的情况
+// Type map lookup when the key matches.
 template <typename Key, typename Value, typename... Rest>
 struct TypeMapLookup<Key, TypeMap<Key, Value, Rest...>> {
     using ValueType = Value;
 };
 
-// Type map查找：递归查找
+// Type map lookup by recursive search.
 template <typename Key, typename K, typename V, typename... Rest>
 struct TypeMapLookup<Key, TypeMap<K, V, Rest...>> {
     using ValueType = typename TypeMapLookup<Key, TypeMap<Rest...>>::ValueType;
@@ -100,8 +235,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
         auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
         if (null_builder) {
             for (size_t i = start; i < end; ++i) {
-                RETURN_IF_ERROR(checkArrowStatus(null_builder->AppendNull(), column.get_name(),
-                                                 null_builder->type()->name()));
+                RETURN_IF_ERROR(
+                        checkArrowStatus(null_builder->AppendNull(), column, *null_builder));
             }
         } else {
             auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
@@ -109,7 +244,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
                     builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
                                          end - start,
                                          reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                    column.get_name(), array_builder->type()->name()));
+                    column, *array_builder));
         }
 
     } else if constexpr (T == TYPE_LARGEINT) {
@@ -118,13 +253,13 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
             auto& data_value = col_data[i];
             std::string value_str = fmt::format("{}", data_value);
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                                                 array_builder->type()->name()));
+                RETURN_IF_ERROR(
+                        checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
             } else {
                 RETURN_IF_ERROR(checkArrowStatus(
                         string_builder.Append(value_str.data(),
                                               cast_set<int, size_t, false>(value_str.length())),
-                        column.get_name(), array_builder->type()->name()));
+                        column, *array_builder));
             }
         }
     } else if constexpr (T == TYPE_IPV6) {
@@ -133,27 +268,63 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((int64_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else if constexpr (T == TYPE_DATEV2) {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((uint32_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((uint64_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues(col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if constexpr (T == TYPE_BOOLEAN) {
+        if (view.value_kind == DecodedValueKind::BOOL) {
+            return read_number_decoded_values<TYPE_BOOLEAN, bool>(column, view);
+        }
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT || T == TYPE_LARGEINT) {
+        if (view.value_kind == DecodedValueKind::INT32) {
+            return read_integer_decoded_values<T, int32_t>(column, view);
+        }
+        if (view.value_kind == DecodedValueKind::UINT32) {
+            return read_integer_decoded_values<T, uint32_t>(column, view);
+        }
+        if (view.value_kind == DecodedValueKind::INT64) {
+            return read_integer_decoded_values<T, int64_t>(column, view);
+        }
+        if (view.value_kind == DecodedValueKind::UINT64) {
+            return read_integer_decoded_values<T, uint64_t>(column, view);
+        }
+    } else if constexpr (T == TYPE_FLOAT) {
+        if (view.value_kind == DecodedValueKind::FLOAT) {
+            return read_number_decoded_values<TYPE_FLOAT, float>(column, view);
+        }
+    } else if constexpr (T == TYPE_DOUBLE) {
+        if (view.value_kind == DecodedValueKind::DOUBLE) {
+            return read_number_decoded_values<TYPE_DOUBLE, double>(column, view);
+        }
+    }
+    return decoded_column_view_handle_conversion_failure(
+            column, view,
+            Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                 get_name(), static_cast<int>(view.value_kind)));
 }
 
 template <PrimitiveType T>
@@ -318,6 +489,13 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
+
+    // Handle empty array case: buffer can be null when row_count is 0.
+    // Passing nullptr to memcpy (via col_data.insert) is undefined behavior even if size is 0.
+    if (row_count == 0 || buffer == nullptr) {
+        return Status::OK();
+    }
+
     const auto* raw_data =
             reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(buffer->data()) +
             start;
@@ -751,8 +929,8 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
 // Format by type:
 //   - BOOLEAN:  "0" or "1" (via snprintf "%d")
 //   - TINYINT/SMALLINT/INT/BIGINT: standard integer string, e.g. "42", "-100"
-//   - FLOAT:    fmt::format("{:.7g}", value), e.g. "3.14", "NaN", "Infinity"
-//   - DOUBLE:   fmt::format("{:.16g}", value), e.g. "3.141592653589793"
+//   - FLOAT:    fmt::format("{}", value) for finite values, e.g. "3.14"
+//   - DOUBLE:   fmt::format("{}", value) for finite values, e.g. "3.141592653589793"
 //   - LARGEINT: fmt::format("{}", value), e.g. "170141183460469231731687303715884105727"
 //
 // Examples:
@@ -765,8 +943,18 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
         char buf[8] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", field.get<T>());
         return std::string(buf);
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        auto v = field.get<T>();
+        // inf/nan are stored as zone-map flags, not in min/max strings; route them
+        // through CastToString to keep the "Infinity"/"NaN" spelling used elsewhere.
+        if (std::isinf(v) || std::isnan(v)) {
+            return CastToString::from_number(v);
+        }
+        // CastToString uses digits10 + 1 significant digits, which may lose precision.
+        // ZoneMap bounds must round-trip exactly, so use fmt's shortest round-trippable form.
+        return fmt::format("{}", v);
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-                         T == TYPE_BIGINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+                         T == TYPE_BIGINT) {
         return CastToString::from_number(field.get<T>());
     } else if constexpr (T == TYPE_LARGEINT) {
         auto value = field.get<T>();
@@ -887,7 +1075,7 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
                                                       ColumnString::Chars& chars,
                                                       int64_t row_num) const {
-    const uint8_t type = (const uint8_t)TabletColumn::get_field_type_by_type(T);
+    const uint8_t type = static_cast<uint8_t>(primitive_type_to_storage_field_type(T));
     const auto& data_ref = assert_cast<const ColumnType&>(src_column).get_data_at(row_num);
 
     const size_t old_size = chars.size();

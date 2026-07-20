@@ -634,14 +634,20 @@ TxnLazyCommitTask::TxnLazyCommitTask(const std::string& instance_id, int64_t txn
     DCHECK(txn_id > 0);
 }
 
+void TxnLazyCommitTask::finish(MetaServiceCode code, std::string msg) {
+    {
+        std::unique_lock lock(mutex_);
+        finished_ = true;
+        code_ = code;
+        msg_ = std::move(msg);
+    }
+    cond_.notify_all();
+}
+
 void TxnLazyCommitTask::commit() {
     StopWatch sw;
     DORIS_CLOUD_DEFER {
-        {
-            std::unique_lock lock(mutex_);
-            this->finished_ = true;
-        }
-        this->cond_.notify_all();
+        finish(code_, msg_);
         g_bvar_txn_lazy_committer_committing_duration << sw.elapsed_us();
     };
 
@@ -966,6 +972,25 @@ TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv,
     parallel_commit_pool_->start();
 }
 
+TxnLazyCommitter::~TxnLazyCommitter() {
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        stopped_ = true;
+    }
+
+    if (worker_pool_ != nullptr) {
+        worker_pool_->stop();
+    }
+    if (parallel_commit_pool_ != nullptr) {
+        parallel_commit_pool_->stop();
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        running_tasks_.clear();
+    }
+}
+
 /**
  * @brief Submit a lazy commit txn task
  * 
@@ -979,6 +1004,12 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
     std::shared_ptr<TxnLazyCommitTask> task;
     {
         std::unique_lock<std::mutex> lock(mutex_);
+        if (stopped_) {
+            task = std::make_shared<TxnLazyCommitTask>(instance_id, txn_id, txn_kv_, this);
+            task->finish(MetaServiceCode::UNDEFINED_ERR, "txn lazy committer is stopped");
+            return task;
+        }
+
         auto iter = running_tasks_.find(txn_id);
         if (iter != running_tasks_.end()) {
             return iter->second;
@@ -987,13 +1018,17 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
         task = std::make_shared<TxnLazyCommitTask>(instance_id, txn_id, txn_kv_, this);
         running_tasks_.emplace(txn_id, task);
         g_bvar_txn_lazy_committer_submitted << 1;
-    }
 
-    worker_pool_->submit([task]() {
-        task->commit();
-        task->txn_lazy_committer_->remove(task->txn_id_);
-        g_bvar_txn_lazy_committer_finished << 1;
-    });
+        int ret = worker_pool_->submit([task]() {
+            task->commit();
+            task->txn_lazy_committer_->remove(task->txn_id_);
+            g_bvar_txn_lazy_committer_finished << 1;
+        });
+        if (ret != 0) {
+            running_tasks_.erase(txn_id);
+            task->finish(MetaServiceCode::UNDEFINED_ERR, "failed to submit txn lazy commit task");
+        }
+    }
     DCHECK(task != nullptr);
     return task;
 }

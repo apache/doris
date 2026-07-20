@@ -163,8 +163,20 @@ suite("test_show_routine_load","p0") {
                 sleep(5000)
                 count++
             }
-            res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = \"testShow1\";"
-            log.info("SHOW ROUTINE LOAD task result: ${res}".toString())
+            res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = \"testShow1\""
+            assertTrue(res.size() == 1)
+
+            res = sql "SHOW ROUTINE LOAD TASK FROM ${db} WHERE JobName = \"testShow1\""
+            assertTrue(res.size() == 1)
+
+            res = sql "SHOW ROUTINE LOAD TASK IN ${db} WHERE JobName = \"testShow1\""
+            assertTrue(res.size() == 1)
+
+            res = sql "SHOW ROUTINE LOAD TASK FOR testShow1"
+            assertTrue(res.size() == 1)
+
+            res = sql "SHOW ROUTINE LOAD TASK FOR ${db}.testShow1"
+            log.info("SHOW ROUTINE LOAD TASK result: ${res}".toString())
             assertTrue(res.size() == 1)
         } finally {
             sql "stop routine load for testShow"
@@ -190,6 +202,47 @@ suite("test_show_routine_load","p0") {
             assertEquals("k1", json.sequence_col.toString())
         } finally {
             sql "stop routine load for testShow"
+        }
+
+        // test show routine load and information_schema mask sensitive custom properties
+        try {
+            def kafkaPassword = "doris_routine_load_password_should_be_hidden"
+            def kafkaJaasSecret = "doris_routine_load_jaas_secret_should_be_hidden"
+            sql """
+                CREATE ROUTINE LOAD testShowSensitiveProperties ON ${tableName}
+                COLUMNS TERMINATED BY ","
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "${kafkaCsvTpoics[0]}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING",
+                    "property.security.protocol" = "SASL_PLAINTEXT",
+                    "property.sasl.mechanism" = "PLAIN",
+                    "property.sasl.username" = "doris",
+                    "property.sasl.password" = "${kafkaPassword}",
+                    "property.sasl.jaas.config" = "password=${kafkaJaasSecret}"
+                );
+            """
+
+            def showResult = sql "show routine load for testShowSensitiveProperties"
+            def showCustomProperties = parseJson(showResult[0][13])
+            assertEquals("******", showCustomProperties["sasl.password"].toString())
+            assertEquals("******", showCustomProperties["sasl.jaas.config"].toString())
+            assertFalse(showResult[0][13].toString().contains(kafkaPassword))
+            assertFalse(showResult[0][13].toString().contains(kafkaJaasSecret))
+
+            def systemTableResult = sql """
+                SELECT CUSTOM_PROPERTIES
+                FROM information_schema.routine_load_jobs
+                WHERE JOB_NAME = 'testShowSensitiveProperties'
+            """
+            def systemTableCustomProperties = parseJson(systemTableResult[0][0])
+            assertEquals("******", systemTableCustomProperties["sasl.password"].toString())
+            assertEquals("******", systemTableCustomProperties["sasl.jaas.config"].toString())
+            assertFalse(systemTableResult[0][0].toString().contains(kafkaPassword))
+            assertFalse(systemTableResult[0][0].toString().contains(kafkaJaasSecret))
+        } finally {
+            sql "stop routine load for testShowSensitiveProperties"
         }
 
         // test show routine load computegroup

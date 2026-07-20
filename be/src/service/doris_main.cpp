@@ -24,6 +24,7 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
+#include <fmt/core.h>
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
@@ -47,7 +48,11 @@
 
 #include "cloud/cloud_backend_service.h"
 #include "cloud/config.h"
+#include "common/phdr_cache.h"
 #include "common/stack_trace.h"
+#if defined(__ELF__) && !defined(__FreeBSD__)
+#include "common/symbol_index.h"
+#endif
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
@@ -77,9 +82,11 @@
 #include "service/http_service.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
+#include "udf/python/python_env.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+#include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -311,6 +318,21 @@ struct Checker {
 #endif
         ;
 
+// A startup failure that happens after ExecEnv::init() has run must terminate the
+// process the same way normal shutdown does (see the _exit(0) at the end of main):
+// in the default mode we _exit() immediately, skipping global destructors and the
+// LeakSanitizer atexit check. Init-time singletons (e.g. the internal workload
+// group's task scheduler) intentionally live for the whole process lifetime, so
+// running the leak check on this abnormal-exit path reports them as false-positive
+// leaks. enable_graceful_exit_check is honored so memleak-check mode still runs LSAN.
+[[noreturn]] static void exit_on_startup_failure() {
+    google::FlushLogFiles(google::GLOG_INFO);
+    if (!doris::config::enable_graceful_exit_check) {
+        _exit(1);
+    }
+    exit(1);
+}
+
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
@@ -500,6 +522,70 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (doris::config::enable_python_udf_support) {
+        if (std::string python_udf_root_path =
+                    fmt::format("{}/lib/udf/python", std::getenv("DORIS_HOME"));
+            !std::filesystem::exists(python_udf_root_path)) {
+            std::filesystem::create_directories(python_udf_root_path);
+        }
+
+        // Normalize and trim all Python-related config parameters
+        std::string python_env_mode =
+                std::string(doris::trim(doris::to_lower(doris::config::python_env_mode)));
+        std::string python_conda_root_path =
+                std::string(doris::trim(doris::config::python_conda_root_path));
+        std::string python_venv_root_path =
+                std::string(doris::trim(doris::config::python_venv_root_path));
+        std::string python_venv_interpreter_paths =
+                std::string(doris::trim(doris::config::python_venv_interpreter_paths));
+
+        if (python_env_mode == "conda") {
+            if (python_conda_root_path.empty()) {
+                LOG(ERROR)
+                        << "Python conda root path is empty, please set `python_conda_root_path` "
+                           "or set `enable_python_udf_support` to `false`";
+                exit(1);
+            }
+            LOG(INFO) << "Doris backend python version manager is initialized. Python conda "
+                         "root path: "
+                      << python_conda_root_path;
+            status = doris::PythonVersionManager::instance().init(doris::PythonEnvType::CONDA,
+                                                                  python_conda_root_path, "");
+        } else if (python_env_mode == "venv") {
+            if (python_venv_root_path.empty()) {
+                LOG(ERROR)
+                        << "Python venv root path is empty, please set `python_venv_root_path` or "
+                           "set `enable_python_udf_support` to `false`";
+                exit(1);
+            }
+            if (python_venv_interpreter_paths.empty()) {
+                LOG(ERROR)
+                        << "Python interpreter paths is empty, please set "
+                           "`python_venv_interpreter_paths` or set `enable_python_udf_support` to "
+                           "`false`";
+                exit(1);
+            }
+            LOG(INFO) << "Doris backend python version manager is initialized. Python venv "
+                         "root path: "
+                      << python_venv_root_path
+                      << ", python interpreter paths: " << python_venv_interpreter_paths;
+            status = doris::PythonVersionManager::instance().init(doris::PythonEnvType::VENV,
+                                                                  python_venv_root_path,
+                                                                  python_venv_interpreter_paths);
+        } else {
+            status = Status::InvalidArgument(
+                    "Python env mode is invalid, should be `conda` or `venv`. If you don't want to "
+                    "enable the Python UDF function, please set `enable_python_udf_support` to "
+                    "`false`");
+        }
+
+        if (!status.ok()) {
+            LOG(ERROR) << "Failed to initialize python version manager: " << status;
+            exit(1);
+        }
+        LOG(INFO) << doris::PythonVersionManager::instance().to_string();
+    }
+
     // Doris own signal handler must be register after jvm is init.
     // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
     // https://www.oracle.com/java/technologies/javase/signals.html
@@ -518,10 +604,18 @@ int main(int argc, char** argv) {
     LOG(INFO) << doris::DiskInfo::debug_string();
     LOG(INFO) << doris::MemInfo::debug_string();
 
-    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
-    // will work only after additional call of this function.
-    // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
-    // updatePHDRCache();
+    // Doris-patched GNU libunwind reads PHDR metadata from our lock-free snapshot instead of
+    // entering glibc dl_iterate_phdr while jemalloc profiling or signal-context unwinding may
+    // already be involved in loader-lock-sensitive code. Configure libunwind before daemon threads
+    // start so all later heap-profile and stack-trace unwinds use the same lock-safe policy.
+    configureLibunwindPHDRCache();
+    updatePHDRCache();
+    LOG(INFO) << "PHDR cache enabled: " << hasPHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    auto symbol_index = doris::SymbolIndex::instance();
+    LOG(INFO) << "SymbolIndex preloaded: objects=" << symbol_index->objects().size()
+              << " symbols=" << symbol_index->symbols().size();
+#endif
     if (!doris::BackendOptions::init()) {
         exit(-1);
     }
@@ -531,7 +625,7 @@ int main(int argc, char** argv) {
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
     if (status != Status::OK()) {
         std::cerr << "failed to init doris storage engine, res=" << status;
-        return 0;
+        exit_on_startup_failure();
     }
 
     // Start concurrency stats manager
@@ -547,7 +641,7 @@ int main(int argc, char** argv) {
         if (!status.ok()) {
             std::cerr << msg << '\n';
             service->stop_works();
-            exit(-1);
+            exit_on_startup_failure();
         }
     };
 

@@ -103,6 +103,11 @@ message PTabletWithPartition {
     required int64 tablet_id = 2;
 }
 
+message PRandomBucketPartitionParam {
+    required int64 partition_id = 1;
+    repeated int64 ordered_tablet_ids = 2;
+}
+
 message PTabletLoadRowsetInfo {
     required int32 current_rowset_nums = 1;
     required int32 max_config_rowset_nums = 2;
@@ -148,6 +153,8 @@ message PTabletWriterOpenRequest {
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
     optional int64 workload_group_id = 20;
+    optional bool is_adaptive_random_bucket = 21 [default = false];
+    repeated PRandomBucketPartitionParam random_bucket_partitions = 22;
 };
 
 message PTabletWriterOpenResult {
@@ -205,6 +212,7 @@ message PTabletWriterAddBlockRequest {
     optional bool is_single_tablet_block = 14 [default = false];
     // for auto-partition first stage close, we should hang.
     optional bool hang_wait = 15 [default = false];
+    optional bool is_adaptive_random_bucket = 16 [default = false];
 };
 
 message PSlaveTabletNodes {
@@ -672,7 +680,15 @@ message PPublishFilterRequestV2 {
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
     optional uint32 stage = 15;
+    repeated PPublishFilterForwardTarget forward_targets = 16;
+    optional int32 tree_publish_fanout = 17;
+    optional int32 publish_rpc_timeout_ms = 18;
 };
+
+message PPublishFilterForwardTarget {
+    optional PNetworkAddress target_addr = 1;
+    repeated int32 fragment_ids = 2;
+}
 
 message PPublishFilterResponse {
     required PStatus status = 1;
@@ -918,6 +934,8 @@ message PWarmUpRowsetRequest {
     optional int64 unix_ts_us = 2;
     optional int64 sync_wait_timeout_ms = 3;
     optional bool skip_existence_check = 4;
+    optional int64 job_id = 5;
+    optional int64 upstream_trigger_ts_ms = 6;
 }
 
 message PWarmUpRowsetResponse {
@@ -1241,4 +1259,3 @@ service PBackendService {
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
 };
-

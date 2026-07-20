@@ -70,6 +70,7 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
+#include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/data_dir.h"
@@ -91,6 +92,7 @@
 #include "storage/task/engine_storage_migration_task.h"
 #include "storage/txn/txn_manager.h"
 #include "storage/utils.h"
+#include "udf/python/python_server.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/jni-util.h"
@@ -996,18 +998,6 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                     tablet_meta_info.tablet_id, tablet->tablet_meta()->binlog_config().to_string(),
                     new_binlog_config.to_string());
             tablet->set_binlog_config(new_binlog_config);
-            need_to_save = true;
-        }
-        if (tablet_meta_info.__isset.enable_single_replica_compaction) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->tablet_meta()->mutable_tablet_schema()->set_enable_single_replica_compaction(
-                    tablet_meta_info.enable_single_replica_compaction);
-            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                rowset_meta->tablet_schema()->set_enable_single_replica_compaction(
-                        tablet_meta_info.enable_single_replica_compaction);
-            }
-            tablet->tablet_schema_unlocked()->set_enable_single_replica_compaction(
-                    tablet_meta_info.enable_single_replica_compaction);
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.disable_auto_compaction) {
@@ -2583,12 +2573,18 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 }
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
+    const auto& clean_req = req.clean_udf_cache_req;
+
     if (doris::config::enable_java_support) {
-        LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
-        static_cast<void>(
-                Jni::Util::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
-        LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+        static_cast<void>(Jni::Util::clean_udf_class_load_cache(clean_req.function_signature));
     }
+
+    if (clean_req.__isset.function_id && clean_req.function_id > 0) {
+        UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
+        PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
+    }
+
+    LOG(INFO) << "clean udf cache finish: function_signature=" << clean_req.function_signature;
 }
 
 void report_index_policy_callback(const ClusterInfo* cluster_info) {

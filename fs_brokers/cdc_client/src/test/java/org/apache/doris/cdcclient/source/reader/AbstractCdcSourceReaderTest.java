@@ -17,14 +17,21 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
+import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
+import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+import org.apache.doris.cdcclient.source.reader.postgres.PostgresSourceReader;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
@@ -33,10 +40,44 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
 
 class AbstractCdcSourceReaderTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Test
+    void serializeTableSchemasPropagatesSerializationFailure() {
+        PostgresSourceReader reader = new PostgresSourceReader();
+        Map<TableId, TableChanges.TableChange> invalidSchemas = new HashMap<>();
+        invalidSchemas.put(new TableId(null, "public", "events"), null);
+        reader.setTableSchemas(invalidSchemas);
+
+        assertThrows(RuntimeException.class, reader::serializeTableSchemas);
+    }
+
+    @Test
+    void setTableSchemasKeepsReaderAndSerializerBaselineInSync() {
+        PostgresSourceReader reader = new PostgresSourceReader();
+        Map<TableId, TableChanges.TableChange> schemas = new HashMap<>();
+
+        reader.setTableSchemas(schemas);
+
+        DebeziumJsonDeserializer serializer =
+                (DebeziumJsonDeserializer) reader.getSerializer();
+        assertSame(schemas, reader.getTableSchemas());
+        assertSame(schemas, serializer.getTableSchemas());
+    }
+
+    @Test
+    void releaseStaysBaseImplSoReplicationSlotIsKept() throws Exception {
+        // release must stay the base impl (close drops the slot, release must not) so a reschedule keeps the slot.
+        Method pgRelease = PostgresSourceReader.class.getMethod("release", JobBaseConfig.class);
+        assertEquals(AbstractCdcSourceReader.class, pgRelease.getDeclaringClass());
+        Method mysqlRelease = MySqlSourceReader.class.getMethod("release", JobBaseConfig.class);
+        assertEquals(AbstractCdcSourceReader.class, mysqlRelease.getDeclaringClass());
+    }
 
     @Test
     void convertBoundsRestoresDateFromString() {

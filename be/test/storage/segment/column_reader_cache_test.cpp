@@ -16,23 +16,32 @@
 // under the License.
 #include "storage/segment/column_reader_cache.h"
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <memory>
+#include <string>
 #include <thread>
 #include <vector>
 
 #include "common/config.h"
+#include "core/assert_cast.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/local_file_system.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/encoding_info.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_writer.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/coding.h"
 #include "util/json/path_in_data.h"
 
 namespace doris::segment_v2 {
@@ -40,6 +49,25 @@ namespace doris::segment_v2 {
 using ::testing::_;
 using ::testing::Return;
 using ::testing::StrictMock;
+
+namespace {
+
+constexpr std::string_view kTestDir = "./ut_dir/column_reader_cache_test";
+
+Status append_footer_trailer(io::FileWriter* file_writer, SegmentFooterPB* footer) {
+    std::string footer_buf;
+    if (!footer->SerializeToString(&footer_buf)) {
+        return Status::InternalError("failed to serialize SegmentFooterPB for test");
+    }
+    faststring fixed_buf;
+    put_fixed32_le(&fixed_buf, static_cast<uint32_t>(footer_buf.size()));
+    put_fixed32_le(&fixed_buf, crc32c::Crc32c(footer_buf.data(), footer_buf.size()));
+    fixed_buf.append(k_segment_magic, k_segment_magic_length);
+    std::vector<Slice> slices {Slice(footer_buf), Slice(fixed_buf)};
+    return file_writer->appendv(slices.data(), slices.size());
+}
+
+} // namespace
 
 // Mock classes for testing
 class MockColumnReader : public ColumnReader {
@@ -57,9 +85,20 @@ private:
 
 class ColumnReaderCacheTest : public ::testing::Test {
 protected:
+    // EncodingInfo friended ColumnReaderCacheTest so the fixture can pick a valid V2
+    // default encoding for the synthetic ColumnMetaPBs constructed by these tests.
+    // TEST_F bodies subclass this fixture and call the helper (friendship doesn't carry
+    // to subclasses).
+    static segment_v2::EncodingTypePB get_v2_default_encoding(FieldType t) {
+        return segment_v2::EncodingInfo::get_v2_default_encoding(t);
+    }
+
     void SetUp() override {
         // Set up test configuration
         config::max_segment_partial_column_cache_size = 3;
+        auto fs = io::global_local_filesystem();
+        static_cast<void>(fs->delete_directory(kTestDir));
+        CHECK(fs->create_directory(kTestDir).ok());
 
         // Create mock segment
         _mock_segment = std::make_unique<StrictMock<MockSegment>>();
@@ -85,6 +124,7 @@ protected:
     void TearDown() override {
         _cache.reset();
         _mock_segment.reset();
+        static_cast<void>(io::global_local_filesystem()->delete_directory(kTestDir));
     }
 
     void setup_basic_mocks() {
@@ -123,10 +163,36 @@ protected:
         CHECK(_accessor.init(*footer, nullptr).ok());
     }
 
+    void setup_parsed_segment_footer(const std::vector<ColumnMetaPB>& columns) {
+        SegmentFooterPB footer;
+        for (const auto& col : columns) {
+            *footer.add_columns() = col;
+        }
+
+        auto fs = io::global_local_filesystem();
+        std::string file_path = std::string(kTestDir) + "/parsed_footer_" +
+                                std::to_string(_parsed_footer_file_id++) + ".dat";
+        io::FileWriterPtr file_writer;
+        CHECK(fs->create_file(file_path, &file_writer).ok());
+        CHECK(append_footer_trailer(file_writer.get(), &footer).ok());
+        CHECK(file_writer->close().ok());
+
+        io::FileReaderSPtr file_reader;
+        io::FileReaderOptions opts;
+        CHECK(fs->open_file(file_path, &file_reader, &opts).ok());
+        _mock_segment->set_file_reader_for_test(file_reader);
+
+        std::shared_ptr<SegmentFooterPB> parsed_footer;
+        CHECK(_mock_segment->parse_footer_for_test(parsed_footer, &_stats).ok());
+        _mock_segment->set_footer(parsed_footer);
+        CHECK(_accessor.init(*parsed_footer, nullptr).ok());
+    }
+
     std::unique_ptr<StrictMock<MockSegment>> _mock_segment;
     ColumnMetaAccessor _accessor;
     std::unique_ptr<ColumnReaderCache> _cache;
     OlapReaderStatistics _stats;
+    int _parsed_footer_file_id = 0;
 };
 
 // Test basic cache functionality
@@ -141,7 +207,7 @@ TEST_F(ColumnReaderCacheTest, BasicCacheOperations) {
     ColumnMetaPB col_meta;
     col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta.set_unique_id(1);
-    col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 
@@ -174,7 +240,7 @@ TEST_F(ColumnReaderCacheTest, LRUEviction) {
         ColumnMetaPB col_meta;
         col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
         col_meta.set_unique_id(i);
-        col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+        col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
         setup_segment_footer({col_meta});
 
@@ -202,11 +268,11 @@ TEST_F(ColumnReaderCacheTest, LRUOrderMaintenance) {
     ColumnMetaPB col_meta1, col_meta2;
     col_meta1.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta1.set_unique_id(1);
-    col_meta1.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta1.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta1.type())));
     col_meta1.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     col_meta2.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta2.set_unique_id(2);
-    col_meta2.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta2.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta2.type())));
     col_meta2.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta1, col_meta2});
 
@@ -230,7 +296,7 @@ TEST_F(ColumnReaderCacheTest, LRUOrderMaintenance) {
     ColumnMetaPB col_meta3;
     col_meta3.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta3.set_unique_id(3);
-    col_meta3.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta3.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta3.type())));
     col_meta3.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta1, col_meta2, col_meta3});
 
@@ -254,14 +320,14 @@ TEST_F(ColumnReaderCacheTest, VariantColumnPathReading) {
     ColumnMetaPB variant_meta;
     variant_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARIANT));
     variant_meta.set_unique_id(1);
-    variant_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    variant_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(variant_meta.type())));
     variant_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
 
     // Create subcolumn meta
     ColumnMetaPB subcol_meta;
     subcol_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_STRING));
     subcol_meta.set_unique_id(2);
-    subcol_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    subcol_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(subcol_meta.type())));
     subcol_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
 
     setup_segment_footer({variant_meta, subcol_meta});
@@ -289,7 +355,7 @@ TEST_F(ColumnReaderCacheTest, NonExistentVariantPath) {
     ColumnMetaPB variant_meta;
     variant_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARIANT));
     variant_meta.set_unique_id(1);
-    variant_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    variant_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(variant_meta.type())));
     variant_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({variant_meta});
 
@@ -307,7 +373,7 @@ TEST_F(ColumnReaderCacheTest, ConcurrentAccess) {
     ColumnMetaPB col_meta;
     col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta.set_unique_id(1);
-    col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 
@@ -342,7 +408,7 @@ TEST_F(ColumnReaderCacheTest, CacheStatistics) {
     ColumnMetaPB col_meta;
     col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
     col_meta.set_unique_id(1);
-    col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 
@@ -372,7 +438,7 @@ TEST_F(ColumnReaderCacheTest, DifferentColumnTypes) {
         ColumnMetaPB col_meta;
         col_meta.set_type(static_cast<int32_t>(types[i]));
         col_meta.set_unique_id(static_cast<int32_t>(i + 1));
-        col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+        col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
         setup_segment_footer({col_meta});
 
@@ -393,11 +459,11 @@ TEST_F(ColumnReaderCacheTest, NodeHintParameter) {
     ColumnMetaPB variant_meta, subcol_meta;
     variant_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARIANT));
     variant_meta.set_unique_id(1);
-    variant_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    variant_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(variant_meta.type())));
     variant_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     subcol_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_STRING));
     subcol_meta.set_unique_id(2);
-    subcol_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    subcol_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(subcol_meta.type())));
     subcol_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({variant_meta, subcol_meta});
 
@@ -431,7 +497,7 @@ TEST_F(ColumnReaderCacheTest, PerformanceUnderLoad) {
         ColumnMetaPB col_meta;
         col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
         col_meta.set_unique_id(i);
-        col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+        col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
         all_columns.push_back(col_meta);
     }
@@ -471,7 +537,7 @@ TEST_F(ColumnReaderCacheTest, EmptyPath) {
     ColumnMetaPB col_meta;
     col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARIANT));
     col_meta.set_unique_id(1);
-    col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 
@@ -479,6 +545,178 @@ TEST_F(ColumnReaderCacheTest, EmptyPath) {
     std::shared_ptr<ColumnReader> reader;
     Status status = _cache->get_path_column_reader(1, empty_path, &reader, &_stats);
     EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
+}
+
+TEST_F(ColumnReaderCacheTest, FillMissingDecimalV2PrecisionFromTabletSchema) {
+    constexpr int32_t col_uid = 10;
+    setup_column_uid_mapping(col_uid, 0);
+    auto& tablet_column = _mock_segment->tablet_schema()->mutable_column_by_uid(col_uid);
+    tablet_column.set_type(FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    tablet_column.set_precision(20);
+    tablet_column.set_frac(6);
+
+    ColumnMetaPB col_meta;
+    col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL));
+    col_meta.set_unique_id(col_uid);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
+    col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    ASSERT_FALSE(col_meta.has_precision());
+    ASSERT_FALSE(col_meta.has_frac());
+    setup_parsed_segment_footer({col_meta});
+
+    const auto& parsed_col_meta = _mock_segment->get_footer()->columns(0);
+    EXPECT_EQ(parsed_col_meta.precision(), 20);
+    EXPECT_EQ(parsed_col_meta.frac(), 6);
+
+    std::shared_ptr<ColumnReader> reader;
+    Status status = _cache->get_column_reader(col_uid, &reader, &_stats);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(reader, nullptr);
+
+    const auto* data_type =
+            assert_cast<const DataTypeDecimalV2*>(reader->get_vec_data_type().get());
+    ASSERT_NE(data_type, nullptr);
+    EXPECT_EQ(data_type->get_original_precision(), 20);
+    EXPECT_EQ(data_type->get_original_scale(), 6);
+    EXPECT_EQ(data_type->get_precision(), 27);
+    EXPECT_EQ(data_type->get_scale(), 9);
+}
+
+TEST_F(ColumnReaderCacheTest, FillMissingDecimalV2PrecisionForComplexTypeFromTabletSchema) {
+    constexpr int32_t col_uid = 11;
+    setup_column_uid_mapping(col_uid, 0);
+    auto& tablet_column = _mock_segment->tablet_schema()->mutable_column_by_uid(col_uid);
+    tablet_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn item_column;
+    item_column.set_type(FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    item_column.set_precision(18);
+    item_column.set_frac(4);
+    tablet_column.add_sub_column(item_column);
+
+    ColumnMetaPB col_meta;
+    col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    col_meta.set_unique_id(col_uid);
+
+    auto* item_meta = col_meta.add_children_columns();
+    item_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL));
+    item_meta->set_encoding(get_v2_default_encoding(static_cast<FieldType>(item_meta->type())));
+    item_meta->set_num_rows(1000);
+    item_meta->mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    ASSERT_FALSE(item_meta->has_precision());
+    ASSERT_FALSE(item_meta->has_frac());
+
+    auto* offset_meta = col_meta.add_children_columns();
+    offset_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT));
+    offset_meta->set_encoding(get_v2_default_encoding(static_cast<FieldType>(offset_meta->type())));
+    offset_meta->set_num_rows(1000);
+    offset_meta->mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    setup_parsed_segment_footer({col_meta});
+
+    const auto& parsed_item_meta = _mock_segment->get_footer()->columns(0).children_columns(0);
+    EXPECT_EQ(parsed_item_meta.precision(), 18);
+    EXPECT_EQ(parsed_item_meta.frac(), 4);
+
+    std::shared_ptr<ColumnReader> reader;
+    Status status = _cache->get_column_reader(col_uid, &reader, &_stats);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(reader, nullptr);
+
+    auto data_type = reader->get_vec_data_type();
+    ASSERT_NE(data_type, nullptr);
+    EXPECT_EQ(data_type->get_primitive_type(), TYPE_ARRAY);
+    const auto* array_type = assert_cast<const DataTypeArray*>(data_type.get());
+    const auto* nested_type_nullable =
+            assert_cast<const DataTypeNullable*>(array_type->get_nested_type().get());
+    ASSERT_NE(nested_type_nullable, nullptr);
+    const auto* nested_type =
+            assert_cast<const DataTypeDecimalV2*>(nested_type_nullable->get_nested_type().get());
+    ASSERT_NE(nested_type, nullptr);
+    EXPECT_EQ(nested_type->get_original_precision(), 18);
+    EXPECT_EQ(nested_type->get_original_scale(), 4);
+    EXPECT_EQ(nested_type->get_precision(), 27);
+    EXPECT_EQ(nested_type->get_scale(), 9);
+}
+TEST_F(ColumnReaderCacheTest, FillMissingDecimalV3PrecisionFromTabletSchema) {
+    constexpr int32_t col_uid = 10;
+    setup_column_uid_mapping(col_uid, 0);
+    auto& tablet_column = _mock_segment->tablet_schema()->mutable_column_by_uid(col_uid);
+    tablet_column.set_type(FieldType::OLAP_FIELD_TYPE_DECIMAL128I);
+    tablet_column.set_precision(20);
+    tablet_column.set_frac(6);
+
+    ColumnMetaPB col_meta;
+    col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL128I));
+    col_meta.set_unique_id(col_uid);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
+    col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    ASSERT_FALSE(col_meta.has_precision());
+    ASSERT_FALSE(col_meta.has_frac());
+    setup_parsed_segment_footer({col_meta});
+
+    const auto& parsed_col_meta = _mock_segment->get_footer()->columns(0);
+    EXPECT_EQ(parsed_col_meta.precision(), 20);
+    EXPECT_EQ(parsed_col_meta.frac(), 6);
+
+    std::shared_ptr<ColumnReader> reader;
+    Status status = _cache->get_column_reader(col_uid, &reader, &_stats);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(reader, nullptr);
+
+    auto data_type = reader->get_vec_data_type();
+    ASSERT_NE(data_type, nullptr);
+    EXPECT_EQ(data_type->get_primitive_type(), TYPE_DECIMAL128I);
+    EXPECT_EQ(data_type->get_precision(), 20);
+    EXPECT_EQ(data_type->get_scale(), 6);
+}
+
+TEST_F(ColumnReaderCacheTest, FillMissingDecimalV3PrecisionForComplexTypeFromTabletSchema) {
+    constexpr int32_t col_uid = 11;
+    setup_column_uid_mapping(col_uid, 0);
+    auto& tablet_column = _mock_segment->tablet_schema()->mutable_column_by_uid(col_uid);
+    tablet_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn item_column;
+    item_column.set_type(FieldType::OLAP_FIELD_TYPE_DECIMAL64);
+    item_column.set_precision(18);
+    item_column.set_frac(4);
+    tablet_column.add_sub_column(item_column);
+
+    ColumnMetaPB col_meta;
+    col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    col_meta.set_unique_id(col_uid);
+
+    auto* item_meta = col_meta.add_children_columns();
+    item_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL64));
+    item_meta->set_encoding(get_v2_default_encoding(static_cast<FieldType>(item_meta->type())));
+    item_meta->set_num_rows(1000);
+    item_meta->mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    ASSERT_FALSE(item_meta->has_precision());
+    ASSERT_FALSE(item_meta->has_frac());
+
+    auto* offset_meta = col_meta.add_children_columns();
+    offset_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT));
+    offset_meta->set_encoding(get_v2_default_encoding(static_cast<FieldType>(offset_meta->type())));
+    offset_meta->set_num_rows(1000);
+    offset_meta->mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    setup_parsed_segment_footer({col_meta});
+
+    const auto& parsed_item_meta = _mock_segment->get_footer()->columns(0).children_columns(0);
+    EXPECT_EQ(parsed_item_meta.precision(), 18);
+    EXPECT_EQ(parsed_item_meta.frac(), 4);
+
+    std::shared_ptr<ColumnReader> reader;
+    Status status = _cache->get_column_reader(col_uid, &reader, &_stats);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(reader, nullptr);
+
+    auto data_type = reader->get_vec_data_type();
+    ASSERT_NE(data_type, nullptr);
+    EXPECT_EQ(data_type->get_primitive_type(), TYPE_ARRAY);
+    const auto* array_type = assert_cast<const DataTypeArray*>(data_type.get());
+    auto nested_type = array_type->get_nested_type();
+    ASSERT_NE(nested_type, nullptr);
+    EXPECT_EQ(nested_type->get_primitive_type(), TYPE_DECIMAL64);
+    EXPECT_EQ(nested_type->get_precision(), 18);
+    EXPECT_EQ(nested_type->get_scale(), 4);
 }
 
 } // namespace doris::segment_v2

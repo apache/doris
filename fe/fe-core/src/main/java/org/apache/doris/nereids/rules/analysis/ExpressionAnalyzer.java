@@ -73,15 +73,13 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
-import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -270,7 +268,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             StructType structType = (StructType) dataType;
             StructField field = structType.getField(dereferenceExpression.fieldName);
             if (field != null) {
-                return new StructElement(expression, dereferenceExpression.child(1));
+                return new ElementAt(expression, dereferenceExpression.child(1));
             }
         } else if (dataType.isMapType()) {
             return new ElementAt(expression, dereferenceExpression.child(1));
@@ -316,7 +314,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 if (firstBound.getDataType() instanceof NestedColumnPrunable
                         || firstBound.getDataType().isVariantType()) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
-                } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
+                } else if (firstBound.containsType(ElementAt.class)) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                 }
                 return firstBound;
@@ -561,7 +559,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (wantToParseSqlFromSqlCache) {
             sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
             if (builder instanceof AliasUdfBuilder
-                    || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
+                    || buildResult.second instanceof Udf) {
                 if (sqlCacheContext.isPresent()) {
                     sqlCacheContext.get().setCannotProcessExpression(true);
                 }
@@ -1171,7 +1169,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     throw new AnalysisException("No such struct field '" + fieldName + "' in '" + lastFieldName + "'");
                 }
                 lastFieldName = fieldName;
-                expression = new StructElement(expression, new StringLiteral(fieldName));
+                expression = new ElementAt(expression, new StringLiteral(fieldName));
                 continue;
             } else if (dataType.isMapType()) {
                 expression = new ElementAt(expression, new StringLiteral(fieldName));

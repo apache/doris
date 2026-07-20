@@ -67,6 +67,7 @@
 #include "exec/connector/vjdbc_connector.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/rowid_fetcher.h"
+#include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/function/dictionary_factory.h"
@@ -95,6 +96,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/query_context.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_profile.h"
@@ -986,6 +988,13 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                                             const PJdbcTestConnectionRequest* request,
                                             PJdbcTestConnectionResult* result,
                                             google::protobuf::Closure* done) {
+    if (!doris::config::enable_java_support) {
+        doris::Status status = doris::Status::InternalError(
+                "you can change be config enable_java_support to true and restart be.");
+        status.to_protobuf(result->mutable_status());
+        done->Run();
+        return;
+    }
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
         VLOG_RPC << "test jdbc connection";
         brpc::ClosureGuard closure_guard(done);
@@ -1485,8 +1494,11 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
-        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
-        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
+        const butil::IOBuf& request_attachment =
+                static_cast<brpc::Controller*>(controller)->request_attachment();
+        butil::IOBuf apply_attachment = request_attachment;
+        butil::IOBuf forward_attachment = request_attachment;
+        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(apply_attachment);
         VLOG_NOTICE << "rpc apply_filterv2 recv";
         Status st;
         try {
@@ -1496,6 +1508,20 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
         }
         if (!st.ok()) {
             LOG(WARNING) << "apply filter meet error: " << st.to_string();
+        }
+        std::weak_ptr<QueryContext> forward_ctx;
+        if (auto query_ctx = _exec_env->fragment_mgr()->get_query_ctx(
+                    UniqueId(request->query_id()).to_thrift())) {
+            if (!query_ctx->ignore_runtime_filter_error()) {
+                forward_ctx = query_ctx;
+            }
+        }
+        Status forward_st = forward_runtime_filter(*request, forward_attachment, forward_ctx);
+        if (!forward_st.ok()) {
+            LOG(WARNING) << "forward runtime filter meet error: " << forward_st.to_string();
+            if (st.ok()) {
+                st = std::move(forward_st);
+            }
         }
         st.to_protobuf(response->mutable_status());
     });

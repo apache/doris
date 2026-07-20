@@ -194,9 +194,9 @@ bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
 }
 
 bool VariantColumnReader::_is_exceeded_sparse_column_limit_unlocked() const {
-    bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
-                                        _statistics->sparse_column_non_null_size.size() >=
-                                                _variant_sparse_column_statistics_size;
+    const bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
+                                              _statistics->sparse_column_non_null_size.size() >=
+                                                      _variant_sparse_column_statistics_size;
     DBUG_EXECUTE_IF("exceeded_sparse_column_limit_must_be_false", {
         if (exceeded_sparse_column_limit) {
             throw doris::Exception(
@@ -884,8 +884,12 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     }
 
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
-    // Or access root path
-    if (_has_prefix_path_unlocked(relative_path)) {
+    // Or access root path. If sparse stats reached the configured limit, an exact sparse path can
+    // still have unrecorded sparse children such as a.b.c.
+    const bool has_prefix_path = _has_prefix_path_unlocked(relative_path);
+    const bool sparse_stats_may_have_unrecorded_children =
+            exceeded_sparse_column_limit && existed_in_sparse_column;
+    if (has_prefix_path || sparse_stats_may_have_unrecorded_children) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn
@@ -953,7 +957,8 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         }
 
         if (exceeded_sparse_column_limit) {
-            // maybe exist prefix path in sparse column
+            // Sparse stats are truncated, so a missing exact sparse path does not prove that the
+            // path is absent. It may still be nested under a recorded sparse object.
             plan->kind = ReadKind::HIERARCHICAL;
             plan->type = create_variant_type(target_col);
             plan->relative_path = relative_path;
@@ -1569,7 +1574,7 @@ Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
     auto tmp = ColumnVariant::create(0, obj.enable_doc_mode(), root_column->size());
     auto& tmp_obj = *tmp;
     tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
-    // tmp_obj.get_sparse_column()->assume_mutable()->insert_many_defaults(root_column->size());
+    // tmp_obj.get_sparse_column()->assert_mutable()->insert_many_defaults(root_column->size());
 
     // merge tmp object column to dst
     obj.insert_range_from(*tmp, 0, tmp_obj.rows());
@@ -1638,8 +1643,9 @@ static void fill_nested_with_defaults(MutableColumnPtr& dst, MutableColumnPtr& s
     }
     auto new_nested =
             dst_array->get_data_ptr()->clone_resized(sibling_array->get_data_ptr()->size());
-    auto new_array = make_nullable(ColumnArray::create(
-            new_nested->assume_mutable(), sibling_array->get_offsets_ptr()->assume_mutable()));
+    ColumnPtr nested_column = std::move(new_nested);
+    auto new_array =
+            make_nullable(ColumnArray::create(nested_column, sibling_array->get_offsets_ptr()));
     dst->insert_range_from(*new_array, 0, new_array->size());
 #ifndef NDEBUG
     if (!dst_array->has_equal_offsets(*sibling_array)) {

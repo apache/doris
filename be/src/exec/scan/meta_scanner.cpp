@@ -114,39 +114,37 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
         return Status::OK();
     }
 
-    auto column_size = _tuple_desc->slots().size();
-    std::vector<MutableColumnPtr> columns(column_size);
     bool mem_reuse = block->mem_reuse();
     do {
         RETURN_IF_CANCELLED(state);
 
-        columns.resize(column_size);
-        for (auto i = 0; i < column_size; i++) {
-            if (mem_reuse) {
-                columns[i] = block->get_by_position(i).column->assume_mutable();
-            } else {
+        bool empty_result = true;
+        if (mem_reuse) {
+            auto columns_guard = block->mutate_columns_scoped();
+            auto& columns = columns_guard.mutable_columns();
+            RETURN_IF_ERROR(_fill_block_with_remote_data(columns));
+            empty_result = columns.empty() || columns.front()->empty();
+            columns_guard.restore();
+        } else {
+            auto column_size = _tuple_desc->slots().size();
+            std::vector<MutableColumnPtr> columns(column_size);
+            for (auto i = 0; i < column_size; i++) {
                 columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
             }
-        }
-        // fill block
-        RETURN_IF_ERROR(_fill_block_with_remote_data(columns));
-        if (_meta_eos == true) {
-            if (block->rows() == 0) {
-                *eof = true;
-            }
-            break;
-        }
-        // Before really use the Block, must clear other ptr of column in block
-        // So here need do std::move and clear in `columns`
-        if (!mem_reuse) {
+            RETURN_IF_ERROR(_fill_block_with_remote_data(columns));
+            empty_result = columns.empty() || columns.front()->empty();
             int column_index = 0;
             for (const auto slot_desc : _tuple_desc->slots()) {
                 block->insert(ColumnWithTypeAndName(std::move(columns[column_index++]),
                                                     slot_desc->get_data_type_ptr(),
                                                     slot_desc->col_name()));
             }
-        } else {
-            columns.clear();
+        }
+        if (_meta_eos == true) {
+            if (empty_result) {
+                *eof = true;
+            }
+            break;
         }
         VLOG_ROW << "VMetaScanNode output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eof));

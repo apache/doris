@@ -39,6 +39,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
@@ -1634,7 +1635,8 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     // Currently, updates are only made in the time_series.
     update_compaction_level();
 
-    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), _uuid));
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), _uuid,
+                                                     _tablet->table_id()));
 
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());
@@ -1860,8 +1862,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.job_id = _uuid;
 
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
-    RETURN_IF_ERROR(
-            _engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get(), _uuid));
+    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get(),
+                                                      _uuid, _tablet->table_id()));
     return Status::OK();
 }
 
@@ -1918,6 +1920,10 @@ int64_t CloudCompactionMixin::num_input_rowsets() const {
 }
 
 bool CloudCompactionMixin::should_cache_compaction_output() {
+    if (config::enable_file_cache_write_index_file_only) {
+        return false;
+    }
+
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
         return true;
     }

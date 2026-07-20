@@ -207,10 +207,12 @@ Status CloudStorageEngine::open() {
             cast_set<int32_t>(io::FileCacheFactory::instance()->get_cache_instance_size()));
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
+    _calc_delete_bitmap_executor->init("TabletCalcDeleteBitmapThreadPool",
+                                       config::calc_delete_bitmap_max_thread);
 
     _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor_for_load->init(
+            "LoadCalcDeleteBitmapThreadPool",
             config::calc_delete_bitmap_for_load_max_thread > 0
                     ? config::calc_delete_bitmap_for_load_max_thread
                     : std::max(1, CpuInfo::num_cores() / 2));
@@ -446,6 +448,15 @@ void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::refresh_s3_info_interval_s))) {
         sync_storage_vault();
+        // The other place that rebuilds the S3 rate limiter is S3ClientFactory::create(), which
+        // is not called when an existing vault's conf is unchanged. Trigger the check here as well
+        // so that dynamically modified s3_{get,put}_* rate limiter configs take effect within
+        // refresh_s3_info_interval_s even when no vault is created or its conf does not change.
+        // Gate it behind enable_s3_rate_limiter so that clusters with rate limiting disabled
+        // (e.g. HDFS-only vaults) do not force-initialize S3ClientFactory / the AWS SDK here.
+        if (config::enable_s3_rate_limiter) {
+            check_s3_rate_limiter_config_changed();
+        }
     }
 }
 

@@ -986,4 +986,28 @@ TEST(FunctionJsonbTEST, JsonContains) {
     ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
 }
 
+TEST(FunctionJsonbTEST, JsonbModifyMissingPathParent) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_JSONB};
+
+    {
+        DataSet data_set = {
+                {{STRING("{}"), STRING("$.a"), STRING("1")}, STRING(R"({"a":1})")},
+                {{STRING(R"({"a":{}})"), STRING("$.a.b"), STRING("2")}, STRING(R"({"a":{"b":2}})")},
+                {{STRING(R"({"a":[1]})"), STRING("$.a[1]"), STRING("2")}, STRING(R"({"a":[1,2]})")},
+        };
+        static_cast<void>(
+                check_function<DataTypeJsonb, true>("jsonb_insert", input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{STRING("{}"), STRING("$.a"), STRING("1")}, STRING(R"({"a":1})")},
+                {{STRING(R"({"a":{}})"), STRING("$.a.b"), STRING("2")}, STRING(R"({"a":{"b":2}})")},
+                {{STRING(R"({"a":[1]})"), STRING("$.a[1]"), STRING("2")}, STRING(R"({"a":[1,2]})")},
+        };
+        static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_set", input_types, data_set));
+    }
+}
+
 } // namespace doris

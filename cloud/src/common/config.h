@@ -96,9 +96,9 @@ CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
-CONF_Strings(recycle_whitelist, ""); // Comma seprated list
+CONF_mStrings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
-CONF_Strings(recycle_blacklist, ""); // Comma seprated list
+CONF_mStrings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
@@ -193,6 +193,20 @@ CONF_Int64(default_max_qps_limit, "1000000");
 CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
+CONF_mBool(enable_ms_rate_limit, "false");
+// Fault injection: randomly return meta service rate limit error for testing.
+// ms_rate_limit_injection_probability is the probability (0-100) of injecting a rate limit error.
+CONF_mBool(enable_ms_rate_limit_injection, "false");
+CONF_mInt32(ms_rate_limit_injection_probability, "5");
+CONF_Validator(ms_rate_limit_injection_probability,
+               [](int32_t config) -> bool { return config >= 0 && config <= 100; });
+CONF_mInt64(ms_rate_limit_window_seconds, "60");
+CONF_mInt64(ms_rate_limit_fdb_commit_latency_ms, "50");
+CONF_mInt64(ms_rate_limit_fdb_read_latency_ms, "5");
+CONF_mInt64(ms_rate_limit_fdb_client_thread_busyness_avg_percent, "70");
+CONF_mInt64(ms_rate_limit_fdb_client_thread_busyness_instant_percent, "90");
+CONF_mInt64(ms_rate_limit_cpu_usage_percent, "95");
+CONF_mInt64(ms_rate_limit_memory_usage_percent, "95");
 
 CONF_mInt32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
 CONF_String(arn_id, "");
@@ -327,6 +341,7 @@ CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
 // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
 // This reduces contention during transaction commit by extending delete bitmap locks.
 CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
+CONF_mBool(enable_recycler_check_lazy_txn_finished, "true");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");

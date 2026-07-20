@@ -48,7 +48,13 @@ namespace ErrorCodes {
 extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 }
 
-DataTypeArray::DataTypeArray(const DataTypePtr& nested_) : nested {nested_} {}
+DataTypeArray::DataTypeArray(const DataTypePtr& nested_) {
+    DataTypePtr nullable_nested = make_nullable(nested_);
+    auto nested_type = std::dynamic_pointer_cast<const DataTypeNullable>(nullable_nested);
+    DORIS_CHECK(nested_type != nullptr);
+    nested = std::move(nested_type);
+    nested_as_base = nested;
+}
 
 MutableColumnPtr DataTypeArray::create_column() const {
     return ColumnArray::create(nested->create_column(), ColumnArray::ColumnOffsets::create());
@@ -66,9 +72,10 @@ bool DataTypeArray::equals(const IDataType& rhs) const {
 
 // here we should remove nullable, otherwise here always be 1
 size_t DataTypeArray::get_number_of_dimensions() const {
-    const DataTypeArray* nested_array =
-            typeid_cast<const DataTypeArray*>(remove_nullable(nested).get());
-    if (!nested_array) return 1;
+    auto* nested_array = typeid_cast<const DataTypeArray*>(remove_nullable(nested).get());
+    if (!nested_array) {
+        return 1;
+    }
     return 1 +
            nested_array
                    ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
@@ -137,36 +144,51 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
         buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
         auto* data_column = assert_cast<ColumnArray*>(origin_column);
-        auto& offsets = data_column->get_offsets();
 
         // offsets
+        auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
+        auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data();
         offsets.resize(real_have_saved_num);
         memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
         buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;
         // children
-        auto nested_column = data_column->get_data_ptr()->assume_mutable();
+        auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
         buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
+        auto typed_offsets_column = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+                assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                        offsets_column.get()));
+        offsets_column = nullptr;
+        data_column->get_offsets_ptr() = std::move(typed_offsets_column);
+        data_column->get_data_ptr() = std::move(nested_column);
         return buf;
     } else {
         auto* data_column = assert_cast<ColumnArray*>(column->get());
-        auto& offsets = data_column->get_offsets();
 
         // row num
         auto row_num = unaligned_load<ColumnArray::Offset64>(buf);
         buf += sizeof(ColumnArray::Offset64);
         // offsets
+        auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
+        auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data();
         offsets.resize(row_num);
         memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
         buf += sizeof(ColumnArray::Offset64) * row_num;
         // children
-        auto nested_column = data_column->get_data_ptr()->assume_mutable();
-        return get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
+        auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
+        buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
+        auto typed_offsets_column = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+                assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                        offsets_column.get()));
+        offsets_column = nullptr;
+        data_column->get_offsets_ptr() = std::move(typed_offsets_column);
+        data_column->get_data_ptr() = std::move(nested_column);
+        return buf;
     }
 }
 
 void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
-    auto children = col_meta->add_children();
+    auto* children = col_meta->add_children();
     get_nested_type()->to_pb_column_meta(children);
 }
 

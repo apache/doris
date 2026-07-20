@@ -43,7 +43,7 @@ suite("test_sql_digest_generation", "nonConcurrent") {
         Long prevSqlDigestCount = Long.valueOf(prevSqlDigestCountResult[0][0])
         logger.info("prev sql_digest count: " + prevSqlDigestCount)
 
-        sql "select * from audit_log_behavior"
+        sql "select *, sleep(1) from audit_log_behavior"
 
         Thread.sleep(10000)
         sql """call flush_audit_log()"""
@@ -66,7 +66,7 @@ suite("test_sql_digest_generation", "nonConcurrent") {
         Long prevSqlDigestCount = Long.valueOf(prevSqlDigestCountResult[0][0])
         logger.info("prev sql_digest count: " + prevSqlDigestCount)
 
-        sql "select * from audit_log_behavior"
+        sql "select *, sleep(1) from audit_log_behavior"
 
         Thread.sleep(10000)
         sql """call flush_audit_log()"""

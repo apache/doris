@@ -36,7 +36,7 @@ namespace doris {
 
 ColumnPtr squash_const(const ColumnPtr& col) {
     ColumnPtr res = col;
-    while (const auto* c = typeid_cast<const ColumnConst*>(res.get())) {
+    while (const auto* c = check_and_get_column<ColumnConst>(res.get())) {
         res = c->get_data_column_ptr();
     }
     return res;
@@ -45,18 +45,19 @@ ColumnPtr squash_const(const ColumnPtr& col) {
 ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_empty,
                          bool need_squash)
         : data(need_squash ? squash_const(data_) : data_), s(s_) {
-    if (data->empty() != create_with_empty) {
+    const IColumn& col = get_data_column();
+    if (col.empty() != create_with_empty) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Incorrect size of nested column in constructor of ColumnConst: {}, "
                                "create_with_empty: {}.",
-                               data->size(), create_with_empty);
+                               col.size(), create_with_empty);
     }
 
-    if (data->size() != 1 && !create_with_empty) {
+    if (col.size() != 1 && !create_with_empty) {
         throw doris::Exception(
                 ErrorCode::INTERNAL_ERROR,
                 "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
-                data->size());
+                col.size());
     }
 }
 
@@ -109,7 +110,10 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
 }
 
 void ColumnConst::replace_float_special_values() {
-    data->replace_float_special_values();
+    // COW: get exclusive ownership of data before mutating
+    auto mutable_data = IColumn::mutate(std::move(static_cast<ColumnPtr&>(data)));
+    mutable_data->replace_float_special_values();
+    data = std::move(mutable_data);
 }
 
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,

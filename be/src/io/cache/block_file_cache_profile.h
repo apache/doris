@@ -52,9 +52,9 @@ public:
     }
 
     void update(FileCacheStatistics* stats);
+    std::shared_ptr<AtomicStatistics> report();
 
 private:
-    std::shared_ptr<AtomicStatistics> report();
     void register_entity();
     void update_metrics_callback();
 
@@ -63,6 +63,9 @@ private:
     // use shared_ptr for concurrent
     std::shared_ptr<AtomicStatistics> _statistics;
 };
+
+FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
+                                               const FileCacheStatistics& previous);
 
 struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_local_io_total = nullptr;
@@ -94,6 +97,16 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_peer_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
+
+    RuntimeProfile::Counter* segment_footer_index_num_local_io_total = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_num_peer_io_total = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_scanned_from_cache = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_scanned_from_peer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_local_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_remote_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_peer_io_timer = nullptr;
 
     FileCacheProfileReporter(RuntimeProfile* profile);
     void update(const FileCacheStatistics* statistics) const;

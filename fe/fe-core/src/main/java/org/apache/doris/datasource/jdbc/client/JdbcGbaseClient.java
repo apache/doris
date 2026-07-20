@@ -96,6 +96,9 @@ public class JdbcGbaseClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
+                if (!isExactTable(databaseMetaData, rs, remoteDbName, remoteTableName)) {
+                    continue;
+                }
                 JdbcFieldSchema field = new JdbcFieldSchema(rs);
                 tableSchema.add(field);
             }
@@ -106,6 +109,11 @@ public class JdbcGbaseClient extends JdbcClient {
             close(rs, conn);
         }
         return tableSchema;
+    }
+
+    @Override
+    protected String getRemoteDatabaseName(ResultSet resultSet) throws SQLException {
+        return resultSet.getString("TABLE_CAT");
     }
 
     @Override

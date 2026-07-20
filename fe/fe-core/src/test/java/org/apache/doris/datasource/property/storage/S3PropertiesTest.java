@@ -308,6 +308,25 @@ public class S3PropertiesTest {
         Assertions.assertNull(backendProperties.get("AWS_EXTERNAL_ID"));
     }
 
+    @Test
+    public void testS3CredentialsProviderTypeWithoutIamRoleForCloud() {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.region", "us-west-2");
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("s3.credentials_provider_type", "container");
+
+        Assertions.assertEquals(CredProviderTypePB.CONTAINER,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        Assertions.assertFalse(S3Properties.getObjStoreInfoPB(origProps).hasRoleArn());
+
+        origProps.remove("s3.credentials_provider_type");
+        origProps.put("AWS_CREDENTIALS_PROVIDER_TYPE", "env");
+        Assertions.assertEquals(CredProviderTypePB.ENV,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        Assertions.assertFalse(S3Properties.getObjStoreInfoPB(origProps).hasRoleArn());
+    }
+
 
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
@@ -544,9 +563,10 @@ public class S3PropertiesTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
         S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
-        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3a.impl.disable.cache"));
-        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
-        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3n.impl.disable.cache"));
+        // No longer disabled by default: the patched FileSystem keys its cache by doris.fs.cache.key.
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.s3a.impl.disable.cache"));
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.s3n.impl.disable.cache"));
         props.put("fs.s3a.impl.disable.cache", "true");
         props.put("fs.s3.impl.disable.cache", "false");
         props.put("fs.s3n.impl.disable.cache", "null");

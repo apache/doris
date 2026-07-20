@@ -327,6 +327,12 @@ struct TPaimonDeletionFileDesc {
     3: optional i64 length;
 }
 
+enum TPaimonReaderType {
+    PAIMON_NATIVE = 0,
+    PAIMON_JNI = 1,
+    PAIMON_CPP = 2,
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -344,6 +350,8 @@ struct TPaimonFileDesc {
     14: optional string paimon_table  // deprecated
     15: optional i64 row_count // deprecated
     16: optional i64 schema_id; // for schema change.
+    // Reader implementation for logical paimon split. Native file split uses range format type.
+    17: optional TPaimonReaderType reader_type;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -1000,7 +1008,8 @@ struct TNestedLoopJoinNode {
 
   4: optional list<Types.TTupleId> vintermediate_tuple_id_list
 
-  // for bitmap filer, don't need to join, but output left child tuple
+  // Deprecated: bitmap runtime filter planning no longer uses this field; for bitmap filer,
+  // don't need to join, but output left child tuple
   5: optional bool is_output_left_side_only
 
   6: optional Exprs.TExpr vjoin_conjunct
@@ -1374,6 +1383,7 @@ enum TRuntimeFilterType {
   BLOOM = 2,
   MIN_MAX = 4,
   IN_OR_BLOOM = 8,
+  // Deprecated: bitmap runtime filters are no longer planned.
   BITMAP = 16
 }
 
@@ -1433,10 +1443,10 @@ struct TRuntimeFilterDesc {
   // the query options. Should be greater than zero for bloom filters, zero otherwise.
   9: optional i64 bloom_filter_size_bytes
 
-  // for bitmap filter target expr
+  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter target expr
   10: optional Exprs.TExpr bitmap_target_expr
 
-  // for bitmap filter
+  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter
   11: optional bool bitmap_filter_not_in
 
   12: optional bool opt_remote_rf; // Deprecated

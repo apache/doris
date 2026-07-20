@@ -88,9 +88,10 @@ public:
         // all conjuncts: in sql, join runtime filter, topn runtime filter.
         VExprContextSPtrs conjuncts;
 
-        // ParquetReader::set_fill_columns(xxx, xxx) will set these two members
+        // ParquetReader::set_fill_columns(xxx, xxx) will set these members
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 fill_partition_columns;
+        std::unordered_map<std::string, bool> partition_value_is_null;
         std::unordered_map<std::string, VExprContextSPtr> fill_missing_columns;
 
         phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>
@@ -215,8 +216,7 @@ protected:
     }
 
 private:
-    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
-                             bool* modify_row_ids);
+    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof);
 
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
@@ -242,6 +242,7 @@ private:
                                   const IColumn::Filter& filter);
 
     bool _can_filter_by_dict(int slot_id, const tparquet::ColumnMetaData& column_metadata);
+    bool _need_current_batch_row_positions() const;
     bool is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
     Status _rewrite_dict_predicates();
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);

@@ -144,7 +144,7 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     return mem_size > state->spill_min_revocable_mem() ? mem_size : 0;
 }
 
-Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
+Status SpillSortSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -188,6 +188,7 @@ size_t SpillSortSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool e
 }
 
 Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     auto& parent = Base::_parent->template cast<Parent>();
     state->get_query_ctx()->resource_ctx()->task_controller()->increase_revoking_tasks_count();
     Defer defer {[&]() {
@@ -221,6 +222,7 @@ Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state) {
 }
 
 Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     auto& parent = Base::_parent->template cast<Parent>();
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;

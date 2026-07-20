@@ -41,7 +41,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export ROOT
 export DORIS_HOME="${ROOT}"
-
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
+export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
+export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 . "${DORIS_HOME}/env.sh"
 
 # Check args
@@ -174,6 +179,13 @@ update_submodule() {
     fi
 }
 
+echo "install datasketches-cpp to thirdparty path before build backend ut"
+update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
+cd "${DORIS_HOME}/contrib/datasketches-cpp"
+"${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
+"${CMAKE_CMD}" --build build/Release -t install
+cd "${DORIS_HOME}"
+
 update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
 update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
@@ -225,14 +237,6 @@ if [[ -z "${ARM_MARCH}" ]]; then
     ARM_MARCH='armv8-a+crc'
 fi
 
-if [[ -z "${USE_UNWIND}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_UNWIND='ON'
-    else
-        USE_UNWIND='OFF'
-    fi
-fi
-
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='ON'
 fi
@@ -257,7 +261,6 @@ cd "${CMAKE_BUILD_DIR}"
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
-    -DUSE_UNWIND="${USE_UNWIND}" \
     -DUSE_JEMALLOC=OFF \
     -DUSE_AVX2="${USE_AVX2}" \
     -DARM_MARCH="${ARM_MARCH}" \

@@ -120,20 +120,20 @@ suite("test_time_series_compaction_level2", "nonConcurrent") {
 
             int rowsetCount = get_rowset_count.call(tablets);
             println "rowsetCount: ${rowsetCount}"
-            assert (rowsetCount == 10 * replicaNum + i + 1)
+            assert (rowsetCount == (10 + i + 1) * replicaNum)
 
             trigger_cumulative_compaction_on_tablets.call(tablets)
             wait_cumulative_compaction_done.call(tablets)
         }
 
         int rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 10 * replicaNum + 1)
+        assert (rowsetCount == (10 + 1) * replicaNum)
 
         trigger_cumulative_compaction_on_tablets.call(tablets)
         wait_cumulative_compaction_done.call(tablets)
 
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 + 1)
+        assert (rowsetCount == (1 + 1) * replicaNum) : "10 level-1 rowsets should be level-2 compacted into 1; expected ${2 * replicaNum} rowsets, got ${rowsetCount}"
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("time_series_level2_file_count")
     }

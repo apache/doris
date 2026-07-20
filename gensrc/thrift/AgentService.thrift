@@ -42,7 +42,7 @@ struct TTabletSchema {
     14: optional i32 version_col_idx = -1
     15: optional bool is_dynamic_schema = false // deprecated
     16: optional bool store_row_column = false
-    17: optional bool enable_single_replica_compaction = false
+    // 17: deprecated enable_single_replica_compaction
     18: optional bool skip_write_index_on_load = false
     19: optional list<i32> cluster_key_uids
     // col unique id for row store column
@@ -166,6 +166,7 @@ struct TCleanTrashReq {}
 
 struct TCleanUDFCacheReq {
     1: optional string function_signature //function_name(arg_type)
+    2: optional i64 function_id // function id for cleaning cached library files
 }
 
 enum TCompressionType {
@@ -540,7 +541,7 @@ struct TTabletMetaInfo {
     11: optional i64 time_series_compaction_goal_size_mbytes
     12: optional i64 time_series_compaction_file_count_threshold
     13: optional i64 time_series_compaction_time_threshold_seconds
-    14: optional bool enable_single_replica_compaction
+    // 14: deprecated enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
     16: optional bool disable_auto_compaction
     17: optional i64 time_series_compaction_empty_rowsets_threshold

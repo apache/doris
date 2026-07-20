@@ -25,10 +25,10 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/sink/writer/iceberg/iceberg_partition_path.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
-#include "exec/sink/writer/vhive_utils.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/table/iceberg/partition_spec_parser.h"
@@ -284,7 +284,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer = writer;
+        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -327,7 +327,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer = writer;
+        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -430,7 +430,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         Block filtered_block;
         RETURN_IF_ERROR(_filter_block(output_block, &it->second, &filtered_block));
         RETURN_IF_ERROR(it->first->write(filtered_block));
-        _current_writer = it->first;
+        _current_writer.store(it->first);
     }
     return Status::OK();
 }
@@ -517,7 +517,7 @@ std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::Struct
 }
 
 std::string VIcebergTableWriter::_escape(const std::string& path) {
-    return VHiveUtils::escape_path_name(path);
+    return IcebergPartitionPath::escape(path);
 }
 
 std::vector<std::string> VIcebergTableWriter::_partition_values(

@@ -113,10 +113,6 @@ public:
         return nullptr;
     }
 
-    // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
-    // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
-    virtual void shrink_padding_chars() {}
-
     // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
@@ -409,6 +405,16 @@ public:
                                "Method update_crc32c_batch is not supported for " + get_name());
     }
 
+    // Hash NULL rows as this column type's default value, instead of skipping them like
+    // update_crc32c_batch(hashes, null_map). This keeps the legacy Nullable fixed-width hash
+    // semantics without mutating the source nested column.
+    virtual void update_crc32c_batch_default_on_null(uint32_t* __restrict hashes,
+                                                     const uint8_t* __restrict null_map) const {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_crc32c_batch_default_on_null is not supported for " + get_name());
+    }
+
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_map) const {
@@ -563,18 +569,29 @@ public:
         return false;
     }
 
+    // Recursively make a mutable column tree. Use this rvalue member when the
+    // current column object is being consumed. Shared nodes are cloned, while
+    // exclusive nodes are reused through the COW fast path.
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
+    // COW entry point for a ColumnPtr. Passing the pointer by value keeps the
+    // original owner alive until the top-level detach succeeds; passing
+    // std::move(ptr) explicitly consumes that owner. Subcolumns are still
+    // recursively detached as needed.
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
@@ -796,7 +813,19 @@ ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
     if (raw_type_ptr == nullptr) {
         return nullptr;
     }
-    return typename ColumnType::Ptr(raw_type_ptr);
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+
+template <typename ColumnType>
+ColumnType::Ptr cast_to_column(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = assert_cast<const ColumnType*>(column.get());
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+
+template <typename ColumnType>
+ColumnType::MutablePtr cast_to_column(MutableColumnPtr column) {
+    ColumnType* raw_type_ptr = assert_cast<ColumnType*>(column.get());
+    return ColumnType::cast_to_column_mutptr(raw_type_ptr);
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

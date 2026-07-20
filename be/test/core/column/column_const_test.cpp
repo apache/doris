@@ -41,6 +41,19 @@ TEST(ColumnConstTest, TestCreate) {
     EXPECT_TRUE(!is_column_const(column_const2->get_data_column()));
 }
 
+TEST(ColumnConstTest, clone_resized_clones_nested_data) {
+    auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
+    auto column_const = ColumnConst::create(column_data, 3);
+
+    auto cloned = column_const->clone_resized(5);
+    const auto& cloned_const = assert_cast<const ColumnConst&>(*cloned);
+
+    EXPECT_EQ(cloned_const.size(), 5);
+    EXPECT_EQ(cloned_const.get_data_column_ptr()->size(), 1);
+    EXPECT_EQ(cloned_const.get_data_column().get_int(0), 7);
+    EXPECT_NE(column_const->get_data_column_ptr().get(), cloned_const.get_data_column_ptr().get());
+}
+
 TEST(ColumnConstTest, TestFilter) {
     {
         auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});

@@ -34,24 +34,25 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-static bool check_all_match_one(const auto& vecs) {
-    size_t size = vecs.size();
-    if (!size || vecs[size - 1] != vecs[0] + size - 1) {
+static bool are_indices_contiguous(const auto& indices) {
+    size_t size = indices.size();
+    if (!size || indices[size - 1] != indices[0] + size - 1) {
         return false;
     }
     for (size_t i = 1; i < size; i++) {
-        if (vecs[i] == vecs[i - 1]) {
+        if (indices[i] == indices[i - 1]) {
             return false;
         }
     }
     return true;
 }
 
-static void insert_with_indexs(auto& dst, const auto& src, const auto& indexs, bool all_match_one) {
-    if (all_match_one) {
-        dst->insert_range_from(*src, indexs[0], indexs.size());
+static void insert_with_indices(auto& dst, const auto& src, const auto& indices,
+                                bool indices_are_contiguous) {
+    if (indices_are_contiguous) {
+        dst->insert_range_from(*src, indices[0], indices.size());
     } else {
-        dst->insert_indices_from(*src, indexs.data(), indexs.data() + indexs.size());
+        dst->insert_indices_from(*src, indices.data(), indices.data() + indices.size());
     }
 }
 
@@ -85,15 +86,15 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
           _asof_probe_search_timer(parent->_asof_probe_search_timer),
           _right_col_idx(_parent_operator->_right_col_idx),
           _right_col_len(_parent_operator->_right_table_data_types.size()) {
-    constexpr int CALCULATE_ALL_MATCH_ONE_THRESHOLD = 2;
+    constexpr int CONTIGUOUS_INDICES_CHECK_THRESHOLD = 2;
     int probe_output_non_lazy_materialized_count = 0;
     for (int i = 0; i < _left_output_slot_flags.size(); i++) {
         if (_left_output_slot_flags[i] && !_parent_operator->is_lazy_materialized_column(i)) {
             probe_output_non_lazy_materialized_count++;
         }
     }
-    _need_calculate_all_match_one =
-            probe_output_non_lazy_materialized_count >= CALCULATE_ALL_MATCH_ONE_THRESHOLD;
+    _should_check_probe_index_continuity =
+            probe_output_non_lazy_materialized_count >= CONTIGUOUS_INDICES_CHECK_THRESHOLD;
 }
 
 template <int JoinOpType>
@@ -156,16 +157,42 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(MutableColumns&
 }
 
 template <int JoinOpType>
+bool ProcessHashTableProbe<JoinOpType>::can_transfer_probe_columns_to_output(
+        bool probe_indices_are_contiguous) const {
+    constexpr bool probe_side_type_unchanged =
+            JoinOpType == TJoinOp::INNER_JOIN || JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
+            JoinOpType == TJoinOp::LEFT_SEMI_JOIN || JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
+            JoinOpType == TJoinOp::ASOF_LEFT_INNER_JOIN ||
+            JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN;
+    if constexpr (!probe_side_type_unchanged) {
+        return false;
+    }
+
+    // Only transfer ownership after the whole probe block has been consumed and there is no
+    // pending build-side match that will need the original probe columns in a later pull.
+    return probe_indices_are_contiguous && _probe_indexs.get_element(0) == 0 &&
+           _probe_indexs.size() == _parent->_probe_block.rows() &&
+           _parent->_probe_index == _parent->_probe_block.rows() && _parent->_build_index == 0 &&
+           !_parent_operator->need_finalize_variant_column();
+}
+
+template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns& mcol) {
     SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = _parent->_probe_block;
-    bool all_match_one =
-            _need_calculate_all_match_one ? check_all_match_one(_probe_indexs.get_data()) : false;
+    bool probe_indices_are_contiguous = _should_check_probe_index_continuity
+                                                ? are_indices_contiguous(_probe_indexs.get_data())
+                                                : false;
+    _can_transfer_probe_columns_to_output =
+            can_transfer_probe_columns_to_output(probe_indices_are_contiguous);
 
     for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
         if (_left_output_slot_flags[i]) {
             if (_parent_operator->need_finalize_variant_column()) {
-                std::move(*probe_block.get_by_position(i).column).mutate()->finalize();
+                auto mutable_column =
+                        IColumn::mutate(std::move(probe_block.get_by_position(i).column));
+                mutable_column->finalize();
+                probe_block.get_by_position(i).column = std::move(mutable_column);
             }
         }
 
@@ -174,8 +201,18 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns&
         bool should_output = _left_output_slot_flags[i] &&
                              (is_asof_join || !_parent_operator->is_lazy_materialized_column(i));
         if (should_output) {
-            auto& column = probe_block.get_by_position(i).column;
-            insert_with_indexs(mcol[i], column, _probe_indexs.get_data(), all_match_one);
+            if (_can_transfer_probe_columns_to_output) {
+                auto& probe_column = probe_block.get_by_position(i).column;
+                auto mutable_probe_column = IColumn::mutate(std::move(probe_column));
+                // Reuse the empty output column as the next child output column. The transferred
+                // probe column has been fully consumed and no longer needs to carry the row count.
+                probe_column = std::move(mcol[i]);
+                mcol[i] = std::move(mutable_probe_column);
+            } else {
+                auto& column = probe_block.get_by_position(i).column;
+                insert_with_indices(mcol[i], column, _probe_indexs.get_data(),
+                                    probe_indices_are_contiguous);
+            }
         } else {
             mock_column_size(mcol[i], _probe_indexs.size());
         }
@@ -201,7 +238,8 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_parent->_probe_columns.size() == 1 && null_map) {
             if (simd::contain_one(null_map, probe_rows)) {
-                _parent->_probe_columns[0]->assume_mutable()->replace_column_null_data(null_map);
+                const_cast<IColumn*>(_parent->_probe_columns[0])
+                        ->replace_column_null_data(null_map);
             }
         }
 
@@ -463,9 +501,9 @@ void ProcessHashTableProbe<JoinOpType>::process_direct_return(HashTableType& has
         probe_indexs_data[i] = i;
     }
     auto& mcol = mutable_block.mutable_columns();
+    _parent->_probe_index = probe_rows;
     probe_side_output_column(mcol);
     output_block->swap(mutable_block.to_block());
-    _parent->_probe_index = probe_rows;
 }
 
 template <int JoinOpType>
@@ -625,7 +663,7 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(Block* outp
 
     auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
                                    ColumnOffset32& row_indexs, int column_offset,
-                                   Block* source_block, bool try_all_match_one) {
+                                   Block* source_block, bool check_index_continuity) {
         std::vector<int> column_ids;
         for (int i = 0; i < output_slot_flags.size(); ++i) {
             if (output_slot_flags[i] &&
@@ -643,7 +681,7 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(Block* outp
         }
 
         const auto& container = row_indexs.get_data();
-        bool all_match_one = try_all_match_one && check_all_match_one(container);
+        bool indices_are_contiguous = check_index_continuity && are_indices_contiguous(container);
         for (int column_id : column_ids) {
             int output_column_id = column_id + column_offset;
             output_block->get_by_position(output_column_id).column =
@@ -652,14 +690,16 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(Block* outp
                             ->get_data_column_ptr();
 
             auto& src = source_block->get_by_position(column_id).column;
-            auto dst = output_block->get_by_position(output_column_id).column->assume_mutable();
+            auto dst = IColumn::mutate(
+                    std::move(output_block->get_by_position(output_column_id).column));
             dst->clear();
-            insert_with_indexs(dst, src, container, all_match_one);
+            insert_with_indices(dst, src, container, indices_are_contiguous);
+            output_block->get_by_position(output_column_id).column = std::move(dst);
         }
     };
     do_lazy_materialize(_right_output_slot_flags, _build_indexs, (int)_right_col_idx,
                         _build_block.get(), false);
-    // probe side indexs must be incremental so set try_all_match_one to true
+    // Probe-side indices are incremental, so check whether they form a contiguous range.
     do_lazy_materialize(_left_output_slot_flags, _probe_indexs, 0, &_parent->_probe_block, true);
     return Status::OK();
 }
@@ -719,14 +759,17 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_b
         return Status::OK();
     }
 
-    auto mark_column_mutable =
-            output_block->get_by_position(_parent->_mark_column_id).column->assume_mutable();
-    auto& mark_column = assert_cast<ColumnNullable&>(*mark_column_mutable);
-    IColumn::Filter& filter = assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data();
+    auto mark_column_mutable = IColumn::mutate(
+            std::move(output_block->get_by_position(_parent->_mark_column_id).column));
+    auto* mark_column = assert_cast<ColumnNullable*>(mark_column_mutable.get());
+    IColumn::Filter& filter =
+            assert_cast<ColumnUInt8&>(mark_column->get_nested_column()).get_data();
+    auto& null_map_column = mark_column->get_null_map_column();
+    output_block->replace_by_position(_parent->_mark_column_id, std::move(mark_column_mutable));
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_mark_join_conjuncts, output_block,
-                                                    mark_column.get_null_map_column(), filter));
+                                                    null_map_column, filter));
     uint8_t* mark_filter_data = filter.data();
-    uint8_t* mark_null_map = mark_column.get_null_map_data().data();
+    uint8_t* mark_null_map = mark_column->get_null_map_data().data();
 
     if (is_null_aware_join) {
         // For null aware anti/semi join, if the equal conjuncts was not matched and the build side has null value,
@@ -869,13 +912,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_
 
     auto filter_column = ColumnUInt8::create();
     filter_column->get_data() = std::move(other_conjunct_filter);
+    uint8_t* __restrict filter_column_ptr = filter_column->get_data().data();
     auto result_column_id = output_block->columns();
     output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
-    uint8_t* __restrict filter_column_ptr =
-            assert_cast<ColumnUInt8&>(
-                    output_block->get_by_position(result_column_id).column->assume_mutable_ref())
-                    .get_data()
-                    .data();
 
     if constexpr (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
                   JoinOpType == TJoinOp::FULL_OUTER_JOIN) {

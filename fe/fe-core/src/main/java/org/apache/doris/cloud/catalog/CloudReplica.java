@@ -17,20 +17,17 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.hash.HashCode;
@@ -38,7 +35,6 @@ import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,14 +55,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends = null;
     @SerializedName(value = "be")
     private ConcurrentHashMap<String, Long> primaryClusterToBackend = new ConcurrentHashMap<>();
-    @SerializedName(value = "dbId")
-    private long dbId = -1;
     @SerializedName(value = "tableId")
     private long tableId = -1;
     @SerializedName(value = "partitionId")
     private long partitionId = -1;
-    @SerializedName(value = "indexId")
-    private long indexId = -1;
     @SerializedName(value = "idx")
     private long idx = -1;
     // last time to get tablet stats
@@ -105,10 +97,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     public CloudReplica(long replicaId, Long backendId, ReplicaState state, long version, int schemaHash,
             long dbId, long tableId, long partitionId, long indexId, long idx) {
         super(replicaId, -1, state, version, schemaHash);
-        this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
-        this.indexId = indexId;
         this.idx = idx;
     }
 
@@ -176,20 +166,25 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     @Override
     public long getBackendId() throws ComputeGroupException {
-        return getBackendIdImpl(getCurrentClusterId());
+        return getBackendIdImpl(cloudInfoService().getCurrentClusterId());
+    }
+
+    // Variant for callers that have already resolved the cluster id once per request
+    // and want to skip the per-replica ConnectContext/priv/status/autoStart/existence pipeline.
+    public long getBackendIdWithClusterId(String clusterId) throws ComputeGroupException {
+        return getBackendIdImpl(clusterId);
     }
 
     public long getBackendId(String beEndpoint) {
-        String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByBeAddr(beEndpoint);
-        String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getPhysicalCluster(clusterName);
-
         try {
-            String clusterId = getCloudClusterIdByName(physicalClusterName);
+            CloudSystemInfoService infoService = cloudInfoService();
+            String clusterName = infoService.getClusterNameByBeAddr(beEndpoint);
+            String physicalClusterName = infoService.getPhysicalCluster(clusterName);
+            String clusterId = infoService.resolveClusterIdByName(physicalClusterName);
             return getBackendIdImpl(clusterId);
         } catch (ComputeGroupException e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to get compute group name {}", physicalClusterName, e);
+                LOG.debug("failed to get compute group name for endpoint {}", beEndpoint, e);
             }
             return -1;
         }
@@ -198,7 +193,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     public long getPrimaryBackendId() {
         String clusterId;
         try {
-            clusterId = getCurrentClusterId();
+            clusterId = cloudInfoService().getCurrentClusterId();
         } catch (ComputeGroupException e) {
             return -1L;
         }
@@ -208,6 +203,19 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         }
 
         return getClusterPrimaryBackendId(clusterId);
+    }
+
+    // Returns the CloudSystemInfoService instance, or throws ComputeGroupException when
+    // Env was set up with a base SystemInfoService (typically a unit test that mocks the
+    // base type). Production cloud-mode FE never hits the throw branch.
+    private static CloudSystemInfoService cloudInfoService() throws ComputeGroupException {
+        SystemInfoService info = Env.getCurrentSystemInfo();
+        if (info instanceof CloudSystemInfoService) {
+            return (CloudSystemInfoService) info;
+        }
+        throw new ComputeGroupException(
+                "current system info service is not cloud-aware",
+                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
     }
 
     public long getClusterPrimaryBackendId(String clusterId) {
@@ -220,91 +228,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         }
 
         return primaryClusterToBackend.getOrDefault(clusterId, -1L);
-    }
-
-    private String getCurrentClusterId() throws ComputeGroupException {
-        // Not in a connect session
-        String cluster = null;
-        ConnectContext context = ConnectContext.get();
-        if (context != null) {
-            // TODO(wb) rethinking whether should update err status.
-            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getPhysicalCluster(context.getCloudCluster());
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get compute group by context {}", cluster);
-            }
-
-            UserIdentity currentUid = context.getCurrentUserIdentity();
-            if (currentUid != null && !StringUtils.isEmpty(currentUid.getQualifiedUser())) {
-                try {
-                    ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
-                } catch (Exception e) {
-                    LOG.warn("check compute group {} for {} auth failed.", cluster,
-                            context.getCurrentUserIdentity().toString());
-                    throw new ComputeGroupException(
-                            String.format("context compute group %s check auth failed, user is %s",
-                                    cluster, context.getCurrentUserIdentity().toString()),
-                            ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
-                }
-            } else {
-                LOG.info("connect context user is null.");
-                throw new ComputeGroupException("connect context's user is null",
-                        ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
-            }
-
-            String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getCloudStatusByName(cluster);
-            if (!Strings.isNullOrEmpty(clusterStatus)
-                    && Cloud.ClusterStatus.valueOf(clusterStatus)
-                    == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
-                LOG.warn("auto start compute group {} in manual shutdown status", cluster);
-                throw new ComputeGroupException(
-                        String.format("The current compute group %s has been manually shutdown", cluster),
-                        ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_BEEN_MANUAL_SHUTDOWN);
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("connect context is null in getBackendId");
-            }
-            throw new ComputeGroupException("connect context not set cluster ",
-                    ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
-        }
-
-        return getCloudClusterIdByName(cluster);
-    }
-
-    private String getCloudClusterIdByName(String cluster) throws ComputeGroupException {
-        // if cluster is SUSPENDED, wait
-        String wakeUPCluster = "";
-        try {
-            wakeUPCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
-        } catch (DdlException e) {
-            // this function cant throw exception. so just log it
-            LOG.warn("cant resume compute group {}, exception", cluster, e);
-        }
-        if (!Strings.isNullOrEmpty(wakeUPCluster) && !cluster.equals(wakeUPCluster)) {
-            cluster = wakeUPCluster;
-            LOG.warn("get backend input compute group {} useless, so auto start choose a new one compute group {}",
-                    cluster, wakeUPCluster);
-        }
-        // check default compute group valid.
-        if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("failed to get available be, clusterName: {}", cluster);
-            throw new ComputeGroupException("compute group name is empty",
-                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET_COMPUTE_GROUP);
-        }
-        boolean exist = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getCloudClusterNames().contains(cluster);
-        if (!exist) {
-            // can't use this default compute group, plz change another
-            LOG.warn("compute group: {} is not existed", cluster);
-            throw new ComputeGroupException(
-                String.format("The current compute group %s is not registered in the system", cluster),
-                ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NOT_EXIST);
-        }
-
-        return ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(cluster);
     }
 
     private long getBackendIdImpl(String clusterId) throws ComputeGroupException {
@@ -529,20 +452,12 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return true;
     }
 
-    public long getDbId() {
-        return dbId;
-    }
-
     public long getTableId() {
         return tableId;
     }
 
     public long getPartitionId() {
         return partitionId;
-    }
-
-    public long getIndexId() {
-        return indexId;
     }
 
     public long getIdx() {

@@ -83,11 +83,20 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         const std::string& sync = req->param(std::string(SYNC));
         const std::string& segment_path = req->param(std::string(VALUE));
         if (segment_path.empty()) {
-            io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
+            const bool sync_clear = to_lower(sync) == "true";
+            std::string clear_msg;
+            RETURN_IF_ERROR(
+                    io::FileCacheFactory::instance()->clear_file_caches(sync_clear, &clear_msg));
+            if (sync_clear) {
+                EasyJson json;
+                json["status"] = "OK";
+                json["msg"] = clear_msg;
+                *json_metrics = json.ToString();
+            }
         } else {
             io::UInt128Wrapper hash = io::BlockFileCache::hash(segment_path);
             io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
-            cache->remove_if_cached(hash);
+            cache->remove_if_cached_async(hash);
         }
     } else if (operation == RESET) {
         std::string capacity = req->param(std::string(CAPACITY));
@@ -186,7 +195,10 @@ void FileCacheAction::handle(HttpRequest* req) {
         HttpChannel::send_reply(req, HttpStatus::OK,
                                 json_metrics.empty() ? status.to_json() : json_metrics);
     } else {
-        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
+        const auto http_status = status.is<ErrorCode::INVALID_ARGUMENT>()
+                                         ? HttpStatus::BAD_REQUEST
+                                         : HttpStatus::INTERNAL_SERVER_ERROR;
+        HttpChannel::send_reply(req, http_status, status_result);
     }
 }
 

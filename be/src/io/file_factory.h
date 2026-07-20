@@ -16,6 +16,7 @@
 // under the License.
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
@@ -64,9 +65,16 @@ struct FileDescription {
     // -1 means unset.
     // If the file length is not set, the file length will be fetched from the file system.
     int64_t file_size = -1;
+    int64_t range_start_offset = 0;
+    int64_t range_size = -1;
     // modification time of this file.
     // 0 means unset.
     int64_t mtime = 0;
+    // A correctness promise that the bytes at this path never change. This is only used when
+    // mtime is unavailable: immutable table formats may still key process-global caches by
+    // fs/path/size, while mutable files must not do so because the same path and size can refer to
+    // different contents after an overwrite. Generic Hive/local files must keep the default false.
+    bool is_immutable = false;
     // for hdfs, eg: hdfs://nameservices1/
     // because for a hive table, differenet partitions may have different
     // locations(or fs), so different files may have different fs.
@@ -83,6 +91,8 @@ class FileFactory {
     ENABLE_FACTORY_CREATOR(FileFactory);
 
 public:
+    static io::FileReaderOptions get_reader_options(const TQueryOptions& option,
+                                                    const io::FileDescription& fd);
     static io::FileReaderOptions get_reader_options(RuntimeState* state,
                                                     const io::FileDescription& fd);
 

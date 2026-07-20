@@ -31,6 +31,7 @@
 #include <google/protobuf/stubs/callback.h>
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
 
 #include <atomic>
@@ -220,8 +221,11 @@ struct WriterStats {
     VNodeChannelStat channel_stat;
 };
 
-// pair<row_id,tablet_id>
-using Payload = std::pair<std::unique_ptr<IColumn::Selector>, std::vector<int64_t>>;
+struct Payload {
+    std::unique_ptr<IColumn::Selector> row_ids;
+    RowPartTabletIds* row_part_tablet_ids = nullptr;
+    std::vector<uint32_t> route_idxs;
+};
 
 // every NodeChannel keeps a data transmission channel with one BE. for multiple times open, it has a dozen of requests and corresponding closures.
 class VNodeChannel {
@@ -336,6 +340,7 @@ public:
 protected:
     // make a real open request for relative BE's load channel.
     void _open_internal(bool is_incremental);
+    void _set_adaptive_random_bucket_open_request(PTabletWriterOpenRequest* request);
 
     void _close_check();
     void _cancel_with_msg(const std::string& msg);
@@ -396,6 +401,10 @@ protected:
 
     std::vector<TTabletWithPartition> _all_tablets;
     std::vector<TTabletWithPartition> _tablets_wait_open;
+    // For rolling-upgrade compatibility, adaptive random bucket add-block RPCs also carry
+    // tablet_ids. New receivers ignore them and route by partition id, while old receivers use
+    // this local tablet id instead of failing on an empty tablet_ids list.
+    std::unordered_map<int64_t, int64_t> _adaptive_partition_compat_tablets;
     // map from tablet_id to node_id where slave replicas locate in
     std::unordered_map<int64_t, std::vector<int64_t>> _slave_tablet_nodes;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
@@ -524,6 +533,14 @@ public:
                       std::unordered_set<int64_t> unfinished_node_channel_ids,
                       bool need_wait_after_quorum_success);
 
+    int64_t close_wait_version() const {
+        return _close_wait_version.load(std::memory_order_acquire);
+    }
+
+    void wait_for_close_event(int64_t observed_version, int64_t timeout_ms);
+
+    void notify_close_wait();
+
     Status check_each_node_channel_close(
             std::unordered_set<int64_t>* unfinished_node_channel_ids,
             std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
@@ -594,6 +611,8 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<std::shared_ptr<VNodeChannel>>> _channels_by_tablet;
+    // from partition_id to FE-planned bucket owner channel in cloud adaptive random bucket mode
+    std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _channels_by_partition;
     bool _has_inc_node = false;
 
     // lock to protect _failed_channels and _failed_channels_msgs
@@ -614,6 +633,10 @@ private:
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_filtered_rows;
 
     int64_t _start_time = 0;
+
+    std::atomic<int64_t> _close_wait_version {0};
+    bthread::Mutex _close_wait_mutex;
+    bthread::ConditionVariable _close_wait_cv;
 };
 } // namespace doris
 
@@ -651,12 +674,12 @@ private:
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
 
-    void _generate_one_index_channel_payload(RowPartTabletIds& row_part_tablet_tuple,
-                                             int32_t index_idx,
-                                             ChannelDistributionPayload& channel_payload);
+    Status _generate_one_index_channel_payload(RowPartTabletIds& row_part_tablet_tuple,
+                                               int32_t index_idx,
+                                               ChannelDistributionPayload& channel_payload);
 
-    void _generate_index_channels_payloads(std::vector<RowPartTabletIds>& row_part_tablet_ids,
-                                           ChannelDistributionPayloadVec& payload);
+    Status _generate_index_channels_payloads(std::vector<RowPartTabletIds>& row_part_tablet_ids,
+                                             ChannelDistributionPayloadVec& payload);
 
     void _cancel_all_channel(Status status);
 

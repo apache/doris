@@ -179,6 +179,8 @@ public:
 
     Status get_batch(Block* next_block, bool* eos);
 
+    bool has_data_or_finished();
+
     Status add_block(std::unique_ptr<PBlock> pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);

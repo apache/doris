@@ -106,6 +106,14 @@ public:
     // for job task only
     RuntimeState();
 
+#ifdef BE_TEST
+    // Compatibility constructor for format_v2 tests backported to branch-4.1.
+    RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals)
+            : RuntimeState(query_globals) {
+        set_query_options(query_options);
+    }
+#endif
+
     // Empty d'tor to avoid issues with unique_ptr.
     MOCK_DEFINE(virtual) ~RuntimeState();
 
@@ -845,6 +853,14 @@ public:
         params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
         params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
         params.ivf_nprobe = _query_options.ivf_nprobe;
+        params.ann_index_candidate_rows_threshold =
+                _query_options.__isset.ann_index_candidate_rows_threshold
+                        ? _query_options.ann_index_candidate_rows_threshold
+                        : 0;
+        params.ann_index_candidate_rows_percent_threshold =
+                _query_options.__isset.ann_index_candidate_rows_percent_threshold
+                        ? _query_options.ann_index_candidate_rows_percent_threshold
+                        : 0.3;
         return params;
     }
 

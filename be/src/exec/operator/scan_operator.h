@@ -146,9 +146,6 @@ protected:
     virtual PushDownType _should_push_down_topn_filter() const {
         return PushDownType::UNACCEPTABLE;
     }
-    virtual PushDownType _should_push_down_bitmap_filter() const {
-        return PushDownType::UNACCEPTABLE;
-    }
     virtual PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const {
         return PushDownType::UNACCEPTABLE;
     }
@@ -179,10 +176,6 @@ protected:
                                   SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
-    Status _normalize_bitmap_filter(VExprContext* expr_ctx, const VExprSPtr& root,
-                                    SlotDescriptor* slot,
-                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                    PushDownType* pdt);
     Status _normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
@@ -254,11 +247,6 @@ class ScanLocalState : public ScanLocalStateBase {
     std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
         std::vector<int> result;
         for (int id : _parent->cast<typename Derived::Parent>()._topn_filter_source_node_ids) {
-            if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-                // compatible with older versions fe
-                continue;
-            }
-
             const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
             if (!pred.enable()) {
                 continue;
@@ -340,9 +328,9 @@ class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
-        Status status = get_block(state, block, eos);
+        Status status = OperatorX<LocalStateType>::get_block(state, block, eos);
         if (status.ok()) {
             state->get_local_state(operator_id())->update_output_block_counters(*block);
         }

@@ -199,8 +199,9 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     }
 
     DCHECK_EQ(rows, input_block.rows());
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
 
     auto& mutable_columns = mutable_block.mutable_columns();
 
@@ -213,10 +214,10 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
-        mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
     }
-    DCHECK(mutable_block.rows() == rows);
-    output_block->set_columns(std::move(mutable_columns));
+
+    scoped_mutable_block.restore();
 
     return Status::OK();
 }
@@ -241,6 +242,40 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     return Status::OK();
 }
 
+uint64_t Scanner::_current_condition_cache_digest() const {
+    DORIS_CHECK(_state != nullptr);
+    DORIS_CHECK(_local_state != nullptr);
+    if (_local_state->get_condition_cache_digest() == 0) {
+        return 0;
+    }
+
+    // ScanLocalState computed its digest after collecting the RFs that were ready during open(). A
+    // scanner may later clone more RF conjuncts between file splits, so rebuild from its current
+    // snapshot instead of reusing that stale value. For example, split 0 may use P, while split 1
+    // starts after an IN RF with payload {7, 9} arrives and must use digest(P AND RF{7, 9}). A
+    // different payload {8, 10} consequently receives a different key. get_digest() returning zero
+    // is the correctness fallback for an RF whose complete semantics cannot be represented.
+    return _build_condition_cache_digest(_state->query_options().condition_cache_digest,
+                                         _conjuncts);
+}
+
+uint64_t Scanner::_build_condition_cache_digest(uint64_t seed, const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        seed = conjunct->get_digest(seed);
+        if (seed == 0) {
+            return 0;
+        }
+    }
+    return seed;
+}
+
+#ifdef BE_TEST
+uint64_t Scanner::TEST_build_condition_cache_digest(uint64_t seed,
+                                                    const VExprContextSPtrs& conjuncts) {
+    return _build_condition_cache_digest(seed, conjuncts);
+}
+#endif
+
 Status Scanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
@@ -256,9 +291,11 @@ void Scanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
     COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
 
-    // Update stats for load
-    _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
-    _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    // Update stats for load. See _should_update_load_counters() for why this is gated.
+    if (_should_update_load_counters()) {
+        _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
+        _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    }
 }
 
 void Scanner::update_scan_cpu_timer() {

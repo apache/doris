@@ -20,6 +20,7 @@
 
 #include <libdivide.h>
 
+#include <limits>
 #include <utility>
 
 #include "core/data_type/data_type_number.h"
@@ -112,10 +113,19 @@ struct DivideIntegralImpl {
     using Arg = typename PrimitiveTypeTraits<Type>::CppType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
     static constexpr PrimitiveType ResultType = Type;
+    static constexpr bool is_signed_integer = std::is_signed_v<Arg> || std::is_same_v<Arg, Int128>;
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
+    }
+
+    static bool division_leads_to_fpe(Arg a, Arg b) {
+        if constexpr (is_signed_integer) {
+            return b == -1 && a == std::numeric_limits<Arg>::min();
+        } else {
+            return false;
+        }
     }
 
     static void apply(const typename ColumnType::Container& a, Arg b,
@@ -126,6 +136,19 @@ struct DivideIntegralImpl {
         memset(null_map.data(), is_null, size);
 
         if (!is_null) {
+            if constexpr (is_signed_integer) {
+                if (b == -1) {
+                    for (size_t i = 0; i < size; i++) {
+                        null_map[i] = division_leads_to_fpe(a[i], b);
+                        if (!null_map[i]) {
+                            c[i] = typename PrimitiveTypeTraits<ResultType>::CppType(a[i] / b);
+                        } else {
+                            c[i] = {};
+                        }
+                    }
+                    return;
+                }
+            }
             if constexpr (!std::is_floating_point_v<Arg> && !std::is_same_v<Arg, Int128> &&
                           !std::is_same_v<Arg, Int8> && !std::is_same_v<Arg, UInt8>) {
                 const auto divider = libdivide::divider<Arg>(Arg(b));
@@ -142,8 +165,11 @@ struct DivideIntegralImpl {
 
     static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(Arg a, Arg b,
                                                                           UInt8& is_null) {
-        is_null = b == 0;
-        return typename PrimitiveTypeTraits<ResultType>::CppType(a / (b + is_null));
+        is_null = b == 0 || division_leads_to_fpe(a, b);
+        if (is_null) {
+            return {};
+        }
+        return typename PrimitiveTypeTraits<ResultType>::CppType(a / b);
     }
 
     static ColumnPtr constant_constant(Arg a, Arg b) {

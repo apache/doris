@@ -63,8 +63,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -432,11 +432,11 @@ public class BindExpression implements AnalysisRuleFactory {
                 if (boundSlot.getDataType() instanceof StructType
                         && generate.getExpandColumnAlias().get(i).size() > 1) {
                     // if the alias is not empty, we should bind it with struct_element as child expr with alias
-                    // struct_element(#expand_col#k, #k) as #k
-                    // struct_element(#expand_col#v, #v) as #v
+                    // element_at(#expand_col#k, #k) as #k
+                    // element_at(#expand_col#v, #v) as #v
                     List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
                     for (int idx = 0; idx < fields.size(); ++idx) {
-                        expandAlias.add(new Alias(new StructElement(
+                        expandAlias.add(new Alias(new ElementAt(
                                 boundSlot, new StringLiteral(fields.get(idx).getName())),
                                 generate.getExpandColumnAlias().get(i).get(idx),
                                 slot.getQualifier()));
@@ -1363,7 +1363,7 @@ public class BindExpression implements AnalysisRuleFactory {
         // 2. for 'group by a + random(), a + random() + 1', the two 'random()' will be different.
         int containsUniqueGroupByCount = 0;
         for (Expression groupByExpr : groupByExpressions) {
-            if (groupByExpr.containsUniqueFunction()) {
+            if (groupByExpr.containsVolatileExpression()) {
                 containsUniqueGroupByCount++;
             }
         }
@@ -1377,8 +1377,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 groupByExpressions.size());
         for (Expression groupByExpr : groupByExpressions) {
             Expression newGroupByExpr = groupByExpr;
-            if (groupByExpr.containsUniqueFunction()) {
-                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupByExpr, true);
+            if (groupByExpr.containsVolatileExpression()) {
+                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(groupByExpr,
+                        true);
                 Expression previousGroupByExpr = ignoreUniqueIdGroupByExprs.get(ignoreUniqueIdExpr);
                 if (previousGroupByExpr == null) {
                     ignoreUniqueIdGroupByExprs.put(ignoreUniqueIdExpr, groupByExpr);
@@ -1420,15 +1421,15 @@ public class BindExpression implements AnalysisRuleFactory {
     //    c) let E3 = rewrite E2 with enable unique ids. then E3 is the bind unique id expression for E.
     private <T extends Expression> T bindExprUniqueIdWithGroupBy(T expression,
             Map<Expression, Expression> bindUniqueIdReplaceMap) {
-        if (!expression.containsUniqueFunction() || bindUniqueIdReplaceMap.isEmpty()) {
+        if (!expression.containsVolatileExpression() || bindUniqueIdReplaceMap.isEmpty()) {
             return expression;
         }
 
         // first ignore unique id, then replace sub expression with group by expression
-        Expression resExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
+        Expression resExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(expression, true);
         resExpr = ExpressionUtils.replace(resExpr, bindUniqueIdReplaceMap);
         // enable unique id back
-        resExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(resExpr, false);
+        resExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(resExpr, false);
         return (T) resExpr;
     }
 
@@ -1466,8 +1467,9 @@ public class BindExpression implements AnalysisRuleFactory {
     private Map<Expression, Expression> getGroupByUniqueFuncReplaceMap(List<Expression> groupByByExpressions) {
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         for (Expression expression : groupByByExpressions) {
-            if (expression.containsUniqueFunction()) {
-                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
+            if (expression.containsVolatileExpression()) {
+                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(expression,
+                        true);
                 // for sql:
                 //    select distinct a + random(),  a + random()
                 //    from t
@@ -1500,8 +1502,9 @@ public class BindExpression implements AnalysisRuleFactory {
                     = ImmutableList.builderWithExpectedSize(boundGroupingSet.size());
             for (Expression groupBy : boundGroupingSet) {
                 Expression newGroupBy = groupBy;
-                if (groupBy.containsUniqueFunction()) {
-                    Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupBy, true);
+                if (groupBy.containsVolatileExpression()) {
+                    Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(groupBy,
+                            true);
                     Expression previousGroupBy = ignoreUniqueIdGroupByExpressions.get(ignoreUniqueIdGroupBy);
                     if (previousGroupBy == null) {
                         ignoreUniqueIdGroupByExpressions.put(ignoreUniqueIdGroupBy, groupBy);

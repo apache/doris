@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContainsAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCrossProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
@@ -146,6 +147,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineSimilarity;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountSubstring;
@@ -277,6 +279,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -371,9 +374,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAllPositions;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364V2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U64V2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
@@ -458,7 +463,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SortJsonbObjectKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
@@ -497,7 +501,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StripNullValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
@@ -613,6 +616,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayContains.class, "array_contains"),
             scalar(ArrayContainsAll.class, "array_contains_all", "hasSubstr"),
             scalar(ArrayCount.class, "array_count"),
+            scalar(ArrayCrossProduct.class, "array_cross_product", "cross_product"),
             scalar(ArrayCumSum.class, "array_cum_sum"),
             scalar(ArrayDifference.class, "array_difference"),
             scalar(ArrayDistinct.class, "array_distinct"),
@@ -716,6 +720,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Cosh.class, "cosh"),
             scalar(Cot.class, "cot"),
             scalar(CosineDistance.class, "cosine_distance"),
+            scalar(CosineSimilarity.class, "cosine_similarity"),
             scalar(CountEqual.class, "countequal"),
             scalar(CountSubstring.class, "count_substrings"),
             scalar(CreateMap.class, "map"),
@@ -762,7 +767,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Dround.class, "dround"),
             scalar(Dsqrt.class, "dsqrt"),
             scalar(E.class, "e"),
-            scalar(ElementAt.class, "element_at"),
+            // struct_element was merged into element_at in #64027; keep it as an alias
+            scalar(ElementAt.class, "element_at", "struct_element"),
             scalar(Elt.class, "elt"),
             scalar(Embed.class, "embed"),
             scalar(EncodeAsSmallInt.class, "encode_as_smallint"),
@@ -836,6 +842,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(IsIpv6String.class, "is_ipv6_string", "is_ipv6"),
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(IsNan.class, "isnan"),
+            scalar(IsValidUtf8.class, "is_valid_utf8", "isValidUTF8"),
             scalar(IsInf.class, "isinf"),
             scalar(Ipv4CIDRToRange.class, "ipv4_cidr_to_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),
@@ -940,9 +947,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MultiMatch.class, "multi_match"),
             scalar(MultiMatchAny.class, "multi_match_any"),
             scalar(MultiSearchAllPositions.class, "multi_search_all_positions"),
+            scalar(MurmurHash3128.class, "murmur_hash3_128"),
             scalar(MurmurHash332.class, "murmur_hash3_32"),
             scalar(MurmurHash364.class, "murmur_hash3_64"),
             scalar(MurmurHash364V2.class, "murmur_hash3_64_v2"),
+            scalar(MurmurHash3U128.class, "murmur_hash3_u128"),
             scalar(MurmurHash3U64V2.class, "murmur_hash3_u64_v2"),
             scalar(Negative.class, "negative"),
             scalar(NextDay.class, "next_day"),
@@ -1028,7 +1037,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Sin.class, "sin"),
             scalar(Sinh.class, "sinh"),
             scalar(Sleep.class, "sleep"),
-            scalar(StructElement.class, "struct_element"),
             scalar(Sm3.class, "sm3"),
             scalar(Sm3sum.class, "sm3sum"),
             scalar(Sm4Decrypt.class, "sm4_decrypt"),
@@ -1037,7 +1045,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SortJsonbObjectKeys.class, "sort_jsonb_object_keys"),
             scalar(Soundex.class, "soundex"),
             scalar(Space.class, "space"),
-            scalar(SplitByChar.class, "split_by_char"),
             scalar(SplitByRegexp.class, "split_by_regexp", "regexp_split_to_array"),
             scalar(SplitByString.class, "split_by_string", "split"),
             scalar(SplitPart.class, "split_part"),

@@ -94,7 +94,19 @@ public:
     // eg, for file scanner, return the current file path.
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
 
+#ifdef BE_TEST
+    static uint64_t TEST_build_condition_cache_digest(uint64_t seed,
+                                                      const VExprContextSPtrs& conjuncts);
+#endif
+
 protected:
+    // Rebuild the condition-cache digest from the scanner's current conjunct snapshot. The local
+    // state's digest is used only as a safety gate: zero means condition cache was disabled during
+    // scan-node open (for example by TopN or an expression without a reliable digest).
+    uint64_t _current_condition_cache_digest() const;
+    static uint64_t _build_condition_cache_digest(uint64_t seed,
+                                                  const VExprContextSPtrs& conjuncts);
+
     virtual Status _open_impl(RuntimeState* state) {
         _block_avg_bytes = state->batch_size() * 8;
         return Status::OK();
@@ -107,14 +119,22 @@ protected:
         if (_padding_block.empty()) {
             _padding_block.swap(_origin_block);
         } else if (_origin_block.rows()) {
-            RETURN_IF_ERROR(
-                    MutableBlock::build_mutable_block(&_padding_block).merge(_origin_block));
+            ScopedMutableBlock scoped_mutable_block(&_padding_block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
+            RETURN_IF_ERROR(mutable_block.merge(_origin_block));
         }
         return Status::OK();
     }
 
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
+
+    // Whether rows filtered/unselected by this scanner should be reported to the load
+    // counters in RuntimeState. Only the scanner reading the load source data should
+    // report, otherwise rows filtered by query predicates (e.g. in INSERT INTO ... SELECT
+    // or DELETE FROM ... WHERE) would be mixed into load counters and make
+    // num_rows_load_success() negative.
+    virtual bool _should_update_load_counters() const { return _is_load; }
 
     // Filter the output block finally.
     Status _filter_output_block(Block* block);

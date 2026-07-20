@@ -136,6 +136,7 @@ DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
 // Packed file manager config
 DEFINE_mBool(enable_packed_file, "true");
+DEFINE_mBool(enable_file_cache_write_index_file_only, "false");
 DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
 DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
@@ -172,6 +173,50 @@ DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 
 DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
 DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
+
+// MS RPC rate limiting config
+DEFINE_mBool(enable_ms_rpc_host_level_rate_limit, "false");
+
+// Per-RPC QPS limit configs (per CPU core)
+// QPS limit = config_value * num_cores
+// Set to 0 to disable rate limiting for a specific RPC
+// Set to -1 to use ms_rpc_qps_default config value
+DEFINE_mInt32(ms_rpc_qps_default, "100");
+DEFINE_mInt32(ms_rpc_qps_get_tablet_meta, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_prepare_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_tmp_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_abort_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_precommit_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_obj_store_info, "-1");
+DEFINE_mInt32(ms_rpc_qps_start_tablet_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_finish_tablet_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_delete_bitmap, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap_update_lock, "-1");
+DEFINE_mInt32(ms_rpc_qps_remove_delete_bitmap_update_lock, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_instance, "-1");
+DEFINE_mInt32(ms_rpc_qps_prepare_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_finish_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_list_snapshots, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_cluster_status, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
+
+// Table-level backpressure handling config
+DEFINE_mBool(enable_ms_backpressure_handling, "false");
+DEFINE_Int32(ms_rpc_table_qps_window_sec, "3");
+
+// Throttle upgrade config
+DEFINE_mInt32(ms_backpressure_upgrade_interval_ms, "3000");
+DEFINE_mInt32(ms_backpressure_upgrade_top_k, "1");
+DEFINE_mDouble(ms_backpressure_throttle_ratio, "0.75");
+DEFINE_mDouble(ms_rpc_table_qps_limit_floor, "1.0");
+
+// Throttle downgrade config
+DEFINE_mInt32(ms_backpressure_downgrade_interval_ms, "3000");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

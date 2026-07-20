@@ -1,0 +1,196 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite('test_pythonudaf_drop', "nonConcurrent") {
+    def runtime_version = getPythonUdfRuntimeVersion()
+    def zipA = """${context.file.parent}/udaf_scripts/python_udaf_drop_a/python_udaf_drop_test.zip"""
+    def zipB = """${context.file.parent}/udaf_scripts/python_udaf_drop_b/python_udaf_drop_test.zip"""
+    def localDorisHome = System.getenv("DORIS_HOME")
+    def localUdfRoot = localDorisHome != null ? "${localDorisHome}/lib/udf" : "/tmp"
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+
+    def execOnBackend = { be_ip, localCmd, remoteCmd ->
+        if (be_ip == "127.0.0.1" || be_ip == "localhost") {
+            cmd(localCmd)
+        } else {
+            sshExec("root", be_ip, remoteCmd, false)
+        }
+    }
+
+    scp_udf_file_to_all_be(zipA)
+    scp_udf_file_to_all_be(zipB)
+
+    sql '''DROP TABLE IF EXISTS py_udaf_drop_tbl'''
+    sql '''
+        CREATE TABLE py_udaf_drop_tbl (
+            v INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(v)
+        DISTRIBUTED BY HASH(v) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+    '''
+    sql '''INSERT INTO py_udaf_drop_tbl VALUES (1), (2), (3);'''
+
+    try {
+        // Case 1: simple drop should make subsequent call fail
+        sql '''DROP FUNCTION IF EXISTS py_drop_sum_once(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_sum_once(INT) RETURNS BIGINT PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipA}",
+                "symbol" = "drop_udaf.SumAgg",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+
+        qt_py_udaf_drop_1 '''SELECT py_drop_sum_once(v) FROM py_udaf_drop_tbl;'''
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_once(INT);')
+        test {
+            sql '''SELECT py_drop_sum_once(v) FROM py_udaf_drop_tbl;'''
+            exception 'Can not found function'
+        }
+
+        // Case 2: same module name, different file paths
+        sql '''DROP FUNCTION IF EXISTS py_drop_sum_a(INT)'''
+        sql '''DROP FUNCTION IF EXISTS py_drop_sum_b(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_sum_a(INT) RETURNS BIGINT PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipA}",
+                "symbol" = "drop_udaf.SumAgg",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_sum_b(INT) RETURNS BIGINT PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipB}",
+                "symbol" = "drop_udaf.SumAgg",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+
+        qt_py_udaf_drop_2 '''SELECT py_drop_sum_a(v), py_drop_sum_b(v) FROM py_udaf_drop_tbl;'''
+
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_b(INT);')
+        test {
+            sql '''SELECT py_drop_sum_b(v) FROM py_udaf_drop_tbl;'''
+            exception 'Can not found function'
+        }
+
+        qt_py_udaf_drop_3 '''SELECT py_drop_sum_a(v) FROM py_udaf_drop_tbl;'''
+
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_a(INT);')
+        test {
+            sql '''SELECT py_drop_sum_a(v) FROM py_udaf_drop_tbl;'''
+            exception 'Can not found function'
+        }
+
+        // Case 3: kill Python servers between two aggregate queries, next CREATE handshake should recover
+        sql '''DROP FUNCTION IF EXISTS py_drop_sum_reconnect(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_sum_reconnect(INT) RETURNS BIGINT PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipA}",
+                "symbol" = "drop_udaf.SumAgg",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+
+        qt_py_udaf_drop_4 '''SELECT py_drop_sum_reconnect(v) FROM py_udaf_drop_tbl;'''
+
+        backendId_to_backendIP.values().each { be_ip ->
+            execOnBackend(
+                be_ip,
+                "pkill -f 'python_server.py grpc+unix:///tmp/doris_python_udf' || true",
+                "pkill -f 'python_server.py grpc+unix:///tmp/doris_python_udf' || true")
+        }
+
+        qt_py_udaf_drop_5 '''SELECT py_drop_sum_reconnect(v) FROM py_udaf_drop_tbl;'''
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_reconnect(INT);')
+
+        // Case 4: inline UDAF drop/recreate must not reuse the old Python class.
+        // The Python server caches UDAF state managers, so this verifies the cache key
+        // and drop cleanup both use the FE function id, not just name + argument types.
+        sql '''DROP FUNCTION IF EXISTS py_drop_inline_recreate(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_inline_recreate(INT)
+            RETURNS BIGINT
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "symbol" = "InlineDropRecreateUdaf",
+                "runtime_version" = "${runtime_version}",
+                "always_nullable" = "true"
+            )
+            AS \$\$
+class InlineDropRecreateUdaf:
+    def __init__(self):
+        self.total = 0
+    @property
+    def aggregate_state(self):
+        return self.total
+    def accumulate(self, val):
+        if val is not None:
+            self.total += val
+    def merge(self, other):
+        self.total += other
+    def finish(self):
+        return self.total * 10
+\$\$
+        """
+        def inlineOldResult = sql '''SELECT py_drop_inline_recreate(v) FROM py_udaf_drop_tbl;'''
+        assert inlineOldResult[0][0].toString() == '60'
+
+        sql '''DROP FUNCTION IF EXISTS py_drop_inline_recreate(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_inline_recreate(INT)
+            RETURNS BIGINT
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "symbol" = "InlineDropRecreateUdaf",
+                "runtime_version" = "${runtime_version}",
+                "always_nullable" = "true"
+            )
+            AS \$\$
+class InlineDropRecreateUdaf:
+    def __init__(self):
+        self.total = 0
+    @property
+    def aggregate_state(self):
+        return self.total
+    def accumulate(self, val):
+        if val is not None:
+            self.total += val
+    def merge(self, other):
+        self.total += other
+    def finish(self):
+        return self.total * 100
+\$\$
+        """
+        def inlineNewResult = sql '''SELECT py_drop_inline_recreate(v) FROM py_udaf_drop_tbl;'''
+        assert inlineNewResult[0][0].toString() == '600'
+        sql '''DROP FUNCTION IF EXISTS py_drop_inline_recreate(INT)'''
+    } finally {
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_once(INT);')
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_a(INT);')
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_b(INT);')
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_reconnect(INT);')
+        try_sql('DROP FUNCTION IF EXISTS py_drop_inline_recreate(INT);')
+    }
+}

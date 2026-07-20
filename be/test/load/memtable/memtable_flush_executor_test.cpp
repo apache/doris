@@ -31,7 +31,7 @@
 #include "load/memtable/memtable.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "storage/field.h"
+#include "runtime/thread_context.h"
 #include "storage/options.h"
 #include "storage/schema.h"
 #include "storage/storage_engine.h"
@@ -67,21 +67,6 @@ void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
-}
-
-Schema create_schema() {
-    std::vector<TabletColumnPtr> col_schemas;
-    col_schemas.emplace_back(
-            std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
-                                           FieldType::OLAP_FIELD_TYPE_SMALLINT, true));
-    col_schemas.emplace_back(
-            std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
-                                           FieldType::OLAP_FIELD_TYPE_INT, true));
-    col_schemas.emplace_back(
-            std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
-                                           FieldType::OLAP_FIELD_TYPE_BIGINT, true));
-    Schema schema(col_schemas, 2);
-    return schema;
 }
 
 TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {

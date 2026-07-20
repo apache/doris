@@ -249,7 +249,8 @@ supportedCreateStatement
             (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
             functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
             RETURNS returnType=dataType (INTERMEDIATE intermediateType=dataType)?
-            properties=propertyClause?                                              #createUserDefineFunction
+            properties=propertyClause?
+            (AS functionCode=dollarQuotedString)?                                   #createUserDefineFunction
     | CREATE statementScope? ALIAS FUNCTION (IF NOT EXISTS)?
             functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
             WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
@@ -494,6 +495,8 @@ supportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
+    | SHOW PYTHON VERSIONS                                                           #showPythonVersions
+    | SHOW PYTHON PACKAGES IN STRING_LITERAL                                         #showPythonPackages
     ;
 
 supportedLoadStatement
@@ -510,7 +513,8 @@ supportedLoadStatement
     | RESUME ALL ROUTINE LOAD                                                       #resumeAllRoutineLoad
     | STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
     | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | (LIKE STRING_LITERAL)?)         #showRoutineLoad
-    | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
+    | SHOW ROUTINE LOAD TASK ((FOR label=multipartIdentifier)
+        | (((FROM | IN) database=identifier)? wildWhere?))                           #showRoutineLoadTask
     | SHOW INVERTED INDEX ANALYZER                                                  #showIndexAnalyzer
     | SHOW INVERTED INDEX TOKENIZER                                                 #showIndexTokenizer
     | SHOW INVERTED INDEX TOKEN_FILTER                                              #showIndexTokenFilter
@@ -535,6 +539,7 @@ supportedOtherStatement
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?
+            onTablesClause?
             properties=propertyClause?                                              #warmUpCluster
     | explain? WARM UP SELECT namedExpressionSeq
       FROM warmUpSingleTableRef whereClause?                                        #warmUpSelect
@@ -544,7 +549,15 @@ supportedOtherStatement
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
     ;
 
- warmUpItem
+onTablesClause
+    : ON TABLES LEFT_PAREN onTablesFilterRule (COMMA onTablesFilterRule)* RIGHT_PAREN
+    ;
+
+onTablesFilterRule
+    : (INCLUDE | EXCLUDE) STRING_LITERAL
+    ;
+
+warmUpItem
     : TABLE tableName=multipartIdentifier (PARTITION partitionName=identifier)?
     ;
 
@@ -1641,8 +1654,6 @@ lambdaExpression
 booleanExpression
     : LOGICALNOT booleanExpression                                                  #logicalNot
     | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
-    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
-    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
     | valueExpression predicate?                                                    #predicated
     | NOT booleanExpression                                                         #logicalNot
     | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
@@ -1720,6 +1731,8 @@ primaryExpression
     | (SUBSTR | SUBSTRING | MID) LEFT_PAREN
         expression FROM expression (FOR expression)? RIGHT_PAREN                               #substring
     | POSITION LEFT_PAREN expression IN expression RIGHT_PAREN                                 #position
+    | (ISNULL | IS_NULL_PRED) LEFT_PAREN expression RIGHT_PAREN                                #isnull
+    | IS_NOT_NULL_PRED LEFT_PAREN expression RIGHT_PAREN                                       #is_not_null_pred
     | functionCallExpression                                                                   #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
@@ -1982,6 +1995,10 @@ number
     | SUBTRACT? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
+dollarQuotedString
+    : DOLLAR_QUOTED_STRING
+    ;
+
 // there are 1 kinds of keywords in Doris.
 // - Non-reserved keywords:
 //     normal version of non-reserved keywords.
@@ -2030,6 +2047,7 @@ nonReserved
     | CAST
     | CATALOG
     | CATALOGS
+    | CEL
     | CHAIN
     | CIPHER
     | CHAR
@@ -2155,6 +2173,7 @@ nonReserved
     | IMMEDIATE
     | INCREMENTAL
     | INTEGRATION
+    | INCLUDE
     | INDEXES
     | INSERT
     | INVERTED
@@ -2187,6 +2206,7 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MAPPING
     | MATCHED
     | MATCH_ALL
     | MATCH_ANY
@@ -2239,6 +2259,7 @@ nonReserved
     | PASSWORD_LOCK_TIME
     | PASSWORD_REUSE
     | PARTITIONS
+    | PACKAGES
     | PATH
     | PAUSE
     | PERCENT
@@ -2258,6 +2279,7 @@ nonReserved
     | PROFILE
     | PROPERTIES
     | PROPERTY
+    | PYTHON
     | QUANTILE_STATE
 	| QUANTILE_UNION
 	| QUARTER
@@ -2294,6 +2316,7 @@ nonReserved
     | ROOT
     | ROTATE
     | ROUTINE
+    | RULE
     | S3
     | SAMPLE
     | SAN
@@ -2364,6 +2387,7 @@ nonReserved
     | VAULTS
     | VERBOSE
     | VERSION
+    | VERSIONS
     | VIEW
     | VIEWS
     | WARM

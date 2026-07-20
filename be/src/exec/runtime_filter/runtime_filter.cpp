@@ -99,26 +99,6 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
     params.null_aware = desc->__isset.null_aware && desc->null_aware;
-    if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
-        if (_has_remote_target) {
-            return Status::InternalError("bitmap filter do not support remote target");
-        }
-        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_BITMAP) {
-            return Status::InternalError("Unexpected src expr type:{} for bitmap filter.",
-                                         build_ctx->root()->data_type()->get_name());
-        }
-        if (!desc->__isset.bitmap_target_expr) {
-            return Status::InternalError("Unknown bitmap filter target expr.");
-        }
-        VExprContextSPtr bitmap_target_ctx;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
-        params.column_return_type = bitmap_target_ctx->root()->data_type()->get_primitive_type();
-
-        if (desc->__isset.bitmap_filter_not_in) {
-            params.bitmap_filter_not_in = desc->bitmap_filter_not_in;
-        }
-    }
-
     _wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
     return Status::OK();
 }

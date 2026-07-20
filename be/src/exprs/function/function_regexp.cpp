@@ -34,6 +34,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
+#include "core/column/column_execute_util.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -189,23 +190,26 @@ struct RegexpExtractEngine {
 };
 
 struct RegexpCountImpl {
+    using StringColumnView = ColumnView<TYPE_STRING>;
+
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnInt32::Container& result_data) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        for (int i = 0; i < input_rows_count; ++i) {
+        auto str_col = StringColumnView::create(argument_columns[0]);
+        auto pattern_col = StringColumnView::create(argument_columns[1]);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            DCHECK(!str_col.is_null_at(i));
+            DCHECK(!pattern_col.is_null_at(i));
             result_data[i] = _execute_inner_loop(context, str_col, pattern_col, i);
         }
     }
-    static int _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
-                                   const ColumnString* pattern_col, const size_t index_now) {
+    static int _execute_inner_loop(FunctionContext* context, const StringColumnView& str_col,
+                                   const StringColumnView& pattern_col, const size_t index_now) {
         re2::RE2* re = reinterpret_cast<re2::RE2*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re;
         if (re == nullptr) {
             std::string error_str;
-            DCHECK(pattern_col);
-            const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, false));
+            const auto pattern = pattern_col.value_at(index_now);
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
                                                      scoped_re);
             if (!st) {
@@ -216,7 +220,7 @@ struct RegexpCountImpl {
             re = scoped_re.get();
         }
 
-        const auto& str = str_col->get_data_at(index_now);
+        const auto str = str_col.value_at(index_now);
         int count = 0;
         size_t pos = 0;
         while (pos < str.size) {

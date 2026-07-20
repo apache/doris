@@ -82,7 +82,7 @@ public:
         return {ExchangeType::NOOP};
     }
 
-    Status sink(RuntimeState* state, Block* input_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
 
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());

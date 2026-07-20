@@ -82,6 +82,23 @@ under the License.
         </profile>
     </profiles>
     <dependencies>
+        <!-- Must stay the FIRST dependency: it carries the DORIS-PATCH copy of
+             org.apache.hadoop.fs.FileSystem (credential-aware cache key, see
+             doris.fs.cache.key) which has to precede hadoop-common on every
+             classpath. start_fe.sh prepends this jar at runtime; declaring it
+             first here keeps the maven test classpath consistent with that.
+             All transitives are excluded — FE manages its own hadoop deps. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>hadoop-deps</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-foundation</artifactId>

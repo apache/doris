@@ -24,6 +24,14 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
     sql """ set default_variant_enable_doc_mode = false """
+    // Pin variant_max_subcolumns_count so the session-variable fuzzer
+    // (use_fuzzy_session_variable) cannot randomize it to a small value. With the
+    // default (2048) all nested paths (including v['b']/v['b']['c']) are materialized
+    // as typed subcolumns, which is what the expected .out was generated under. A small
+    // value diverts v['b'] into the sparse column, which is unreadable after cumulative
+    // compaction on this branch.
+    sql """ set default_variant_max_subcolumns_count = 2048 """
+
     try {
         String backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
@@ -41,7 +49,24 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
         }
 
         int max_sparse_column_statistics_size = 2
-        def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
+        test {
+            sql """ set default_variant_max_sparse_column_statistics_size = 0 """
+            exception "variant max sparse column statistics size"
+        }
+        sql "DROP TABLE IF EXISTS variant_sparse_stats_zero"
+        test {
+            sql """
+                CREATE TABLE variant_sparse_stats_zero (
+                    k bigint,
+                    v variant <properties("variant_max_sparse_column_statistics_size" = "0")>
+                )
+                DUPLICATE KEY(`k`)
+                DISTRIBUTED BY HASH(k) BUCKETS 1
+                properties("replication_num" = "1");
+            """
+            exception "variant_max_sparse_column_statistics_size must between 1 and 50000"
+        }
+        def create_table = { tableName, buckets="auto", key_type="DUPLICATE", max_subcolumns_count=2048 ->
             sql "DROP TABLE IF EXISTS ${tableName}"
             def var_def = "variant <MATCH_NAME 'sala' : int, MATCH_NAME 'ddd' : double, MATCH_NAME 'z' : double, properties(\"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")>"
             if (key_type == "AGGREGATE") {
@@ -60,13 +85,16 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             def create_tbl_res = sql """ show create table ${tableName} """
             logger.info("${create_tbl_res}")
             assertTrue(create_tbl_res.toString().contains("variant_max_sparse_column_statistics_size"))
+            assertTrue(create_tbl_res.toString().contains("\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\""))
         }
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]
         for (int i = 0; i < key_types.size(); i++) {
+            def max_subcolumns_count = key_types[i] == "AGGREGATE" ? 2048 : 1
+            sql """ set default_variant_max_subcolumns_count = ${max_subcolumns_count} """
             def tableName = "simple_variant_${key_types[i]}"
             // 1. simple cases
-            create_table.call(tableName, "1", key_types[i])
+            create_table.call(tableName, "1", key_types[i], max_subcolumns_count)
             def insert1 = {
                 sql """insert into ${tableName} values (1,  '{"x" : [1]}'),(13,  '{"a" : 1}');"""
                 sql """insert into ${tableName} values (2,  '{"a" : "1"}'),(14,  '{"a" : [[[1]]]}');"""

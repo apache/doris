@@ -119,6 +119,14 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getMaxConn();
     }
 
+    public Map<String, Long> getMaxConnForAllUsers() {
+        Map<String, Long> maxConnByUser = Maps.newHashMap();
+        for (Entry<String, UserProperty> entry : propertyMap.entrySet()) {
+            maxConnByUser.put(entry.getKey(), entry.getValue().getMaxConn());
+        }
+        return maxConnByUser;
+    }
+
     public long getMaxQueryInstances(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getPropertyIfNull(qualifiedUser, existProperty);

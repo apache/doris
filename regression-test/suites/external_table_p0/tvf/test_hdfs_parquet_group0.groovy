@@ -167,13 +167,10 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/nation.dict-malformed.parquet"
-            test {
-                sql """ select * from HDFS(
+            order_qt_test_20 """ select nation_key, name, region_key, rtrim(comment_col) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
-                exception "[IO_ERROR]Out-of-bounds Access"
-            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/lz4_raw_compressed_larger.parquet"
@@ -329,9 +326,8 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
-                exception "Out-of-bounds access in parquet data decoder"
+                exception "Unexpected end of stream"
             }
-
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/lz4_raw_compressed.parquet"
             order_qt_test_43 """ select * from HDFS(

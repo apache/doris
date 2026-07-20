@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -244,6 +245,26 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
         for (String sql : notNullableSqls) {
             checkScalarSubquerySlotNullable(sql, false);
         }
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueryWithTopNProject() {
+        String sql = "select T1.id from T1 where T1.score > "
+                + "(select T2.score + 1 from T2 where T2.id = T1.id order by T2.score limit 1)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("limit is not supported in correlated subquery"));
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueryWithTopN() {
+        String sql = "select T1.id from T1 where T1.score > "
+                + "(select T2.score from T2 where T2.id = T1.id order by T2.score limit 1)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("limit is not supported in correlated subquery"));
     }
 
     private void checkScalarSubquerySlotNullable(String sql, boolean outputNullable) {

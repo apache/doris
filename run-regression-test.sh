@@ -184,8 +184,35 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
 
     echo "===== BUILD JAVA_UDF_SRC TO GENERATE JAR ====="
     mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
-    cd "${DORIS_HOME}"/regression-test/java-udf-src
-    "${MVN_CMD}" package
+    cd "${DORIS_HOME}"/regression-test/java-udf-src || { echo "Failed to change directory to java-udf-src"; exit 1; }
+
+    # The Java UDF jar must be built with JDK 8 (source/target 8, loaded by the BE embedded
+    # JVM), while the framework above is built with the ambient JDK (>=17 in CI). Switch to a
+    # JDK 8 just for this module, falling back to the ambient JDK if none is installed
+    # (e.g. local dev boxes).
+    udf_prev_java_home="${JAVA_HOME:-}"
+    udf_jdk8_home="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' 2>/dev/null | sed -n '1p')"
+    if [[ -n "${udf_jdk8_home}" ]]; then
+        echo "Building Java UDF with JDK 8 at ${udf_jdk8_home}"
+        export JAVA_HOME="${udf_jdk8_home}"
+    else
+        echo "WARNING: no JDK 8 found under /usr/lib/jvm; building Java UDF with ${JAVA_HOME:-the current JDK}"
+    fi
+
+    udf_build_rc=0
+    "${MVN_CMD}" package || udf_build_rc=1
+
+    # Restore the framework JDK regardless of the UDF build result.
+    if [[ -n "${udf_prev_java_home}" ]]; then
+        export JAVA_HOME="${udf_prev_java_home}"
+    else
+        unset JAVA_HOME
+    fi
+    if [[ "${udf_build_rc}" -ne 0 ]]; then
+        echo "Failed to build UDF package"
+        exit 1
+    fi
+
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
     # be and fe dir is compiled output
     mkdir -p "${DORIS_HOME}"/output/fe/custom_lib/

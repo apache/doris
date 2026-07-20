@@ -23,6 +23,8 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 
+#include "util/defer_op.h"
+
 #define private public
 #define protected public
 #include "io/cache/block_file_cache_test_common.h"
@@ -55,12 +57,30 @@ void verify_meta_key(CacheBlockMetaStore& meta_store, int64_t tablet_id,
 } // namespace
 
 TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
+    const auto old_enable_evict = config::enable_evict_file_cache_in_advance;
+    const auto old_disk_limit_percent = config::file_cache_enter_disk_resource_limit_mode_percent;
+    const auto old_dump_interval_ms = config::file_cache_background_lru_dump_interval_ms;
+    const auto old_dump_update_cnt_threshold =
+            config::file_cache_background_lru_dump_update_cnt_threshold;
+    const auto old_dump_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_replay_interval_ms = config::file_cache_background_lru_log_replay_interval_ms;
+    Defer defer {[old_enable_evict, old_disk_limit_percent, old_dump_interval_ms,
+                  old_dump_update_cnt_threshold, old_dump_tail_record_num, old_replay_interval_ms] {
+        config::enable_evict_file_cache_in_advance = old_enable_evict;
+        config::file_cache_enter_disk_resource_limit_mode_percent = old_disk_limit_percent;
+        config::file_cache_background_lru_dump_interval_ms = old_dump_interval_ms;
+        config::file_cache_background_lru_dump_update_cnt_threshold = old_dump_update_cnt_threshold;
+        config::file_cache_background_lru_dump_tail_record_num = old_dump_tail_record_num;
+        config::file_cache_background_lru_log_replay_interval_ms = old_replay_interval_ms;
+    }};
+
     config::enable_evict_file_cache_in_advance = false;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
     config::file_cache_background_lru_dump_update_cnt_threshold = 0;
     config::file_cache_background_lru_dump_tail_record_num =
             2; // only dump last 2, to check dump works with meta store
+    config::file_cache_background_lru_log_replay_interval_ms = 60 * 60 * 1000;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -239,8 +259,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 5);
 
         // then check the log replay
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-                2 * config::file_cache_background_lru_log_replay_interval_ms));
+        ASSERT_EQ(cache.replay_lru_logs_once(), 20);
         ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
@@ -251,12 +270,14 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             cache.remove_if_cached(key2); // remove all element from index queue
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-                2 * config::file_cache_background_lru_log_replay_interval_ms));
+        ASSERT_EQ(cache.replay_lru_logs_once(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 0);
         ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
+        EXPECT_EQ(cache.replay_lru_logs_once(), 0);
+        EXPECT_EQ(cache._lru_recorder_log_replay_idle_metrics->get_value(), 1);
+        cache.dump_lru_queues(true);
 
         // check the meta store to see the content
         {
@@ -292,8 +313,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             verify_meta_key(*meta_store, 50, "key4", 300000, FileCacheType::DISPOSABLE, 0, 100000);
             verify_meta_key(*meta_store, 50, "key4", 400000, FileCacheType::DISPOSABLE, 0, 100000);
         }
-        std::this_thread::sleep_for(
-                std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
     }
 
     { // cache2
@@ -507,14 +526,16 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
     context.tablet_id = 314;
     auto key = io::BlockFileCache::hash("meta_clear_key");
 
-    auto holder = cache.get_or_set(key, 0, 100000, context);
-    auto blocks = fromHolder(holder);
-    ASSERT_EQ(blocks.size(), 1);
-    assert_range(1, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::EMPTY);
-    ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-    download(blocks[0]);
-    assert_range(2, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::DOWNLOADED);
-    blocks.clear();
+    {
+        auto holder = cache.get_or_set(key, 0, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(0, 99999),
+                     io::FileBlock::State::DOWNLOADED);
+    }
 
     auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
     ASSERT_NE(fs_storage, nullptr) << "Expected FSFileCacheStorage but got different storage type";
@@ -524,15 +545,17 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
     verify_meta_key(*meta_store, context.tablet_id, "meta_clear_key", 0, FileCacheType::NORMAL, 0,
                     100000);
 
-    cache.clear_file_cache_directly();
+    cache.clear_file_cache_sync();
 
     std::string meta_dir = cache.get_base_path() + "/meta";
     ASSERT_TRUE(fs::exists(meta_dir));
     ASSERT_TRUE(fs::is_directory(meta_dir));
 
     BlockMetaKey mkey(context.tablet_id, key, 0);
-    auto meta = meta_store->get(mkey);
-    ASSERT_FALSE(meta.has_value());
+    for (int i = 0; i < 100 && meta_store->get(mkey).has_value(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_FALSE(meta_store->get(mkey).has_value());
 
     auto iterator = meta_store->get_all();
     if (iterator != nullptr) {

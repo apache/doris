@@ -260,7 +260,8 @@ public class OSSPropertiesTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         OSSProperties s3Properties = (OSSProperties) StorageProperties.createPrimary(props);
-        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.oss.impl.disable.cache", false));
+        // No longer disabled by default: the patched FileSystem keys its cache by doris.fs.cache.key.
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.oss.impl.disable.cache"));
         props.put("fs.oss.impl.disable.cache", "true");
         s3Properties = (OSSProperties) StorageProperties.createPrimary(props);
         Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.oss.impl.disable.cache", false));

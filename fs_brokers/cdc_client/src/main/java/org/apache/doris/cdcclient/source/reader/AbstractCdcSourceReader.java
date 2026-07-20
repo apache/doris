@@ -68,6 +68,29 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
 
     private final Map<String, Class<?>> splitKeyClassCache = new ConcurrentHashMap<>();
 
+    /** Keep the reader and deserializer on the same schema baseline. */
+    public void setTableSchemas(Map<TableId, TableChanges.TableChange> tableSchemas) {
+        this.tableSchemas = tableSchemas;
+        serializer.setTableSchemas(tableSchemas);
+    }
+
+    @Override
+    public synchronized void release(JobBaseConfig jobConfig) {
+        // Stop the engine but keep source-side state (e.g. the PG replication slot) for another
+        // backend to take over.
+        LOG.info("Release source reader for job {}", jobConfig.getJobId());
+        finishSplitRecords();
+        shutdownSnapshotPollExecutor();
+    }
+
+    /** Stop the snapshot-phase poll thread pool; called when this reader instance is discarded. */
+    protected void shutdownSnapshotPollExecutor() {}
+
+    /** Drop source-side owned resources. Returns false if cleanup is incomplete (retry later). */
+    public boolean releaseSourceResources(JobBaseConfig jobConfig) {
+        return true;
+    }
+
     protected abstract Class<?> probeSplitKeyClass(
             TableId tableId, Column splitColumn, JobBaseConfig jobConfig);
 
@@ -92,12 +115,33 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
     private static final Map<Class<?>, Function<String, Object>> BOUND_PARSERS =
             Map.of(
                     java.sql.Date.class, java.sql.Date::valueOf,
-                    java.sql.Timestamp.class, java.sql.Timestamp::valueOf,
+                    java.sql.Timestamp.class, AbstractCdcSourceReader::parseTimestampBound,
                     java.sql.Time.class, java.sql.Time::valueOf,
                     java.time.LocalDateTime.class, java.time.LocalDateTime::parse,
                     java.time.LocalDate.class, java.time.LocalDate::parse,
                     java.time.LocalTime.class, java.time.LocalTime::parse,
                     java.time.OffsetDateTime.class, java.time.OffsetDateTime::parse);
+
+    // Offset suffix like "+08:00" / "-05:00" ("Z" is handled separately).
+    private static final java.util.regex.Pattern OFFSET_SUFFIX =
+            java.util.regex.Pattern.compile("[+-]\\d{2}:\\d{2}$");
+
+    /**
+     * A java.sql.Timestamp bound is serialized to FE by Jackson as ISO-8601 (with a zone offset
+     * when WRITE_DATES_AS_TIMESTAMPS is off), which java.sql.Timestamp#valueOf cannot parse.
+     * Reconstruct instant-faithfully so the rebuilt bound binds back to the same value flink-cdc
+     * read.
+     */
+    private static java.sql.Timestamp parseTimestampBound(String s) {
+        try {
+            return java.sql.Timestamp.valueOf(s); // legacy SQL form "yyyy-MM-dd HH:mm:ss[.f]"
+        } catch (IllegalArgumentException notSqlForm) {
+            if (s.endsWith("Z") || OFFSET_SUFFIX.matcher(s).find()) {
+                return java.sql.Timestamp.from(java.time.OffsetDateTime.parse(s).toInstant());
+            }
+            return java.sql.Timestamp.valueOf(java.time.LocalDateTime.parse(s)); // ISO local ('T')
+        }
+    }
 
     private static Object convertBound(Object v, Class<?> target, ObjectMapper mapper) {
         if (v == null) {
@@ -133,8 +177,7 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
             TableChanges.TableChange change = FlinkJsonTableChangeSerializer.fromDocument(doc, uc);
             map.put(tableId, change);
         }
-        this.tableSchemas = map;
-        this.serializer.setTableSchemas(map);
+        setTableSchemas(map);
         LOG.info("Loaded {} table schemas from JSON", map.size());
     }
 
@@ -146,44 +189,27 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
      * [{"i":"\"schema\".\"table\"","uc":false,"c":{...debeziumDoc...}},...]}.
      */
     @Override
-    public String serializeTableSchemas() {
+    public String serializeTableSchemas() throws IOException {
         if (tableSchemas == null || tableSchemas.isEmpty()) {
             return null;
         }
-        try {
-            DocumentWriter docWriter = DocumentWriter.defaultWriter();
-            ArrayNode result = OBJECT_MAPPER.createArrayNode();
-            for (Map.Entry<TableId, TableChanges.TableChange> e : tableSchemas.entrySet()) {
-                TableId tableId = e.getKey();
-                // useCatalogBeforeSchema: false when catalog is null but schema is set (e.g. PG)
-                boolean uc = SerializerUtils.shouldUseCatalogBeforeSchema(tableId);
-                ObjectNode entry = OBJECT_MAPPER.createObjectNode();
-                entry.put("i", tableId.toDoubleQuotedString());
-                entry.put("uc", uc);
-                // parse compact doc JSON into a JsonNode so "c" is a nested object, not a string
-                entry.set(
-                        "c",
-                        OBJECT_MAPPER.readTree(
-                                docWriter.write(TABLE_CHANGE_SERIALIZER.toDocument(e.getValue()))));
-                result.add(entry);
-            }
-            return OBJECT_MAPPER.writeValueAsString(result);
-        } catch (Exception e) {
-            // Return null so the current batch is not failed — data keeps flowing and
-            // schema persistence will be retried on the next DDL or feHadNoSchema batch.
-            // For PostgreSQL this is safe: WAL records carry afterSchema so the next DML
-            // will re-trigger schema-change detection and self-heal.
-            // WARNING: for MySQL (schema change not yet implemented), returning null here
-            // is dangerous — MySQL binlog has no inline schema, so loading a stale
-            // pre-DDL schema from FE on the next task would cause column mismatches
-            // (flink-cdc#732). When MySQL schema change is implemented, this must throw
-            // instead of returning null to prevent committing the offset with a stale schema.
-            LOG.error(
-                    "Failed to serialize tableSchemas, schema will not be persisted to FE"
-                            + " in this cycle. Will retry on next DDL or batch.",
-                    e);
-            return null;
+        DocumentWriter docWriter = DocumentWriter.defaultWriter();
+        ArrayNode result = OBJECT_MAPPER.createArrayNode();
+        for (Map.Entry<TableId, TableChanges.TableChange> e : tableSchemas.entrySet()) {
+            TableId tableId = e.getKey();
+            // useCatalogBeforeSchema: false when catalog is null but schema is set (e.g. PG)
+            boolean uc = SerializerUtils.shouldUseCatalogBeforeSchema(tableId);
+            ObjectNode entry = OBJECT_MAPPER.createObjectNode();
+            entry.put("i", tableId.toDoubleQuotedString());
+            entry.put("uc", uc);
+            // parse compact doc JSON into a JsonNode so "c" is a nested object, not a string
+            entry.set(
+                    "c",
+                    OBJECT_MAPPER.readTree(
+                            docWriter.write(TABLE_CHANGE_SERIALIZER.toDocument(e.getValue()))));
+            result.add(entry);
         }
+        return OBJECT_MAPPER.writeValueAsString(result);
     }
 
     /** Apply schema changes to in-memory tableSchemas and notify the serializer. */
@@ -193,11 +219,11 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
             return;
         }
         if (tableSchemas == null) {
-            tableSchemas = new ConcurrentHashMap<>(updatedSchemas);
+            setTableSchemas(new ConcurrentHashMap<>(updatedSchemas));
         } else {
             tableSchemas.putAll(updatedSchemas);
+            setTableSchemas(tableSchemas);
         }
-        serializer.setTableSchemas(tableSchemas);
     }
 
     /**

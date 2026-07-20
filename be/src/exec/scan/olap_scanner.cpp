@@ -125,6 +125,26 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
+static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
+    return stats.num_local_io_total != 0 || stats.num_remote_io_total != 0 ||
+           stats.num_peer_io_total != 0 || stats.local_io_timer != 0 ||
+           stats.bytes_read_from_local != 0 || stats.bytes_read_from_remote != 0 ||
+           stats.bytes_read_from_peer != 0 || stats.remote_io_timer != 0 ||
+           stats.peer_io_timer != 0 || stats.remote_wait_timer != 0 ||
+           stats.write_cache_io_timer != 0 || stats.bytes_write_into_cache != 0 ||
+           stats.num_skip_cache_io_total != 0 || stats.read_cache_file_directly_timer != 0 ||
+           stats.cache_get_or_set_timer != 0 || stats.lock_wait_timer != 0 ||
+           stats.get_timer != 0 || stats.set_timer != 0 ||
+           stats.inverted_index_num_local_io_total != 0 ||
+           stats.inverted_index_num_remote_io_total != 0 ||
+           stats.inverted_index_num_peer_io_total != 0 ||
+           stats.inverted_index_bytes_read_from_local != 0 ||
+           stats.inverted_index_bytes_read_from_remote != 0 ||
+           stats.inverted_index_bytes_read_from_peer != 0 ||
+           stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
+           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
+}
+
 Status OlapScanner::prepare() {
     auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
@@ -267,8 +287,10 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
-        res.append("failed to initialize storage reader. tablet=" +
-                   std::to_string(_tablet_reader_params.tablet->tablet_id()) +
+        // init() also runs the eager first-row read that evaluates pushed-down expressions,
+        // so res may be a data/expression error rather than a storage failure. Keep its own
+        // message and only append the tablet/backend, without a misleading storage wording.
+        res.append(". tablet=" + std::to_string(_tablet_reader_params.tablet->tablet_id()) +
                    ", backend=" + BackendOptions::get_localhost());
         return res;
     }
@@ -629,25 +651,30 @@ void OlapScanner::update_realtime_counters() {
                 stats.compressed_bytes_read);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
                 ->update_scan_bytes_from_remote_storage(
-                        stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
+                        stats.file_cache_stats.bytes_read_from_remote);
 
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
+                stats.file_cache_stats.bytes_read_from_remote);
+    }
+
+    if (has_file_cache_statistics(stats.file_cache_stats)) {
+        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                stats.file_cache_stats.bytes_write_into_cache);
     }
 
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
-
-    _bytes_read_from_local = _tablet_reader->stats().file_cache_stats.bytes_read_from_local;
-    _bytes_read_from_remote = _tablet_reader->stats().file_cache_stats.bytes_read_from_remote;
+    _tablet_reader->mutable_stats()->file_cache_stats = {};
 }
 
 void OlapScanner::_collect_profile_before_close() {
@@ -712,6 +739,14 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
+    COUNTER_UPDATE(local_state->_expr_zonemap_filtered_segment_counter,
+                   stats.expr_zonemap_filtered_segments);
+    COUNTER_UPDATE(local_state->_expr_zonemap_filtered_page_counter,
+                   stats.expr_zonemap_filtered_pages);
+    COUNTER_UPDATE(local_state->_expr_zonemap_unusable_counter, stats.expr_zonemap_unusable_evals);
+    COUNTER_UPDATE(local_state->_in_zonemap_point_check_counter,
+                   stats.in_zonemap_point_check_count);
+    COUNTER_UPDATE(local_state->_in_zonemap_range_only_counter, stats.in_zonemap_range_only_count);
     COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.segment_dict_filtered);
     COUNTER_UPDATE(local_state->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_filtered);
@@ -777,8 +812,7 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    // only cloud deploy mode will use file cache.
-    if (config::is_cloud_mode() && config::enable_file_cache) {
+    if (has_file_cache_statistics(stats.file_cache_stats)) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
         _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
@@ -886,6 +920,14 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.ann_index_topn_result_process_ns);
 
     COUNTER_UPDATE(local_state->_ann_fallback_brute_force_cnt, stats.ann_fall_back_brute_force_cnt);
+    COUNTER_UPDATE(local_state->_ann_topn_fallback_by_small_candidate_cnt,
+                   stats.ann_topn_fallback_by_small_candidate_cnt);
+    COUNTER_UPDATE(local_state->_ann_topn_fallback_small_candidate_rows,
+                   stats.ann_topn_fallback_small_candidate_rows);
+    COUNTER_UPDATE(local_state->_ann_range_fallback_by_small_candidate_cnt,
+                   stats.ann_range_fallback_by_small_candidate_cnt);
+    COUNTER_UPDATE(local_state->_ann_range_fallback_small_candidate_rows,
+                   stats.ann_range_fallback_small_candidate_rows);
 
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }

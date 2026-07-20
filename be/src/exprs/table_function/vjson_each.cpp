@@ -163,8 +163,7 @@ void VJsonEachTableFunction<TEXT_MODE>::get_same_many_values(MutableColumnPtr& c
     if (_is_nullable) {
         auto* nullable = assert_cast<ColumnNullable*>(column.get());
         ret = assert_cast<ColumnStruct*>(nullable->get_nested_column_ptr().get());
-        assert_cast<ColumnUInt8*>(nullable->get_null_map_column_ptr().get())
-                ->insert_many_defaults(length);
+        nullable->get_null_map_column_ptr()->insert_many_defaults(length);
     } else {
         ret = assert_cast<ColumnStruct*>(column.get());
     }
@@ -185,8 +184,7 @@ int VJsonEachTableFunction<TEXT_MODE>::get_value(MutableColumnPtr& column, int m
         if (_is_nullable) {
             auto* nullable_col = assert_cast<ColumnNullable*>(column.get());
             struct_col = assert_cast<ColumnStruct*>(nullable_col->get_nested_column_ptr().get());
-            assert_cast<ColumnUInt8*>(nullable_col->get_null_map_column_ptr().get())
-                    ->insert_many_defaults(max_step);
+            nullable_col->get_null_map_column_ptr()->insert_many_defaults(max_step);
         } else {
             struct_col = assert_cast<ColumnStruct*>(column.get());
         }

@@ -38,6 +38,7 @@ public:
     std::string debug_string() const override;
     bool is_constant() const override { return false; }
     int column_id() const { return _column_id; }
+    void set_column_id(int column_id) { _column_id = column_id; }
     int slot_id() const { return _slot_id; }
     bool equals(const VExpr& other) override;
     size_t estimate_memory(const size_t rows) override { return 0; }
@@ -107,11 +108,12 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) override;
+            size_t rows_of_segment, roaring::Roaring& row_bitmap,
+            segment_v2::AnnIndexStats& ann_index_stats,
+            AnnRangeSearchEvaluationResult& result) override;
 
 #ifdef BE_TEST
     // Test-only setter methods for unit testing
-    void set_column_id(int column_id) { _column_id = column_id; }
     void set_column_name(const std::string* column_name) { _column_name = column_name; }
     void set_column_data_type(DataTypePtr column_data_type) {
         _column_data_type = std::move(column_data_type);

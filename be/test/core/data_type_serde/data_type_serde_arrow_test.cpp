@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/array/array_binary.h>
+#include <arrow/array/array_nested.h>
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_decimal.h>
@@ -23,7 +25,9 @@
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/type_fwd.h>
 #include <arrow/util/decimal.h>
+#include <arrow/util/key_value_metadata.h>
 #include <arrow/visit_type_inline.h>
 #include <arrow/visitor.h>
 #include <gen_cpp/Descriptors_types.h>
@@ -34,6 +38,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -79,8 +84,8 @@
 
 namespace doris {
 
-void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int row_num,
-                                          bool is_nullable) {
+std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int row_num,
+                                         bool is_nullable) {
     auto block = std::make_shared<Block>();
     for (int i = 0; i < cols.size(); i++) {
         std::string col_name = std::to_string(i);
@@ -391,10 +396,26 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
             block->insert(std::move(type_and_name));
         } break;
+        case TYPE_LARGEINT: {
+            auto vec = ColumnInt128::create();
+            auto& data = vec->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                data.push_back(__int128_t(i));
+            }
+            DataTypePtr data_type(std::make_shared<DataTypeInt128>());
+            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            block->insert(std::move(type_and_name));
+        } break;
         default:
             LOG(FATAL) << "error column type";
         }
     }
+    return block;
+}
+
+void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int row_num,
+                                          bool is_nullable) {
+    std::shared_ptr<Block> block = create_test_block(cols, row_num, is_nullable);
     std::shared_ptr<arrow::RecordBatch> record_batch =
             CommonDataTypeSerdeTest::serialize_arrow(block);
     auto assert_block = std::make_shared<Block>(block->clone_empty());
@@ -402,11 +423,30 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
+void block_converter_test(std::vector<PrimitiveType> cols, int row_num, bool is_nullable) {
+    std::shared_ptr<Block> source_block = create_test_block(cols, row_num, is_nullable);
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    std::shared_ptr<arrow::Schema> schema;
+    Status status = Status::OK();
+    status = get_arrow_schema_from_block(*source_block, &schema, TimezoneUtils::default_time_zone);
+    ASSERT_TRUE(status.ok() && schema);
+    cctz::time_zone default_timezone; //default UTC
+    status = convert_to_arrow_batch(*source_block, schema, arrow::default_memory_pool(),
+                                    &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok() && record_batch);
+    auto target_block = std::make_shared<Block>(source_block->clone_empty());
+    DataTypes source_data_types = source_block->get_data_types();
+    status = convert_from_arrow_batch(record_batch, source_data_types, &*target_block,
+                                      default_timezone);
+    ASSERT_TRUE(status.ok() && target_block);
+    CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
+}
+
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
     std::vector<PrimitiveType> cols = {
-            TYPE_INT,        TYPE_INT,       TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
-            TYPE_DECIMAL32,  TYPE_DECIMAL64, TYPE_IPV4,   TYPE_IPV6,        TYPE_DATETIME,
-            TYPE_DATETIMEV2, TYPE_DATE,      TYPE_DATEV2,
+            TYPE_INT,       TYPE_INT,        TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
+            TYPE_DECIMAL32, TYPE_DECIMAL64,  TYPE_IPV4,   TYPE_IPV6,        TYPE_LARGEINT,
+            TYPE_DATETIME,  TYPE_DATETIMEV2, TYPE_DATE,   TYPE_DATEV2,
     };
     serialize_and_deserialize_arrow_test(cols, 7, true);
     serialize_and_deserialize_arrow_test(cols, 7, false);
@@ -481,6 +521,120 @@ TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
     auto assert_block = std::make_shared<Block>(block->clone_empty());
     CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("550e8400-e29b-41d4-a716-446655440000", 36);
+    strcol->insert_data("00112233445566778899aabbccddeeff", 32);
+    DataTypePtr data_type(std::make_shared<DataTypeString>());
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "uuid_col"));
+
+    auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
+    auto schema =
+            arrow::schema({arrow::field("uuid_col", arrow::fixed_size_binary(16), true, metadata)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(nullptr, record_batch);
+    ASSERT_EQ(2, record_batch->num_rows());
+
+    auto uuid_array =
+            std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    ASSERT_EQ(16, uuid_array->byte_width());
+
+    const uint8_t expected0[] = {0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4,
+                                 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
+    const uint8_t expected1[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(0), expected0, sizeof(expected0)));
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(1), expected1, sizeof(expected1)));
+}
+
+TEST(DataTypeSerDeArrowTest, NestedIcebergUuidStringToFixedSizeBinary) {
+    auto block = std::make_shared<Block>();
+    DataTypePtr data_type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {std::make_shared<DataTypeString>()});
+    auto struct_column = data_type->create_column();
+
+    Struct row;
+    row.push_back(Field::create_field<TYPE_STRING>("550e8400-e29b-41d4-a716-446655440000"));
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(row));
+    block->insert(ColumnWithTypeAndName(struct_column->get_ptr(), data_type, "uuid_struct"));
+
+    auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
+    auto schema = arrow::schema({arrow::field(
+            "uuid_struct",
+            arrow::struct_({arrow::field("id", arrow::fixed_size_binary(16), true, metadata)}),
+            true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto struct_array = std::static_pointer_cast<arrow::StructArray>(record_batch->column(0));
+    auto uuid_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(struct_array->field(0));
+    const uint8_t expected[] = {0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4,
+                                0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(0), expected, sizeof(expected)));
+}
+
+TEST(DataTypeSerDeArrowTest, CharToFixedSizeBinaryPadsZeros) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("ab", 2);
+    DataTypePtr data_type(std::make_shared<DataTypeString>(4, TYPE_CHAR));
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "fixed_col"));
+
+    auto schema = arrow::schema({arrow::field("fixed_col", arrow::fixed_size_binary(4), true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto fixed_array =
+            std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    const char expected[] = {'a', 'b', '\0', '\0'};
+    EXPECT_EQ(0, std::memcmp(fixed_array->GetValue(0), expected, sizeof(expected)));
+}
+
+TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("binary-value", 12);
+    DataTypePtr data_type(std::make_shared<DataTypeString>());
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "bin_col"));
+
+    auto schema = arrow::schema({arrow::field("bin_col", arrow::large_binary(), true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto binary_array = std::static_pointer_cast<arrow::LargeBinaryArray>(record_batch->column(0));
+    ASSERT_EQ(12, binary_array->value_length(0));
+    const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
+    EXPECT_EQ(0, std::memcmp(raw, "binary-value", 12));
+}
+
+TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
+    std::vector<PrimitiveType> cols = {
+            TYPE_INT,       TYPE_INT,        TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
+            TYPE_DECIMAL32, TYPE_DECIMAL64,  TYPE_IPV4,   TYPE_IPV6,        TYPE_LARGEINT,
+            TYPE_DATETIME,  TYPE_DATETIMEV2, TYPE_DATE,   TYPE_DATEV2,
+    };
+    block_converter_test(cols, 7, true);
+    block_converter_test(cols, 7, false);
 }
 
 } // namespace doris

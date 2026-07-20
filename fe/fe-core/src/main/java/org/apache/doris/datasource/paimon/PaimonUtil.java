@@ -503,7 +503,7 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
         rowType.getFields().forEach(field -> {
-            resSchema.add(new Column(field.name().toLowerCase(),
+            resSchema.add(new Column(field.name(),
                     PaimonUtil.paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping),
                     primaryKeys.contains(field.name()),
                     null,
@@ -577,6 +577,16 @@ public class PaimonUtil {
                     return null;
                 }
                 return value.toString();
+            case FLOAT:
+                if (value == null) {
+                    return null;
+                }
+                return Float.toString((Float) value);
+            case DOUBLE:
+                if (value == null) {
+                    return null;
+                }
+                return Double.toString((Double) value);
             // case binary:
             // case varbinary: should not supported, because if return string with utf8,
             // the data maybe be corrupted

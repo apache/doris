@@ -33,6 +33,7 @@
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
 #include "exprs/function/cast_type_to_either.h"
+#include "exprs/function/fmod_fast.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
@@ -395,9 +396,13 @@ struct ModNumericImpl {
         auto& b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         auto& n = null_map->get_data();
-        size_t size = b.size();
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(a, b[i], n[i]);
+        if constexpr (requires { Impl::apply(a, b, c, n); }) {
+            Impl::apply(a, b, c, n);
+        } else {
+            size_t size = b.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a, b[i], n[i]);
+            }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
@@ -414,9 +419,13 @@ struct ModNumericImpl {
         auto& b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         auto& n = null_map->get_data();
-        size_t size = a.size();
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(a[i], b[i], n[i]);
+        if constexpr (requires { Impl::apply(a, b, c, n); }) {
+            Impl::apply(a, b, c, n);
+        } else {
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], b[i], n[i]);
+            }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
@@ -439,17 +448,42 @@ struct ModuloNumericImpl {
     static void apply(const typename ColumnType::Container& a, ArgB b,
                       typename ColumnType::Container& c, PaddedPODArray<UInt8>& null_map) {
         size_t size = c.size();
-        UInt8 is_null = b == 0;
-        memset(null_map.data(), is_null, sizeof(UInt8) * size);
-
-        if (!is_null) {
+        if constexpr (is_float_or_double(Type)) {
+            fmod_fast::vector_constant(a.data(), b, c.data(), null_map.data(), size);
+        } else {
+            UInt8 is_null = b == 0;
+            memset(null_map.data(), is_null, sizeof(UInt8) * size);
+            if (is_null) {
+                return;
+            }
             for (size_t i = 0; i < size; i++) {
-                if constexpr (is_float_or_double(Type)) {
-                    c[i] = std::fmod((double)a[i], (double)b);
-                } else {
-                    throw_if_division_leads_to_FPE(a[i], b);
-                    c[i] = a[i] % b;
-                }
+                throw_if_division_leads_to_FPE(a[i], b);
+                c[i] = a[i] % b;
+            }
+        }
+    }
+
+    static void apply(ArgA a, const typename ColumnType::Container& b,
+                      typename ColumnType::Container& c, PaddedPODArray<UInt8>& null_map) {
+        size_t size = c.size();
+        if constexpr (is_float_or_double(Type)) {
+            fmod_fast::constant_vector(a, b.data(), c.data(), null_map.data(), size);
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a, b[i], null_map[i]);
+            }
+        }
+    }
+
+    static void apply(const typename ColumnType::Container& a,
+                      const typename ColumnType::Container& b, typename ColumnType::Container& c,
+                      PaddedPODArray<UInt8>& null_map) {
+        size_t size = c.size();
+        if constexpr (is_float_or_double(Type)) {
+            fmod_fast::vector_vector(a.data(), b.data(), c.data(), null_map.data(), size);
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a[i], b[i], null_map[i]);
             }
         }
     }
@@ -460,7 +494,7 @@ struct ModuloNumericImpl {
         b += is_null;
 
         if constexpr (is_float_or_double(Type)) {
-            return std::fmod((double)a, (double)b);
+            return fmod_fast::scalar(a, b);
         } else {
             throw_if_division_leads_to_FPE(a, b);
             return a % b;

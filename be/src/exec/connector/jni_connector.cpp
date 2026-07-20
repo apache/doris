@@ -94,7 +94,9 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     }
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
-    _scanner_params.emplace("time_zone", _state->timezone());
+    if (_state) { // maybe nullptr when init_fetch_table_schema_reader
+        _scanner_params.emplace("time_zone", _state->timezone());
+    }
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
     RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_open).call());
@@ -300,26 +302,29 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
         // org.apache.doris.common.jni.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
         return Status::InternalError("Unsupported type {} in java side", data_type->get_name());
     }
+    auto mutable_doris_column = IColumn::mutate(std::move(doris_column));
     MutableColumnPtr data_column;
-    if (doris_column->is_nullable()) {
-        auto* nullable_column =
-                reinterpret_cast<ColumnNullable*>(doris_column->assume_mutable().get());
+    if (mutable_doris_column->is_nullable()) {
+        auto* nullable_column = assert_cast<ColumnNullable*>(mutable_doris_column.get());
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& null_map = nullable_column->get_null_map_data();
         size_t origin_size = null_map.size();
         null_map.resize(origin_size + num_rows);
         memcpy(null_map.data() + origin_size, static_cast<bool*>(null_map_ptr), num_rows);
     } else {
-        data_column = doris_column->assume_mutable();
+        data_column = mutable_doris_column->get_ptr();
     }
     // Date and DateTime are deprecated and not supported.
+    Status status = Status::OK();
     switch (logical_type) {
         //FIXME: in Doris we check data then insert. jdbc external table may have some data invalid for doris.
         // should add check otherwise it may break some of our assumption now.
-#define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)              \
-    case TYPE_INDEX:                                             \
-        return _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>( \
-                data_column, reinterpret_cast<CPP_TYPE*>(address.next_meta_as_ptr()), num_rows);
+#define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)                                             \
+    case TYPE_INDEX: {                                                                          \
+        auto* data = reinterpret_cast<CPP_TYPE*>(address.next_meta_as_ptr());                   \
+        status = _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>(data_column, data, num_rows); \
+        break;                                                                                  \
+    }
         FOR_FIXED_LENGTH_TYPES(DISPATCH)
 #undef DISPATCH
     case PrimitiveType::TYPE_STRING:
@@ -327,19 +332,27 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     case PrimitiveType::TYPE_CHAR:
         [[fallthrough]];
     case PrimitiveType::TYPE_VARCHAR:
-        return _fill_string_column(address, data_column, num_rows);
+        status = _fill_string_column(address, data_column, num_rows);
+        break;
     case PrimitiveType::TYPE_ARRAY:
-        return _fill_array_column(address, data_column, data_type, num_rows);
+        status = _fill_array_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_MAP:
-        return _fill_map_column(address, data_column, data_type, num_rows);
+        status = _fill_map_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_STRUCT:
-        return _fill_struct_column(address, data_column, data_type, num_rows);
+        status = _fill_struct_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_VARBINARY:
-        return _fill_varbinary_column(address, data_column, num_rows);
+        status = _fill_varbinary_column(address, data_column, num_rows);
+        break;
     default:
-        return Status::InvalidArgument("Unsupported type {} in jni scanner", data_type->get_name());
+        status = Status::InvalidArgument("Unsupported type {} in jni scanner",
+                                         data_type->get_name());
+        break;
     }
-    return Status::OK();
+    doris_column = std::move(mutable_doris_column);
+    return status;
 }
 
 Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
@@ -828,6 +841,9 @@ void JniConnector::_collect_profile_before_close() {
             return;
         }
 
+        const auto update_peak = [](int64_t previous, int64_t current) {
+            return current > previous;
+        };
         for (const auto& metric : statistics_result) {
             std::vector<std::string> type_and_name = split(metric.first, ":");
             if (type_and_name.size() != 2) {
@@ -835,22 +851,49 @@ void JniConnector::_collect_profile_before_close() {
                              << "'metricType:metricName'";
                 continue;
             }
-            long metric_value = std::stol(metric.second);
+            int64_t metric_value = std::stoll(metric.second);
             RuntimeProfile::Counter* scanner_counter;
             if (type_and_name[0] == "timer") {
                 scanner_counter =
                         ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
             } else if (type_and_name[0] == "counter") {
                 scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
                                                     _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
             } else if (type_and_name[0] == "bytes") {
                 scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
                                                     _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "timer_gauge") {
+                scanner_counter =
+                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "gauge") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
+                                                    _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "bytes_gauge") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
+                                                    _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "timer_peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::TIME_NS, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
+            } else if (type_and_name[0] == "peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::UNIT, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
+            } else if (type_and_name[0] == "bytes_peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::BYTES, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
             } else {
-                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter, bytes, "
+                             << "timer_gauge, gauge, bytes_gauge, timer_peak, peak or bytes_peak";
                 continue;
             }
-            COUNTER_UPDATE(scanner_counter, metric_value);
         }
     }
 }

@@ -511,7 +511,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     private Plan updateOperativeSlots(LogicalCatalogRelation oldRelation, LogicalCatalogRelation newRelation) {
         List<Slot> oldOperativeSlots = oldRelation.getOperativeSlots();
         List<Slot> newOperativeSlots = new ArrayList<>(oldOperativeSlots.size());
-        int outputSize = oldOperativeSlots.size();
+        int outputSize = oldRelation.getOutput().size();
         for (Slot opSlot : oldOperativeSlots) {
             int idx;
             for (idx = 0; idx < outputSize; idx++) {

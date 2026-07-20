@@ -66,6 +66,19 @@ public:
     static const std::string FileReadBytesProfile;
     static const std::string FileReadTimeProfile;
 
+#ifdef BE_TEST
+    void TEST_init_runtime_filter_partition_prune_ctxs(
+            const VExprContextSPtrs& conjuncts,
+            const std::unordered_map<SlotId, int>& partition_slot_index_map) {
+        _conjuncts = conjuncts;
+        _partition_slot_index_map = partition_slot_index_map;
+        _init_runtime_filter_partition_prune_ctxs();
+    }
+    const VExprContextSPtrs& TEST_runtime_filter_partition_prune_ctxs() const {
+        return _runtime_filter_partition_prune_ctxs;
+    }
+#endif
+
     FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
                 ShardedKVCache* kv_cache,
@@ -111,6 +124,8 @@ protected:
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
     void _collect_profile_before_close() override;
+
+    bool _should_update_load_counters() const override;
 
     // fe will add skip_bitmap_col to _input_tuple_desc iff the target olaptable has skip_bitmap_col
     // and the current load is a flexible partial update

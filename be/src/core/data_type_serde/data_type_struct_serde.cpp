@@ -17,6 +17,8 @@
 
 #include "core/data_type_serde/data_type_struct_serde.h"
 
+#include <algorithm>
+
 #include "arrow/array/builder_nested.h"
 #include "common/status.h"
 #include "core/column/column.h"
@@ -400,12 +402,10 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (auto r = start; r < end; ++r) {
         if (null_map != nullptr && (*null_map)[r]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
-                                             builder.type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column, builder));
             continue;
         }
-        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column.get_name(),
-                                         builder.type()->name()));
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
         for (auto ei = 0; ei < struct_column.tuple_size(); ++ei) {
             auto* elem_builder = builder.field_builder(ei);
             RETURN_IF_ERROR(elem_serdes_ptrs[ei]->write_column_to_arrow(
@@ -517,21 +517,17 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
 
     const auto elem_size = elem_serdes_ptrs.size();
 
-    std::vector<StringRef> field_value;
-    // check syntax error
-    if (split_result.size() == elem_size) {
-        // no field name
-        for (int i = 0; i < split_result.size(); i++) {
-            if (i != split_result.size() - 1 &&
-                split_result[i].delimiter != options.collection_delim) {
-                return Status::InvalidArgument(
-                        "Struct field value {} is not separated by collection_delim.", i);
-            }
-            field_value.push_back(split_result[i].element);
-        }
-    } else if (split_result.size() == 2 * elem_size) {
-        // field name : field value
-        int field_pos = 0;
+    std::vector<StringRef> field_value(elem_size);
+    std::vector<bool> got(elem_size, false);
+
+    // Named mode is detected by the delimiter structure (the first token is followed by a
+    // map_key_delim, e.g. {f1:1,f2:2}), so it also covers the case where only some fields are
+    // provided. In named mode the input field order may differ from the schema order and
+    // missing nullable fields are filled with NULL. Otherwise the tokens are matched positionally.
+    bool named_mode = !split_result.empty() && (split_result.size() % 2 == 0) &&
+                      split_result[0].delimiter == options.map_key_delim;
+
+    if (named_mode) {
         for (int i = 0; i < split_result.size(); i += 2) {
             if (split_result[i].delimiter != options.map_key_delim) {
                 return Status::InvalidArgument(
@@ -541,18 +537,37 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
                 return Status::InvalidArgument(
                         "Struct name-value pair does not have collection delimiter");
             }
-            if (field_pos >= elem_size) {
-                return Status::InvalidArgument(
-                        "Struct field number is more than schema field number");
-            }
             auto field_name = split_result[i].element.trim_quote();
-
-            if (!field_name.eq(StringRef(elem_names[field_pos]))) {
-                return Status::InvalidArgument("Cannot find struct field name {} in schema.",
-                                               split_result[i].element.to_string());
+            // struct field names are stored lower-cased, so lower-case the input key for a
+            // case-insensitive match (consistent with the simdjson JSON reader).
+            std::string lower_name(field_name.data, field_name.size);
+            std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+            auto name_it = std::find(elem_names.begin(), elem_names.end(), lower_name);
+            if (name_it == elem_names.end()) {
+                // the input key is not a field of this struct
+                if constexpr (is_strict_mode) {
+                    // strict CAST treats an unmatched key as bad input and fails
+                    return Status::InvalidArgument("Cannot find struct field name {} in schema.",
+                                                   split_result[i].element.to_string());
+                }
+                // non-strict load tolerates it: drop the extra key, matching the simdjson
+                // JSON reader that feeds STRUCT columns on JSON stream load
+                continue;
             }
-            field_value.push_back(split_result[i + 1].element);
-            field_pos++;
+            size_t target = name_it - elem_names.begin();
+            field_value[target] = split_result[i + 1].element;
+            got[target] = true;
+        }
+    } else if (split_result.size() == elem_size) {
+        // no field name, matched positionally
+        for (int i = 0; i < split_result.size(); i++) {
+            if (i != split_result.size() - 1 &&
+                split_result[i].delimiter != options.collection_delim) {
+                return Status::InvalidArgument(
+                        "Struct field value {} is not separated by collection_delim.", i);
+            }
+            field_value[i] = split_result[i].element;
+            got[i] = true;
         }
     } else {
         return Status::InvalidArgument(
@@ -561,6 +576,12 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
     }
 
     for (int field_pos = 0; field_pos < elem_size; ++field_pos) {
+        if (!got[field_pos]) {
+            // a missing field is filled with NULL (struct sub-columns are always nullable,
+            // same as the empty-struct '{}' handling above)
+            struct_column.get_column(field_pos).insert_default();
+            continue;
+        }
         // Previously, there was rollback logic here in case of errors, similar to the logic in deserialize_one_cell_from_json.
         // But it's not necessary here.
         // If it is non-strict mode, the internal type is Nullable, and Nullable will handle errors itself.

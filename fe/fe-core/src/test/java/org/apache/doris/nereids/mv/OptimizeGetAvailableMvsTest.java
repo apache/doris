@@ -43,6 +43,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import mockit.Mock;
 import mockit.MockUp;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -57,6 +58,21 @@ import java.util.Set;
  * Test get available mvs after rewrite by rules
  */
 public class OptimizeGetAvailableMvsTest extends SqlTestBase {
+
+    @Override
+    protected void runBeforeEach() throws Exception {
+        dropTestMvs();
+    }
+
+    @AfterEach
+    void dropTestMvsAfterEach() throws Exception {
+        dropTestMvs();
+    }
+
+    private void dropTestMvs() throws Exception {
+        dropMvByNereids("drop materialized view if exists mv1");
+        dropMvByNereids("drop materialized view if exists mv2");
+    }
 
     @Test
     void testWhenNotPartitionPrune() throws Exception {
@@ -165,8 +181,6 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
         Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
         Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
                 .equalsIgnoreCase("mv1"));
-
-        dropMvByNereids("drop materialized view mv1");
     }
 
     @Test
@@ -233,6 +247,13 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
             }
         };
 
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
+                return true;
+            }
+        };
+
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv2 "
@@ -278,7 +299,5 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
         Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
         Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
                 .equalsIgnoreCase("mv2"));
-
-        dropMvByNereids("drop materialized view mv2");
     }
 }

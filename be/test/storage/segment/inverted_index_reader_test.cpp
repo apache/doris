@@ -32,12 +32,12 @@
 #include "core/field.h"
 #include "core/value/vdatetime_value.h"
 #include "runtime/runtime_state.h"
-#include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "util/slice.h"
@@ -136,16 +136,16 @@ public:
                 std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
                                                   seg_id, format, std::move(file_writer));
 
-        // Get c2 column StorageField
+        // Get c2 column descriptor
         const TabletColumn& column = tablet_schema->column(1);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         // Create column writer
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), idx_meta);
+        auto status =
+                IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
@@ -190,16 +190,16 @@ public:
                 fs, *index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
-        // Get c2 column StorageField
+        // Get c2 column descriptor
         const TabletColumn& column = tablet_schema->column(1);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         // Create column writer
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), idx_meta);
+        auto status =
+                IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add NULL values
@@ -258,16 +258,16 @@ public:
                 fs, *index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
-        // Get c1 column StorageField
+        // Get c1 column descriptor
         const TabletColumn& column = tablet_schema->column(0);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         // Create column writer
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), idx_meta);
+        auto status =
+                IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -2712,12 +2712,12 @@ public:
         double_schema->append_column(double_column);
 
         const TabletColumn& column = double_schema->column(0);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), idx_meta);
+        auto status =
+                IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
@@ -3491,12 +3491,12 @@ public:
                                                   seg_id, format, std::move(file_writer));
 
         const TabletColumn& column = tablet_schema->column(col_id);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(column);
+        ASSERT_NE(field, nullptr);
 
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), idx_meta);
+        auto status =
+                IndexColumnWriter::create(field, &column_writer, index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
@@ -3996,12 +3996,12 @@ public:
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
         const TabletColumn& test_column = tablet_schema->column(0);
-        std::unique_ptr<StorageField> field(StorageFieldFactory::create(test_column));
-        ASSERT_NE(field.get(), nullptr);
+        const TabletColumn* field = &(test_column);
+        ASSERT_NE(field, nullptr);
 
         std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        auto status = IndexColumnWriter::create(field, &column_writer, index_file_writer.get(),
+                                                &idx_meta);
 
         // This should fail for unsupported types, demonstrating the default case
         // If it succeeds, we can still test with invalid query parameters
@@ -4179,6 +4179,11 @@ TEST_F(InvertedIndexReaderTest, QueryCache) {
 // Searcher cache test
 TEST_F(InvertedIndexReaderTest, SearcherCache) {
     test_searcher_cache();
+}
+
+// Exercise the different combinations of query/searcher caches.
+TEST_F(InvertedIndexReaderTest, CacheCombinationMatrix) {
+    test_inverted_index_cache_matrix();
 }
 
 // Test string index with large document set (>512 docs)

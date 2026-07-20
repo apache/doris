@@ -122,6 +122,11 @@ public class JdbcClickHouseClient extends JdbcClient {
     }
 
     @Override
+    protected String getRemoteDatabaseName(ResultSet resultSet) throws SQLException {
+        return resultSet.getString(databaseTermIsCatalog ? "TABLE_CAT" : "TABLE_SCHEM");
+    }
+
+    @Override
     protected String[] getTableTypes() {
         return new String[] {"TABLE", "VIEW", "SYSTEM TABLE"};
     }

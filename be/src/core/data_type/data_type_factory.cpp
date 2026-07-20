@@ -65,15 +65,10 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "core/uint128.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
-DataTypePtr DataTypeFactory::create_data_type(const doris::StorageField& col_desc) {
-    return create_data_type(col_desc.get_desc(), col_desc.is_nullable());
-}
-
 DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool is_nullable) {
     DataTypePtr nested = nullptr;
     if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
@@ -385,23 +380,8 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else {
         // TODO add precision and frac
-        auto meta_precision = pcolumn.precision();
-        auto meta_scale = pcolumn.frac();
-        if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_DECIMAL)) {
-            // Segments written by Doris < 2.1.0 (before #26572) do not persist
-            // precision/frac in ColumnMetaPB, so they default to 0 when read back.
-            // Pass UINT32_MAX to DataTypeDecimalV2 to signal that the original
-            // precision/scale are unknown; otherwise check_type_precision(0) throws
-            // "meet invalid precision: real_precision=0".
-            UInt32 orig_precision =
-                    meta_precision > 0 ? static_cast<UInt32>(meta_precision) : UINT32_MAX;
-            UInt32 orig_scale = meta_precision > 0 ? static_cast<UInt32>(meta_scale) : UINT32_MAX;
-            nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
-                                                 orig_precision, orig_scale, -1);
-        } else {
-            nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
-                                                 meta_precision, meta_scale, -1);
-        }
+        nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
+                                             pcolumn.precision(), pcolumn.frac(), -1);
     }
 
     if (pcolumn.is_nullable() && nested) {

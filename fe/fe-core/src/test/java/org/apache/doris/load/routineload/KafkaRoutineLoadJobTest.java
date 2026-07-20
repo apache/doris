@@ -34,6 +34,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.jmockit.FieldReflection;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -201,6 +202,230 @@ public class KafkaRoutineLoadJobTest {
                 Assert.fail();
             }
         }
+    }
+
+    @Test
+    public void testUpdateLagRefreshesLatestOffsetCache() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 10L);
+        partitionIdToOffset.put(2, 20L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
+                                                              Map<String, String> convertedCustomProperties,
+                                                              List<Integer> partitionIds) {
+                Assert.assertEquals(1L, jobId);
+                Assert.assertEquals("127.0.0.1:9020", brokerList);
+                Assert.assertEquals("topic1", topic);
+                Assert.assertTrue(partitionIds.contains(1));
+                Assert.assertTrue(partitionIds.contains(2));
+                return Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L));
+            }
+        };
+
+        routineLoadJob.updateLag();
+
+        Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+    }
+
+    @Test
+    public void testUpdateProgressWarnsWhenReadCommittedTaskHasZeroRowsAndLag() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("isolation.level", "read_committed");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newHashMap();
+        cachedPartitionWithLatestOffsets.put(1, 20L);
+        Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets",
+                cachedPartitionWithLatestOffsets);
+
+        Map<Integer, Long> taskProgress = Maps.newHashMap();
+        taskProgress.put(1, 10L);
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "progress", new KafkaProgress(taskProgress));
+
+        Deencapsulation.invoke(routineLoadJob, "updateProgress", attachment);
+
+        String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
+        Assert.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testDisplayCustomPropertiesMasksKafkaSecrets() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("security.protocol", "SASL_PLAINTEXT");
+        customProperties.put("sasl.username", "doris");
+        customProperties.put("sasl.password", "plain_secret");
+        customProperties.put("sasl.jaas.config", "username=\"doris\" password=\"jaas_secret\"");
+        customProperties.put("sasl.oauthbearer.client.secret", "oauth_client_secret");
+        customProperties.put("sasl.oauthbearer.client.credentials.client.secret", "oauth_alias_secret");
+        customProperties.put("sasl.oauthbearer.assertion.private.key.pem", "oauth_private_key_pem");
+        customProperties.put("sasl.oauthbearer.assertion.private.key.passphrase", "oauth_private_key_passphrase");
+        customProperties.put("ssl.keystore.password", "keystore_secret");
+        customProperties.put("ssl.keystore.key", "keystore_key_secret");
+        customProperties.put("ssl.key.pem", "key_pem_secret");
+        customProperties.put(KafkaConfiguration.AWS_ACCESS_KEY, "aws_access_key");
+        customProperties.put("aws.secret_key", "aws_secret");
+        customProperties.put("aws.session_key", "aws_session_secret");
+        customProperties.put("password", "bare_password_secret");
+        customProperties.put("secret_key", "bare_secret_key");
+        customProperties.put("session_token", "bare_session_token");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        String customPropertiesJson = routineLoadJob.customPropertiesJsonToString();
+        Map<String, String> showCreateCustomProperties = routineLoadJob.getCustomProperties();
+
+        Assert.assertFalse(customPropertiesJson.contains("plain_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("jaas_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_client_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_alias_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_private_key_pem"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_private_key_passphrase"));
+        Assert.assertFalse(customPropertiesJson.contains("keystore_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("keystore_key_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("key_pem_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_access_key"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_session_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_password_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_secret_key"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_session_token"));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.jaas.config\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.oauthbearer.client.secret\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains(
+                "\"sasl.oauthbearer.client.credentials.client.secret\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.oauthbearer.assertion.private.key.pem\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains(
+                "\"sasl.oauthbearer.assertion.private.key.passphrase\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.key.pem\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.access_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.session_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"secret_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"session_token\":\"******\""));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.jaas.config"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.oauthbearer.client.secret"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.client.credentials.client.secret"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.assertion.private.key.pem"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.assertion.private.key.passphrase"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.key.pem"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.access_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.secret_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.session_token"));
+        Assert.assertEquals("doris", showCreateCustomProperties.get("property.sasl.username"));
+        Assert.assertEquals("plain_secret", customProperties.get("sasl.password"));
+    }
+
+    @Test
+    public void testReadCommittedZeroRowsWithLagDelaysNextTask(
+            @Injectable RoutineLoadManager routineLoadManager) throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        new Expectations() {
+            {
+                routineLoadManager.getJob(1L);
+                minTimes = 0;
+                result = routineLoadJob;
+            }
+        };
+
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("isolation.level", "read_committed");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newHashMap();
+        cachedPartitionWithLatestOffsets.put(1, 20L);
+        Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets",
+                cachedPartitionWithLatestOffsets);
+
+        Map<Integer, Long> taskProgress = Maps.newHashMap();
+        taskProgress.put(1, 10L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(taskProgress));
+
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                taskProgress, false, 1000, false);
+        FieldReflection.setField(RoutineLoadTaskInfo.class, kafkaTaskInfo, "routineLoadManager",
+                routineLoadManager);
+        FieldReflection.setField(KafkaTaskInfo.class, kafkaTaskInfo, "routineLoadManager",
+                routineLoadManager);
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
+        routineLoadTaskInfoList.add(kafkaTaskInfo);
+        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "progress", new KafkaProgress(taskProgress));
+        Deencapsulation.setField(attachment, "taskExecutionTimeMs",
+                routineLoadJob.getMaxBatchIntervalS() * 1000);
+
+        kafkaTaskInfo.handleTaskByTxnCommitAttachment(attachment);
+
+        Assert.assertFalse(kafkaTaskInfo.getIsEof());
+        Assert.assertTrue(kafkaTaskInfo.needDedalySchedule());
+
+        RoutineLoadTaskInfo newTask = Deencapsulation.invoke(routineLoadJob,
+                "unprotectRenewTask", kafkaTaskInfo, false);
+        Assert.assertTrue(newTask.needDedalySchedule());
+    }
+
+    @Test
+    public void testUpdateLagRebuildsConvertedPropertiesAfterReplay(@Mocked Env env) throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", Lists.newArrayList(1));
+
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("security.protocol", "SASL_PLAINTEXT");
+        customProperties.put("sasl.mechanism", "PLAIN");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties", Maps.newHashMap());
+
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 10L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+
+        new MockUp<Env>() {
+            @Mock
+            public Env getCurrentEnv() {
+                return env;
+            }
+        };
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
+                                                              Map<String, String> convertedCustomProperties,
+                                                              List<Integer> partitionIds) {
+                Assert.assertEquals("SASL_PLAINTEXT", convertedCustomProperties.get("security.protocol"));
+                Assert.assertEquals("PLAIN", convertedCustomProperties.get("sasl.mechanism"));
+                Assert.assertEquals(1, partitionIds.size());
+                Assert.assertTrue(partitionIds.contains(1));
+                return Lists.newArrayList(Pair.of(1, 15L));
+            }
+        };
+
+        routineLoadJob.updateLag();
+
+        Assert.assertEquals(5L, routineLoadJob.totalLag().longValue());
     }
 
     @Test
