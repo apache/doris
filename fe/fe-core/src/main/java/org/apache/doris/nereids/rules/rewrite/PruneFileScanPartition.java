@@ -99,6 +99,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
         if (enableBinarySearch && !nameToPartitionItem.isEmpty()) {
             sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
+                    .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
                     .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
