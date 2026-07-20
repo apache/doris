@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -82,6 +83,34 @@ final class ActionTestTables {
                 .withRecordCount(records)
                 .withFormat(FileFormat.PARQUET)
                 .build();
+    }
+
+    /** Commits a position-delete file as a new snapshot (creates a delete manifest carried forward by later ones). */
+    static void addPositionDeleteSnapshot(InMemoryCatalog catalog, String table, String fileName,
+            String referencedDataFile) {
+        catalog.loadTable(id(table)).newRowDelta()
+                .addDeletes(FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                        .ofPositionDeletes()
+                        .withPath("s3://b/db1/" + fileName)
+                        .withFormat(FileFormat.PARQUET)
+                        .withFileSizeInBytes(64L)
+                        .withRecordCount(1L)
+                        .withReferencedDataFile("s3://b/db1/" + referencedDataFile)
+                        .build())
+                .commit();
+    }
+
+    /** Commits an equality-delete file as a new snapshot (a distinct delete manifest). */
+    static void addEqualityDeleteSnapshot(InMemoryCatalog catalog, String table, String fileName) {
+        catalog.loadTable(id(table)).newRowDelta()
+                .addDeletes(FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                        .ofEqualityDeletes(1)
+                        .withPath("s3://b/db1/" + fileName)
+                        .withFormat(FileFormat.PARQUET)
+                        .withFileSizeInBytes(64L)
+                        .withRecordCount(1L)
+                        .build())
+                .commit();
     }
 
     static ConnectorSession session(String timeZone) {

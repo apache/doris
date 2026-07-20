@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
@@ -83,6 +84,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 
 /**
  * Tests for {@link IcebergScanPlanProvider}. T01 pinned the capability constants + that {@code planScan}
@@ -228,6 +230,49 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("db1", ops.lastLoadDb);
     }
 
+    @Test
+    public void planningPassLoadsSameTableOnceViaSharedScope() {
+        // PERF-07 metric gate: a statement's metadata read (getColumnHandles) and scan planning (planScan) resolve
+        // the SAME table. Sharing ONE per-statement scope across both (same session) collapses BOTH remote reads
+        // onto a single loadTable RPC. This is the deterministic core claim — one remote loadTable per table per
+        // statement, independent of the cross-query cache (off here: disabled metadata cache, null-cache provider).
+        // MUTATION: not routing through the scope (each resolve re-loads) -> 2 loadTable log entries -> red.
+        Table empty = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        RecordingIcebergCatalogOps ops = opsReturning(empty);
+        IcebergConnectorMetadata metadata =
+                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+
+        metadata.getColumnHandles(session, handle);
+        provider.planScan(session, handle, Collections.emptyList(), Optional.empty());
+
+        long remoteLoads = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
+        Assertions.assertEquals(1, remoteLoads,
+                "the per-statement scope must collapse the metadata + provider reads to one remote loadTable");
+    }
+
+    @Test
+    public void planningPassWithoutSharedScopeLoadsEachTime() {
+        // Contrast to the shared-scope gate: with NONE (no live statement scope) each resolver loads independently
+        // (byte-identical to the pre-scope offline behavior). MUTATION: memoizing under NONE -> 1 load -> red.
+        Table empty = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        RecordingIcebergCatalogOps ops = opsReturning(empty);
+        IcebergConnectorMetadata metadata =
+                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        ConnectorSession none = new FakeScanSession("UTC", Collections.emptyMap());
+
+        metadata.getColumnHandles(none, handle);
+        provider.planScan(none, handle, Collections.emptyList(), Optional.empty());
+
+        long remoteLoads = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
+        Assertions.assertEquals(2, remoteLoads, "under NONE each resolver loads (no memo)");
+    }
+
     // --- T02 split-enumeration + predicate-pushdown tests ---
 
     @Test
@@ -335,6 +380,78 @@ public class IcebergScanPlanProviderTest {
             totalLength += r.getLength();
         }
         Assertions.assertEquals(96 * mb, totalLength, "the split ranges must cover the whole file exactly");
+    }
+
+    @Test
+    public void planScanMemoizesPerFileInvariantsAcrossByteSlices() {
+        // PERF-11 (C12/C15a): a data file split into k byte-slices must compute its per-file invariants
+        // (partition JSON, ordered partition values, delete carriers, format, normalized path) exactly ONCE,
+        // not once per slice — while each slice keeps its own byte start/length. MUTATION: recomputing per slice
+        // (dropping the PerFileScratch reuse) -> perFileInvariantComputeCount == k -> red; memoizing start/length
+        // into the scratch -> the contiguous-tiling assertion -> red.
+        long mb = 1024L * 1024L;
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/big.parquet", 96 * mb,
+                        Arrays.asList(0L, 32 * mb, 64 * mb), "p=7"))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("file_split_size", Long.toString(32 * mb)));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                session, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertTrue(ranges.size() > 1, "expected the 96MB file to split, got " + ranges.size());
+        // The per-file invariants were computed ONCE for the whole file — the memo gate.
+        Assertions.assertEquals(1, provider.perFileInvariantComputeCount,
+                "per-file invariants must be computed once per file, not once per byte-slice");
+        // Every slice carries byte-identical per-file params (partition values + JSON) but its own tiling range.
+        long expectedStart = 0;
+        for (ConnectorScanRange r : ranges) {
+            Assertions.assertEquals(expectedStart, r.getStart(), "slices must tile contiguously from 0");
+            Assertions.assertEquals(Collections.singletonMap("p", "7"), r.getPartitionValues(),
+                    "every slice of the file carries the same identity partition values");
+            Assertions.assertEquals("[\"7\"]",
+                    populate(r).getTableFormatParams().getIcebergParams().getPartitionDataJson(),
+                    "every slice carries the same partition_data_json");
+            expectedStart += r.getLength();
+        }
+        Assertions.assertEquals(96 * mb, expectedStart, "the split ranges must cover the whole file exactly");
+    }
+
+    @Test
+    public void planScanComputesPerFileInvariantsOncePerDistinctFile() {
+        // The memo recomputes on each file change and never returns a stale file's invariants: two split files
+        // -> perFileInvariantComputeCount == 2 (once per DISTINCT data file), regardless of total slice count,
+        // and each file's slices carry that file's OWN partition values.
+        long mb = 1024L * 1024L;
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=1/a.parquet", 96 * mb,
+                        Arrays.asList(0L, 32 * mb, 64 * mb), "p=1"))
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=2/b.parquet", 96 * mb,
+                        Arrays.asList(0L, 32 * mb, 64 * mb), "p=2"))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("file_split_size", Long.toString(32 * mb)));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                session, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertTrue(ranges.size() >= 4,
+                "two 96MB files at 32MB splits -> >=4 slices, got " + ranges.size());
+        Assertions.assertEquals(2, provider.perFileInvariantComputeCount,
+                "per-file invariants must be computed once per distinct data file, not per slice");
+        Assertions.assertEquals(Collections.singletonMap("p", "1"),
+                byPath(ranges, "p=1/a.parquet").getPartitionValues(),
+                "file a's slices carry p=1 (no cross-file staleness)");
+        Assertions.assertEquals(Collections.singletonMap("p", "2"),
+                byPath(ranges, "p=2/b.parquet").getPartitionValues(),
+                "file b's slices carry p=2 (no cross-file staleness)");
     }
 
     // ── M-2: size-proportional BE scheduling weight (selfSplitWeight / targetSplitSize) ──
@@ -1161,10 +1278,11 @@ public class IcebergScanPlanProviderTest {
     // ── commit-bridge supply (S4 part 2): a v3 scan stashes each data file's non-equality deletes by raw path ──
 
     @Test
-    public void planScanStashesRewritableDeletesKeyedByRawDataFilePathForV3() {
-        // A v3 scan over a data file that already has a deletion vector must stash that DV keyed on the data
-        // file's RAW path, so a same-statement DELETE/MERGE write can hand it to the BE. MUTATION: not stashing
-        // (or keying on the normalized path) -> the write supplies nothing -> the BE resurrects the deleted rows.
+    public void planScanAccumulatesRewritableDeletesKeyedByRawDataFilePathForV3() {
+        // A v3 scan over a data file that already has a deletion vector must accumulate that DV into the
+        // per-statement scope keyed on the data file's RAW path, so a same-statement DELETE/MERGE write can hand
+        // it to the BE. MUTATION: not accumulating (or keying on the normalized path) -> the write supplies
+        // nothing -> the BE resurrects the deleted rows.
         Map<String, String> v3 = new HashMap<>();
         v3.put("format-version", "3");
         Table table = createTable("v3dv", SCHEMA, PartitionSpec.unpartitioned(), v3);
@@ -1175,27 +1293,26 @@ public class IcebergScanPlanProviderTest {
                 .addDeletes(deletionVectorFile("s3://b/db/t1/dv.puffin", 16L, 64L))
                 .commit();
 
-        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
-        IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), null, null, stash);
-        provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "v3dv"), Collections.emptyList(), Optional.empty());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+        provider.planScan(session, new IcebergTableHandle("db1", "v3dv"), Collections.emptyList(), Optional.empty());
 
-        Map<String, List<TIcebergDeleteFileDesc>> sets = stash.retrieveAndRemove("q");
-        Assertions.assertNotNull(sets, "a v3 scan with a live DV must stash a supply for queryId 'q'");
+        Map<String, List<TIcebergDeleteFileDesc>> sets = IcebergStatementScope.rewritableDeleteSupply(session);
+        Assertions.assertFalse(sets.isEmpty(), "a v3 scan with a live DV must accumulate a supply into the scope");
         // Keyed on the RAW data-file path (== originalPath), the string the BE matches a rewritable set against.
         Assertions.assertTrue(sets.containsKey("s3://b/db/t1/f1.parquet"),
-                "stash must key on the raw data-file path, got keys: " + sets.keySet());
+                "supply must key on the raw data-file path, got keys: " + sets.keySet());
         List<TIcebergDeleteFileDesc> descs = sets.get("s3://b/db/t1/f1.parquet");
         Assertions.assertEquals(1, descs.size());
         Assertions.assertEquals(3, descs.get(0).getContent(), "the DV is content 3");
     }
 
     @Test
-    public void planScanDoesNotStashForVersionTwo() {
+    public void planScanDoesNotAccumulateForVersionTwo() {
         // v2 deletes are plain position-delete files (no DV union); the rewritable supply is a v3-only concept.
         // A real position delete is committed so the assertion proves the formatVersion>=3 GATE, not an absence
-        // of deletes. MUTATION: dropping the v3 gate -> this v2 position delete would be stashed -> red.
+        // of deletes. MUTATION: dropping the v3 gate -> this v2 position delete would be accumulated -> red.
         Table table = createTable("v2pd", SCHEMA, PartitionSpec.unpartitioned(),
                 Collections.singletonMap("format-version", "2"));
         table.newAppend()
@@ -1205,18 +1322,19 @@ public class IcebergScanPlanProviderTest {
                 .addDeletes(positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null))
                 .commit();
 
-        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
-        IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), null, null, stash);
-        provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "v2pd"), Collections.emptyList(), Optional.empty());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+        provider.planScan(session, new IcebergTableHandle("db1", "v2pd"), Collections.emptyList(), Optional.empty());
 
-        Assertions.assertEquals(0, stash.size(), "a v2 scan must not stash any rewritable supply");
+        Assertions.assertTrue(IcebergStatementScope.rewritableDeleteSupply(session).isEmpty(),
+                "a v2 scan must not accumulate any rewritable supply");
     }
 
     @Test
-    public void planScanWithoutStashIsInert() {
-        // The offline 2-arg ctor leaves the stash null; a v3 scan must not NPE — it simply skips stashing.
+    public void planScanUnderNoneScopeIsInert() {
+        // Under a NONE scope (offline / no live statement) a v3 scan must not NPE — it simply accumulates into a
+        // throwaway map that does not bridge to any write. MUTATION: dereferencing a missing scope -> NPE -> red.
         Map<String, String> v3 = new HashMap<>();
         v3.put("format-version", "3");
         Table table = createTable("v3ns", SCHEMA, PartitionSpec.unpartitioned(), v3);
@@ -1425,10 +1543,22 @@ public class IcebergScanPlanProviderTest {
     private static final class FakeScanSession implements ConnectorSession {
         private final String timeZone;
         private final Map<String, String> sessionProperties;
+        private ConnectorStatementScope statementScope = ConnectorStatementScope.NONE;
 
         FakeScanSession(String timeZone, Map<String, String> sessionProperties) {
             this.timeZone = timeZone;
             this.sessionProperties = sessionProperties;
+        }
+
+        /** Installs a memoizing per-statement scope; share one instance across sessions to mimic one statement. */
+        FakeScanSession withScope(ConnectorStatementScope scope) {
+            this.statementScope = scope;
+            return this;
+        }
+
+        @Override
+        public ConnectorStatementScope getStatementScope() {
+            return statementScope;
         }
 
         @Override
@@ -1536,7 +1666,7 @@ public class IcebergScanPlanProviderTest {
         // POSITION_DELETES (non-PUFFIN) -> content 1, parquet/orc format, [lower,upper] bounds decoded from the
         // delete file's DELETE_FILE_POS bounds. MUTATION: wrong content id / dropped bounds / wrong format -> red.
         DeleteFile delete = positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, 3L, 17L);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
 
         Assertions.assertEquals(1, d.getContent());
         Assertions.assertEquals("s3://b/db/t1/pos.parquet", d.getPath());
@@ -1552,7 +1682,7 @@ public class IcebergScanPlanProviderTest {
         // No DELETE_FILE_POS bounds present -> position_lower/upper_bound stay unset (legacy emits them only
         // when present; it stores a -1 sentinel and skips emission). MUTATION: emitting 0/-1 -> red.
         DeleteFile delete = positionDeleteFile("s3://b/db/t1/pos.orc", FileFormat.ORC, null, null);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
 
         Assertions.assertEquals(TFileFormatType.FORMAT_ORC, d.getFileFormat());
         Assertions.assertFalse(d.isSetPositionLowerBound());
@@ -1565,7 +1695,7 @@ public class IcebergScanPlanProviderTest {
         // (legacy setDeleteFileFormat skips PUFFIN). MUTATION: classifying it as content 1 / emitting a format
         // for the puffin blob -> red (BE would mis-read the DV blob).
         DeleteFile delete = deletionVectorFile("s3://b/db/t1/dv.puffin", 16L, 64L);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
 
         Assertions.assertEquals(3, d.getContent());
         Assertions.assertFalse(d.isSetFileFormat());
@@ -1629,7 +1759,7 @@ public class IcebergScanPlanProviderTest {
         // to BE. MUTATION: removing the convertDelete call site -> this returns a carrier instead of throwing.
         DeleteFile delete = deletionVectorFile("s3://b/db/t1/dv.puffin", 200L, 100L);
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class, () ->
-                provider().convertDelete(delete, Collections.emptyMap()));
+                provider().convertDelete(delete, UnaryOperator.identity()));
         Assertions.assertTrue(e.getMessage().contains("exceeds file size"));
         Assertions.assertTrue(e.getMessage().contains("dv.puffin"));
     }
@@ -1640,7 +1770,7 @@ public class IcebergScanPlanProviderTest {
         // the T06 data-schema dictionary). MUTATION: wrong content id / dropped field-ids -> red (BE projects
         // the wrong columns for the equality match).
         DeleteFile delete = equalityDeleteFile("s3://b/db/t1/eq.parquet", FileFormat.PARQUET, 1, 2);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, UnaryOperator.identity()).toThrift();
 
         Assertions.assertEquals(2, d.getContent());
         Assertions.assertEquals(Arrays.asList(1, 2), d.getFieldIds());
@@ -1660,7 +1790,8 @@ public class IcebergScanPlanProviderTest {
                 new IcebergScanPlanProvider(Collections.emptyMap(), new RecordingIcebergCatalogOps(), context);
         DeleteFile delete = positionDeleteFile("oss://bucket/db/t1/pos.parquet", FileFormat.PARQUET, null, null);
 
-        TIcebergDeleteFileDesc d = provider.convertDelete(delete, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d =
+                provider.convertDelete(delete, provider.newUriNormalizer(Collections.emptyMap())).toThrift();
 
         Assertions.assertEquals("s3://bucket/db/t1/pos.parquet", d.getPath());
         Assertions.assertTrue(context.normalizedUris.contains("oss://bucket/db/t1/pos.parquet"));
@@ -1760,14 +1891,15 @@ public class IcebergScanPlanProviderTest {
 
     // --- T05: COUNT(*) pushdown (getCountFromSnapshot + collapse-to-one count range, mirrors paimon) ---
 
-    private static final IcebergTableHandle T1 = new IcebergTableHandle("db1", "t1");
-
     private static List<ConnectorScanRange> planCount(IcebergScanPlanProvider provider, ConnectorSession session,
             boolean countPushdown) {
         // The COUNT-pushdown-aware 7-arg overload the generic PluginDrivenScanNode invokes (limit/
-        // requiredPartitions are unused by the iceberg read path).
-        return provider.planScan(session, T1, Collections.emptyList(), Optional.empty(),
-                -1L, Collections.emptyList(), countPushdown);
+        // requiredPartitions are unused by the iceberg read path). A FRESH handle per call mirrors a real
+        // planning pass: PluginDrivenScanNode.currentHandle is a per-query, per-scan-node handle, so the
+        // query-scoped fat-handle memo (PERF-01) must never bleed from one test's table to another's (a shared
+        // static handle would serve the first scenario's cached table to every later one).
+        return provider.planScan(session, new IcebergTableHandle("db1", "t1"), Collections.emptyList(),
+                Optional.empty(), -1L, Collections.emptyList(), countPushdown);
     }
 
     @Test
@@ -1982,6 +2114,120 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(sortedPaths(sdk), sortedPaths(manifest));
         Assertions.assertEquals(1, manifest.size());
         Assertions.assertTrue(manifest.get(0).getPath().get().endsWith("p1.parquet"));
+    }
+
+    // --- PERF-04: streaming (C17) + COUNT(*) (C18) paths read through the manifest cache, LAZILY ---
+    // (fallback-to-SDK on a cache-read failure is not unit-tested: IcebergManifestCache is final so it cannot be
+    //  made to throw, exactly as the pre-existing synchronous planFileScanTask fallback is untested; the streaming/
+    //  count catch(Exception)+recordFailure mirrors that path verbatim.)
+
+    @Test
+    public void streamSplitsManifestCacheEnabledMatchesSdkPathAndConsumesCache() throws IOException {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/a.parquet", 100, null, null))
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/b.parquet", 200, null, null))
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/c.parquet", 300, null, null))
+                .commit();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        // Cache OFF: the streaming SDK planFiles() path (the pre-PERF-04 behavior).
+        List<ConnectorScanRange> sdk = drain(new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
+                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+        // Cache ON: streaming must now read manifests THROUGH the cache and yield the SAME files (PERF-04 C17).
+        // MUTATION: streaming still bypasses the cache (scan.planFiles()) -> cache stays empty -> red.
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
+                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+
+        Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
+        Assertions.assertEquals(3, cached.size());
+        Assertions.assertTrue(cache.size() > 0, "the streaming path must populate the manifest cache");
+    }
+
+    @Test
+    public void streamSplitsManifestCachePrunesPartitionLikeSdk() throws IOException {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "/d/p1.parquet", 100, null, "p=1"))
+                .appendFile(dataFile(spec, "/d/p2.parquet", 100, null, "p=2"))
+                .commit();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "pt");
+        Optional<ConnectorExpression> wherePeq1 = Optional.of(eqInt("p", 1));
+
+        List<ConnectorScanRange> sdk = drain(new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
+                .streamSplits(emptySession(), handle, Collections.emptyList(), wherePeq1, -1L));
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
+                .streamSplits(emptySession(), handle, Collections.emptyList(), wherePeq1, -1L));
+
+        // Partition prune (ManifestEvaluator + residual) keeps only p=1 in BOTH paths. MUTATION: the lazy iterator
+        // dropping the residual/metrics prune -> p=2 leaks in -> sizes differ -> red.
+        Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
+        Assertions.assertEquals(1, cached.size());
+        Assertions.assertTrue(cached.get(0).getPath().get().endsWith("p1.parquet"));
+    }
+
+    @Test
+    public void streamSplitsManifestCacheFlatMapsAcrossDataManifests() throws IOException {
+        // Three separate appends -> three data manifests. The lazy flat-map iterator must walk ALL of them (not
+        // just the first) and yield every file. MUTATION: advance() not advancing past the first manifest -> < 3.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/a.parquet", 100, null, null))
+                .commit();
+        table.newAppend().appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/b.parquet", 200, null, null))
+                .commit();
+        table.newAppend().appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/c.parquet", 300, null, null))
+                .commit();
+        Assertions.assertTrue(table.currentSnapshot().dataManifests(table.io()).size() >= 2,
+                "precondition: multiple data manifests");
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
+                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+        Assertions.assertEquals(3, cached.size(), "the lazy iterator must flat-map across all data manifests");
+    }
+
+    @Test
+    public void countPushdownManifestCacheMatchesCountAndReadsLazily() {
+        // Three appends -> three data manifests; record counts 10+20+30 = total-records 60 (snapshot summary).
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null)).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f3.parquet", 3072, null, null)).commit();
+        int totalManifests = table.currentSnapshot().dataManifests(table.io()).size();
+        Assertions.assertTrue(totalManifests >= 2, "precondition: multiple data manifests");
+
+        List<ConnectorScanRange> sdk = planCount(
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table)), null, true);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = planCount(manifestProvider(manifestCacheProps(), table, cache),
+                emptySession(), true);
+
+        // Same collapsed single range + same count (from the snapshot summary). The placeholder file path may
+        // differ (SDK planFiles' ParallelIterable order is non-deterministic), so assert count + shape, not path.
+        Assertions.assertEquals(1, sdk.size());
+        Assertions.assertEquals(1, cached.size());
+        Assertions.assertEquals(60L, cached.get(0).getPushDownRowCount());
+        Assertions.assertEquals(sdk.get(0).getPushDownRowCount(), cached.get(0).getPushDownRowCount());
+        // Lazy early stop: COUNT needs only the first surviving file, so it must NOT read every data manifest.
+        // MUTATION: routing count through the materialized cache path -> reads all manifests -> size == total -> red.
+        Assertions.assertTrue(cache.size() >= 1 && cache.size() < totalManifests,
+                "count reads lazily (stops at the first file's manifest), not the whole table");
+    }
+
+    @Test
+    public void countPushdownManifestCacheEmptyNullSnapshotReturnsNoRanges() {
+        // A never-appended table has no current snapshot; getCountFromSnapshot returns 0 (>=0) so planCountPushdown
+        // runs with a null-snapshot scan. cacheBackedFileScanTasks must keep the null-snapshot guard (empty
+        // iterable), not NPE. MUTATION: dropping the guard -> NPE on scan.snapshot() -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = planCount(manifestProvider(manifestCacheProps(), table, cache),
+                emptySession(), true);
+        Assertions.assertTrue(cached.isEmpty(), "empty (null-snapshot) count with cache enabled yields no ranges");
     }
 
     @Test
@@ -2273,6 +2519,32 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planScanDerivesUriNormalizerOncePerScanNotPerFile() {
+        // C3 PERF GUARD: the vended token is scan-invariant, so the expensive token->storage-config
+        // derivation must be built ONCE per scan and reused for every file path — not rebuilt per data file.
+        // Drive a scan over three data files and assert the connector entered newStorageUriNormalizer exactly
+        // once while still normalizing all three paths. MUTATION: reverting to a per-file
+        // context.normalizeStorageUri (re-deriving the config per file) leaves newNormalizerCount == 0 (the
+        // once-per-scan seam is never used) -> red; dropping a path's normalize -> normalizeCount != 3 -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f2.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f3.parquet", 1024, null, null))
+                .commit();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals(3, ranges.size());
+        Assertions.assertEquals(1, context.newNormalizerCount);
+        Assertions.assertEquals(3, context.normalizeCount);
+    }
+
+    @Test
     public void convertDeleteNormalizesDeletePathViaVendedToken() {
         RecordingConnectorContext context = new RecordingConnectorContext();
         IcebergScanPlanProvider provider =
@@ -2280,10 +2552,10 @@ public class IcebergScanPlanProviderTest {
         DeleteFile delete = positionDeleteFile("oss://bucket/db/t1/pos.parquet", FileFormat.PARQUET, null, null);
         Map<String, String> token = Collections.singletonMap("s3.access-key-id", "ak");
 
-        TIcebergDeleteFileDesc d = provider.convertDelete(delete, token).toThrift();
+        TIcebergDeleteFileDesc d = provider.convertDelete(delete, provider.newUriNormalizer(token)).toThrift();
 
-        // WHY: convertDelete must thread the vended token into the 2-arg normalize (T09). MUTATION: passing no
-        // token / the 1-arg normalize -> lastVendedToken != token -> red.
+        // WHY: the scan-scoped normalizer must bake in the vended token so the delete path normalizes via the
+        // 2-arg seam (T09). MUTATION: dropping the token / the 1-arg normalize -> lastVendedToken != token -> red.
         Assertions.assertEquals("s3://bucket/db/t1/pos.parquet", d.getPath());
         Assertions.assertEquals(token, context.lastVendedToken);
     }
@@ -2371,14 +2643,14 @@ public class IcebergScanPlanProviderTest {
         // sentinel. The existing no-bounds test passes a null map (early return), never reaching the value==-1L
         // arm. MUTATION: dropping the `|| value == -1L` arm (emitting -1 as a real bound) -> red.
         DeleteFile bothMinusOne = positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, -1L, -1L);
-        TIcebergDeleteFileDesc d = provider().convertDelete(bothMinusOne, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(bothMinusOne, UnaryOperator.identity()).toThrift();
         Assertions.assertEquals(1, d.getContent());
         Assertions.assertFalse(d.isSetPositionLowerBound());
         Assertions.assertFalse(d.isSetPositionUpperBound());
 
         // Mixed: only the -1L bound is dropped; a real lower bound still emits.
         DeleteFile mixed = positionDeleteFile("s3://b/db/t1/pos2.parquet", FileFormat.PARQUET, 3L, -1L);
-        TIcebergDeleteFileDesc m = provider().convertDelete(mixed, Collections.emptyMap()).toThrift();
+        TIcebergDeleteFileDesc m = provider().convertDelete(mixed, UnaryOperator.identity()).toThrift();
         Assertions.assertEquals(3L, m.getPositionLowerBound());
         Assertions.assertFalse(m.isSetPositionUpperBound());
     }

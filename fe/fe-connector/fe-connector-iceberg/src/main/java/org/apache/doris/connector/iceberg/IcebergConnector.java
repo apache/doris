@@ -158,13 +158,32 @@ public class IcebergConnector implements Connector {
     // connector (PluginDrivenExternalCatalog.onClose nulls + recreates it) and thus drops both caches. The
     // manifest cache is path-keyed, no-TTL, capacity-bounded; it is consumed only when
     // meta.cache.iceberg.manifest.enable is set (default off → scan uses the SDK planFiles path).
-    private final IcebergLatestSnapshotCache latestSnapshotCache;
+    // Each cross-query cache below carries an isolation-discipline marker enforced by
+    // tools/check-authz-cache-sharding.sh: under iceberg.rest.session=user a shared, un-partitioned cache would
+    // bypass the per-user loadTable authorization (a metadata disclosure), so every cache field must declare
+    // either 'authz-cache-session-user-disabled' (null under isUserSessionEnabled()) or 'authz-cache-exempt'.
+    private final IcebergLatestSnapshotCache latestSnapshotCache; // authz-cache-session-user-disabled
+    // PERF-01: cross-query cache of the RAW iceberg Table (restores the legacy IcebergExternalMetaCache table
+    // cache that the SPI cutover dropped). null when the catalog's credentials are query-dependent
+    // (iceberg.rest.session=user / REST vended-credentials) — see the constructor. The per-statement scope
+    // (ConnectorStatementScope) shares one loaded table across a statement's read/scan/write regardless of this
+    // field, and is what a credential-gated catalog (this field null) relies on within a statement.
+    private final IcebergTableCache tableCache; // authz-cache-session-user-disabled
+    // PERF-02: cross-query partition-view cache (the raw PARTITIONS-scan result, keyed by (table, snapshotId)).
+    // The value is pure metadata (no FileIO/credential), but under session=user it is an authorization-sensitive
+    // projection (a shared hit would disclose one user's partitions), so it is disabled there (see constructor).
+    private final IcebergPartitionCache partitionCache; // authz-cache-session-user-disabled
+    // PERF-03: cross-query inferred-file-format cache (the whole-table planFiles() fallback result, keyed by
+    // (table, snapshotId)). Same authorization-sensitive treatment as partitionCache: disabled under session=user.
+    private final IcebergFormatCache formatCache; // authz-cache-session-user-disabled
+    // PERF-05: cross-query table-comment cache (value = the 'comment' property string). Built ONLY for a REST
+    // vended-credentials catalog that is NOT session=user -- plain catalogs already reuse tableCache (PERF-01) for
+    // the comment path, and session=user must stay live because the loadTable itself carries per-user
+    // authorization a shared cache would bypass. null for every other flavor.
+    private final IcebergCommentCache commentCache; // authz-cache-session-user-disabled
+    // Manifest content cache — pure metadata, default-off (meta.cache.iceberg.manifest.enable), and consumed
+    // ONLY after a per-user resolveTable(ForRead). authz-cache-exempt (no read path without a per-user load).
     private final IcebergManifestCache manifestCache = new IcebergManifestCache();
-    // commit-bridge supply (S4 part 2): per-catalog stash carrying a row-level DML's non-equality delete supply
-    // across the scan->write seam — the scan provider fills it (keyed by queryId), the write provider drains it
-    // into rewritable_delete_file_sets. Like the caches above, a REFRESH CATALOG rebuilds the connector and thus
-    // drops it. Inert pre-cutover (iceberg scans/writes do not route through the providers until P6.6).
-    private final IcebergRewritableDeleteStash rewritableDeleteStash = new IcebergRewritableDeleteStash();
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
     // null for a non-Kerberos catalog. Its doAs acts on the PLUGIN's UserGroupInformation copy — the one the
@@ -185,8 +204,56 @@ public class IcebergConnector implements Connector {
         // authenticator never logs in — so without this the DDL/read hits secured HDFS as SIMPLE auth.
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
-        this.latestSnapshotCache = new IcebergLatestSnapshotCache(
-                resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // Authorization-sensitive projection (snapshotId/schemaId). Under iceberg.rest.session=user the value is
+        // per-user AUTHORIZED metadata that a "can-list-cannot-load" principal must not see. beginQuerySnapshot
+        // reads this cache WITHOUT a preceding per-user loadTable, so a shared (table-keyed, no user dimension)
+        // hit would bypass the per-user authorization that lives inside loadTable (a metadata disclosure).
+        // Disabled (null) for session=user so beginQuerySnapshot re-loads live per-user every call (no stale-authz
+        // window); kept for every other flavor (single static identity, no cross-user axis). Mirrors the
+        // tableCache/commentCache discipline: session=user => no LIVE cross-query metadata cache.
+        this.latestSnapshotCache = isUserSessionEnabled()
+                ? null
+                : new IcebergLatestSnapshotCache(
+                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // PERF-01 cross-query RAW-table cache. Disabled (null) when the catalog's credentials are
+        // query-dependent, because a cached raw Table carries its FileIO's credentials:
+        //   - iceberg.rest.session=user: per-user delegated FileIO -> sharing across users leaks credentials.
+        //   - REST vended-credentials: the FileIO carries a server-vended token that expires within ~an hour;
+        //     iceberg keeps it fresh by reloading the table each query, so a 24h-TTL hit would hand BE an
+        //     expired token (403 mid-scan). Both gates are independent; either one disables this layer.
+        // The query-scoped fat handle stays on in all cases (its token is fresh within the one query). Same
+        // TTL/capacity as the snapshot cache (the single meta.cache.iceberg.table.ttl-second knob).
+        this.tableCache = (isUserSessionEnabled()
+                || IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties))
+                ? null
+                : new IcebergTableCache(
+                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
+        // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
+        // per-user resolveTableForRead today (so a hit cannot precede authz), but that safety rests entirely on
+        // tableCache being null under session=user. Disabled (null) under session=user makes it safe by
+        // construction and holds the "session=user => no live cross-query metadata cache" invariant; kept
+        // otherwise (single static identity). Readers already tolerate a null cache (loadRawPartitions).
+        this.partitionCache = isUserSessionEnabled()
+                ? null
+                : new IcebergPartitionCache(
+                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // PERF-03: inferred-file-format cache. Same authorization-sensitive treatment as partitionCache (disabled
+        // under session=user, kept otherwise); readers already tolerate a null cache (resolveFileFormatName).
+        this.formatCache = isUserSessionEnabled()
+                ? null
+                : new IcebergFormatCache(
+                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // PERF-05: table-comment cache, built ONLY for a REST vended-credentials catalog that is NOT session=user.
+        // Plain catalogs (tableCache on) already serve the comment path from tableCache; session=user is excluded
+        // because a shared comment cache would bypass the per-user loadTable authorization (a metadata disclosure).
+        // Comment is pure metadata (no credential) so no gate on the VALUE -- the flavor gate is an authorization
+        // decision, not a credential-leak one. Same TTL/capacity (ttl<=0 still disables internally).
+        this.commentCache = (IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties)
+                && !isUserSessionEnabled())
+                ? new IcebergCommentCache(
+                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY)
+                : null;
     }
 
     /**
@@ -210,8 +277,8 @@ public class IcebergConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new IcebergConnectorMetadata(
-                newCatalogBackedOps(session), properties, context, latestSnapshotCache);
+        return new IcebergConnectorMetadata(newCatalogBackedOps(session), properties, context,
+                latestSnapshotCache, tableCache, partitionCache, commentCache);
     }
 
     /**
@@ -521,7 +588,21 @@ public class IcebergConnector implements Connector {
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        latestSnapshotCache.invalidate(TableIdentifier.of(dbName, tableName));
+        if (latestSnapshotCache != null) {
+            latestSnapshotCache.invalidate(TableIdentifier.of(dbName, tableName));
+        }
+        if (tableCache != null) {
+            tableCache.invalidate(TableIdentifier.of(dbName, tableName));
+        }
+        if (partitionCache != null) {
+            partitionCache.invalidate(TableIdentifier.of(dbName, tableName));
+        }
+        if (formatCache != null) {
+            formatCache.invalidate(TableIdentifier.of(dbName, tableName));
+        }
+        if (commentCache != null) {
+            commentCache.invalidate(TableIdentifier.of(dbName, tableName));
+        }
     }
 
     /**
@@ -537,7 +618,21 @@ public class IcebergConnector implements Connector {
      */
     @Override
     public void invalidateDb(String dbName) {
-        latestSnapshotCache.invalidateDb(dbName);
+        if (latestSnapshotCache != null) {
+            latestSnapshotCache.invalidateDb(dbName);
+        }
+        if (tableCache != null) {
+            tableCache.invalidateDb(dbName);
+        }
+        if (partitionCache != null) {
+            partitionCache.invalidateDb(dbName);
+        }
+        if (formatCache != null) {
+            formatCache.invalidateDb(dbName);
+        }
+        if (commentCache != null) {
+            commentCache.invalidateDb(dbName);
+        }
     }
 
     /**
@@ -549,7 +644,21 @@ public class IcebergConnector implements Connector {
      */
     @Override
     public void invalidateAll() {
-        latestSnapshotCache.invalidateAll();
+        if (latestSnapshotCache != null) {
+            latestSnapshotCache.invalidateAll();
+        }
+        if (tableCache != null) {
+            tableCache.invalidateAll();
+        }
+        if (partitionCache != null) {
+            partitionCache.invalidateAll();
+        }
+        if (formatCache != null) {
+            formatCache.invalidateAll();
+        }
+        if (commentCache != null) {
+            commentCache.invalidateAll();
+        }
         manifestCache.invalidateAll();
     }
 
@@ -579,6 +688,31 @@ public class IcebergConnector implements Connector {
         return manifestCache;
     }
 
+    /** Test-only: the cross-query table cache, or {@code null} when disabled by the credential gate (PERF-01). */
+    IcebergTableCache tableCacheForTest() {
+        return tableCache;
+    }
+
+    /** Test-only: the latest-snapshot cache, or {@code null} when disabled for a session=user catalog. */
+    IcebergLatestSnapshotCache latestSnapshotCacheForTest() {
+        return latestSnapshotCache;
+    }
+
+    /** Test-only: the cross-query partition-view cache (PERF-02), or {@code null} for a session=user catalog. */
+    IcebergPartitionCache partitionCacheForTest() {
+        return partitionCache;
+    }
+
+    /** Test-only: the cross-query inferred-file-format cache (PERF-03), or {@code null} for a session=user catalog. */
+    IcebergFormatCache formatCacheForTest() {
+        return formatCache;
+    }
+
+    /** Test-only: the table-comment cache (PERF-05), or {@code null} unless vended-credentials and non-session. */
+    IcebergCommentCache commentCacheForTest() {
+        return commentCache;
+    }
+
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
         // Mirrors PaimonConnector.getScanPlanProvider: build a fresh provider per call over the lazily-built
@@ -588,7 +722,7 @@ public class IcebergConnector implements Connector {
         // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
         return new IcebergScanPlanProvider(properties,
                 this::newCatalogBackedOps, context, manifestCache,
-                rewritableDeleteStash);
+                tableCache, formatCache);
     }
 
     @Override
@@ -598,8 +732,7 @@ public class IcebergConnector implements Connector {
         // IcebergConnectorTransaction. It resolves the target via catalogOps.loadTable, so it shares the
         // fully-threaded ops (newCatalogBackedOps) — external_catalog.name must apply to INSERT/DELETE/MERGE.
         return new IcebergWritePlanProvider(properties,
-                this::newCatalogBackedOps, context,
-                rewritableDeleteStash);
+                this::newCatalogBackedOps, context);
     }
 
     @Override

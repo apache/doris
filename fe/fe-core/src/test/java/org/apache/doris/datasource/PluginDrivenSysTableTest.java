@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -65,6 +66,7 @@ public class PluginDrivenSysTableTest {
     public void testGetSupportedSysTablesDelegatesToConnector() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
         ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
@@ -91,6 +93,7 @@ public class PluginDrivenSysTableTest {
     public void testGetSupportedSysTablesMapsTvfKindToPartitionsSysTable() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("hms", metadata, session);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
@@ -128,6 +131,7 @@ public class PluginDrivenSysTableTest {
     public void testGetSupportedSysTablesEmptyWhenNoBaseHandle() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
                 .thenReturn(Optional.empty());
@@ -145,6 +149,7 @@ public class PluginDrivenSysTableTest {
     public void testFindSysTableResolvesBySuffix() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
@@ -169,6 +174,7 @@ public class PluginDrivenSysTableTest {
     public void testCreateSysExternalTableReportsPluginTypeAndName() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
@@ -208,6 +214,7 @@ public class PluginDrivenSysTableTest {
         // query reads the system table, not the base. This is the whole point of T18.
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
         ConnectorTableHandle sysHandle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
@@ -252,6 +259,7 @@ public class PluginDrivenSysTableTest {
     public void testSysTableEmptyWhenBaseHandleMissing() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
                 .thenReturn(Optional.empty());
@@ -276,6 +284,7 @@ public class PluginDrivenSysTableTest {
     public void sysExternalTableReportsBaseTableMysqlTypeMatchingLegacyIceberg() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         TestablePluginCatalog catalog = new TestablePluginCatalog("iceberg", metadata, session);
         PluginDrivenExternalTable base = bareTable(catalog, mockDb("REMOTE_DB"), "REMOTE_TBL");
         PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(base, "snapshots");
@@ -294,6 +303,7 @@ public class PluginDrivenSysTableTest {
     public void sysExternalTableReportsIcebergEngineAndEngineTableTypeName() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         TestablePluginCatalog catalog = new TestablePluginCatalog("iceberg", metadata, session);
         PluginDrivenExternalTable base = bareTable(catalog, mockDb("REMOTE_DB"), "REMOTE_TBL");
         PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(base, "snapshots");
@@ -316,6 +326,7 @@ public class PluginDrivenSysTableTest {
     public void positionDeletesAbsentWhenConnectorDoesNotListIt() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("iceberg", metadata, session);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
@@ -349,6 +360,7 @@ public class PluginDrivenSysTableTest {
     public void sysExternalTableIsTransientNeitherRegisteredNorSerialized() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
         TestablePluginCatalog catalog = new TestablePluginCatalog("iceberg", metadata, session);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
@@ -432,6 +444,11 @@ public class PluginDrivenSysTableTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return session;
+        }
+
+        @Override
+        public ConnectorSession buildCrossStatementSession() {
+            return buildConnectorSession();
         }
 
         @Override
