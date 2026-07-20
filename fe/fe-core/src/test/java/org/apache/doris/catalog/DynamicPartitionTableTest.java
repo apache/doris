@@ -2582,10 +2582,8 @@ public class DynamicPartitionTableTest {
         String partitionFormat = DynamicPartitionUtil.getPartitionFormat(
                 info.getPartitionColumns().get(0));
         ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
-        // getPartitionRangeString with DATETIME_FORMAT returns "yyyy-MM-dd HH:mm:ss"
-        // (e.g. "2026-07-06 00:00:00"). convertToUtcTimestamp appends "+00:00".
-        String utcBorderDateTime = DynamicPartitionUtil.getPartitionRangeString(prop, utcNow, 0, partitionFormat);
-        String currentUtcBorder = utcBorderDateTime + "+00:00";
+        // getPartitionRangeString appends +00:00 when current is UTC-based.
+        String currentUtcBorder = DynamicPartitionUtil.getPartitionRangeString(prop, utcNow, 0, partitionFormat);
 
         // Use a deliberately mismatched nowPartitionName to simulate the scenario
         // where the configured TZ and UTC disagree on the calendar date.
