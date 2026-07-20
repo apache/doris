@@ -45,5 +45,4 @@ namespace doris {
     *   returns "https://account.blob.core.windows.net/container"
     */
     std::string normalize_http_uri(const std::string& uri);
-
 } // namespace doris
