@@ -141,6 +141,12 @@ Status PaimonJniReader::open_jni_scanner_for_split() {
 }
 
 Status PaimonJniReader::close_jni_scanner_for_split() {
+    if (!_current_split_prepared) {
+        return Status::OK();
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    _publish_jni_scanner_split_timing(env);
     return _reset_current_split();
 }
 

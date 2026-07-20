@@ -159,6 +159,52 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
+Status JniReader::publish_current_split_profile() {
+    if (_profile == nullptr) {
+        return Status::OK();
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    return _publish_current_split_profile(env);
+}
+
+Status JniReader::_publish_current_split_profile(JNIEnv* env) {
+    DORIS_CHECK(env != nullptr);
+    if (_profile == nullptr) {
+        return Status::OK();
+    }
+
+    COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
+    COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
+
+    RETURN_ERROR_IF_EXC(env);
+    jlong append_data_time = 0;
+    RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                            .call(&append_data_time));
+    jlong create_vector_table_time = 0;
+    RETURN_IF_ERROR(
+            _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
+                    .call(&create_vector_table_time));
+
+    const auto append_data_time_delta = append_data_time - _java_append_data_time_snapshot;
+    const auto create_vector_table_time_delta =
+            create_vector_table_time - _java_create_vector_table_time_snapshot;
+    COUNTER_UPDATE(_java_append_data_time, append_data_time_delta);
+    COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time_delta);
+    COUNTER_UPDATE(_java_scan_time,
+                   _java_scan_watcher - append_data_time_delta - create_vector_table_time_delta);
+    const auto split_time = _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher;
+    if (split_time > 0) {
+        _max_time_split_weight_counter->conditional_update(split_time, _self_split_weight);
+    }
+    _jni_scanner_open_watcher = 0;
+    _java_scan_watcher = 0;
+    _fill_block_watcher = 0;
+    _java_append_data_time_snapshot = append_data_time;
+    _java_create_vector_table_time_snapshot = create_vector_table_time;
+    return Status::OK();
+}
+
 // =========================================================================
 // JniReader::_do_get_next_block  (merged from JniConnector::get_next_block)
 // =========================================================================
@@ -219,34 +265,7 @@ Status JniReader::close() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(Jni::Env::Get(&env));
         if (_scanner_opened) {
-            if (_profile) {
-                COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
-                COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
-            }
-
-            RETURN_ERROR_IF_EXC(env);
-            jlong _append = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                            .call(&_append));
-
-            if (_profile) {
-                COUNTER_UPDATE(_java_append_data_time, _append);
-            }
-
-            jlong _create = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj
-                            .call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                            .call(&_create));
-
-            if (_profile) {
-                COUNTER_UPDATE(_java_create_vector_table_time, _create);
-                COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
-                _max_time_split_weight_counter->conditional_update(
-                        _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                        _self_split_weight);
-            }
+            RETURN_IF_ERROR(_publish_current_split_profile(env));
 
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent

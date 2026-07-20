@@ -29,7 +29,7 @@
 
 namespace doris::format::paimon {
 
-class PaimonJniReader final : public format::JniTableReader {
+class PaimonJniReader : public format::JniTableReader {
 public:
     ~PaimonJniReader() override = default;
     Status close() override;
@@ -45,6 +45,8 @@ public:
             const std::vector<StorePath>& store_paths) {
         return build_default_io_manager_tmp_dirs(store_paths);
     }
+    void TEST_set_current_split_prepared(bool prepared) { _current_split_prepared = prepared; }
+    bool TEST_current_split_prepared() const { return _current_split_prepared; }
 #endif
 
 protected:
@@ -54,10 +56,12 @@ protected:
     bool supports_batch_size_update_after_open() const override { return false; }
     Status open_jni_scanner_for_split() override;
     Status close_jni_scanner_for_split() override;
+    void _on_jni_scanner_discarded() override { _current_split_prepared = false; }
+
+    Status _prepare_for_split();
+    virtual Status _reset_current_split();
 
 private:
-    Status _prepare_for_split();
-    Status _reset_current_split();
     static std::string build_default_io_manager_tmp_dirs(const std::vector<StorePath>& store_paths);
 
     bool _current_split_prepared = false;

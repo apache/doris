@@ -20,11 +20,13 @@
 #include <gtest/gtest.h>
 
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/io_common.h"
 
 namespace doris::format::paimon {
 namespace {
@@ -63,6 +65,50 @@ Status build_params(PaimonJniReader* reader, const TFileRangeDesc& range,
                     std::map<std::string, std::string>* params) {
     reader->_current_range = range;
     return reader->build_scanner_params(params);
+}
+
+class LifecyclePaimonJniReader final : public PaimonJniReader {
+public:
+    int global_scanner_close_calls = 0;
+    int reset_current_split_calls = 0;
+    bool fail_next_reset = false;
+
+protected:
+    Status _close_jni_scanner() override {
+        if (!TEST_scanner_opened()) {
+            return Status::OK();
+        }
+        ++global_scanner_close_calls;
+        TEST_set_split_state(false, TEST_eof());
+        _on_jni_scanner_discarded();
+        return Status::OK();
+    }
+
+    Status _reset_current_split() override {
+        if (!TEST_current_split_prepared()) {
+            return Status::OK();
+        }
+        ++reset_current_split_calls;
+        if (fail_next_reset) {
+            fail_next_reset = false;
+            return Status::InternalError("injected reset failure");
+        }
+        TEST_set_current_split_prepared(false);
+        return Status::OK();
+    }
+};
+
+Status init_lifecycle_reader(LifecyclePaimonJniReader* reader,
+                             const std::shared_ptr<io::IOContext>& io_ctx) {
+    return reader->init({
+            .projected_columns = {},
+            .conjuncts = {},
+            .format = FileFormat::JNI,
+            .scan_params = nullptr,
+            .io_ctx = io_ctx,
+            .runtime_state = nullptr,
+            .scanner_profile = nullptr,
+    });
 }
 
 TEST(PaimonJniReaderTest, UsesScanLevelPredicateBeforeLegacySplitPredicate) {
@@ -169,6 +215,43 @@ TEST(PaimonJniReaderTest, KeepsInitialPhysicalBatchSizeAfterOpen) {
     reader.TEST_set_split_state(true, false);
     reader.set_batch_size(1);
     EXPECT_EQ(reader.TEST_batch_size(), 32);
+}
+
+TEST(PaimonJniReaderTest, StopDefersPreparedSplitCleanupUntilClose) {
+    auto io_ctx = std::make_shared<io::IOContext>();
+    LifecyclePaimonJniReader reader;
+    ASSERT_TRUE(init_lifecycle_reader(&reader, io_ctx).ok());
+    reader.TEST_set_split_state(true, false);
+    reader.TEST_set_current_split_prepared(true);
+    io_ctx->should_stop = true;
+
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(reader.global_scanner_close_calls, 0);
+    EXPECT_TRUE(reader.TEST_current_split_prepared());
+
+    ASSERT_TRUE(reader.close().ok());
+    EXPECT_EQ(reader.reset_current_split_calls, 1);
+    EXPECT_EQ(reader.global_scanner_close_calls, 1);
+    EXPECT_FALSE(reader.TEST_current_split_prepared());
+}
+
+TEST(PaimonJniReaderTest, FailedSplitResetDoesNotSurviveSuccessfulGlobalClose) {
+    LifecyclePaimonJniReader reader;
+    ASSERT_TRUE(init_lifecycle_reader(&reader, nullptr).ok());
+    reader.TEST_set_split_state(true, false);
+    reader.TEST_set_current_split_prepared(true);
+    reader.fail_next_reset = true;
+
+    EXPECT_FALSE(reader.close().ok());
+    EXPECT_EQ(reader.reset_current_split_calls, 1);
+    EXPECT_EQ(reader.global_scanner_close_calls, 1);
+    EXPECT_FALSE(reader.TEST_current_split_prepared());
+
+    EXPECT_TRUE(reader.close().ok());
+    EXPECT_EQ(reader.reset_current_split_calls, 1);
 }
 
 } // namespace

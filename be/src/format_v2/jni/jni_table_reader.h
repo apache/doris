@@ -93,6 +93,11 @@ protected:
     virtual Status _set_open_scanner_batch_size(size_t batch_size);
     virtual bool supports_batch_size_update_after_open() const { return true; }
     virtual Status _open_jni_scanner();
+    // A derived reader can retain split-local state after the base reader destroys the global
+    // Java scanner. Clear that state from this hook rather than relying on a particular close
+    // caller to do so.
+    virtual void _on_jni_scanner_discarded() {}
+    void _publish_jni_scanner_split_timing(JNIEnv* env);
     bool _reserve_split_profile_publication();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
     RuntimeProfile::Counter* connector_total_timer() const { return _connector_total_time; }
@@ -132,6 +137,8 @@ private:
     int64_t _jni_scanner_open_watcher = 0;
     int64_t _java_scan_watcher = 0;
     int64_t _fill_block_watcher = 0;
+    jlong _java_append_data_time_snapshot = 0;
+    jlong _java_create_vector_table_time_snapshot = 0;
 
     Jni::GlobalClass _jni_scanner_cls;
     Jni::GlobalObject _jni_scanner_obj;

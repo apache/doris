@@ -93,6 +93,7 @@ public class PaimonJniScanner extends JniScanner {
     private long readBatchCalls;
     private long emptyReadBatchCalls;
     private long rowsRead;
+    private long completedSplitEncodedLength;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
@@ -195,6 +196,7 @@ public class PaimonJniScanner extends JniScanner {
         if (exception != null) {
             throw exception;
         }
+        completedSplitEncodedLength += lengthOfCurrentPaimonSplit();
         currentPaimonSplit = null;
     }
 
@@ -488,7 +490,8 @@ public class PaimonJniScanner extends JniScanner {
         statistics.put("gauge:PaimonJniAsyncReaderThreadCount",
                 String.valueOf(currentAsyncReaderThreadCount()));
         statistics.put("gauge:PaimonJniRequiredFieldCount", String.valueOf(fields.length));
-        statistics.put("counter:PaimonJniSplitEncodedLength", String.valueOf(lengthOfCurrentPaimonSplit()));
+        statistics.put("counter:PaimonJniSplitEncodedLength",
+                String.valueOf(completedSplitEncodedLength + lengthOfCurrentPaimonSplit()));
         statistics.put("counter:PaimonJniPredicateEncodedLength", String.valueOf(lengthOfParam("paimon_predicate")));
         statistics.put("gauge:PaimonJniAsyncThresholdConfigured",
                 hasPaimonOption(FILE_READER_ASYNC_THRESHOLD) ? "1" : "0");

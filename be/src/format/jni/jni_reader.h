@@ -142,6 +142,10 @@ protected:
     const Jni::MethodId& jni_scanner_reset_current_split() const {
         return _jni_scanner_reset_current_split;
     }
+    Status publish_current_split_profile();
+    void set_self_split_weight(int64_t weight) {
+        _self_split_weight = static_cast<int32_t>(weight);
+    }
 
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state = nullptr;
@@ -154,6 +158,7 @@ private:
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
     Status _fill_block(Block* block, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
+    Status _publish_current_split_profile(JNIEnv* env);
 
     std::string _connector_name;
     std::string _connector_class;
@@ -172,6 +177,8 @@ private:
     int64_t _jni_scanner_open_watcher = 0;
     int64_t _java_scan_watcher = 0;
     int64_t _fill_block_watcher = 0;
+    jlong _java_append_data_time_snapshot = 0;
+    jlong _java_create_vector_table_time_snapshot = 0;
 
     size_t _has_read = 0;
 

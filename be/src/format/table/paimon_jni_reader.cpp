@@ -149,6 +149,7 @@ Status PaimonJniReader::prepare_split(const TFileRangeDesc& range, ReaderInitCon
         return Status::OK();
     }
 
+    set_self_split_weight(range.__isset.self_split_weight ? range.self_split_weight : -1);
     RETURN_IF_ERROR(prepare_jni_scanner_for_split(range));
     _current_split_prepared = true;
     return Status::OK();
@@ -158,6 +159,7 @@ Status PaimonJniReader::finish_split() {
     if (!_current_split_prepared) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(publish_current_split_profile());
     RETURN_IF_ERROR(reset_jni_scanner_current_split());
     _current_split_prepared = false;
     return Status::OK();
