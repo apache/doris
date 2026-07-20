@@ -62,6 +62,28 @@ class S3AccessorTest : public testing::Test {
     }
 };
 
+TEST(S3ConfTest, ExplicitCredentialsOverrideStaleWorkloadIdentity) {
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_provider(ObjectStoreInfoPB::GCP);
+    obj_info.set_endpoint("https://storage.googleapis.com");
+    obj_info.set_region("us-central1");
+    obj_info.set_bucket("bucket");
+    obj_info.set_cred_provider_type(CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+    obj_info.set_ak("access-key");
+    obj_info.set_sk("secret-key");
+
+    auto conf = S3Conf::from_obj_store_info(obj_info);
+    ASSERT_TRUE(conf.has_value());
+    EXPECT_EQ(conf->cred_provider_type, CredProviderType::Default);
+
+    obj_info.clear_ak();
+    obj_info.clear_sk();
+    obj_info.set_role_arn("arn:aws:iam::123456789012:role/test-role");
+    conf = S3Conf::from_obj_store_info(obj_info);
+    ASSERT_TRUE(conf.has_value());
+    EXPECT_EQ(conf->cred_provider_type, CredProviderType::InstanceProfile);
+}
+
 void test_s3_accessor(S3Accessor& accessor) {
     std::string file1 = "data/10000/1_0.dat";
 

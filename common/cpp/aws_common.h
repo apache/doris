@@ -47,6 +47,9 @@ CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provi
 
 CredProviderType cred_provider_type_from_string(const std::string& type);
 
+CredProviderType resolve_cred_provider_type(CredProviderType configured_type,
+                                            bool has_static_credentials, bool has_role_arn);
+
 std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
 
 } // namespace doris

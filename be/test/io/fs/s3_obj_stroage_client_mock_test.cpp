@@ -30,6 +30,8 @@
 #include <thread>
 
 #include "gmock/gmock.h"
+#include "cpp/sync_point.h"
+#include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "util/s3_util.h"
 #include "util/string_util.h"
@@ -119,6 +121,113 @@ TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_bearer_token_applied) {
             &files);
     EXPECT_EQ(response.status.code, ErrorCode::OK);
     EXPECT_EQ(fetch_count.load(), 1);
+}
+
+TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_token_is_refreshed_after_rate_limit) {
+    auto now = std::chrono::steady_clock::now();
+    int fetch_count = 0;
+    auto token_provider = std::make_shared<GcpWorkloadIdentityTokenProvider>(
+            [&](std::string* token, std::chrono::seconds* expires_in) {
+                *token = fmt::format("token-{}", ++fetch_count);
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            [&] { return now; });
+    EXPECT_EQ(token_provider->get_token(), "token-1");
+
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    S3ObjStorageClient s3_obj_storage_client(mock_s3_client, token_provider);
+    ListObjectsV2Result result;
+    result.SetIsTruncated(false);
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce([&](const ListObjectsV2Request& request) {
+                const auto& headers = request.GetAdditionalCustomHeaders();
+                auto header = headers.find("authorization");
+                EXPECT_NE(header, headers.end());
+                if (header != headers.end()) {
+                    EXPECT_EQ(header->second, "Bearer token-2");
+                }
+                return ListObjectsV2Outcome(result);
+            });
+
+    bool enable_s3_rate_limiter = config::enable_s3_rate_limiter;
+    config::enable_s3_rate_limiter = true;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("S3ObjStorageClient::after_rate_limit",
+                              [&](auto&&) { now += std::chrono::minutes(56); });
+    sync_point->enable_processing();
+
+    std::vector<io::FileInfo> files;
+    auto response = s3_obj_storage_client.list_objects(
+            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/rate_limit"},
+            &files);
+
+    sync_point->disable_processing();
+    sync_point->clear_all_call_backs();
+    config::enable_s3_rate_limiter = enable_s3_rate_limiter;
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    EXPECT_EQ(fetch_count, 2);
+}
+
+TEST_F(S3ObjStorageClientMockTest, reset_uses_complete_client_configuration) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    std::vector<S3ClientConf> created_configs;
+    S3ClientFactory::instance().set_client_creator_for_test([&](const S3ClientConf& conf) {
+        created_configs.push_back(conf);
+        return std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    });
+
+    S3ClientConf initial_conf {
+            .endpoint = "https://s3.us-east-1.amazonaws.com",
+            .region = "us-east-1",
+            .ak = "access-key",
+            .sk = "secret-key",
+            .bucket = "bucket",
+            .provider = io::ObjStorageType::AWS,
+    };
+    ObjClientHolder holder(initial_conf);
+    EXPECT_TRUE(holder.init().ok());
+
+    S3ClientConf workload_identity_conf {
+            .endpoint = std::string(GCS_XML_ENDPOINT),
+            .region = "us-central1",
+            .bucket = "bucket",
+            .provider = io::ObjStorageType::GCP,
+            .need_override_endpoint = false,
+            .cred_provider_type = CredProviderType::GcpWorkloadIdentity,
+    };
+    EXPECT_TRUE(holder.reset(workload_identity_conf).ok());
+    S3ClientFactory::instance().clear_client_creator_for_test();
+
+    ASSERT_EQ(created_configs.size(), 2);
+    const auto& reset_conf = created_configs.back();
+    EXPECT_EQ(reset_conf.endpoint, workload_identity_conf.endpoint);
+    EXPECT_EQ(reset_conf.region, workload_identity_conf.region);
+    EXPECT_EQ(reset_conf.provider, workload_identity_conf.provider);
+    EXPECT_EQ(reset_conf.need_override_endpoint, workload_identity_conf.need_override_endpoint);
+    EXPECT_EQ(reset_conf.cred_provider_type, workload_identity_conf.cred_provider_type);
+    EXPECT_TRUE(reset_conf.ak.empty());
+    EXPECT_TRUE(reset_conf.sk.empty());
+}
+
+TEST_F(S3ObjStorageClientMockTest, explicit_credentials_override_stale_workload_identity) {
+    cloud::ObjectStoreInfoPB info;
+    info.set_endpoint("https://storage.googleapis.com");
+    info.set_region("us-central1");
+    info.set_bucket("bucket");
+    info.set_provider(cloud::ObjectStoreInfoPB::GCP);
+    info.set_cred_provider_type(cloud::CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+    info.set_ak("access-key");
+    info.set_sk("secret-key");
+
+    auto conf = S3Conf::get_s3_conf(info);
+    EXPECT_EQ(conf.client_conf.cred_provider_type, CredProviderType::Default);
+
+    info.clear_ak();
+    info.clear_sk();
+    info.set_role_arn("arn:aws:iam::123456789012:role/test-role");
+    conf = S3Conf::get_s3_conf(info);
+    EXPECT_EQ(conf.client_conf.cred_provider_type, CredProviderType::InstanceProfile);
 }
 
 TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_delete_bearer_token_applied) {

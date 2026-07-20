@@ -59,6 +59,7 @@ auto s3_rate_limit(S3RateLimitType op, Func callback) -> decltype(callback()) {
     if (sleep_duration < 0) {
         return T(s3_error_factory());
     }
+    TEST_SYNC_POINT_CALLBACK("S3ObjClient::after_rate_limit");
     return callback();
 }
 
@@ -102,9 +103,8 @@ public:
             return false;
         }
 
-        // Re-applied per page: the token may rotate during a long listing.
-        apply_gcp_bearer_token(req_, bearer_token_provider_);
         auto outcome = s3_get_rate_limit([&]() {
+            apply_gcp_bearer_token(req_, bearer_token_provider_);
             SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
             return client_->ListObjectsV2(req_);
         });
@@ -209,11 +209,11 @@ S3ObjClient::~S3ObjClient() = default;
 ObjectStorageResponse S3ObjClient::put_object(ObjectStoragePathRef path, std::string_view stream) {
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(path.bucket).WithKey(path.key);
-    apply_gcp_bearer_token(request, bearer_token_provider_);
     auto input = Aws::MakeShared<Aws::StringStream>("S3Accessor");
     *input << stream;
     request.SetBody(input);
     auto outcome = s3_put_rate_limit([&]() {
+        apply_gcp_bearer_token(request, bearer_token_provider_);
         SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
         return s3_client_->PutObject(request);
     });
@@ -233,8 +233,8 @@ ObjectStorageResponse S3ObjClient::put_object(ObjectStoragePathRef path, std::st
 ObjectStorageResponse S3ObjClient::head_object(ObjectStoragePathRef path, ObjectMeta* res) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(path.bucket).WithKey(path.key);
-    apply_gcp_bearer_token(request, bearer_token_provider_);
     auto outcome = s3_get_rate_limit([&]() {
+        apply_gcp_bearer_token(request, bearer_token_provider_);
         SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
         return s3_client_->HeadObject(request);
     });
@@ -281,8 +281,8 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
         Aws::S3::Model::Delete del;
         del.WithObjects(std::move(objects)).SetQuiet(true);
         delete_request.SetDelete(std::move(del));
-        apply_gcp_bearer_token(delete_request, bearer_token_provider_);
         auto delete_outcome = s3_put_rate_limit([&]() {
+            apply_gcp_bearer_token(delete_request, bearer_token_provider_);
             SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
             return s3_client_->DeleteObjects(delete_request);
         });
@@ -331,8 +331,8 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
 ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(path.bucket).WithKey(path.key);
-    apply_gcp_bearer_token(request, bearer_token_provider_);
     auto outcome = s3_put_rate_limit([&]() {
+        apply_gcp_bearer_token(request, bearer_token_provider_);
         SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
         return s3_client_->DeleteObject(request);
     });
@@ -364,10 +364,11 @@ ObjectStorageResponse S3ObjClient::get_life_cycle(const std::string& bucket,
                                                   int64_t* expiration_days) {
     Aws::S3::Model::GetBucketLifecycleConfigurationRequest request;
     request.SetBucket(bucket);
-    apply_gcp_bearer_token(request, bearer_token_provider_);
 
-    auto outcome = s3_get_rate_limit(
-            [&]() { return s3_client_->GetBucketLifecycleConfiguration(request); });
+    auto outcome = s3_get_rate_limit([&]() {
+        apply_gcp_bearer_token(request, bearer_token_provider_);
+        return s3_client_->GetBucketLifecycleConfiguration(request);
+    });
     bool has_lifecycle = false;
     if (outcome.IsSuccess()) {
         const auto& rules = outcome.GetResult().GetRules();
@@ -399,8 +400,10 @@ ObjectStorageResponse S3ObjClient::get_life_cycle(const std::string& bucket,
 ObjectStorageResponse S3ObjClient::check_versioning(const std::string& bucket) {
     Aws::S3::Model::GetBucketVersioningRequest request;
     request.SetBucket(bucket);
-    apply_gcp_bearer_token(request, bearer_token_provider_);
-    auto outcome = s3_get_rate_limit([&]() { return s3_client_->GetBucketVersioning(request); });
+    auto outcome = s3_get_rate_limit([&]() {
+        apply_gcp_bearer_token(request, bearer_token_provider_);
+        return s3_client_->GetBucketVersioning(request);
+    });
 
     if (outcome.IsSuccess()) {
         const auto& versioning_configuration = outcome.GetResult().GetStatus();
@@ -426,8 +429,10 @@ ObjectStorageResponse S3ObjClient::abort_multipart_upload(ObjectStoragePathRef p
                                                           const std::string& upload_id) {
     Aws::S3::Model::AbortMultipartUploadRequest request;
     request.WithBucket(path.bucket).WithKey(path.key).WithUploadId(upload_id);
-    apply_gcp_bearer_token(request, bearer_token_provider_);
-    auto outcome = s3_put_rate_limit([&]() { return s3_client_->AbortMultipartUpload(request); });
+    auto outcome = s3_put_rate_limit([&]() {
+        apply_gcp_bearer_token(request, bearer_token_provider_);
+        return s3_client_->AbortMultipartUpload(request);
+    });
     if (!outcome.IsSuccess()) {
         LOG_WARNING("failed to abort multipart upload")
                 .tag("endpoint", endpoint_)

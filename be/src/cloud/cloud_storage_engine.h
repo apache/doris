@@ -201,6 +201,7 @@ public:
 #endif
 
 private:
+    bool _should_check_storage_vault();
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
     void _sync_tablets_thread_callback();
@@ -276,7 +277,7 @@ private:
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
     CumuPolices _cumulative_compaction_policies;
 
-    std::atomic_bool first_sync_storage_vault {true};
+    std::atomic_bool _storage_vault_synced {false};
 
     EngineOptions _options;
     std::mutex _store_lock;

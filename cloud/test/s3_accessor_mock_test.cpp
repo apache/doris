@@ -113,4 +113,49 @@ TEST_F(S3AccessorMockTest, workload_identity_bearer_token_applied) {
     EXPECT_TRUE(response->is_valid());
 }
 
+TEST_F(S3AccessorMockTest, workload_identity_token_is_refreshed_after_rate_limit) {
+    auto now = std::chrono::steady_clock::now();
+    int fetch_count = 0;
+    auto token_provider = std::make_shared<GcpWorkloadIdentityTokenProvider>(
+            [&](std::string* token, std::chrono::seconds* expires_in) {
+                *token = "token-" + std::to_string(++fetch_count);
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            [&] { return now; });
+    EXPECT_EQ(token_provider->get_token(), "token-1");
+
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    S3ObjClient s3_obj_client(mock_s3_client, "https://storage.googleapis.com", token_provider);
+    ListObjectsV2Result result;
+    result.SetIsTruncated(false);
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce([&](const ListObjectsV2Request& request) {
+                const auto& headers = request.GetAdditionalCustomHeaders();
+                auto header = headers.find("authorization");
+                EXPECT_NE(header, headers.end());
+                if (header != headers.end()) {
+                    EXPECT_EQ(header->second, "Bearer token-2");
+                }
+                return ListObjectsV2Outcome(result);
+            });
+
+    bool enable_s3_rate_limiter = config::enable_s3_rate_limiter;
+    config::enable_s3_rate_limiter = true;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("S3ObjClient::after_rate_limit",
+                              [&](auto&&) { now += std::chrono::minutes(56); });
+    sync_point->enable_processing();
+
+    auto response = s3_obj_client.list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/rate_limit"});
+    EXPECT_FALSE(response->has_next());
+
+    sync_point->disable_processing();
+    sync_point->clear_all_call_backs();
+    config::enable_s3_rate_limiter = enable_s3_rate_limiter;
+    EXPECT_TRUE(response->is_valid());
+    EXPECT_EQ(fetch_count, 2);
+}
+
 } // namespace doris::cloud

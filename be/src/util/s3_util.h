@@ -101,6 +101,7 @@ struct S3ClientConf {
         hash_code ^= request_timeout_ms;
         hash_code ^= connect_timeout_ms;
         hash_code ^= use_virtual_addressing;
+        hash_code ^= need_override_endpoint;
         hash_code ^= static_cast<int>(provider);
 
         hash_code ^= static_cast<int>(cred_provider_type);

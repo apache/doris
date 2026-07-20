@@ -249,6 +249,10 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
                 s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
             }
         }
+
+        s3_conf.cred_provider_type = resolve_cred_provider_type(
+                s3_conf.cred_provider_type, !s3_conf.ak.empty() && !s3_conf.sk.empty(),
+                !s3_conf.role_arn.empty());
     }
 
     s3_conf.endpoint = obj_info.endpoint();

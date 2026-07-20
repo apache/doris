@@ -81,6 +81,22 @@ CredProviderType cred_provider_type_from_string(const std::string& type) {
     return CredProviderType::Default;
 }
 
+CredProviderType resolve_cred_provider_type(CredProviderType configured_type,
+                                            bool has_static_credentials, bool has_role_arn) {
+    if (configured_type != CredProviderType::GcpWorkloadIdentity) {
+        return configured_type;
+    }
+    // Old protobuf consumers preserve the Workload Identity enum as an unknown field. Explicit
+    // credentials must win if that stale value reappears after a downgrade and later upgrade.
+    if (has_static_credentials) {
+        return CredProviderType::Default;
+    }
+    if (has_role_arn) {
+        return CredProviderType::InstanceProfile;
+    }
+    return configured_type;
+}
+
 bool is_gcs_xml_endpoint(std::string_view endpoint) {
     return endpoint == GCS_XML_ENDPOINT;
 }
