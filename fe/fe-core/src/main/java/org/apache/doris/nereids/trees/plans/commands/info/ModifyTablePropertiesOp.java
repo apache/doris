@@ -90,6 +90,11 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("Properties is not set");
         }
 
+        if (tableName != null && !InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableName.getCtl())) {
+            validateExternalTableProperties();
+            return;
+        }
+
         if (properties.size() != 1
                 && !TableProperty.isSamePrefixProperties(
                         properties, DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
@@ -373,6 +378,25 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
         analyzeForMTMV();
+    }
+
+    private void validateExternalTableProperties() throws AnalysisException {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            return;
+        }
+        if (properties.size() != 1) {
+            throw new AnalysisException("auto_analyze_policy cannot be set with external table properties");
+        }
+        String analyzePolicy = properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
+        if (!PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY.equals(analyzePolicy)
+                && !PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY.equals(analyzePolicy)
+                && !PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY.equals(analyzePolicy)) {
+            throw new AnalysisException(
+                    "Table auto analyze policy only support for " + PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY
+                            + " or " + PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY
+                            + " or " + PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY);
+        }
+        this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
     }
 
     private void analyzeForMTMV() throws AnalysisException {

@@ -68,6 +68,7 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -846,6 +847,20 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + " in table: " + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
         refreshTable(dorisTable, updateTime);
+    }
+
+    @Override
+    public void updateTableProperties(ExternalTable dorisTable, Map<String, String> properties)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateProperties updateProperties = icebergTable.updateProperties();
+        properties.forEach(updateProperties::set);
+        try {
+            executionAuthenticator.execute(() -> updateProperties.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to update properties for table: " + icebergTable.name()
+                    + ", error message is: " + e.getMessage(), e);
+        }
     }
 
     @Override

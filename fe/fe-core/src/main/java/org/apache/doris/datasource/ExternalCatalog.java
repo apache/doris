@@ -1597,6 +1597,25 @@ public abstract class ExternalCatalog
         }
     }
 
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Update table properties operation is not supported for catalog: " + getName());
+        }
+        try {
+            long updateTime = System.currentTimeMillis();
+            metadataOps.updateTableProperties(externalTable, properties);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(externalTable);
+            logRefreshExternalTable(externalTable, updateTime);
+        } catch (Exception e) {
+            LOG.warn("Failed to update properties for table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
     @Override
     public void modifyColumn(TableIf dorisTable, Column column, ColumnPosition columnPosition) throws UserException {
         makeSureInitialized();

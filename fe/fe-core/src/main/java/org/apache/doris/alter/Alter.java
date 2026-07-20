@@ -396,7 +396,13 @@ public class Alter {
         long updateTime = System.currentTimeMillis();
         for (AlterOp alterOp : alterOps) {
             if (alterOp instanceof ModifyTablePropertiesOp) {
-                setExternalTableAutoAnalyzePolicy(table, alterOps);
+                Map<String, String> properties = alterOp.getProperties();
+                if (properties.size() == 1
+                        && properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+                    setExternalTableAutoAnalyzePolicy(table, alterOps);
+                } else {
+                    table.getCatalog().updateTableProperties(table, properties);
+                }
             } else if (alterOp instanceof CreateOrReplaceBranchOp) {
                 table.getCatalog().createOrReplaceBranch(
                         table, ((CreateOrReplaceBranchOp) alterOp).getBranchInfo());

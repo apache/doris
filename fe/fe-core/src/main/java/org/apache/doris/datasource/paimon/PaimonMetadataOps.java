@@ -18,9 +18,12 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
 import org.apache.doris.catalog.info.DropBranchInfo;
@@ -50,6 +53,7 @@ import org.apache.paimon.catalog.Catalog.TableAlreadyExistException;
 import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.types.DataType;
 
 import java.util.ArrayList;
@@ -270,6 +274,30 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void renameTableImpl(String dbName, String oldName, String newName) throws DdlException {
+        try {
+            executionAuthenticator.execute(() -> {
+                catalog.renameTable(Identifier.create(dbName, oldName), Identifier.create(dbName, newName), false);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to rename Paimon table " + dbName + "." + oldName
+                    + " to " + newName + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void afterRenameTable(String dbName, String oldName, String newName) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().unregisterTable(oldName);
+            db.get().resetMetaCacheNames();
+        }
+        LOG.info("after rename table {}.{}.{} to {}, is db exists: {}",
+                dorisCatalog.getName(), dbName, oldName, newName, db.isPresent());
+    }
+
+    @Override
     public void dropTableImpl(ExternalTable dorisTable, boolean ifExists) throws DdlException {
         try {
             executionAuthenticator.execute(() -> {
@@ -390,6 +418,83 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
         }
+    }
+
+    private SchemaChange addColumnChange(Column column, ColumnPosition position) {
+        DataType paimonType = toPaimontype(column.getType()).copy(column.isAllowNull());
+        SchemaChange.Move move = null;
+        if (position != null) {
+            move = position.isFirst()
+                    ? SchemaChange.Move.first(column.getName())
+                    : SchemaChange.Move.after(column.getName(), position.getLastCol());
+        }
+        return SchemaChange.addColumn(column.getName(), paimonType, column.getComment(), move);
+    }
+
+    private void alterTable(ExternalTable dorisTable, List<SchemaChange> changes, String operation)
+            throws UserException {
+        try {
+            executionAuthenticator.execute(() -> {
+                catalog.alterTable(
+                        Identifier.create(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()), changes, false);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to " + operation + " for Paimon table " + dorisTable.getName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    private void refreshTable(ExternalTable dorisTable, long updateTime) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dorisTable.getRemoteDbName());
+        if (db.isPresent()) {
+            Optional<?> table = db.get().getTableForReplay(dorisTable.getRemoteName());
+            if (table.isPresent()) {
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshTableInternal(db.get(), (ExternalTable) table.get(), updateTime);
+            }
+        }
+    }
+
+    @Override
+    public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
+            throws UserException {
+        alterTable(dorisTable, Collections.singletonList(addColumnChange(column, position)),
+                "add column " + column.getName());
+        refreshTable(dorisTable, updateTime);
+    }
+
+    @Override
+    public void addColumns(ExternalTable dorisTable, List<Column> columns, long updateTime) throws UserException {
+        List<SchemaChange> changes = columns.stream()
+                .map(column -> addColumnChange(column, null))
+                .collect(Collectors.toList());
+        alterTable(dorisTable, changes, "add columns");
+        refreshTable(dorisTable, updateTime);
+    }
+
+    @Override
+    public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
+        alterTable(dorisTable, Collections.singletonList(SchemaChange.dropColumn(columnName)),
+                "drop column " + columnName);
+        refreshTable(dorisTable, updateTime);
+    }
+
+    @Override
+    public void renameColumn(ExternalTable dorisTable, String oldName, String newName, long updateTime)
+            throws UserException {
+        alterTable(dorisTable, Collections.singletonList(SchemaChange.renameColumn(oldName, newName)),
+                "rename column " + oldName + " to " + newName);
+        refreshTable(dorisTable, updateTime);
+    }
+
+    @Override
+    public void updateTableProperties(ExternalTable dorisTable, Map<String, String> properties)
+            throws UserException {
+        List<SchemaChange> changes = properties.entrySet().stream()
+                .map(entry -> SchemaChange.setOption(entry.getKey(), entry.getValue()))
+                .collect(Collectors.toList());
+        alterTable(dorisTable, changes, "update properties");
     }
 
     public Catalog getCatalog() {
