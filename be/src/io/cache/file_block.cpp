@@ -331,7 +331,8 @@ std::string FileBlock::get_cache_file() const {
     return _mgr->_storage->get_local_file(this->_key);
 }
 
-void FileBlock::release_cache_user_reference(std::shared_ptr<FileBlock>& file_block) {
+void FileBlock::release_cache_reference(std::shared_ptr<FileBlock>& file_block,
+                                        CacheReferenceRole role) {
     if (!file_block) {
         return;
     }
@@ -340,7 +341,9 @@ void FileBlock::release_cache_user_reference(std::shared_ptr<FileBlock>& file_bl
         bool should_remove = false;
         {
             std::lock_guard block_lock(file_block->_mutex);
-            file_block->complete_unlocked(block_lock);
+            if (role == CacheReferenceRole::HOLDER) {
+                file_block->complete_unlocked(block_lock);
+            }
             if (file_block.use_count() == 2 &&
                 (file_block->is_deleting() ||
                  file_block->state_unlock(block_lock) == FileBlock::State::EMPTY)) {
@@ -365,13 +368,13 @@ void FileBlock::release_cache_user_reference(std::shared_ptr<FileBlock>& file_bl
 
 FileBlocksHolder::~FileBlocksHolder() {
     for (auto& file_block : file_blocks) {
-        FileBlock::release_cache_user_reference(file_block);
+        FileBlock::release_cache_reference(file_block, FileBlock::CacheReferenceRole::HOLDER);
     }
 }
 
 FileBlocksProbeResult::~FileBlocksProbeResult() {
     for (auto& file_block : file_blocks) {
-        FileBlock::release_cache_user_reference(file_block);
+        FileBlock::release_cache_reference(file_block, FileBlock::CacheReferenceRole::PROBE);
     }
 }
 

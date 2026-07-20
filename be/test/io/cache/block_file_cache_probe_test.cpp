@@ -291,5 +291,39 @@ TEST_F(BlockFileCacheTest, ProbeObservesDownloadingAndEmptyBlocksWithoutTakingDo
     fs::remove_all(path, error);
 }
 
+TEST_F(BlockFileCacheTest, ProbeResultDoesNotCompleteDownloaderOwnedByCaller) {
+    const auto path = caches_dir / "block_file_cache_probe_preserves_downloader";
+    std::error_code error;
+    fs::remove_all(path, error);
+    fs::create_directories(path);
+    {
+        BlockFileCache cache(path.string(), probe_cache_settings());
+        ASSERT_TRUE(cache.initialize().ok());
+        wait_until_cache_ready(cache);
+        const auto hash = BlockFileCache::hash("probe_preserves_downloader");
+        ReadStatistics stats;
+        CacheContext context;
+        context.stats = &stats;
+        auto holder = cache.get_or_set(hash, 0, 4096, context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        const auto& block = holder.file_blocks.front();
+        const uint64_t downloader = FileBlock::get_caller_id();
+        ASSERT_EQ(block->get_or_set_downloader(), downloader);
+
+        {
+            auto result = cache.probe(hash, 0, 4096, context);
+            ASSERT_EQ(result.file_blocks.size(), 1);
+            ASSERT_EQ(result.file_blocks[0], block);
+            EXPECT_EQ(result.file_blocks[0]->state(), FileBlock::State::DOWNLOADING);
+        }
+
+        // A probe only retains the block against deletion. It must not complete downloader
+        // ownership established independently by a FileBlocksHolder, even on the same thread.
+        EXPECT_EQ(block->state(), FileBlock::State::DOWNLOADING);
+        EXPECT_EQ(block->get_downloader(), downloader);
+    }
+    fs::remove_all(path, error);
+}
+
 } // namespace
 } // namespace doris::io
