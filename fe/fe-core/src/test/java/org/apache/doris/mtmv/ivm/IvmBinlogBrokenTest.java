@@ -160,6 +160,91 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
     }
 
     @Test
+    public void testAddColumnDoesNotMarkBinlogBroken() throws Exception {
+        String db = "ivm_broken_add_column";
+        createPartitionedIvmTableAndMv(db);
+
+        executeSql("ALTER TABLE ivm_base ADD COLUMN v2 INT");
+
+        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testDropColumnMarksBinlogBroken() throws Exception {
+        String db = "ivm_broken_drop_column";
+        createPartitionedIvmTableAndMv(db);
+        executeSql("ALTER TABLE ivm_base ADD COLUMN v2 INT");
+
+        executeSql("ALTER TABLE ivm_base DROP COLUMN v2");
+
+        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testRenameTableDoesNotMarkBinlogBroken() throws Exception {
+        String db = "ivm_broken_rename_table";
+        createPartitionedIvmTableAndMv(db);
+
+        executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
+
+        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testReplaceTableMarksBinlogBroken() throws Exception {
+        String db = "ivm_broken_replace_table";
+        createPartitionedIvmTableAndMv(db);
+        createTable("CREATE TABLE " + db + ".ivm_new_base (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+
+        executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'false')");
+
+        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testReplaceTableSwapMarksBothSidesBinlogBroken() throws Exception {
+        String db = "ivm_broken_replace_table_swap";
+        createPartitionedIvmTableAndMv(db);
+        createTable("CREATE TABLE " + db + ".ivm_new_base (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_new_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_new_base");
+        MTMV oldSideMtmv = getMtmv(db);
+        MTMV newSideMtmv = (MTMV) getDb(db).getTableOrMetaException("ivm_new_mv");
+        Assertions.assertFalse(oldSideMtmv.getIvmInfo().isBinlogBroken());
+        Assertions.assertFalse(newSideMtmv.getIvmInfo().isBinlogBroken());
+
+        executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'true')");
+
+        Assertions.assertTrue(oldSideMtmv.getIvmInfo().isBinlogBroken());
+        Assertions.assertTrue(newSideMtmv.getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
     public void testReplayDropPartitionMarksBinlogBroken() throws Exception {
         String db = "ivm_broken_replay_drop_partition";
         createPartitionedIvmTableAndMv(db);

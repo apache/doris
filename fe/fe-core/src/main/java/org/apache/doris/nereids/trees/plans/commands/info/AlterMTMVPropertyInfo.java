@@ -50,7 +50,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
     public void analyze(ConnectContext ctx) throws AnalysisException {
         super.analyze(ctx);
         analyzeProperties();
-        validateIncrementalExcludedTriggerTablesCompat();
+        validateIncrementalExcludedTriggerTablesCompat(ctx);
     }
 
     @Override
@@ -64,7 +64,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
         }
     }
 
-    private void validateIncrementalExcludedTriggerTablesCompat() {
+    private void validateIncrementalExcludedTriggerTablesCompat(ConnectContext ctx) {
         if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
             return;
         }
@@ -77,7 +77,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
             }
             Map<String, String> mergedMvProps = Maps.newHashMap(mtmv.getMvProperties());
             mergedMvProps.putAll(properties);
-            MTMVPlanUtil.validateAlterExcludedTriggerTables(mtmv, mergedMvProps);
+            MTMVPlanUtil.validateAlterExcludedTriggerTables(mtmv, mergedMvProps, ctx);
         } catch (AnalysisException e) {
             throw e;
         } catch (Exception e) {
