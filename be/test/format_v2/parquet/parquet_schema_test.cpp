@@ -313,8 +313,7 @@ TEST(ParquetSchemaTest, NativeListTupleCompatibilityRequiresEnclosingListName) {
     EXPECT_EQ(remove_nullable(mismatched_element->data_type)->get_primitive_type(), TYPE_INT);
 
     NativeFieldDescriptor matching;
-    ASSERT_TRUE(matching.parse_from_thrift({root(), list("xs"), wrapper("xs_tuple"), item()})
-                        .ok());
+    ASSERT_TRUE(matching.parse_from_thrift({root(), list("xs"), wrapper("xs_tuple"), item()}).ok());
     const auto* matching_element = &matching.get_column(0)->children[0];
     EXPECT_EQ(remove_nullable(matching_element->data_type)->get_primitive_type(), TYPE_STRUCT);
     ASSERT_EQ(matching_element->children.size(), 1);
@@ -344,9 +343,7 @@ TEST(ParquetSchemaTest, NativeListPreservesRepeatedAndAnnotatedElementWrappers) 
     repeated_items.__set_type(tparquet::Type::INT32);
     repeated_items.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
     NativeFieldDescriptor repeated;
-    ASSERT_TRUE(repeated
-                        .parse_from_thrift(
-                                {root(), outer_list, repeated_wrapper, repeated_items})
+    ASSERT_TRUE(repeated.parse_from_thrift({root(), outer_list, repeated_wrapper, repeated_items})
                         .ok());
     const auto* repeated_element = &repeated.get_column(0)->children[0];
     EXPECT_EQ(remove_nullable(repeated_element->data_type)->get_primitive_type(), TYPE_STRUCT);

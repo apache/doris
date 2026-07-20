@@ -580,8 +580,7 @@ Status NativeFieldDescriptor::parse_list_field(
     if (num_children > 0) {
         const bool structural_wrapper = is_struct_list_node(second_level, first_level.name);
         const auto& only_child = t_schemas[curr_pos + 2];
-        if (num_children == 1 && !structural_wrapper &&
-            has_logical_annotation(second_level)) {
+        if (num_children == 1 && !structural_wrapper && has_logical_annotation(second_level)) {
             // The repeated node is already the outer LIST element. Preserve its own LIST/MAP
             // annotation, but do not interpret its REPEATED marker as another outer array.
             set_child_node_level(list_field, list_field->definition_level);
@@ -592,8 +591,7 @@ Status NativeFieldDescriptor::parse_list_field(
             } else {
                 RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, list_child));
             }
-        } else if (num_children == 1 && !structural_wrapper &&
-                   !is_repeated_node(only_child)) {
+        } else if (num_children == 1 && !structural_wrapper && !is_repeated_node(only_child)) {
             // optional field, and the third level element is the nested structure in list
             // produce nested structure like: LIST<INT>, LIST<MAP>, LIST<LIST<...>>
             // skip bag/list, it's a repeated element.

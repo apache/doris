@@ -240,8 +240,8 @@ public:
         RETURN_IF_ERROR(decode_dictionary_indices(num_values, &indices));
         return consumer.consume_indices(indices.data(), indices.size());
     }
-    virtual Status decode_selected_dictionary_values(
-            const ParquetSelection& selection, ParquetDictionaryValueConsumer& consumer) {
+    virtual Status decode_selected_dictionary_values(const ParquetSelection& selection,
+                                                     ParquetDictionaryValueConsumer& consumer) {
         std::vector<uint32_t> indices;
         RETURN_IF_ERROR(decode_selected_dictionary_indices(selection, &indices));
         return consumer.consume_indices(indices.data(), indices.size());
@@ -347,13 +347,11 @@ struct ParquetMaterializationState {
         return Status::OK();
     }
 
-    Status materialize_dictionary(IColumn& column, ParquetDecodeSource& source,
-                                  size_t num_values) {
+    Status materialize_dictionary(IColumn& column, ParquetDecodeSource& source, size_t num_values) {
         DORIS_CHECK(typed_dictionary);
         if (UNLIKELY(dictionary_has_conversion_failures) ||
             source.prefer_dictionary_index_materialization(typed_dictionary->byte_size())) {
-            dictionary_materialization_strategy =
-                    ParquetDictionaryMaterializationStrategy::INDICES;
+            dictionary_materialization_strategy = ParquetDictionaryMaterializationStrategy::INDICES;
             RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &dictionary_indices));
             DORIS_CHECK_EQ(dictionary_indices.size(), num_values);
             return materialize_dictionary(column);

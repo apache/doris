@@ -220,9 +220,8 @@ public:
         return _decode_dictionary_values(num_values, 0, dictionary_size(), consumer);
     }
 
-    Status decode_selected_dictionary_values(
-            const ParquetSelection& selection,
-            ParquetDictionaryValueConsumer& consumer) override {
+    Status decode_selected_dictionary_values(const ParquetSelection& selection,
+                                             ParquetDictionaryValueConsumer& consumer) override {
         const size_t num_dictionary_values = dictionary_size();
         size_t cursor = 0;
         for (const auto& range : selection.ranges) {
@@ -311,9 +310,8 @@ protected:
             if (UNLIKELY(literals == 0)) {
                 return Status::IOError("Can't read enough Parquet dictionary indices");
             }
-            const size_t batch = std::min(
-                    {static_cast<size_t>(literals), num_values - decoded_values,
-                     kLiteralBatchSize});
+            const size_t batch = std::min({static_cast<size_t>(literals),
+                                           num_values - decoded_values, kLiteralBatchSize});
             _skip_indices.resize(batch);
             if (UNLIKELY(!_index_batch_decoder->GetLiteralValues(cast_set<int32_t>(batch),
                                                                  _skip_indices.data()))) {
