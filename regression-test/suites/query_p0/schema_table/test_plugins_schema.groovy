@@ -24,7 +24,7 @@ suite("test_plugins_schema", "p0") {
     Assert.assertEquals(
             ["PLUGIN_NAME", "PLUGIN_TYPE", "PLUGIN_VERSION", "SOURCE", "DESCRIPTION"], columnNames)
 
-    // As an admin user: loaded plugins must be listed. Do not require BUILTIN
+    // Loaded plugins must be listed. Do not require BUILTIN
     // rows: the packaged cluster deploys filesystem/connector providers as
     // directory plugins (source = EXTERNAL), so a correct inventory may contain
     // no BUILTIN row at all.
@@ -51,7 +51,7 @@ suite("test_plugins_schema", "p0") {
     """
     Assert.assertTrue("expect built-in filesystem providers", fsRows.size() > 0)
 
-    // Non-admin users see an empty inventory (ADMIN-level metadata).
+    // The inventory is not ADMIN-gated: a plain user sees the same rows.
     String user = "test_plugins_schema_user"
     String pwd = "C123_567p"
     try_sql("DROP USER IF EXISTS ${user}")
@@ -67,8 +67,13 @@ suite("test_plugins_schema", "p0") {
     }
     try {
         connect(user, pwd, context.config.jdbcUrl) {
-            def result = sql "SELECT * FROM information_schema.plugins"
-            Assert.assertEquals(0, result.size())
+            def result = sql """
+                SELECT PLUGIN_NAME, PLUGIN_TYPE, SOURCE, PLUGIN_VERSION
+                FROM information_schema.plugins
+                ORDER BY PLUGIN_TYPE, PLUGIN_NAME
+            """
+            Assert.assertEquals("a non-admin user must see the full inventory",
+                    rows.size(), result.size())
         }
     } finally {
         try_sql("DROP USER IF EXISTS ${user}")

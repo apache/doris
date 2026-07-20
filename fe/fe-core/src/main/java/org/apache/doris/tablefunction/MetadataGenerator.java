@@ -810,20 +810,14 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult pluginsMetadataResult(TSchemaTableRequestParams params) {
-        if (!params.isSetCurrentUserIdent()) {
-            return errorResult("current user ident is not set.");
-        }
-        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
-        // The plugin inventory reveals which security/storage components this cluster
-        // runs; restrict it to ADMIN like SHOW PLUGINS.
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
-            return result;
-        }
 
+        // Readable by any authenticated user, matching MySQL information_schema.plugins.
+        // The inventory only exposes component identity; plugin configuration and
+        // credentials are never part of a registry record.
         // Registry rows are load-time snapshots of the current FE; no plugin code runs here.
         for (PluginRegistry.PluginRecord record : PluginRegistry.getInstance().list()) {
             TRow row = new TRow();
