@@ -2188,4 +2188,27 @@ public class Auth implements Writable {
         }
         return userInfos;
     }
+
+    public List<List<String>> getRoleAuthInfo(String roleName) {
+        List<List<String>> results = Lists.newArrayList();
+        Role role = roleManager.getRole(roleName);
+        if (role == null) {
+            return results;
+        }
+        // get all users belong to this role
+        Set<UserIdentity> users = getRoleUsers(roleName);
+        for (UserIdentity user : users) {
+            List<List<String>> userGrants = getAuthInfo(user);
+            results.addAll(userGrants);
+        }
+        return results;
+    }
+
+    public List<List<String>> getRoleAuthInfo(String roleName, UserIdentity currentUser) {
+        List<List<String>> results = Lists.newArrayList();
+        List<List<String>> userGrants = getAuthInfo(currentUser);
+        results.addAll(userGrants);
+        return results;
+    }
+
 }
