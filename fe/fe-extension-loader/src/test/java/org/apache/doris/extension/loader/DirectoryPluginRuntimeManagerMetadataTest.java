@@ -63,7 +63,7 @@ class DirectoryPluginRuntimeManagerMetadataTest {
         PluginHandle<PluginFactory> handle = report.getSuccesses().get(0);
         Assertions.assertEquals("metadata-test", handle.getPluginName());
         Assertions.assertEquals("Metadata snapshot test plugin", handle.getDescription());
-        Assertions.assertEquals("3.1.4", handle.getImplementationVersion());
+        Assertions.assertEquals("3.1.4", handle.getVersion());
     }
 
     @Test
@@ -80,7 +80,7 @@ class DirectoryPluginRuntimeManagerMetadataTest {
                 null);
 
         Assertions.assertEquals(1, report.getSuccesses().size(), () -> failures(report));
-        Assertions.assertNull(report.getSuccesses().get(0).getImplementationVersion());
+        Assertions.assertNull(report.getSuccesses().get(0).getVersion());
     }
 
     @Test

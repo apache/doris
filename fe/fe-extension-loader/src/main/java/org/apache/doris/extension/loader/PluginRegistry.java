@@ -171,7 +171,7 @@ public final class PluginRegistry {
 
     /** Registers a directory-loaded plugin from its load-time handle snapshot. */
     public boolean registerExternal(String type, PluginHandle<?> handle) {
-        return register(type, handle.getPluginName(), handle.getImplementationVersion(),
+        return register(type, handle.getPluginName(), handle.getVersion(),
                 handle.getDescription(), PluginSource.EXTERNAL);
     }
 

@@ -308,7 +308,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     e);
         }
 
-        String implementationVersion = readImplementationVersion(factory.getClass(), allJars);
+        String version = readImplementationVersion(factory.getClass(), allJars);
 
         return new PluginHandle<>(
                 pluginName.trim(),
@@ -318,7 +318,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 factory,
                 Instant.now(),
                 description,
-                implementationVersion);
+                version);
     }
 
     /**
