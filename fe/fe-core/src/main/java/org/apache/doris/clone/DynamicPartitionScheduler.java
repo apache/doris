@@ -531,40 +531,6 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_DATA_BASE_TIME, baseTime);
     }
 
-    /**
-     * Holds the time context needed for TIMESTAMPTZ-aware dynamic partition
-     * operations.  A single clock read produces {@code now} (UTC-based for
-     * TIMESTAMPTZ columns, configured timezone otherwise) and
-     * {@code borderTimeZone} (UTC for TIMESTAMPTZ, otherwise the configured
-     * timezone), so subsequent border and cooldown computations all agree on
-     * the same instant.
-     */
-    private static class DynamicPartitionTimeContext {
-        final ZonedDateTime now;
-        final TimeZone borderTimeZone;
-
-        DynamicPartitionTimeContext(ZonedDateTime now, TimeZone borderTimeZone) {
-            this.now = now;
-            this.borderTimeZone = borderTimeZone;
-        }
-    }
-
-    /**
-     * Single clock read + UTC derivation + border timezone selection.
-     * Encapsulates the duplicated time-setup logic shared by
-     * {@link #getAddPartitionOp} and {@link #getDropPartitionOpForDynamic}.
-     */
-    private static DynamicPartitionTimeContext setupDynamicPartitionTime(
-            Column partitionColumn, DynamicPartitionProperty property) {
-        boolean isTimestampTz = partitionColumn.getDataType() == PrimitiveType.TIMESTAMPTZ;
-        ZonedDateTime nowTz = ZonedDateTime.now(property.getTimeZone().toZoneId());
-        ZonedDateTime now = isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
-        TimeZone borderTimeZone = isTimestampTz
-                ? TimeUtils.getUTCTimeZone()
-                : property.getTimeZone();
-        return new DynamicPartitionTimeContext(now, borderTimeZone);
-    }
-
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn,
             String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory,
             TimeZone borderTimeZone) {
