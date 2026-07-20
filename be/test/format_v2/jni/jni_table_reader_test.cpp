@@ -121,6 +121,8 @@ TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
     EXPECT_EQ(reader.get_next_calls, 0);
+    EXPECT_EQ(reader.close_calls, 0);
+    ASSERT_TRUE(reader.close().ok());
     EXPECT_EQ(reader.close_calls, 1);
 }
 
