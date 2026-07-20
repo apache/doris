@@ -586,15 +586,13 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string val;
-        ASSERT_EQ(txn->get(storage_vault_key(
-                                   {"test_instance_with_gcp_workload_identity", "1"}),
+        ASSERT_EQ(txn->get(storage_vault_key({"test_instance_with_gcp_workload_identity", "1"}),
                            &val),
                   TxnErrorCode::TXN_OK);
         StorageVaultPB vault;
         ASSERT_TRUE(vault.ParseFromString(val));
         ASSERT_EQ(vault.obj_info().endpoint(), GCS_XML_ENDPOINT);
-        ASSERT_EQ(vault.obj_info().cred_provider_type(),
-                  CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+        ASSERT_EQ(vault.obj_info().cred_provider_type(), CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
         ASSERT_FALSE(vault.obj_info().has_ak());
         ASSERT_FALSE(vault.obj_info().has_sk());
         ASSERT_FALSE(vault.obj_info().has_encryption_info());

@@ -695,10 +695,10 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     if (info.has_cred_provider_type()) {
         ret.client_conf.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
     }
-    ret.client_conf.cred_provider_type = resolve_cred_provider_type(
-            ret.client_conf.cred_provider_type,
-            !ret.client_conf.ak.empty() && !ret.client_conf.sk.empty(),
-            !ret.client_conf.role_arn.empty());
+    ret.client_conf.cred_provider_type =
+            resolve_cred_provider_type(ret.client_conf.cred_provider_type,
+                                       !ret.client_conf.ak.empty() && !ret.client_conf.sk.empty(),
+                                       !ret.client_conf.role_arn.empty());
 
     io::ObjStorageType type = io::ObjStorageType::AWS;
     switch (info.provider()) {

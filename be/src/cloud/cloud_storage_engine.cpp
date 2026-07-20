@@ -127,9 +127,9 @@ static Status vault_process_error(std::string_view id,
 static void check_keyless_storage_vault(const std::string& id, const S3Conf& s3_conf,
                                         const std::shared_ptr<io::S3FileSystem>& fs,
                                         bool check_fs) {
-    if (!check_fs || (s3_conf.client_conf.role_arn.empty() &&
-                      s3_conf.client_conf.cred_provider_type !=
-                              CredProviderType::GcpWorkloadIdentity)) {
+    if (!check_fs ||
+        (s3_conf.client_conf.role_arn.empty() &&
+         s3_conf.client_conf.cred_provider_type != CredProviderType::GcpWorkloadIdentity)) {
         return;
     }
 
@@ -450,7 +450,7 @@ void CloudStorageEngine::sync_storage_vault() {
                         ? std::visit(VaultCreateFSVisitor {id, path_format, check_storage_vault},
                                      vault_info)
                         : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format,
-                                                           check_storage_vault},
+                                                            check_storage_vault},
                                      vault_info);
         if (!status.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(status));

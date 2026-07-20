@@ -29,8 +29,8 @@
 #include <mutex>
 #include <thread>
 
-#include "gmock/gmock.h"
 #include "cpp/sync_point.h"
+#include "gmock/gmock.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "util/s3_util.h"
@@ -159,8 +159,7 @@ TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_token_is_refreshed_afte
 
     std::vector<io::FileInfo> files;
     auto response = s3_obj_storage_client.list_objects(
-            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/rate_limit"},
-            &files);
+            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/rate_limit"}, &files);
 
     sync_point->disable_processing();
     sync_point->clear_all_call_backs();

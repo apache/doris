@@ -779,8 +779,7 @@ static bool normalize_gcs_xml_endpoint(std::string* endpoint, bool allow_legacy_
     std::string lowercase_endpoint = *endpoint;
     std::transform(lowercase_endpoint.begin(), lowercase_endpoint.end(), lowercase_endpoint.begin(),
                    [](unsigned char c) { return std::tolower(c); });
-    if (lowercase_endpoint == "storage.googleapis.com" ||
-        lowercase_endpoint == GCS_XML_ENDPOINT ||
+    if (lowercase_endpoint == "storage.googleapis.com" || lowercase_endpoint == GCS_XML_ENDPOINT ||
         (allow_legacy_http && lowercase_endpoint == "http://storage.googleapis.com")) {
         *endpoint = GCS_XML_ENDPOINT;
         return true;

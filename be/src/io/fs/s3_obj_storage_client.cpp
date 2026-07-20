@@ -126,12 +126,12 @@ ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
     MonotonicStopWatch watch;
     watch.start();
 
-    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_put_rate_limit([&]() {
-                _apply_bearer_token(request);
-                return _client->CreateMultipartUpload(request);
-            }),
-            "s3_file_writer::create_multi_part_upload", std::cref(request).get());
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_put_rate_limit([&]() {
+                                                    _apply_bearer_token(request);
+                                                    return _client->CreateMultipartUpload(request);
+                                                }),
+                                                "s3_file_writer::create_multi_part_upload",
+                                                std::cref(request).get());
     SYNC_POINT_CALLBACK("s3_file_writer::_open", &outcome);
     watch.stop();
 
@@ -170,12 +170,12 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
 
     MonotonicStopWatch watch;
     watch.start();
-    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_put_rate_limit([&]() {
-                _apply_bearer_token(request);
-                return _client->PutObject(request);
-            }),
-            "s3_file_writer::put_object", std::cref(request).get(), &stream);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_put_rate_limit([&]() {
+                                                    _apply_bearer_token(request);
+                                                    return _client->PutObject(request);
+                                                }),
+                                                "s3_file_writer::put_object",
+                                                std::cref(request).get(), &stream);
 
     watch.stop();
 
@@ -217,12 +217,12 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
 
     MonotonicStopWatch watch;
     watch.start();
-    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_put_rate_limit([&]() {
-                _apply_bearer_token(request);
-                return _client->UploadPart(request);
-            }),
-            "s3_file_writer::upload_part", std::cref(request).get(), &stream);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_put_rate_limit([&]() {
+                                                    _apply_bearer_token(request);
+                                                    return _client->UploadPart(request);
+                                                }),
+                                                "s3_file_writer::upload_part",
+                                                std::cref(request).get(), &stream);
 
     watch.stop();
 
@@ -309,12 +309,12 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
     request.WithBucket(opts.bucket).WithKey(opts.key);
 
     SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
-    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_get_rate_limit([&]() {
-                _apply_bearer_token(request);
-                return _client->HeadObject(request);
-            }),
-            "s3_file_system::head_object", std::ref(request).get());
+    auto outcome =
+            SYNC_POINT_HOOK_RETURN_VALUE(s3_get_rate_limit([&]() {
+                                             _apply_bearer_token(request);
+                                             return _client->HeadObject(request);
+                                         }),
+                                         "s3_file_system::head_object", std::ref(request).get());
     if (outcome.IsSuccess()) {
         return {.resp = {convert_to_obj_response(Status::OK())},
                 .file_size = outcome.GetResult().GetContentLength()};
