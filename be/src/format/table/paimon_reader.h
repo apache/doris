@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -26,6 +27,13 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+std::string build_paimon_deletion_vector_cache_key(
+        const TPaimonDeletionFileDesc& deletion_file);
+
+Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc& deletion_file,
+                                                  size_t& bytes_read);
+
 class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,

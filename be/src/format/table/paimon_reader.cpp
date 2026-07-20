@@ -17,14 +17,35 @@
 
 #include "format/table/paimon_reader.h"
 
+#include <cstring>
 #include <vector>
 
 #include "common/status.h"
+#include "exec/common/endian.h"
 #include "format/table/deletion_vector_reader.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+std::string build_paimon_deletion_vector_cache_key(
+        const TPaimonDeletionFileDesc& deletion_file) {
+    // A shared file can contain multiple vectors, so the cache identity must include its range.
+    return deletion_file.path + "#" + std::to_string(deletion_file.offset) + "#" +
+           std::to_string(deletion_file.length);
+}
+
+Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc& deletion_file,
+                                                  size_t& bytes_read) {
+    if (!deletion_file.__isset.path || !deletion_file.__isset.offset ||
+        !deletion_file.__isset.length) {
+        return Status::DataQualityError(
+                "Paimon deletion file descriptor misses path/offset/length");
+    }
+    return validate_paimon_deletion_vector_read_range(deletion_file.offset, deletion_file.length,
+                                                      bytes_read);
+}
+
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            RuntimeProfile* profile, RuntimeState* state,
                            const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -55,14 +76,11 @@ Status PaimonReader::init_row_filters() {
         _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
     }
     const auto& deletion_file = table_desc.deletion_file;
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read));
 
     Status create_status = Status::OK();
-
-    std::string key;
-    key.resize(deletion_file.path.size() + sizeof(deletion_file.offset));
-    memcpy(key.data(), deletion_file.path.data(), deletion_file.path.size());
-    memcpy(key.data() + deletion_file.path.size(), &deletion_file.offset,
-           sizeof(deletion_file.offset));
+    const std::string key = build_paimon_deletion_vector_cache_key(deletion_file);
 
     SCOPED_TIMER(_paimon_profile.delete_files_read_time);
     using DeleteRows = std::vector<int64_t>;
@@ -74,7 +92,7 @@ Status PaimonReader::init_row_filters() {
         delete_range.__set_fs_name(_range.fs_name);
         delete_range.path = deletion_file.path;
         delete_range.start_offset = deletion_file.offset;
-        delete_range.size = deletion_file.length + 4;
+        delete_range.size = static_cast<int64_t>(bytes_read);
         delete_range.file_size = -1;
 
         DeletionVectorReader dv_reader(_state, _profile, _params, delete_range, _io_ctx);
@@ -83,47 +101,31 @@ Status PaimonReader::init_row_filters() {
             return nullptr;
         }
 
-        // the reason of adding 4: https://github.com/apache/paimon/issues/3313
-        size_t bytes_read = deletion_file.length + 4;
-        // TODO: better way to alloc memeory
         std::vector<char> buffer(bytes_read);
         create_status = dv_reader.read_at(deletion_file.offset, {buffer.data(), bytes_read});
         if (!create_status.ok()) [[unlikely]] {
             return nullptr;
         }
 
-        // parse deletion vector
-        const char* buf = buffer.data();
-        uint32_t actual_length;
-        std::memcpy(reinterpret_cast<char*>(&actual_length), buf, 4);
-        // change byte order to big endian
-        std::reverse(reinterpret_cast<char*>(&actual_length),
-                     reinterpret_cast<char*>(&actual_length) + 4);
-        buf += 4;
-        if (actual_length != bytes_read - 4) [[unlikely]] {
-            create_status = Status::RuntimeError(
-                    "DeletionVector deserialize error: length not match, "
-                    "actual length: {}, expect length: {}",
-                    actual_length, bytes_read - 4);
+        const uint32_t actual_length = BigEndian::Load32(buffer.data());
+        if (static_cast<uint64_t>(actual_length) + 4 != bytes_read) [[unlikely]] {
+            create_status = Status::DataQualityError(
+                    "Paimon deletion vector length mismatch, expected: {}, actual: {}",
+                    static_cast<uint64_t>(actual_length) + 4, bytes_read);
             return nullptr;
         }
-        uint32_t magic_number;
-        std::memcpy(reinterpret_cast<char*>(&magic_number), buf, 4);
-        // change byte order to big endian
-        std::reverse(reinterpret_cast<char*>(&magic_number),
-                     reinterpret_cast<char*>(&magic_number) + 4);
-        buf += 4;
-        const static uint32_t MAGIC_NUMBER = 1581511376;
-        if (magic_number != MAGIC_NUMBER) [[unlikely]] {
-            create_status = Status::RuntimeError(
-                    "DeletionVector deserialize error: invalid magic number {}", magic_number);
+        constexpr char PAIMON_BITMAP_MAGIC[] = {'\x5E', '\x43', '\xF2', '\xD0'};
+        if (memcmp(buffer.data() + 4, PAIMON_BITMAP_MAGIC, 4) != 0) [[unlikely]] {
+            create_status = Status::DataQualityError(
+                    "Paimon deletion vector magic number mismatch, expected: {}, actual: {}",
+                    BigEndian::Load32(PAIMON_BITMAP_MAGIC), BigEndian::Load32(buffer.data() + 4));
             return nullptr;
         }
 
         roaring::Roaring roaring_bitmap;
         SCOPED_TIMER(_paimon_profile.parse_deletion_vector_time);
         try {
-            roaring_bitmap = roaring::Roaring::readSafe(buf, bytes_read - 4);
+            roaring_bitmap = roaring::Roaring::readSafe(buffer.data() + 8, bytes_read - 8);
         } catch (const std::runtime_error& e) {
             create_status = Status::RuntimeError(
                     "DeletionVector deserialize error: failed to deserialize roaring bitmap, {}",

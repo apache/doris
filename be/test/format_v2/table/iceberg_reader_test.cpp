@@ -73,6 +73,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
+#include "util/hash_util.hpp"
 
 namespace doris::format {
 namespace {
@@ -675,7 +676,8 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
     BigEndian::Store32(blob.data(), total_length);
     constexpr char DV_MAGIC[] = {'\xD1', '\xD3', '\x39', '\x64'};
     memcpy(blob.data() + 4, DV_MAGIC, 4);
-    BigEndian::Store32(blob.data() + 8 + bitmap_size, 0);
+    const uint32_t crc = HashUtil::zlib_crc_hash(blob.data() + 4, total_length, 0);
+    BigEndian::Store32(blob.data() + 8 + bitmap_size, crc);
 
     std::ofstream output(file_path, std::ios::binary);
     EXPECT_TRUE(output.is_open());
@@ -1569,8 +1571,25 @@ TEST(IcebergV2ReaderTest, IcebergDeletionVectorRejectsMissingRange) {
     auto status = reader.parse_deletion_vector_file(table_format_desc, &desc, &has_delete_file);
 
     EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>());
-    EXPECT_NE(status.to_string().find("missing content offset or length"), std::string::npos);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("descriptor misses"), std::string::npos);
+    EXPECT_FALSE(has_delete_file);
+}
+
+TEST(IcebergV2ReaderTest, IcebergDeletionVectorRejectsInvalidRange) {
+    TTableFormatFileDesc table_format_desc;
+    TIcebergFileDesc iceberg_desc;
+    iceberg_desc.__set_format_version(2);
+    iceberg_desc.__set_delete_files({make_iceberg_deletion_vector("dv.bin", -1, 12)});
+    table_format_desc.__set_iceberg_params(iceberg_desc);
+
+    IcebergTableReaderDeleteFileTestHelper reader;
+    DeleteFileDesc desc;
+    bool has_delete_file = false;
+    auto status = reader.parse_deletion_vector_file(table_format_desc, &desc, &has_delete_file);
+
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("offset must be non-negative"), std::string::npos);
     EXPECT_FALSE(has_delete_file);
 }
 

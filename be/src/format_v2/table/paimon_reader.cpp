@@ -75,11 +75,13 @@ Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_d
         return Status::OK();
     }
     const auto& deletion_file = table_desc.deletion_file;
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read));
 
-    desc->key = build_paimon_deletion_vector_cache_key(deletion_file);
+    desc->key = ::doris::format::build_paimon_deletion_vector_cache_key(deletion_file);
     desc->path = deletion_file.path;
     desc->start_offset = deletion_file.offset;
-    desc->size = deletion_file.length + 4;
+    desc->size = static_cast<int64_t>(bytes_read);
     desc->file_size = -1;
     desc->format = DeleteFileDesc::Format::PAIMON;
     *has_delete_file = true;

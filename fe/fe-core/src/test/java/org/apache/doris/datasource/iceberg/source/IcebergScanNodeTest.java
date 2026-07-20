@@ -32,10 +32,12 @@ import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
 
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -271,6 +273,34 @@ public class IcebergScanNodeTest {
         method.invoke(node, rangeDesc, split);
 
         Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
+    }
+
+    @Test
+    public void testPositionDeleteSystemTableValidatesDeletionVectorMetadata() throws Exception {
+        DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
+        Mockito.when(deleteFile.path()).thenReturn("file:///tmp/delete-shared.puffin");
+        Mockito.when(deleteFile.format()).thenReturn(FileFormat.PUFFIN);
+        Mockito.when(deleteFile.fileSizeInBytes()).thenReturn(100L);
+        Mockito.when(deleteFile.contentOffset()).thenReturn(null);
+        Mockito.when(deleteFile.contentSizeInBytes()).thenReturn(10L);
+
+        PositionDeletesScanTask task = Mockito.mock(PositionDeletesScanTask.class);
+        Mockito.when(task.file()).thenReturn(deleteFile);
+        Mockito.when(task.start()).thenReturn(0L);
+        Mockito.when(task.length()).thenReturn(100L);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Method method = IcebergScanNode.class.getDeclaredMethod(
+                "createIcebergPositionDeleteSysSplit", PositionDeletesScanTask.class);
+        method.setAccessible(true);
+
+        try {
+            method.invoke(node, task);
+            Assert.fail("position_deletes planning should reject invalid deletion vector metadata");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getCause().getMessage().contains("delete-shared.puffin"));
+        }
     }
 
     @Test

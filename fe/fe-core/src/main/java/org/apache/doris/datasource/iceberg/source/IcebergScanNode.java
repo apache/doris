@@ -1003,10 +1003,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setPositionDeleteFileFormat(getNativePositionDeleteFileFormat(deleteFile.format()));
         split.setPositionDeleteOriginalPath(originalPath);
         if (deleteFile.format() == FileFormat.PUFFIN) {
+            Long contentOffset = deleteFile.contentOffset();
+            Long contentLength = deleteFile.contentSizeInBytes();
+            IcebergDeleteFileFilter.validateDeletionVectorMetadata(
+                    originalPath, deleteFile.fileSizeInBytes(), contentOffset, contentLength);
             split.setPositionDeleteContent(IcebergDeleteFileFilter.DeletionVector.type());
             split.setPositionDeleteReferencedDataFilePath(deleteFile.referencedDataFile());
-            split.setPositionDeleteContentOffset(deleteFile.contentOffset());
-            split.setPositionDeleteContentSizeInBytes(deleteFile.contentSizeInBytes());
+            split.setPositionDeleteContentOffset(contentOffset);
+            split.setPositionDeleteContentSizeInBytes(contentLength);
         } else {
             split.setPositionDeleteContent(IcebergDeleteFileFilter.PositionDelete.type());
         }
