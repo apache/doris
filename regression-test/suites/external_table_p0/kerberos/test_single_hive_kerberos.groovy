@@ -52,8 +52,8 @@ suite("test_single_hive_kerberos", "p0,external") {
             );
         """
         sql """ switch hms_kerberos """
-        sql """ CREATE DATABASE IF NOT EXISTS test_krb_hive_db """
-        sql """ USE test_krb_hive_db """
+        sql """ CREATE DATABASE IF NOT EXISTS test_single_krb_hive_db """
+        sql """ USE test_single_krb_hive_db """
         sql """ DROP TABLE IF EXISTS test_krb_hive_tbl """
         sql """
             CREATE TABLE test_krb_hive_tbl (
@@ -72,7 +72,7 @@ suite("test_single_hive_kerberos", "p0,external") {
                 (4, 'd', 1.4, 'cc3')
         """
         sql """ show databases """
-        order_qt_q01 """ select * from hms_kerberos.test_krb_hive_db.test_krb_hive_tbl """
+        order_qt_q01 """ select * from hms_kerberos.test_single_krb_hive_db.test_krb_hive_tbl """
         sql """drop catalog hms_kerberos;"""
 
         sql """drop catalog if exists hms_kerberos_hadoop_err1;"""
