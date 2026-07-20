@@ -179,4 +179,31 @@ suite("prune_predicates_mv_test") {
         sql "physical plan ${query_3}"
         notContains "PhysicalFilter"
     }
+
+    // case 4: USE_MV hard constraint for sync MV.
+    // The USE_MV hint forces the specified sync MV to be chosen in the final plan,
+    // regardless of cost. Verify the hint is "Used" (not "UnUsed") and the MV is chosen.
+    def query_4 = """
+        SELECT /*+ USE_MV(mv_3) */ top_asset as mv_ta, tag_key as mv_tk, SUM(frame_count) AS mv_sum
+        FROM base_t3
+        where tag_key in (1,2,3)
+        GROUP BY top_asset, tag_key;
+    """
+    mv_rewrite_success(query_4, "mv_3")
+    order_qt_query_4 query_4
+    explain {
+        sql "physical plan ${query_4}"
+        notContains "PhysicalFilter"
+    }
+
+    // case 5: USE_MV hard constraint hint status validation.
+    // In the cloud environment, statistics collection may be delayed causing base table
+    // cost to be 0. Previously the negative-infinity cost bias was also normalized to 0
+    // (Cost constructor does Double.max(0, ...)), making the MV not reliably chosen.
+    // The hard-constraint selector now guarantees USE_MV(mv_2) forces mv_2 into the
+    // final plan regardless of cost. Verify the USE_MV hint appears in explain output.
+    explain {
+        sql "${query_2}"
+        contains "use_mv(mv_2)"
+    }
 }

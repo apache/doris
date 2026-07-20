@@ -84,10 +84,13 @@ public class PreMaterializedViewRewriter {
         }
         // Do optimize
         new Optimizer(cascadesContext).execute();
-        // Chose the best physical plan
+        // Choose the best physical plan considering USE_MV hard constraint
         Group root = cascadesContext.getMemo().getRoot();
-        PhysicalPlan physicalPlan = NereidsPlanner.chooseBestPlan(root,
+        PhysicalPlan physicalPlan = NereidsPlanner.chooseBestPlanConsideringUseMv(root,
                 cascadesContext.getCurrentJobContext().getRequiredProperties(), cascadesContext);
+        // Finalize USE_MV hint status for pre-rewrite path
+        NereidsPlanner.finalizeUseMvHintStatus(cascadesContext.getStatementContext(),
+                cascadesContext.getMaterializationContexts(), physicalPlan);
         Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
                 = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
                 cascadesContext.getAllMaterializationContexts());

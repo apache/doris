@@ -723,10 +723,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String mvName = entry.getKey();
                 names.add(mvName);
                 if (useMvHint.getUseMvTableColumnMap().containsKey(names)) {
-                    useMvHint.getUseMvTableColumnMap().put(names, true);
                     Long choosedIndexId = indexNameToId.get(mvName);
                     if (orderedMvs.contains(choosedIndexId)) {
-                        useMvHint.setStatus(Hint.HintStatus.SUCCESS);
+                        // Note: final hint status is determined after physical plan selection
+                        // by NereidsPlanner.finalizeUseMvHintStatus().
                         return choosedIndexId;
                     } else {
                         useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);

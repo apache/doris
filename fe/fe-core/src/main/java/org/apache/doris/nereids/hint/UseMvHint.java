@@ -39,8 +39,14 @@ public class UseMvHint extends Hint {
 
     private final List<List<String>> tables;
 
+    // Key: MV qualifier (e.g., [catalog, db, mvName] for async MTMV,
+    // or [catalog, db, table, indexName] for sync MV).
+    // Value: true if the MV is finally chosen in the physical plan,
+    // false if not chosen (either rewrite failed or plan selector chose another path).
     private Map<List<String>, Boolean> useMvTableColumnMap = new HashMap<>();
 
+    // Key: MV qualifier for NO_USE_MV hint.
+    // Value: true if the MV was excluded from rewrite consideration.
     private Map<List<String>, Boolean> noUseMvTableColumnMap = new HashMap<>();
 
     /**
@@ -66,6 +72,22 @@ public class UseMvHint extends Hint {
 
     public Map<List<String>, Boolean> getUseMvTableColumnMap() {
         return useMvTableColumnMap;
+    }
+
+    /**
+     * Check if a given MV qualifier is specified in the USE_MV hint parameters.
+     */
+    public boolean isUseMvQualifier(List<String> mvQualifier) {
+        return useMvTableColumnMap.containsKey(mvQualifier);
+    }
+
+    /**
+     * Check if a given MV qualifier is finally chosen in the physical plan.
+     * This is only meaningful after plan selection has completed and
+     * {@link org.apache.doris.nereids.NereidsPlanner#finalizeUseMvHintStatus} has been called.
+     */
+    public boolean isQualifierChosen(List<String> mvQualifier) {
+        return Boolean.TRUE.equals(useMvTableColumnMap.get(mvQualifier));
     }
 
     private void checkConflicts(List<Hint> hints) {

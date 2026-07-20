@@ -22,6 +22,8 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -40,6 +42,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
@@ -66,8 +69,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -92,6 +97,7 @@ import org.apache.doris.thrift.TQueryCacheParam;
 import org.apache.doris.tso.MasterTsoProvider;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
@@ -322,27 +328,51 @@ public class NereidsPlanner extends Planner {
                 LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
             }
         }
-        Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
-                .getSessionVariable().getRequiredGroupIds();
+
+        // Compute USE_MV hard constraint: USE_MV specified qualifiers that rewrite-successfully
+        Set<List<String>> requiredUseMvIdentifiers = computeRequiredUseMvIdentifiers(statementContext);
         PhysicalPlan physicalPlan;
-        if (!requiredGroupIds.isEmpty()) {
-            Map<Group, Set<Integer>> reachableCache = new HashMap<>();
-            computeReachableGroupIds(getRoot(), reachableCache);
-            // Validate all required groups are reachable from root
-            Set<Integer> rootReachable = reachableCache.get(getRoot());
-            Set<Integer> unreachable = new HashSet<>(requiredGroupIds);
-            unreachable.removeAll(rootReachable);
-            if (!unreachable.isEmpty()) {
-                throw new AnalysisException("Required group IDs not found in memo: " + unreachable);
+        if (!requiredUseMvIdentifiers.isEmpty()) {
+            Map<Group, Set<List<String>>> mvReachableCache = new HashMap<>();
+            computeReachableMvIdentifiers(getRoot(), mvReachableCache, requiredUseMvIdentifiers);
+            // Validate all required MVs are reachable from root
+            Set<List<String>> rootReachable = mvReachableCache.get(getRoot());
+            Set<List<String>> unreachable = new HashSet<>(requiredUseMvIdentifiers);
+            if (rootReachable != null) {
+                unreachable.removeAll(rootReachable);
             }
-            physicalPlan = chooseBestPlanWithRequiredGroups(
-                    getRoot(), requireProperties, requiredGroupIds, reachableCache);
+            if (!unreachable.isEmpty()) {
+                throw new AnalysisException("USE_MV cannot be satisfied: required MV(s) "
+                        + unreachable + " not found in memo after rewrite");
+            }
+            physicalPlan = chooseBestPlanWithRequiredMaterializations(
+                    getRoot(), requireProperties, requiredUseMvIdentifiers, mvReachableCache,
+                    cascadesContext);
         } else {
-            int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
-            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+            Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
+                    .getSessionVariable().getRequiredGroupIds();
+            if (!requiredGroupIds.isEmpty()) {
+                Map<Group, Set<Integer>> reachableCache = new HashMap<>();
+                computeReachableGroupIds(getRoot(), reachableCache);
+                // Validate all required groups are reachable from root
+                Set<Integer> rootReachable = reachableCache.get(getRoot());
+                Set<Integer> unreachable = new HashSet<>(requiredGroupIds);
+                unreachable.removeAll(rootReachable);
+                if (!unreachable.isEmpty()) {
+                    throw new AnalysisException("Required group IDs not found in memo: " + unreachable);
+                }
+                physicalPlan = chooseBestPlanWithRequiredGroups(
+                        getRoot(), requireProperties, requiredGroupIds, reachableCache);
+            } else {
+                int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
+                physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+            }
         }
 
         physicalPlan = postProcess(physicalPlan);
+        // Finalize USE_MV hint status based on actually chosen MVs in the physical plan
+        finalizeUseMvHintStatus(statementContext,
+                cascadesContext.getMaterializationContexts(), physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);
@@ -884,6 +914,40 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
+     * Choose the best physical plan considering USE_MV hint as a hard constraint.
+     * If USE_MV hint is present with rewrite-success MVs, the returned plan must
+     * contain those MVs. Otherwise, falls back to standard cost-based selection.
+     *
+     * @param rootGroup the root memo group
+     * @param physicalProperties required physical properties
+     * @param cascadesContext the cascades context
+     * @return physical plan respecting USE_MV hard constraint
+     */
+    public static PhysicalPlan chooseBestPlanConsideringUseMv(Group rootGroup,
+            PhysicalProperties physicalProperties, CascadesContext cascadesContext)
+            throws AnalysisException {
+        StatementContext stmtCtx = cascadesContext.getStatementContext();
+        Set<List<String>> requiredUseMvIdentifiers = computeRequiredUseMvIdentifiers(stmtCtx);
+        if (requiredUseMvIdentifiers.isEmpty()) {
+            return chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
+        }
+        Map<Group, Set<List<String>>> mvReachableCache = new HashMap<>();
+        computeReachableMvIdentifiers(rootGroup, mvReachableCache, requiredUseMvIdentifiers);
+        Set<List<String>> rootReachable = mvReachableCache.get(rootGroup);
+        Set<List<String>> unreachable = new HashSet<>(requiredUseMvIdentifiers);
+        if (rootReachable != null) {
+            unreachable.removeAll(rootReachable);
+        }
+        if (!unreachable.isEmpty()) {
+            throw new AnalysisException("USE_MV cannot be satisfied: required MV(s) "
+                    + unreachable + " not found in memo after rewrite");
+        }
+        return chooseBestPlanWithRequiredMaterializations(
+                rootGroup, physicalProperties, requiredUseMvIdentifiers, mvReachableCache,
+                cascadesContext);
+    }
+
+    /**
      * Memoized bottom-up DFS: compute all group IDs reachable from this group's subtree
      * through physical GroupExpressions (including enforcers).
      */
@@ -1004,6 +1068,264 @@ public class NereidsPlanner extends Planner {
                 properties, group.getStatistics());
         cost = chosenCost;
         return physicalPlan;
+    }
+
+    /**
+     * Compute the set of USE_MV hint qualifiers that successfully rewrote.
+     * Marks USE_MV hint parameters that did NOT rewrite-success as UnUsed.
+     */
+    private static Set<List<String>> computeRequiredUseMvIdentifiers(StatementContext statementContext) {
+        Optional<UseMvHint> useMvHint = statementContext.getUseMvHint("USE_MV");
+        if (!useMvHint.isPresent()) {
+            return ImmutableSet.of();
+        }
+        Set<List<String>> useMvQualifiers = useMvHint.get().getUseMvTableColumnMap().keySet();
+        Set<List<String>> rewrittenSuccessSet = statementContext.getMaterializationRewrittenSuccessSet();
+        Set<List<String>> required = new HashSet<>(useMvQualifiers);
+        required.retainAll(rewrittenSuccessSet);
+        // Mark USE_MV qualifiers that did not rewrite-success as UnUsed
+        Set<List<String>> notRewritten = new HashSet<>(useMvQualifiers);
+        notRewritten.removeAll(rewrittenSuccessSet);
+        for (List<String> qualifier : notRewritten) {
+            // Update hint map to mark as not-chosen (false) with failure reason
+            useMvHint.get().getUseMvTableColumnMap().put(qualifier, false);
+        }
+        if (!notRewritten.isEmpty()) {
+            // If some USE_MV hints failed to rewrite, set status to UNUSED with reason
+            useMvHint.get().setStatus(Hint.HintStatus.UNUSED);
+            useMvHint.get().setErrorMessage("MV(s) not rewrite-success after CBO: " + notRewritten);
+        }
+        return required;
+    }
+
+    /**
+     * Extract the MV qualifier(s) from a scan plan if it matches a required USE_MV identifier.
+     * Returns the set of MV qualifiers this plan represents.
+     */
+    private static Set<List<String>> getScanMvIdentifiers(Plan plan,
+            Set<List<String>> requiredUseMvIdentifiers) {
+        Set<List<String>> result = new HashSet<>();
+        if (plan instanceof PhysicalOlapScan) {
+            PhysicalOlapScan scan = (PhysicalOlapScan) plan;
+            OlapTable table = scan.getTable();
+            if (table.getBaseIndexId() != scan.getSelectedIndexId()) {
+                List<String> qualifier = new ArrayList<>();
+                qualifier.add(table.getDatabase().getCatalog().getName());
+                qualifier.add(table.getDatabase().getFullName());
+                qualifier.add(table.getName());
+                qualifier.add(table.getIndexNameById(scan.getSelectedIndexId()));
+                if (requiredUseMvIdentifiers.contains(qualifier)) {
+                    result.add(qualifier);
+                }
+            }
+        }
+        if (plan instanceof PhysicalCatalogRelation) {
+            PhysicalCatalogRelation rel = (PhysicalCatalogRelation) plan;
+            if (rel.getTable() instanceof MTMV) {
+                List<String> qualifier = rel.getTable().getFullQualifiers();
+                if (requiredUseMvIdentifiers.contains(qualifier)) {
+                    result.add(qualifier);
+                }
+            }
+            // Also check for sync MV via OlapScan (PhysicalOlapScan is a PhysicalCatalogRelation)
+            if (rel instanceof PhysicalOlapScan) {
+                PhysicalOlapScan scan = (PhysicalOlapScan) rel;
+                OlapTable table = scan.getTable();
+                if (table.getBaseIndexId() != scan.getSelectedIndexId()) {
+                    List<String> qualifier = new ArrayList<>();
+                    qualifier.add(table.getDatabase().getCatalog().getName());
+                    qualifier.add(table.getDatabase().getFullName());
+                    qualifier.add(table.getName());
+                    qualifier.add(table.getIndexNameById(scan.getSelectedIndexId()));
+                    if (requiredUseMvIdentifiers.contains(qualifier)) {
+                        result.add(qualifier);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Memoized bottom-up DFS: compute all MV identifiers reachable from this group's subtree
+     * through physical GroupExpressions (including enforcers).
+     */
+    private static void computeReachableMvIdentifiers(Group group,
+            Map<Group, Set<List<String>>> cache, Set<List<String>> requiredUseMvIdentifiers) {
+        if (cache.containsKey(group)) {
+            return;
+        }
+        Set<List<String>> reachable = new HashSet<>();
+        // Put in cache BEFORE recursing to break cycles
+        cache.put(group, reachable);
+
+        for (GroupExpression ge : group.getPhysicalExpressions()) {
+            Set<List<String>> geReachable = getScanMvIdentifiers(ge.getPlan(), requiredUseMvIdentifiers);
+            for (Group child : ge.children()) {
+                computeReachableMvIdentifiers(child, cache, requiredUseMvIdentifiers);
+                geReachable.addAll(cache.get(child));
+            }
+            reachable.addAll(geReachable);
+        }
+        for (GroupExpression enforcer : group.getEnforcers().values()) {
+            Set<List<String>> enforcerReachable = new HashSet<>();
+            for (Group child : enforcer.children()) {
+                computeReachableMvIdentifiers(child, cache, requiredUseMvIdentifiers);
+                enforcerReachable.addAll(cache.get(child));
+            }
+            reachable.addAll(enforcerReachable);
+        }
+    }
+
+    /**
+     * Choose the cheapest physical plan that contains all required MV identifiers.
+     * At each group, picks the cheapest physical GroupExpression whose own + children's
+     * reachable sets collectively cover all remaining required MV identifiers, then
+     * distributes the remaining requirements among children and recurses.
+     */
+    private static PhysicalPlan chooseBestPlanWithRequiredMaterializations(
+            Group group, PhysicalProperties properties,
+            Set<List<String>> remaining, Map<Group, Set<List<String>>> reachableCache,
+            CascadesContext cascadesContext) {
+        remaining = new HashSet<>(remaining);
+
+        // Remove MVs that this group's own scan expressions cover
+        Set<List<String>> ownMvs = new HashSet<>();
+        for (GroupExpression ge : group.getPhysicalExpressions()) {
+            ownMvs.addAll(getScanMvIdentifiers(ge.getPlan(), remaining));
+        }
+        remaining.removeAll(ownMvs);
+
+        if (remaining.isEmpty()) {
+            return chooseBestPlan(group, properties, cascadesContext);
+        }
+
+        GroupExpression chosenGE = null;
+        double chosenCost = Double.MAX_VALUE;
+
+        // Check all physical GEs in this group
+        for (GroupExpression ge : group.getPhysicalExpressions()) {
+            if (!ge.getLowestCostTable().containsKey(properties)) {
+                continue;
+            }
+            double geCost = ge.getCostByProperties(properties);
+            if (geCost >= chosenCost) {
+                continue;
+            }
+            Set<List<String>> childReachable = new HashSet<>();
+            for (Group child : ge.children()) {
+                Set<List<String>> cr = reachableCache.get(child);
+                if (cr != null) {
+                    childReachable.addAll(cr);
+                }
+            }
+            if (childReachable.containsAll(remaining)) {
+                chosenGE = ge;
+                chosenCost = geCost;
+            }
+        }
+
+        // Also check enforcers
+        for (GroupExpression enforcer : group.getEnforcers().values()) {
+            if (!enforcer.getLowestCostTable().containsKey(properties)) {
+                continue;
+            }
+            double eCost = enforcer.getCostByProperties(properties);
+            if (eCost >= chosenCost) {
+                continue;
+            }
+            Set<List<String>> childReachable = new HashSet<>();
+            for (Group child : enforcer.children()) {
+                Set<List<String>> cr = reachableCache.get(child);
+                if (cr != null) {
+                    childReachable.addAll(cr);
+                }
+            }
+            if (childReachable.containsAll(remaining)) {
+                chosenGE = enforcer;
+                chosenCost = eCost;
+            }
+        }
+
+        if (chosenGE == null) {
+            throw new AnalysisException("USE_MV cannot be satisfied: cannot find physical plan containing"
+                    + " required MV(s) " + remaining + " at group " + group.getGroupId());
+        }
+
+        // Handle enforcer marking (same as chooseBestPlan)
+        if ((chosenGE.getPlan() instanceof PhysicalDistribute
+                && group.getEnforcerSpecs().containsKey(
+                        ((PhysicalDistribute<?>) chosenGE.getPlan()).getDistributionSpec()))
+                || group.getEnforcers().containsKey(chosenGE)) {
+            group.addChosenEnforcerId(chosenGE.getId().asInt());
+            group.addChosenEnforcerProperties(properties);
+        } else {
+            group.setChosenProperties(properties);
+            group.setChosenGroupExpressionId(chosenGE.getId().asInt());
+        }
+
+        // Distribute remaining among children and recurse
+        List<PhysicalProperties> inputProps = chosenGE.getInputPropertiesList(properties);
+        List<Plan> planChildren = Lists.newArrayList();
+        for (int i = 0; i < chosenGE.arity(); i++) {
+            Group child = chosenGE.child(i);
+            Set<List<String>> childReachable = reachableCache.getOrDefault(child, new HashSet<>());
+            Set<List<String>> childRemaining = new HashSet<>(remaining);
+            childRemaining.retainAll(childReachable);
+            planChildren.add(chooseBestPlanWithRequiredMaterializations(
+                    child, inputProps.get(i), childRemaining, reachableCache, cascadesContext));
+        }
+
+        Plan plan = chosenGE.getPlan().withChildren(planChildren);
+        if (!(plan instanceof PhysicalPlan)) {
+            throw new AnalysisException("Result plan must be PhysicalPlan");
+        }
+        plan = plan.withGroupExpression(Optional.of(chosenGE));
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                properties, group.getStatistics());
+        return physicalPlan;
+    }
+
+    /**
+     * After final physical plan is chosen, validate USE_MV hint status
+     * by checking which required MVs are actually in the chosen plan.
+     */
+    public static void finalizeUseMvHintStatus(StatementContext statementContext,
+            List<MaterializationContext> materializationContexts, PhysicalPlan physicalPlan) {
+        Optional<UseMvHint> useMvHint = statementContext.getUseMvHint("USE_MV");
+        if (!useMvHint.isPresent()) {
+            return;
+        }
+        // Do not override SYNTAX_ERROR status set during init phase
+        if (useMvHint.get().isSyntaxError()) {
+            return;
+        }
+        // Collect actually chosen MV qualifiers from the physical plan
+        Set<List<String>> chosenQualifiers = MaterializationContext.getChosenMvsQualifiers(
+                materializationContexts, physicalPlan);
+        Map<List<String>, Boolean> useMvMap = useMvHint.get().getUseMvTableColumnMap();
+        Set<List<String>> useMvQualifiers = new HashSet<>(useMvMap.keySet());
+        Set<List<String>> rewrittenSuccessSet = statementContext.getMaterializationRewrittenSuccessSet();
+        Set<List<String>> requiredRewritten = new HashSet<>(useMvQualifiers);
+        requiredRewritten.retainAll(rewrittenSuccessSet);
+
+        // Check if all required+rewritten MVs are actually chosen
+        boolean allChosen = chosenQualifiers.containsAll(requiredRewritten);
+        if (allChosen && !requiredRewritten.isEmpty()) {
+            useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
+            for (List<String> qualifier : requiredRewritten) {
+                useMvMap.put(qualifier, true);
+            }
+        } else if (!requiredRewritten.isEmpty()) {
+            Set<List<String>> notChosen = new HashSet<>(requiredRewritten);
+            notChosen.removeAll(chosenQualifiers);
+            useMvHint.get().setStatus(Hint.HintStatus.UNUSED);
+            useMvHint.get().setErrorMessage("MV(s) rewrite-success but not chosen in final plan: "
+                    + notChosen);
+            for (List<String> qualifier : requiredRewritten) {
+                useMvMap.put(qualifier, chosenQualifiers.contains(qualifier));
+            }
+        }
     }
 
     private long getGarbageCollectionTime() {
