@@ -297,24 +297,32 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         }
     }
 
-    // ──────────────────── Hive sentinel snapshot (-1) must skip Cache B ────────────────────
+    // ──────────────────── Hive sentinel snapshot (-1) now uses Cache B via a NAME-SET version ─────
     //
-    // getPartitionMetaVersion's token is "<snapshotId>@<schemaId>". Hive's beginQuerySnapshot always pins
-    // snapshotId == -1 (no real MVCC snapshot), so that token is a CONSTANT across queries and cannot
-    // detect a partition-set change. PluginDrivenMvccExternalTable#getSortedPartitionRanges must therefore
-    // gate on the pinned connector snapshot's snapshotId and return empty (skip Cache B, build fresh every
-    // query) rather than delegating to the cache manager.
+    // getPartitionMetaVersion's token is "<snapshotId>@<schemaId>" for a REAL snapshot id, but hive's
+    // beginQuerySnapshot always pins the sentinel snapshotId == -1 (hive has no MVCC snapshot), so that
+    // token would be a CONSTANT across queries. Instead, for a snapshot-less pin the version is derived
+    // from the frozen partition NAME SET (getOriginPartitions(scan).keySet(), copied) -- the SAME map the
+    // ranges are built from, so version == exact content and the cache rebuilds precisely when the
+    // partition set changes. PluginDrivenMvccExternalTable no longer overrides getSortedPartitionRanges
+    // (the -1 short-circuit added in 5c17b748880 was removed): a snapshot-less pin now goes through the
+    // inherited ExternalTable#getSortedPartitionRanges -> the cache manager, exactly like iceberg/paimon.
 
-    @Test
-    public void testGetSortedPartitionRangesEmptyForSentinelSnapshotId() throws Exception {
-        Map<String, PartitionItem> pinnedParts = Maps.newHashMap();
-        pinnedParts.put("id=1", listItem(1));
-        // Hive's sentinel: no real MVCC snapshot id.
-        ConnectorMvccSnapshot sentinelSnapshot = ConnectorMvccSnapshot.builder()
-                .snapshotId(-1L).schemaId(0L).build();
-        PluginDrivenMvccSnapshot pin = new PluginDrivenMvccSnapshot(
-                sentinelSnapshot, pinnedParts, Maps.newHashMap());
+    /**
+     * Builds a live Env whose {@code getSortedPartitionsCacheManager()} returns {@code rangesCacheMgr},
+     * mockStatic-scoped so {@code table.getSortedPartitionRanges(scan)} (now purely inherited from
+     * {@link ExternalTable}, no override) can resolve {@code Env.getCurrentEnv()} on the real dispatch path.
+     */
+    private static MockedStatic<Env> mockEnvWithRangesCacheManager(NereidsSortedPartitionsCacheManager rangesCacheMgr) {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
+        MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+        envStatic.when(Env::getCurrentEnv).thenReturn(env);
+        return envStatic;
+    }
 
+    /** Builds a {@code PluginDrivenMvccExternalTable} mock wired for the real getOriginPartitions/getPartitionMetaVersion/pinnedSnapshot bodies (same technique as the other real-wiring tests in this file). */
+    private static PluginDrivenMvccExternalTable newRealWiringTable() {
         PluginDrivenMvccExternalTable table =
                 Mockito.mock(PluginDrivenMvccExternalTable.class, Mockito.CALLS_REAL_METHODS);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
@@ -325,25 +333,95 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         Mockito.when(database.getCatalog()).thenReturn((CatalogIf) catalog);
         Mockito.when(catalog.getName()).thenReturn(CTL);
         Mockito.doReturn(SelectedPartitions.NOT_PRUNED).when(table).initSelectedPartitions(Mockito.any());
+        return table;
+    }
 
+    /** Pins {@code pin} onto a FRESH ConnectContext/StatementContext ("a new query") and returns the scan built over it. */
+    private static LogicalFileScan pinLatestAndBuildScan(PluginDrivenMvccExternalTable table, PluginDrivenMvccSnapshot pin) {
         ConnectContext ctx = new ConnectContext();
         StatementContext stmtCtx = new StatementContext(ctx, null);
         ctx.setStatementContext(stmtCtx);
         ctx.setThreadLocalInfo();
-        try {
-            // B5a implicit query-begin (latest) pin -- mirrors a plain (no @tag/@branch/time-travel) hive scan.
-            Mockito.doReturn(pin).when(table).loadSnapshot(Optional.empty(), Optional.empty());
-            stmtCtx.loadSnapshots(table, Optional.empty(), Optional.empty());
+        // B5a implicit query-begin (latest) pin -- mirrors a plain (no @tag/@branch/time-travel) hive scan.
+        Mockito.doReturn(pin).when(table).loadSnapshot(Optional.empty(), Optional.empty());
+        stmtCtx.loadSnapshots(table, Optional.empty(), Optional.empty());
+        return new LogicalFileScan(new RelationId(1), table,
+                Collections.singletonList(DB), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+    }
 
-            LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
-                    Collections.singletonList(DB), Collections.emptyList(),
-                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+    private static PluginDrivenMvccSnapshot sentinelPin(Map<String, PartitionItem> parts) {
+        ConnectorMvccSnapshot sentinelSnapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(-1L).schemaId(0L).build();
+        return new PluginDrivenMvccSnapshot(sentinelSnapshot, parts, Maps.newHashMap());
+    }
+
+    @Test
+    public void testGetSortedPartitionRangesPresentForSnapshotLessNonEmptyPartitions() throws Exception {
+        Map<String, PartitionItem> pinnedParts = Maps.newHashMap();
+        pinnedParts.put("id=1", listItem(1));
+        pinnedParts.put("id=2", listItem(2));
+        PluginDrivenMvccExternalTable table = newRealWiringTable();
+
+        NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
+        try (MockedStatic<Env> envStatic = mockEnvWithRangesCacheManager(rangesCacheMgr)) {
+            LogicalFileScan scan = pinLatestAndBuildScan(table, sentinelPin(pinnedParts));
+
+            Optional<SortedPartitionRanges<String>> ranges = table.getSortedPartitionRanges(scan);
+
+            Assertions.assertTrue(ranges.isPresent(),
+                    "snapshotId == -1 (hive sentinel) with a non-empty partition set must now use Cache B, "
+                            + "keyed by the partition NAME-SET version token");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testGetSortedPartitionRangesRebuildsWhenSnapshotLessNameSetChanges() throws Exception {
+        PluginDrivenMvccExternalTable table = newRealWiringTable();
+        NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
+        try (MockedStatic<Env> envStatic = mockEnvWithRangesCacheManager(rangesCacheMgr)) {
+            Map<String, PartitionItem> partsAtQuery1 = Maps.newHashMap();
+            partsAtQuery1.put("id=1", listItem(1));
+            partsAtQuery1.put("id=2", listItem(2));
+            LogicalFileScan scan1 = pinLatestAndBuildScan(table, sentinelPin(partsAtQuery1));
+            SortedPartitionRanges<String> first = table.getSortedPartitionRanges(scan1).orElse(null);
+            Assertions.assertNotNull(first, "ranges built and cached at the first (2-partition) name set");
+            Assertions.assertEquals(2, first.sortedPartitions.size());
+
+            // A second query ("ALTER ADD PARTITION" between queries): the pin's partition NAME SET grew.
+            // The manager's Objects.equals compares the two HashSet version tokens by CONTENT, so it must
+            // detect this change even though snapshotId is still the constant -1 on both pins.
+            Map<String, PartitionItem> partsAtQuery2 = Maps.newHashMap();
+            partsAtQuery2.put("id=1", listItem(1));
+            partsAtQuery2.put("id=2", listItem(2));
+            partsAtQuery2.put("id=3", listItem(3));
+            LogicalFileScan scan2 = pinLatestAndBuildScan(table, sentinelPin(partsAtQuery2));
+            SortedPartitionRanges<String> rebuilt = table.getSortedPartitionRanges(scan2).orElse(null);
+
+            Assertions.assertNotNull(rebuilt, "ranges rebuilt at the second (3-partition) name set");
+            Assertions.assertNotSame(first, rebuilt,
+                    "name-set change at a constant snapshotId==-1 must still trigger a rebuild "
+                            + "(the version token is content-derived from the partition names, not the snapshot id)");
+            Assertions.assertEquals(3, rebuilt.sortedPartitions.size(), "rebuilt from the new partition set");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testGetSortedPartitionRangesEmptyForSnapshotLessEmptyPartitions() throws Exception {
+        PluginDrivenMvccExternalTable table = newRealWiringTable();
+        NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
+        try (MockedStatic<Env> envStatic = mockEnvWithRangesCacheManager(rangesCacheMgr)) {
+            LogicalFileScan scan = pinLatestAndBuildScan(table, sentinelPin(Maps.newHashMap()));
 
             Optional<SortedPartitionRanges<String>> ranges = table.getSortedPartitionRanges(scan);
 
             Assertions.assertFalse(ranges.isPresent(),
-                    "snapshotId == -1 (hive sentinel) must skip Cache B and yield empty, so the caller "
-                            + "(PruneFileScanPartition) builds ranges fresh from this query's pin");
+                    "an empty partition set (snapshot-less or not) yields no ranges to cache "
+                            + "(SortedPartitionRanges.build(emptyMap) == null)");
         } finally {
             ConnectContext.remove();
         }

@@ -55,7 +55,6 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
-import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 
@@ -68,6 +67,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -635,8 +635,17 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public Object getPartitionMetaVersion(CatalogRelation scan) {
         ConnectorMvccSnapshot cs = getOrMaterialize(pinnedSnapshot(scan)).getConnectorSnapshot();
-        // Opaque version token: iceberg/paimon expose an immutable (snapshotId, schemaId) pair.
-        return cs.getSnapshotId() + "@" + cs.getSchemaId();
+        if (cs.getSnapshotId() != -1L) {
+            // Opaque version token: iceberg/paimon expose an immutable (snapshotId, schemaId) pair.
+            return cs.getSnapshotId() + "@" + cs.getSchemaId();
+        }
+        // Snapshot-less connector (e.g. hive): no real MVCC snapshot id to version against. Derive the
+        // token from the frozen partition NAME SET instead -- getOriginPartitions(scan) reads the SAME
+        // pin, so version == exact content the ranges are built from: the cache rebuilds precisely when
+        // the partition set changes, never on a stale set. A compact copy of just the name strings (NOT
+        // the live keySet view), so the cross-query cache entry does not retain the whole pin's
+        // partition-item map.
+        return new HashSet<>(getOriginPartitions(scan).keySet());
     }
 
     @Override
@@ -646,28 +655,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         return 0L;
     }
 
-    @Override
-    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
-        // Cache B (NereidsSortedPartitionsCacheManager) is keyed by getPartitionMetaVersion(scan), i.e.
-        // "<snapshotId>@<schemaId>". That token only detects a partition-set change when snapshotId is a
-        // REAL, monotonically-changing value (iceberg/paimon). Hive's beginQuerySnapshot always pins the
-        // sentinel snapshotId == -1 (hive has no MVCC snapshot), so the token would be the CONSTANT
-        // "-1@<schemaId>" across queries -- a cache hit could then serve ranges built from an OLDER
-        // partition set than the current pin's nameToPartitionItem (e.g. after a CachingHmsClient TTL
-        // refresh with no invalidate event), silently pruning against a stale range set. Skip the cache
-        // for a -1 (non-MVCC / sentinel) snapshot: return empty so the caller (PruneFileScanPartition)
-        // builds ranges fresh from THIS query's pin every time, which is always consistent with it -- the
-        // pre-cache behavior. A real snapshot id (iceberg/paimon) keeps the cache via super's delegation
-        // to the cache manager. An EMPTY iceberg table also pins snapshotId == -1, but its
-        // nameToPartitionItem is then empty too, and PruneFileScanPartition's
-        // "!nameToPartitionItem.isEmpty()" guard already skips ranges entirely -- so gating on -1 here is
-        // safe for that case as well.
-        ConnectorMvccSnapshot cs = getOrMaterialize(pinnedSnapshot(scan)).getConnectorSnapshot();
-        if (cs.getSnapshotId() == -1L) {
-            return Optional.empty();
-        }
-        return super.getSortedPartitionRanges(scan);
-    }
+    // getSortedPartitionRanges is now a pure pass-through to ExternalTable's cache-manager delegation
+    // (5c17b748880's snapshotId==-1 short-circuit was removed: getPartitionMetaVersion above derives a
+    // content-comparable version for snapshot-less connectors, so Cache B is now correct for them too) --
+    // no override needed here.
 
     private Optional<MvccSnapshot> pinnedSnapshot(CatalogRelation scan) {
         if (scan instanceof LogicalFileScan) {
