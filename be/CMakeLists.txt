@@ -413,6 +413,8 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
     add_compile_options(-msse4.2)
     add_definitions(-DLIBDIVIDE_SSE2)
     if (USE_AVX2)
+        # for almost all platform support AVX2, x86-64-v3 is supported.
+        add_compile_options(-march=x86-64-v3)
         add_compile_options(-mavx2)
         add_definitions(-DUSE_AVX2)
         add_definitions(-DLIBDIVIDE_AVX2)
