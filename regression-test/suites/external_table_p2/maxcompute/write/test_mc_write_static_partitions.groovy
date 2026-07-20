@@ -151,6 +151,15 @@ suite("test_mc_write_static_partitions", "p2,external") {
         order_qt_overwrite_p1 """ SELECT * FROM ${tb4} WHERE ds = '20250101' """
         order_qt_overwrite_p2 """ SELECT * FROM ${tb4} WHERE ds = '20250102' """
 
+        // Explain prints a parent before its child. VSORT before VEXCHANGE therefore means
+        // the exchange feeds the sort, matching the required shuffle-then-sort data flow.
+        def checkPartitionShuffleThenSort = { String explainString ->
+            int sortIndex = explainString.indexOf(":VSORT")
+            int exchangeIndex = explainString.indexOf(":VEXCHANGE")
+            sortIndex >= 0 && exchangeIndex > sortIndex
+                    && !explainString.contains("VMERGING-EXCHANGE")
+        }
+
         // Test 5: Dynamic partition regression (ensure not broken)
         // Dynamic partition: partition column 'ds' is in the data, SORT node IS expected
         String tb5 = "dynamic_reg_${uuid}"
@@ -165,15 +174,16 @@ suite("test_mc_write_static_partitions", "p2,external") {
         sql """INSERT INTO ${tb5} VALUES (1, 'a', '20250101'), (2, 'b', '20250102')"""
         order_qt_dynamic_regression """ SELECT * FROM ${tb5} """
 
-        // Explain: dynamic partition INSERT should HAVE SORT node (partition col in data)
+        // Dynamic partition writes need a partition shuffle followed by a local sort.
+        // A merging exchange can deadlock with local-channel backpressure.
         explain {
             sql("INSERT INTO ${tb5} VALUES (3, 'c', '20250103')")
-            contains "SORT"
+            check { explainString -> checkPartitionShuffleThenSort(explainString) }
         }
-        // Explain: dynamic partition INSERT INTO SELECT should HAVE SORT node
+        // INSERT INTO SELECT must use the same non-merging plan shape.
         explain {
             sql("INSERT INTO ${tb5} SELECT * FROM ${tb3_src}")
-            contains "SORT"
+            check { explainString -> checkPartitionShuffleThenSort(explainString) }
         }
 
         // Test 6: INSERT OVERWRITE non-partitioned table
@@ -213,10 +223,10 @@ suite("test_mc_write_static_partitions", "p2,external") {
             region STRING
         ) PARTITION BY (ds, region)()
         """
-        // Explain: partial static partition (ds static, region dynamic) should HAVE SORT node
+        // A remaining dynamic partition column also requires shuffle followed by local sort.
         explain {
             sql("INSERT INTO ${tb7} PARTITION(ds='20250101') VALUES (1, 'v1', 'bj')")
-            contains "SORT"
+            check { explainString -> checkPartitionShuffleThenSort(explainString) }
         }
         // Explain: all static partition should NOT have SORT node
         explain {
