@@ -42,6 +42,10 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
                 "type" = "hms",
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
+                "dfs.data.transfer.protection" = "authentication",
                 "hadoop.kerberos.min.seconds.before.relogin" = "5",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
@@ -61,6 +65,10 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
                 "type" = "hms",
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9683",
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8620",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master-2@OTHERREALM.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
+                "dfs.data.transfer.protection" = "authentication",
                 "hadoop.kerberos.min.seconds.before.relogin" = "5",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
@@ -71,6 +79,32 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
                                                   DEFAULT"
             );
         """
+
+        def initializeFixture = { String catalogName ->
+            sql """ switch ${catalogName} """
+            sql """ CREATE DATABASE IF NOT EXISTS test_krb_hive_db """
+            sql """ USE test_krb_hive_db """
+            sql """ DROP TABLE IF EXISTS test_krb_hive_tbl """
+            sql """
+                CREATE TABLE test_krb_hive_tbl (
+                    id_key INT,
+                    string_key STRING,
+                    rate_val DOUBLE,
+                    comment STRING
+                ) ENGINE = hive
+                PROPERTIES ("file_format" = "parquet")
+            """
+            sql """
+                INSERT INTO test_krb_hive_tbl VALUES
+                    (1, 'a', 3.16, 'cc0'),
+                    (2, 'b', 41.2, 'cc1'),
+                    (3, 'c', 6.2, 'cc2'),
+                    (4, 'd', 1.4, 'cc3')
+            """
+        }
+
+        initializeFixture(hms_catalog_name)
+        initializeFixture("other_${hms_catalog_name}")
 
         // 1. catalogA
         sql """switch ${hms_catalog_name};"""

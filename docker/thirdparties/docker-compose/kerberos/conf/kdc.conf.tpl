@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,24 +15,15 @@
 # specific language governing permissions and limitations
 # under the License.
 
-[logging]
- default = FILE:/var/log/krb5libs.log
- kdc = FILE:/var/log/krb5kdc.log
- admin_server = FILE:/var/log/kadmind.log
-
-[libdefaults]
- default_realm = LABS.TERADATA.COM
- dns_lookup_realm = false
- dns_lookup_kdc = false
- forwardable = true
- allow_weak_crypto = true
+[kdcdefaults]
+ kdc_ports = ${KDC_PORT}
+ kdc_tcp_ports = ${KDC_PORT}
 
 [realms]
- LABS.TERADATA.COM = {
-  kdc = ${HOST}:${KDC_PORT1}
-  admin_server = ${HOST}:${KADMIND_PORT1}
- }
- OTHERLABS.TERADATA.COM = {
-  kdc = ${HOST}:${KDC_PORT2}
-  admin_server = ${HOST}:${KADMIND_PORT2}
+ ${REALM} = {
+  database_name = /data/kdc/principal
+  key_stash_file = /data/kdc/.k5.${REALM}
+  max_life = 24h
+  max_renewable_life = 7d
+  supported_enctypes = aes128-cts-hmac-sha1-96:normal
  }

@@ -501,34 +501,150 @@ start_lakesoul() {
     fi
 }
 
+dump_kerberos_container_state() {
+    local container="$1"
+
+    echo "===== ${container} state =====" >&2
+    sudo docker inspect --format \
+        'status={{.State.Status}} running={{.State.Running}} exitCode={{.State.ExitCode}} oomKilled={{.State.OOMKilled}} error={{.State.Error}}' \
+        "${container}" >&2 || true
+    echo "===== ${container} logs (tail -200) =====" >&2
+    sudo docker logs --tail 200 "${container}" >&2 || true
+}
+
+cleanup_kerberos_ready_wait() {
+    local wait_pid="$1"
+
+    [[ -n "${wait_pid}" ]] || return 0
+    sudo kill -TERM -- "-${wait_pid}" >/dev/null 2>&1 || true
+    wait "${wait_pid}" >/dev/null 2>&1 || true
+}
+
+wait_for_kerberos_ready() {
+    local container="$1"
+    local wait_pid=""
+    local wait_status=0
+
+    echo "Waiting for ${container} readiness event"
+    setsid sudo timeout --signal=TERM --kill-after=5s 20m bash -c '
+        log_dir=$(mktemp -d)
+        mkfifo "${log_dir}/container.log"
+        docker logs --follow "$1" >"${log_dir}/container.log" 2>&1 &
+        log_pid=$!
+        cleanup() {
+            kill -KILL "${log_pid}" 2>/dev/null || true
+            wait "${log_pid}" 2>/dev/null || true
+            rm -rf "${log_dir}"
+        }
+        trap cleanup EXIT
+        while IFS= read -r line; do
+            if [[ "${line}" == "DORIS_KERBEROS_READY" ]]; then
+                echo "${line}"
+                exit 0
+            fi
+        done <"${log_dir}/container.log"
+        exit 1
+    ' _ "${container}" &
+    wait_pid=$!
+    trap 'cleanup_kerberos_ready_wait "${wait_pid}"' EXIT
+    trap 'exit 143' TERM
+    trap 'exit 130' INT
+    if ! wait "${wait_pid}"; then
+        wait_status=1
+    fi
+    wait_pid=""
+    trap - EXIT TERM INT
+    if [[ "${wait_status}" -ne 0 ]]; then
+        echo "ERROR: timed out or container exited before ${container} became ready" >&2
+        dump_kerberos_container_state "${container}"
+        return 1
+    fi
+}
+
+cleanup_kerberos_readiness_jobs() {
+    local pid
+
+    for pid in "$@"; do
+        kill "${pid}" >/dev/null 2>&1 || true
+    done
+    for pid in "$@"; do
+        wait "${pid}" >/dev/null 2>&1 || true
+    done
+}
+
+validate_kerberos_container() {
+    local container="$1"
+
+    echo "Running one-shot readiness validation for ${container}"
+    if ! sudo docker exec "${container}" /opt/doris/health.sh; then
+        echo "ERROR: one-shot readiness validation failed for ${container}" >&2
+        dump_kerberos_container_state "${container}"
+        return 1
+    fi
+}
+
 start_kerberos() {
     echo "RUN_KERBEROS"
+    local KERBEROS_DIR="${ROOT}/docker-compose/kerberos"
+    local -a containers=(
+        "doris-${CONTAINER_UID}-kerberos1"
+        "doris-${CONTAINER_UID}-kerberos2"
+    )
+    local -a readiness_pids=()
+    local readiness_status=0
+    local container
+    local pid
+
     export CONTAINER_UID=${CONTAINER_UID}
-    envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
-    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
-    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
+    envsubst <"${KERBEROS_DIR}/kerberos.yaml.tpl" >"${KERBEROS_DIR}/kerberos.yaml"
+    mkdir -p "${KERBEROS_DIR}/conf/kerberos1" "${KERBEROS_DIR}/conf/kerberos2" \
+        "${KERBEROS_DIR}/two-kerberos-hives"
     for i in {1..2}; do
-        . "${ROOT}"/docker-compose/kerberos/kerberos${i}_settings.env
-        envsubst <"${ROOT}"/docker-compose/kerberos/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/kerberos/hadoop-hive-${i}.env
-        envsubst <"${ROOT}"/docker-compose/kerberos/conf/my.cnf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/my.cnf
-        envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf
-        envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf
+        . "${KERBEROS_DIR}/kerberos${i}_settings.env"
+        envsubst <"${KERBEROS_DIR}/hadoop-hive.env.tpl" >"${KERBEROS_DIR}/hadoop-hive-${i}.env"
+        for config in kdc.conf krb5.conf core-site.xml hdfs-site.xml hive-site.xml; do
+            envsubst <"${KERBEROS_DIR}/conf/${config}.tpl" >"${KERBEROS_DIR}/conf/kerberos${i}/${config}"
+        done
     done
     sudo chmod a+w /etc/hosts
-    sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
-    sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
-    sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
-    sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
+    if ! awk -v ip="${IP_HOST}" '$1 == ip && $2 == "hadoop-master" { found = 1 } END { exit !found }' /etc/hosts; then
+        sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
+    fi
+    if ! awk -v ip="${IP_HOST}" '$1 == ip && $2 == "hadoop-master-2" { found = 1 } END { exit !found }' /etc/hosts; then
+        sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
+    fi
+    register_stack_metadata "kerberos" "${KERBEROS_DIR}/kerberos.yaml" ""
+    compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" down --remove-orphans
+    sudo rm -rf "${KERBEROS_DIR}/data"
     if [[ "${STOP}" -ne 1 ]]; then
         echo "PREPARE KERBEROS DATA"
-        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
-        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
-        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
-        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up --remove-orphans --wait -d
-        sudo rm -df /keytabs
-        sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
-        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
-        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
+        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.keytab
+        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.jks
+        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.conf
+        compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" up --build --remove-orphans -d
+        trap 'cleanup_kerberos_readiness_jobs "${readiness_pids[@]}"' EXIT
+        trap 'exit 143' TERM
+        trap 'exit 130' INT
+        for container in "${containers[@]}"; do
+            wait_for_kerberos_ready "${container}" &
+            readiness_pids+=("$!")
+        done
+        for pid in "${readiness_pids[@]}"; do
+            if ! wait "${pid}"; then
+                readiness_status=1
+            fi
+        done
+        readiness_pids=()
+        trap - EXIT TERM INT
+        if [[ "${readiness_status}" -ne 0 ]]; then
+            return 1
+        fi
+        for container in "${containers[@]}"; do
+            validate_kerberos_container "${container}"
+        done
+        sudo ln -sfn "${KERBEROS_DIR}/two-kerberos-hives" /keytabs
+        sudo cp "${KERBEROS_DIR}/common/conf/doris-krb5.conf" /keytabs/krb5.conf
+        sudo cp "${KERBEROS_DIR}/common/conf/doris-krb5.conf" /etc/krb5.conf
         sleep 2
     fi
 }
