@@ -512,6 +512,7 @@ public class MTMV extends OlapTable {
             if (ivmInfo == null) {
                 ivmInfo = new IvmInfo();
             }
+            ivmInfo.increaseBinlogBrokenGeneration();
             if (ivmInfo.isBinlogBroken()) {
                 return false;
             }
@@ -519,6 +520,15 @@ public class MTMV extends OlapTable {
             return true;
         } finally {
             writeMvUnlock();
+        }
+    }
+
+    public long getIvmBinlogBrokenGeneration() {
+        readMvLock();
+        try {
+            return ivmInfo == null ? 0 : ivmInfo.getBinlogBrokenGeneration();
+        } finally {
+            readMvUnlock();
         }
     }
 

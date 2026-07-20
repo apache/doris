@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
@@ -131,6 +132,31 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
         executeSql("ALTER TABLE ivm_base DROP PARTITION IF EXISTS p_missing");
 
         Assertions.assertFalse(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testCompleteRefreshBaselineMarkerCanBeClearedAfterSuccess() throws Exception {
+        String db = "ivm_broken_complete_refresh";
+        createPartitionedIvmTableAndMv(db);
+        MTMV mtmv = getMtmv(db);
+
+        long markerGeneration = IvmRefreshManager.markIvmBaselineBroken(mtmv);
+        Assertions.assertEquals(markerGeneration, IvmRefreshManager.markIvmBaselineBroken(mtmv));
+        Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken());
+
+        Assertions.assertFalse(mtmv.markIvmBinlogBroken());
+        Assertions.assertTrue(mtmv.getIvmBinlogBrokenGeneration() > markerGeneration);
+
+        JobException exception = Assertions.assertThrows(JobException.class,
+                () -> IvmRefreshManager.finishIvmFullRefresh(mtmv, markerGeneration, null));
+        Assertions.assertTrue(exception.getMessage().contains("Base table metadata changed"));
+        Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken());
+
+        IvmPlanSignature signature = new IvmPlanSignature("current plan", "current-signature");
+        IvmRefreshManager.finishIvmFullRefresh(
+                mtmv, mtmv.getIvmBinlogBrokenGeneration(), signature);
+        Assertions.assertFalse(mtmv.getIvmInfo().isBinlogBroken());
+        Assertions.assertEquals(signature.getSha256(), mtmv.getIvmInfo().getPlanSignature());
     }
 
     @Test

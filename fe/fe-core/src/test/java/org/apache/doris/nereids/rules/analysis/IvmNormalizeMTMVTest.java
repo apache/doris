@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableProperty;
@@ -30,6 +31,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
+import org.apache.doris.mtmv.ivm.IvmRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
@@ -86,6 +88,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.mockito.Mockito;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -115,13 +118,20 @@ class IvmNormalizeMTMVTest {
     void testIvmRewriteContextEnablesNormalizeWithoutSessionVariable() {
         JobContext jobContext = newJobContextForRoot(scan, false, Collections.emptySet(),
                 Optional.of(new IvmRewriteContext(IvmRewriteContext.Mode.NORMALIZE, null, false)));
+        StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
+        IvmRewriteResult refreshRewriteResult = new IvmRewriteResult();
+        IvmRefreshContext refreshContext = new IvmRefreshContext(
+                Mockito.mock(MTMV.class), statementContext.getConnectContext(), refreshRewriteResult);
+        statementContext.setIvmRefreshContext(Optional.of(refreshContext));
         Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
         Assertions.assertTrue(rewriteResult.isNormalizeRewritten());
+        Assertions.assertSame(refreshRewriteResult, rewriteResult);
         Assertions.assertSame(result, rewriteResult.getNormalizedPlan());
         Assertions.assertNotNull(rewriteResult.getPlanSignature());
+        Assertions.assertSame(rewriteResult.getPlanSignature(), refreshContext.getRewriteResult().getPlanSignature());
     }
 
     @Test

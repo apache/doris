@@ -18,10 +18,19 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.mtmv.BaseTableInfo;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 class IvmRewriteContextTest {
     @Test
@@ -53,5 +62,30 @@ class IvmRewriteContextTest {
         Assertions.assertEquals(IvmRewriteContext.Mode.FULL, context.getMode());
         Assertions.assertSame(mtmv, context.getMtmv());
         Assertions.assertFalse(context.isIncludeUpToDateStreams());
+        Assertions.assertFalse(context.hasFullRefreshStreamScans());
+        Assertions.assertFalse(context.getFullRefreshNonPctReadMode().isPresent());
+    }
+
+    @Test
+    void testFullRefreshStreamScansKeepResetPartitionScopeAndNonPctMode() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        BaseTableInfo resetTable = new BaseTableInfo(new TableNameInfo("ctl", "db", "reset_tbl"));
+        Set<Long> resetPartitionIds = new HashSet<>(Collections.singleton(1L));
+        Map<BaseTableInfo, Set<Long>> resetScopes = new HashMap<>();
+        resetScopes.put(resetTable, resetPartitionIds);
+
+        IvmRewriteContext context = IvmRewriteContext.full(mtmv,
+                resetScopes, StreamReadMode.SNAPSHOT);
+        resetPartitionIds.add(2L);
+
+        Assertions.assertTrue(context.hasFullRefreshStreamScans());
+        Set<Long> firstRead = context.getFullRefreshResetPartitionIds(resetTable).orElseThrow();
+        Assertions.assertEquals(Collections.singleton(1L), firstRead);
+        Assertions.assertEquals(StreamReadMode.SNAPSHOT,
+                context.getFullRefreshNonPctReadMode().orElseThrow());
+
+        firstRead.add(3L);
+        Assertions.assertEquals(Collections.singleton(1L),
+                context.getFullRefreshResetPartitionIds(resetTable).orElseThrow());
     }
 }

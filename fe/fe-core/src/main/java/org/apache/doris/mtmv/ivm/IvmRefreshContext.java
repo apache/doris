@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Shared immutable context for one FE-side incremental refresh attempt.
+ * Shared context for one FE-side incremental refresh attempt.
  *
  * <p>TSO positions are now obtained from {@code OlapTableStream} per-partition offsets
  * in {@link IvmDeltaRewriteState} rather than stored here.
