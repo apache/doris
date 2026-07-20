@@ -26,15 +26,15 @@ namespace doris {
 class RuntimeState;
 class Block;
 
-// information_schema.plugins: kernel plugin inventory of the currently
-// connected FE (plugins are per-FE local state, so the RPC targets the
+// information_schema.extensions: kernel extension inventory of the currently
+// connected FE (extensions are per-FE local state, so the RPC targets the
 // connected FE instead of the master).
-class SchemaPluginsScanner : public SchemaScanner {
-    ENABLE_FACTORY_CREATOR(SchemaPluginsScanner);
+class SchemaExtensionsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaExtensionsScanner);
 
 public:
-    SchemaPluginsScanner();
-    ~SchemaPluginsScanner() override = default;
+    SchemaExtensionsScanner();
+    ~SchemaExtensionsScanner() override = default;
 
     Status start(RuntimeState* state) override;
     Status get_next_block_internal(Block* block, bool* eos) override;
@@ -42,7 +42,7 @@ public:
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
-    Status _get_plugins_block_from_fe();
+    Status _get_extensions_block_from_fe();
 
     TNetworkAddress _fe_addr;
 
@@ -50,7 +50,7 @@ private:
     int _row_idx = 0;
     int _total_rows = 0;
     int _rpc_timeout_ms = 3000;
-    std::unique_ptr<Block> _plugins_block = nullptr;
+    std::unique_ptr<Block> _extensions_block = nullptr;
 };
 
 } // namespace doris

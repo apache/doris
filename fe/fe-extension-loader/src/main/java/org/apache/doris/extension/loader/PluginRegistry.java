@@ -37,7 +37,7 @@ import java.util.jar.JarFile;
  * Process-wide registry of loaded plugins across all plugin families
  * (filesystem, connector, authentication, lineage, ...).
  *
- * <p>This is the single fact source behind {@code information_schema.plugins}.
+ * <p>This is the single fact source behind {@code information_schema.extensions}.
  * It only stores load-time snapshots (plain strings); listing the registry
  * never executes plugin code.
  *

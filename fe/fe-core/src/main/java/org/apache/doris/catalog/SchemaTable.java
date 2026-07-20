@@ -862,11 +862,11 @@ public class SchemaTable extends Table {
                             .column("ALTER_USER", ScalarType.createStringType())
                             .column("MODIFY_TIME", ScalarType.createStringType())
                             .build()))
-            .put("plugins",
-                    new SchemaTable(SystemIdGenerator.getNextId(), "plugins", TableType.SCHEMA,
-                        builder().column("PLUGIN_NAME", ScalarType.createStringType())
-                            .column("PLUGIN_TYPE", ScalarType.createStringType())
-                            .column("PLUGIN_VERSION", ScalarType.createStringType())
+            .put("extensions",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "extensions", TableType.SCHEMA,
+                        builder().column("EXTENSION_NAME", ScalarType.createStringType())
+                            .column("EXTENSION_TYPE", ScalarType.createStringType())
+                            .column("EXTENSION_VERSION", ScalarType.createStringType())
                             .column("SOURCE", ScalarType.createStringType())
                             .column("DESCRIPTION", ScalarType.createStringType())
                             .build()))

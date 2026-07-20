@@ -17,27 +17,27 @@
 
 import org.junit.Assert
 
-suite("test_plugins_schema", "p0") {
+suite("test_extensions_schema", "p0") {
     // Schema check: fixed five columns.
-    def schema = sql "DESC information_schema.plugins"
+    def schema = sql "DESC information_schema.extensions"
     def columnNames = schema.collect { it[0] }
     Assert.assertEquals(
-            ["PLUGIN_NAME", "PLUGIN_TYPE", "PLUGIN_VERSION", "SOURCE", "DESCRIPTION"], columnNames)
+            ["EXTENSION_NAME", "EXTENSION_TYPE", "EXTENSION_VERSION", "SOURCE", "DESCRIPTION"], columnNames)
 
-    // Loaded plugins must be listed. Do not require BUILTIN
+    // Loaded extensions must be listed. Do not require BUILTIN
     // rows: the packaged cluster deploys filesystem/connector providers as
-    // directory plugins (source = EXTERNAL), so a correct inventory may contain
+    // directory extensions (source = EXTERNAL), so a correct inventory may contain
     // no BUILTIN row at all.
     def rows = sql """
-        SELECT PLUGIN_NAME, PLUGIN_TYPE, SOURCE, PLUGIN_VERSION
-        FROM information_schema.plugins
-        ORDER BY PLUGIN_TYPE, PLUGIN_NAME
+        SELECT EXTENSION_NAME, EXTENSION_TYPE, SOURCE, EXTENSION_VERSION
+        FROM information_schema.extensions
+        ORDER BY EXTENSION_TYPE, EXTENSION_NAME
     """
-    Assert.assertTrue("expect at least one plugin row", rows.size() > 0)
+    Assert.assertTrue("expect at least one extension row", rows.size() > 0)
     rows.each { row ->
         Assert.assertTrue(row[2] == "BUILTIN" || row[2] == "EXTERNAL")
         // Unknown versions must surface as SQL NULL, never as an empty string.
-        Assert.assertTrue("PLUGIN_VERSION must be NULL or non-empty, got ''",
+        Assert.assertTrue("EXTENSION_VERSION must be NULL or non-empty, got ''",
                 row[3] == null || row[3].toString().length() > 0)
     }
 
@@ -47,12 +47,12 @@ suite("test_plugins_schema", "p0") {
 
     // Filter by family works.
     def fsRows = sql """
-        SELECT PLUGIN_NAME FROM information_schema.plugins WHERE PLUGIN_TYPE = 'FILESYSTEM'
+        SELECT EXTENSION_NAME FROM information_schema.extensions WHERE EXTENSION_TYPE = 'FILESYSTEM'
     """
     Assert.assertTrue("expect built-in filesystem providers", fsRows.size() > 0)
 
     // The inventory is not ADMIN-gated: a plain user sees the same rows.
-    String user = "test_plugins_schema_user"
+    String user = "test_extensions_schema_user"
     String pwd = "C123_567p"
     try_sql("DROP USER IF EXISTS ${user}")
     sql "CREATE USER ${user} IDENTIFIED BY '${pwd}'"
@@ -68,9 +68,9 @@ suite("test_plugins_schema", "p0") {
     try {
         connect(user, pwd, context.config.jdbcUrl) {
             def result = sql """
-                SELECT PLUGIN_NAME, PLUGIN_TYPE, SOURCE, PLUGIN_VERSION
-                FROM information_schema.plugins
-                ORDER BY PLUGIN_TYPE, PLUGIN_NAME
+                SELECT EXTENSION_NAME, EXTENSION_TYPE, SOURCE, EXTENSION_VERSION
+                FROM information_schema.extensions
+                ORDER BY EXTENSION_TYPE, EXTENSION_NAME
             """
             Assert.assertEquals("a non-admin user must see the full inventory",
                     rows.size(), result.size())

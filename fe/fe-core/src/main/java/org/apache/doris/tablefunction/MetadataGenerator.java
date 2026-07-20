@@ -167,7 +167,7 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
 
-    private static final ImmutableMap<String, Integer> PLUGINS_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> EXTENSIONS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> ROLE_MAPPINGS_COLUMN_TO_INDEX;
 
@@ -262,12 +262,12 @@ public class MetadataGenerator {
         }
         AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> pluginsBuilder = new ImmutableMap.Builder();
-        List<Column> pluginsColList = SchemaTable.TABLE_MAP.get("plugins").getFullSchema();
-        for (int i = 0; i < pluginsColList.size(); i++) {
-            pluginsBuilder.put(pluginsColList.get(i).getName().toLowerCase(), i);
+        ImmutableMap.Builder<String, Integer> extensionsBuilder = new ImmutableMap.Builder();
+        List<Column> extensionsColList = SchemaTable.TABLE_MAP.get("extensions").getFullSchema();
+        for (int i = 0; i < extensionsColList.size(); i++) {
+            extensionsBuilder.put(extensionsColList.get(i).getName().toLowerCase(), i);
         }
-        PLUGINS_COLUMN_TO_INDEX = pluginsBuilder.build();
+        EXTENSIONS_COLUMN_TO_INDEX = extensionsBuilder.build();
 
         ImmutableMap.Builder<String, Integer> roleMappingsBuilder = new ImmutableMap.Builder();
         List<Column> roleMappingsColList = SchemaTable.TABLE_MAP.get("role_mappings").getFullSchema();
@@ -409,9 +409,9 @@ public class MetadataGenerator {
                 result = authenticationIntegrationsMetadataResult(schemaTableParams);
                 columnIndex = AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
                 break;
-            case PLUGINS:
-                result = pluginsMetadataResult(schemaTableParams);
-                columnIndex = PLUGINS_COLUMN_TO_INDEX;
+            case EXTENSIONS:
+                result = extensionsMetadataResult(schemaTableParams);
+                columnIndex = EXTENSIONS_COLUMN_TO_INDEX;
                 break;
             case ROLE_MAPPINGS:
                 result = roleMappingsMetadataResult(schemaTableParams);
@@ -809,16 +809,15 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult pluginsMetadataResult(TSchemaTableRequestParams params) {
+    private static TFetchSchemaTableDataResult extensionsMetadataResult(TSchemaTableRequestParams params) {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
 
-        // Readable by any authenticated user, matching MySQL information_schema.plugins.
-        // The inventory only exposes component identity; plugin configuration and
-        // credentials are never part of a registry record.
-        // Registry rows are load-time snapshots of the current FE; no plugin code runs here.
+        // Readable by any authenticated user: a registry record only carries load-time
+        // component identity, never extension configuration or credentials.
+        // Registry rows are load-time snapshots of the current FE; no extension code runs here.
         for (PluginRegistry.PluginRecord record : PluginRegistry.getInstance().list()) {
             TRow row = new TRow();
             row.addToColumnValue(new TCell().setStringVal(record.getName()));

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "information_schema/schema_plugins_scanner.h"
+#include "information_schema/schema_extensions_scanner.h"
 
 #include <utility>
 
@@ -32,24 +32,24 @@
 
 namespace doris {
 
-std::vector<SchemaScanner::ColumnDesc> SchemaPluginsScanner::_s_tbls_columns = {
-        {"PLUGIN_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"PLUGIN_TYPE", TYPE_STRING, sizeof(StringRef), true},
-        {"PLUGIN_VERSION", TYPE_STRING, sizeof(StringRef), true},
+std::vector<SchemaScanner::ColumnDesc> SchemaExtensionsScanner::_s_tbls_columns = {
+        {"EXTENSION_NAME", TYPE_STRING, sizeof(StringRef), true},
+        {"EXTENSION_TYPE", TYPE_STRING, sizeof(StringRef), true},
+        {"EXTENSION_VERSION", TYPE_STRING, sizeof(StringRef), true},
         {"SOURCE", TYPE_STRING, sizeof(StringRef), true},
         {"DESCRIPTION", TYPE_STRING, sizeof(StringRef), true},
 };
 
-SchemaPluginsScanner::SchemaPluginsScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_PLUGINS) {}
+SchemaExtensionsScanner::SchemaExtensionsScanner()
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_EXTENSIONS) {}
 
-Status SchemaPluginsScanner::start(RuntimeState* state) {
+Status SchemaExtensionsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
     _block_rows_limit = state->batch_size();
     _rpc_timeout_ms = state->execution_timeout() * 1000;
-    // Plugins are per-FE local state: ask the FE this session is connected to.
+    // Extensions are per-FE local state: ask the FE this session is connected to.
     auto* query_ctx = state->get_query_ctx();
     if (query_ctx == nullptr) {
         return Status::InternalError("query context is null");
@@ -58,7 +58,7 @@ Status SchemaPluginsScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
+Status SchemaExtensionsScanner::_get_extensions_block_from_fe() {
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
         schema_table_request_params.__isset.columns_name = true;
@@ -67,7 +67,7 @@ Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
 
     TFetchSchemaTableDataRequest request;
-    request.__set_schema_table_name(TSchemaTableName::PLUGINS);
+    request.__set_schema_table_name(TSchemaTableName::EXTENSIONS);
     request.__set_schema_table_params(schema_table_request_params);
 
     TFetchSchemaTableDataResult result;
@@ -80,7 +80,7 @@ Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
 
     Status status(Status::create(result.status));
     if (!status.ok()) {
-        LOG(WARNING) << "fetch plugins from FE(" << _fe_addr.hostname
+        LOG(WARNING) << "fetch extensions from FE(" << _fe_addr.hostname
                      << ") failed, errmsg=" << status;
         return status;
     }
@@ -89,42 +89,42 @@ Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
     if (!result_data.empty()) {
         auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
-            return Status::InternalError<false>("plugins schema is not match for FE and BE");
+            return Status::InternalError<false>("extensions schema is not match for FE and BE");
         }
     }
 
-    _plugins_block = Block::create_unique();
+    _extensions_block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
         auto data_type =
                 DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
-        _plugins_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
-                                                     _s_tbls_columns[i].name));
+        _extensions_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                        _s_tbls_columns[i].name));
     }
-    _plugins_block->reserve(_block_rows_limit);
+    _extensions_block->reserve(_block_rows_limit);
 
     for (int i = 0; i < result_data.size(); i++) {
         const TRow& row = result_data[i];
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
             const TCell& cell = row.column_value[j];
-            // An unset string cell means SQL NULL (e.g. unknown PLUGIN_VERSION);
+            // An unset string cell means SQL NULL (e.g. unknown EXTENSION_VERSION);
             // insert_block_column would materialize it as an empty string.
             if (!cell.__isset.stringVal) {
                 MutableColumnPtr mutable_col_ptr =
-                        IColumn::mutate(_plugins_block->get_by_position(j).column);
+                        IColumn::mutate(_extensions_block->get_by_position(j).column);
                 // All _s_tbls_columns are declared nullable, so the column is
                 // always a ColumnNullable wrapping the string column.
                 assert_cast<ColumnNullable*>(mutable_col_ptr.get())->insert_data(nullptr, 0);
-                _plugins_block->replace_by_position(j, std::move(mutable_col_ptr));
+                _extensions_block->replace_by_position(j, std::move(mutable_col_ptr));
                 continue;
             }
             RETURN_IF_ERROR(
-                    insert_block_column(cell, j, _plugins_block.get(), _s_tbls_columns[j].type));
+                    insert_block_column(cell, j, _extensions_block.get(), _s_tbls_columns[j].type));
         }
     }
     return Status::OK();
 }
 
-Status SchemaPluginsScanner::get_next_block_internal(Block* block, bool* eos) {
+Status SchemaExtensionsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -133,9 +133,9 @@ Status SchemaPluginsScanner::get_next_block_internal(Block* block, bool* eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
 
-    if (_plugins_block == nullptr) {
-        RETURN_IF_ERROR(_get_plugins_block_from_fe());
-        _total_rows = static_cast<int>(_plugins_block->rows());
+    if (_extensions_block == nullptr) {
+        RETURN_IF_ERROR(_get_extensions_block_from_fe());
+        _total_rows = static_cast<int>(_extensions_block->rows());
     }
 
     if (_row_idx == _total_rows) {
@@ -146,7 +146,7 @@ Status SchemaPluginsScanner::get_next_block_internal(Block* block, bool* eos) {
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     ScopedMutableBlock scoped_mblock(block);
     auto& mblock = scoped_mblock.mutable_block();
-    RETURN_IF_ERROR(mblock.add_rows(_plugins_block.get(), _row_idx, current_batch_rows));
+    RETURN_IF_ERROR(mblock.add_rows(_extensions_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;
