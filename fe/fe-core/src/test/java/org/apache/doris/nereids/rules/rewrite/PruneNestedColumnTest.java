@@ -149,6 +149,17 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  s struct<`outer`: struct<`a`: string, `inner_f`: string>>\n"
                 + ") properties ('replication_num'='1')");
 
+        // Tables for outer-join nullability test: verifying that synthetic nullability
+        // from outer join does NOT cause META NULL paths on physically NOT NULL columns.
+        createTable("create table driving_tbl(\n"
+                + "  id int\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table not_null_struct_tbl(\n"
+                + "  id int,\n"
+                + "  s struct<f: int> not null\n"
+                + ") properties ('replication_num'='1')");
+
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
@@ -1886,5 +1897,34 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         }
 
         Assertions.assertEquals(expectedCount, actualCount);
+    }
+
+    /**
+     * Verify that synthetic nullability from outer join does NOT cause META NULL paths
+     * on physically NOT NULL columns. When a NOT NULL struct sits on the nullable side
+     * of a LEFT JOIN, the slot's {@code nullable()} returns true (from outer join
+     * semantics), but {@code getOriginalColumn().isAllowNull()} returns false
+     * (physical column has no null map). The fix in AccessPathExpressionCollector
+     * should suppress the {@code [s, NULL]} META path in this case.
+     */
+    @Test
+    public void testNotNullStructOnOuterJoinNullableSide() throws Exception {
+        // driving_tbl LEFT JOIN not_null_struct_tbl:
+        //   not_null_struct_tbl.s is NOT NULL in the schema, but after LEFT JOIN the
+        //   slot becomes nullable (right side of LEFT JOIN → withNullable(true)).
+        //   element_at(s, 'f') IS NULL in WHERE:
+        //     - s.nullable() = true   (synthetic, from outer join)
+        //     - s.getOriginalColumn().isAllowNull() = false  (physical, no null map)
+        //   Expected: [s, f] DATA is present (field is read for IS NULL evaluation),
+        //             [s, NULL] META must NOT be present (no physical null map).
+        assertAllAccessPathsContain(
+                "select driving_tbl.id from driving_tbl"
+                        + " left join not_null_struct_tbl"
+                        + " on driving_tbl.id = not_null_struct_tbl.id"
+                        + " where element_at(not_null_struct_tbl.s, 'f') is null",
+                // expect-contain: field is read (DATA path)
+                ImmutableList.of(path("s", "f")),
+                // expect-NOT-contain: struct-level NULL path must be suppressed
+                ImmutableList.of(metaPath("s", "NULL")));
     }
 }

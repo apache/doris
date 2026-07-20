@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.analysis.ColumnAccessPathType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectorContext;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
@@ -138,16 +139,33 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             return null;
         }
         if (dataType instanceof NestedColumnPrunable) {
+            // A META path ending in NULL directly on the slot means "read the slot's null map".
+            // Check the physical column's nullability (via getOriginalColumn), NOT the slot's
+            // nullability which may be synthetic (e.g. from outer join). If the physical column
+            // has no null map or is unknown, suppress this path.
+            // (Field-level null paths like [s, field, NULL] were already validated upstream.)
+            if (context.type == ColumnAccessPathType.META
+                    && isUnderIsNull(context.accessPathBuilder.accessPath)
+                    && !hasPhysicalNullMap(slotReference)) {
+                return null;
+            }
             context.accessPathBuilder.addPrefix(slotReference.getName().toLowerCase());
             ImmutableList<String> path = Utils.fastToImmutableList(context.accessPathBuilder.accessPath);
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId, new CollectAccessPathResult(path, context.bottomFilter, context.type));
+            return null;
         }
         if (dataType.isStringLikeType()) {
             int slotId = slotReference.getExprId().asInt();
             if (!context.accessPathBuilder.isEmpty()) {
                 // Accessed via an offset-only function (e.g. length()) or null-check (IS NULL).
                 // Builder already has "OFFSET"/"NULL" at the tail; add the column name as prefix.
+                // For META NULL paths, suppress when the physical column has no null map.
+                if (context.type == ColumnAccessPathType.META
+                        && isUnderIsNull(context.accessPathBuilder.accessPath)
+                        && !hasPhysicalNullMap(slotReference)) {
+                    return null;
+                }
                 context.accessPathBuilder.addPrefix(slotReference.getName());
                 ImmutableList<String> path = ImmutableList.copyOf(context.accessPathBuilder.accessPath);
                 slotToAccessPaths.put(slotId,
@@ -164,8 +182,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // For any other nullable column type (e.g. INT, BIGINT) accessed via IS NULL / IS NOT NULL:
         // record the [col_name, NULL] path so NestedColumnPruning can emit null-only access paths.
         // Skip NestedColumnPrunable types (already handled above) and string types (handled above).
+        // Check getOriginalColumn() rather than slotReference.nullable(): the latter may be
+        // inflated by outer join, while the former reflects the physical column's null map.
+        // Only NULL paths need the null-map check; OFFSET paths don't depend on nullability.
         if (!(dataType instanceof NestedColumnPrunable) && !dataType.isStringLikeType()
-                && !context.accessPathBuilder.isEmpty() && slotReference.nullable()) {
+                && isUnderIsNull(context.accessPathBuilder.accessPath)
+                && hasPhysicalNullMap(slotReference)) {
             context.accessPathBuilder.addPrefix(slotReference.getName());
             ImmutableList<String> path = ImmutableList.copyOf(context.accessPathBuilder.accessPath);
             int slotId = slotReference.getExprId().asInt();
@@ -173,8 +195,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                     new CollectAccessPathResult(path, context.bottomFilter, context.type));
         }
         // For any other nullable column type accessed directly (not via IS NULL / length / etc.):
-        // record a [col_name] full-access path so that when the column is also used via IS NULL,
-        // stripNullSuffixPaths correctly suppresses the null-only optimization.
+        // record a [col_name] full-access path. When the same column also has a META NULL
+        // path (e.g. from IS NULL), both paths are sent to BE. The presence of a DATA path
+        // signals that full column data is needed, preventing the BE from entering
+        // NULL_MAP_ONLY mode which would read only the null bitmap.
         if (!(dataType instanceof NestedColumnPrunable) && !dataType.isStringLikeType()
                 && !(dataType instanceof VariantType)
                 && context.accessPathBuilder.isEmpty() && slotReference.nullable()) {
@@ -896,6 +920,18 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         public int hashCode() {
             return Objects.hash(path, isPredicate, type);
         }
+    }
+
+    /**
+     * Check whether the physical column backing a SlotReference has a null map on disk.
+     * Uses the catalog Column's isAllowNull, not the slot's nullable() which may be
+     * inflated by outer join (via withNullable(true)). Returns false when the slot has
+     * no physical column (conservative: assume no null map).
+     */
+    private static boolean hasPhysicalNullMap(SlotReference slot) {
+        return slot.getOriginalColumn()
+                .map(Column::isAllowNull)
+                .orElse(false);
     }
 
     // if the map type is changed, we can not prune the type, because the map type need distinct the keys,
