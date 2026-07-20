@@ -102,6 +102,11 @@ struct TPaloScanRange {
   10: optional i64 start_tso
   11: optional i64 end_tso
   12: optional TBinlogScanType binlog_scan_type
+  // Bucket metadata for BE-side runtime-filter bucket pruning. These fields
+  // are populated only when the scan has an eligible single-column HASH
+  // distribution runtime-filter target.
+  13: optional i32 bucket_seq
+  14: optional i32 bucket_num
 }
 
 enum TFileFormatType {
@@ -1629,6 +1634,11 @@ struct TRuntimeFilterDesc {
   // slice and must be merged before being applied. Computed truthfully by FE after local
   // exchange planning; replaces inferring this from the target scan's is_serial_operator.
   21: optional bool force_local_merge;
+
+  // Scan node ids whose target is a direct SlotRef on the only HASH
+  // distribution column. BE still verifies that the delivered filter has an
+  // exact IN set before using it for bucket pruning.
+  22: optional set<Types.TPlanNodeId> bucket_pruning_target_ids;
 }
 
 

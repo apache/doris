@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
+#include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
@@ -75,6 +76,7 @@ private:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts(RuntimeState* state) override;
+    Status _on_runtime_filter_update() override;
     bool _is_key_column(const std::string& col_name) override;
 
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
@@ -128,7 +130,11 @@ private:
 
     Status _build_key_ranges_and_filters();
 
+    bool _is_tablet_pruned_by_runtime_filter(int64_t tablet_id) const;
+
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<RuntimeFilterBucketPruneRange> _rf_bucket_prune_ranges;
+    RuntimeFilterBucketPruner _rf_bucket_pruner;
     std::vector<SyncRowsetStats> _sync_statistics;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
     std::shared_ptr<Dependency> _cloud_tablet_dependency;
@@ -145,6 +151,7 @@ private:
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;

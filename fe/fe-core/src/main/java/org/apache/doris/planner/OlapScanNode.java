@@ -204,6 +204,7 @@ public class OlapScanNode extends ScanNode {
     private TableSample tableSample;
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
+    private Map<Long, Integer> tabletId2BucketNum = Maps.newHashMap();
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
@@ -1009,9 +1010,13 @@ public class OlapScanNode extends ScanNode {
                 scanTabletIds.addAll(allTabletIds);
             }
 
-            if (!isPointQuery()) {
-                for (int i = 0; i < allTabletIds.size(); i++) {
-                    tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            for (int i = 0; i < allTabletIds.size(); i++) {
+                tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            }
+            if (partition.getDistributionInfo() instanceof HashDistributionInfo) {
+                int bucketNum = ((HashDistributionInfo) partition.getDistributionInfo()).getBucketNum();
+                for (Long tabletId : allTabletIds) {
+                    tabletId2BucketNum.put(tabletId, bucketNum);
                 }
             }
 
@@ -1040,6 +1045,7 @@ public class OlapScanNode extends ScanNode {
         scanBackendIds.clear();
         scanTabletIds.clear();
         tabletId2BucketSeq.clear();
+        tabletId2BucketNum.clear();
         bucketSeq2locations.clear();
         bucketSeq2Bytes.clear();
         scanReplicaIds.clear();
@@ -1357,6 +1363,11 @@ public class OlapScanNode extends ScanNode {
                 && hasRfDrivingPartitionPruning()) {
             setPartitionBoundaries(msg.olap_scan_node);
         }
+        if (rfPruneCtx != null
+                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterBucketPrune()
+                && hasRfDrivingBucketPruning()) {
+            setRuntimeFilterBucketPruneParameters();
+        }
 
         super.toThrift(msg);
     }
@@ -1372,6 +1383,29 @@ public class OlapScanNode extends ScanNode {
             }
         }
         return false;
+    }
+
+    private boolean hasRfDrivingBucketPruning() {
+        PlanNodeId myId = this.getId();
+        for (RuntimeFilter rf : runtimeFilters) {
+            if (rf.canPruneBucketsFor(myId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void setRuntimeFilterBucketPruneParameters() {
+        for (TScanRangeLocations locations : scanRangeLocations) {
+            TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+            Integer bucketSeq = tabletId2BucketSeq.get(scanRange.getTabletId());
+            Integer bucketNum = tabletId2BucketNum.get(scanRange.getTabletId());
+            Preconditions.checkState(bucketSeq != null && bucketNum != null && bucketNum > 0,
+                    "missing bucket metadata for runtime-filter bucket pruning, tablet=%s",
+                    scanRange.getTabletId());
+            scanRange.setBucketSeq(bucketSeq);
+            scanRange.setBucketNum(bucketNum);
+        }
     }
 
     private void setPartitionBoundaries(TOlapScanNode olapScanNode) {

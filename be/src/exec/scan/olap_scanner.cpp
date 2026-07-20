@@ -803,6 +803,15 @@ bool OlapScanner::check_partition_pruned() const {
     return _local_state->is_partition_pruned(_tablet_reader_params.tablet->partition_id());
 }
 
+bool OlapScanner::check_bucket_pruned() const {
+    if (!_local_state) {
+        return false;
+    }
+    auto* olap_local_state = assert_cast<OlapScanLocalState*>(_local_state);
+    return olap_local_state->_is_tablet_pruned_by_runtime_filter(
+            _tablet_reader_params.tablet->tablet_id());
+}
+
 doris::TabletStorageType OlapScanner::get_storage_type() {
     if (config::is_cloud_mode()) {
         // we don't have cold storage in cloud mode, all storage is treated as local

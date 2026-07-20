@@ -146,6 +146,7 @@ public final class RuntimeFilter {
     private final Map<PlanNodeId, Map<Long, TTargetExprMonotonicity>> targetPartitionMonotonicityByScanId
             = new HashMap<>();
     private final Set<PlanNodeId> partitionPruningTargetScanIds = new HashSet<>();
+    private final Set<PlanNodeId> bucketPruningTargetScanIds = new HashSet<>();
 
     /**
      * Internal representation of a runtime filter target.
@@ -391,6 +392,14 @@ public final class RuntimeFilter {
             }
         }
 
+        boolean enableRfBucketPrune = rfPruneCtx != null
+                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterBucketPrune();
+        if (enableRfBucketPrune && !bucketPruningTargetScanIds.isEmpty()) {
+            tFilter.setBucketPruningTargetIds(bucketPruningTargetScanIds.stream()
+                    .map(PlanNodeId::asInt)
+                    .collect(Collectors.toSet()));
+        }
+
         return tFilter;
     }
 
@@ -420,6 +429,14 @@ public final class RuntimeFilter {
      */
     public boolean canPrunePartitionsFor(PlanNodeId scanNodeId) {
         return partitionPruningTargetScanIds.contains(scanNodeId);
+    }
+
+    public void markTargetCanPruneBuckets(PlanNodeId scanNodeId) {
+        bucketPruningTargetScanIds.add(scanNodeId);
+    }
+
+    public boolean canPruneBucketsFor(PlanNodeId scanNodeId) {
+        return bucketPruningTargetScanIds.contains(scanNodeId);
     }
 
     public boolean hasTargets() {

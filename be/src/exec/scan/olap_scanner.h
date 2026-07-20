@@ -97,6 +97,8 @@ public:
 
     bool check_partition_pruned() const override;
 
+    bool check_bucket_pruned() const override;
+
     void update_realtime_counters() override;
 
 protected:
