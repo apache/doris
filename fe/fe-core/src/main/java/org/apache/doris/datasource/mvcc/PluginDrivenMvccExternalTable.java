@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.api.Connector;
@@ -54,6 +55,8 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -87,7 +90,7 @@ import java.util.stream.Collectors;
  * degrades MTMV to conservative over-refresh (the partition never matches its prior snapshot).</p>
  */
 public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
-        implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
+        implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable, SupportBinarySearchFilteringPartitions {
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenMvccExternalTable.class);
 
@@ -617,6 +620,37 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) {
         return getPartitionColumns(snapshot).stream()
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+    }
+
+    // ── SupportBinarySearchFilteringPartitions: lets NereidsSortedPartitionsCacheManager cache the
+    //    pre-built SortedPartitionRanges across queries, keyed by the pinned connector snapshot. ──
+    @Override
+    public Map<?, PartitionItem> getOriginPartitions(CatalogRelation scan) {
+        // The SAME frozen map the pin exposes — no re-list, so ranges stay consistent with
+        // nameToPartitionItem (no #65659 TOCTOU).
+        return getNameToPartitionItems(pinnedSnapshot(scan));
+    }
+
+    @Override
+    public Object getPartitionMetaVersion(CatalogRelation scan) {
+        ConnectorMvccSnapshot cs = getOrMaterialize(pinnedSnapshot(scan)).getConnectorSnapshot();
+        // Opaque version token: iceberg/paimon expose an immutable (snapshotId, schemaId) pair.
+        return cs.getSnapshotId() + "@" + cs.getSchemaId();
+    }
+
+    @Override
+    public long getPartitionMetaLoadTimeMillis(CatalogRelation scan) {
+        // No insert-frequency signal for external tables; 0 = always allow sorting (the manager's
+        // "skip sort if loaded within cacheSortedPartitionIntervalSecond" heuristic never trips).
+        return 0L;
+    }
+
+    private Optional<MvccSnapshot> pinnedSnapshot(CatalogRelation scan) {
+        if (scan instanceof LogicalFileScan) {
+            LogicalFileScan fileScan = (LogicalFileScan) scan;
+            return MvccUtil.getSnapshotFromContext(this, fileScan.getTableSnapshot(), fileScan.getScanParams());
+        }
+        return MvccUtil.getSnapshotFromContext(this);
     }
 
     // ──────────────────── MTMV snapshots ────────────────────
