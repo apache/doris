@@ -1100,11 +1100,11 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
-     * Whether the scan is configured with a session variable that makes
-     * the BE return potentially duplicate rows even for declared unique
-     * keys.  In these modes any uniqueness guarantee — whether from OLAP
-     * key metadata or from user-declared PRIMARY KEY / UNIQUE constraints
-     * — is unreliable.
+     * Whether the scan is configured with a session variable or scan
+     * mode that makes the BE return potentially duplicate rows even for
+     * declared unique keys.  In these modes any uniqueness guarantee —
+     * whether from OLAP key metadata or from user-declared PRIMARY KEY /
+     * UNIQUE constraints — is unreliable.
      */
     private boolean isDuplicateProducingScanMode() {
         SessionVariable sv = ConnectContext.get().getSessionVariable();
@@ -1124,6 +1124,20 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 && getTable().isMorTable()
                 && sv.isReadMorAsDupEnabled(
                     getTable().getQualifiedDbName(), getTable().getName())) {
+            return true;
+        }
+        // LogicalOlapTableStreamScan(INCREMENTAL): stream scans can return
+        // multiple row versions with the same key.  WinMagic runs before
+        // stream normalization, so the rewrite would group those versions
+        // under a single PARTITION BY and multiply the window aggregate.
+        if (this instanceof LogicalOlapTableStreamScan
+                && ((LogicalOlapTableStreamScan) this).isIncremental()) {
+            return true;
+        }
+        // Row-binlog incremental scan (TableScanParams.INCREMENTAL_READ):
+        // same hazard as the stream-scan case — the scan returns rows
+        // keyed by binlog position and duplicate key rows are possible.
+        if (scanParams.isPresent() && scanParams.get().incrementalRead()) {
             return true;
         }
         return false;

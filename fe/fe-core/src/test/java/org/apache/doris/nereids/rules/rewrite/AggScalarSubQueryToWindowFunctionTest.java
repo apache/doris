@@ -29,8 +29,10 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -2701,6 +2703,90 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         } finally {
             connectContext.getSessionVariable().readMorAsDupTables = saved;
         }
+    }
+
+    @Test
+    public void testIncrementalStreamScanRejected() throws Exception {
+        // An incremental scan (LogicalOlapTableStreamScan(INCREMENTAL) or
+        // TableScanParams.INCREMENTAL_READ) can return multiple row versions
+        // with the same key.  WinMagic runs before stream normalization, so
+        // the window rewrite would group those duplicate-key rows under a
+        // single PARTITION BY and multiply the aggregate — producing wrong
+        // results.
+        //
+        // isDuplicateProducingScanMode() must suppress all uniqueness sources
+        // for such scans:
+        //   1. LogicalOlapTableStreamScan with isIncremental() == true
+        //   2. Regular LogicalOlapScan with scanParams.incrementalRead() == true
+        //
+        // This test covers path 2 by attaching an INCREMENTAL_READ
+        // TableScanParams to the correlated table's scan node.
+        createTable("CREATE TABLE fact_incr (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_incr (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_incr add constraint uq_dim_incr_k unique (k)");
+
+        String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                + "FROM fact_incr f, dim_incr d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_incr f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan preRule = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .getPlan();
+
+        // Precondition: the rule would normally match.
+        Plan normalResult = new AggScalarSubQueryToWindowFunction()
+                .rewriteRoot(preRule, null);
+        Assertions.assertTrue(normalResult.anyMatch(LogicalWindow.class::isInstance),
+                "With unique constraint the rule should normally produce a window");
+
+        // Replace the correlated table's LogicalOlapScan with one that has
+        // TableScanParams.INCREMENTAL_READ so isDuplicateProducingScanMode()
+        // returns true and uniqueness is suppressed.
+        org.apache.doris.analysis.TableScanParams incrParams =
+                new org.apache.doris.analysis.TableScanParams(
+                        org.apache.doris.analysis.TableScanParams.INCREMENTAL_READ,
+                        null, null);
+        Plan incrPlan = preRule.accept(new DefaultPlanRewriter<Object>() {
+            @Override
+            public Plan visitLogicalOlapScan(LogicalOlapScan scan, Object ctx) {
+                if (scan.getTable().getName().equals("dim_incr")) {
+                    return scan.withTableScanParams(incrParams);
+                }
+                return scan;
+            }
+        }, null);
+
+        Plan plan = new AggScalarSubQueryToWindowFunction()
+                .rewriteRoot(incrPlan, null);
+
+        // Rule must NOT match — incremental scan exposes duplicate key
+        // versions, so uniqueness is not guaranteed.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Incremental scan must be rejected because it can "
+                + "return duplicate key rows that would multiply the "
+                + "window aggregate");
     }
 
     private void check(String sql) {
