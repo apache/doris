@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <type_traits>
+
 #include "core/column/column.h"
 #include "exec/operator/set_probe_sink_operator.h"
 
@@ -33,19 +35,36 @@ struct HashTableProbe {
         KeyGetter key_getter(_probe_raw_ptrs);
         hash_table_ctx.init_serialized_keys(_probe_raw_ptrs, _probe_rows);
 
-        for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
-            auto find_result = hash_table_ctx.find(key_getter, probe_index);
-            if (find_result.is_found()) { //if found, marked visited
-                auto* it = &find_result.get_mapped();
-                if (!(it->visited)) {
-                    it->visited = true;
-                    if constexpr (is_intersected) { //intersected
-                        (*_valid_element_in_hash_tbl)++;
-                    } else {
-                        (*_valid_element_in_hash_tbl)--; //except
+        // The batch path regresses StringRef keys, including serialized and nullable strings.
+        if constexpr (std::is_same_v<typename HashTableContext::Key, StringRef>) {
+            for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
+                auto find_result = hash_table_ctx.find(key_getter, probe_index);
+                if (find_result.is_found()) { //if found, marked visited
+                    auto* it = &find_result.get_mapped();
+                    if (!(it->visited)) {
+                        it->visited = true;
+                        if constexpr (is_intersected) { //intersected
+                            (*_valid_element_in_hash_tbl)++;
+                        } else {
+                            (*_valid_element_in_hash_tbl)--; //except
+                        }
                     }
                 }
             }
+        } else {
+            find_batch(hash_table_ctx, key_getter, _probe_rows, [&](uint32_t, auto& find_result) {
+                if (find_result.is_found()) {
+                    auto* it = &find_result.get_mapped();
+                    if (!(it->visited)) {
+                        it->visited = true;
+                        if constexpr (is_intersected) {
+                            (*_valid_element_in_hash_tbl)++;
+                        } else {
+                            (*_valid_element_in_hash_tbl)--;
+                        }
+                    }
+                }
+            });
         }
         return Status::OK();
     }
