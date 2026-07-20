@@ -73,7 +73,6 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.logging.log4j.LogManager;
@@ -503,7 +502,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // FileScanNode). When a no-grouping COUNT(*) is pushed down, tableLevelRowCount is set in
             // getSplits() from the connector's precomputed count (or stays -1 -> the (-1) sentinel).
             output.append(prefix).append(String.format("pushdown agg=%s", getPushDownAggNoGroupingOp()));
-            if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
+            if (isTableLevelCountStarPushdown()) {
                 output.append(" (").append(tableLevelRowCount).append(")");
             }
             output.append("\n");
@@ -1238,7 +1237,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // into ONE range carrying the precomputed FULL-table count (paimon/iceberg) would ignore the
         // sample and return full cardinality; with sampling active BE counts rows over the sampled splits
         // instead (mirrors legacy HiveScanNode, whose tableSample branch precedes the count-only opt).
-        boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT && !applySample;
+        boolean countPushdown = isTableLevelCountStarPushdown() && !applySample;
         List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider, () -> scanProvider.planScan(
                 connectorSession, currentHandle, columns, remainingFilter, sourceLimit,
                 requiredPartitions, countPushdown));
@@ -1410,7 +1409,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // (a scan with no slots needs no file ranges). Checked before the partition-count flavor because a
         // connector implements at most one — Iceberg streams files, MaxCompute slices partitions.
         if (hasSlots) {
-            boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
+            boolean countPushdown = isTableLevelCountStarPushdown();
             long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
                     connectorSession, currentHandle, buildRemainingFilter(), countPushdown));
             if (estimate >= 0) {
