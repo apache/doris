@@ -361,6 +361,28 @@ private:
     const std::string _expr_name = "Int64DirectGreaterExpr";
 };
 
+class AlwaysTrueSingleColumnExpr final : public VExpr {
+public:
+    explicit AlwaysTrueSingleColumnExpr(int column_id)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _column_id(column_id) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        result_column = ColumnUInt8::create(count, 1);
+        return Status::OK();
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    int _column_id;
+    const std::string _expr_name = "AlwaysTrueSingleColumnExpr";
+};
+
 VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::Op op,
                                                int32_t value) {
     return VExprContext::create_shared(std::make_shared<Int32ZoneMapExpr>(column_id, op, value));
@@ -412,6 +434,10 @@ VExprContextSPtr create_int32_direct_greater_conjunct(int column_id, int32_t low
 VExprContextSPtr create_int64_direct_greater_conjunct(int column_id, int64_t lower_bound) {
     return VExprContext::create_shared(
             std::make_shared<Int64DirectGreaterExpr>(column_id, lower_bound));
+}
+
+VExprContextSPtr create_always_true_single_column_conjunct(int column_id) {
+    return VExprContext::create_shared(std::make_shared<AlwaysTrueSingleColumnExpr>(column_id));
 }
 
 int64_t counter_value(RuntimeProfile& profile, const std::string& name) {
@@ -1225,6 +1251,37 @@ TEST_F(ParquetScanTest, GlobalRowIdUsesFileLocalPositionForScanRange) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3, 4}));
     EXPECT_EQ(row_ids, std::vector<uint32_t>({2, 3}));
+}
+
+TEST_F(ParquetScanTest, PredicateOnlyGlobalRowIdKeepsSignedFileLocalId) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    format::GlobalRowIdContext context {.version = 7, .backend_id = 123456789, .file_id = 42};
+    auto reader = create_reader(0, -1, nullptr, context);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    const auto global_rowid = format::LocalColumnId(format::GLOBAL_ROWID_COLUMN_ID);
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(global_rowid).ok());
+    request->predicate_only_columns.push_back(global_rowid);
+    const auto global_rowid_position = request->local_positions.at(global_rowid);
+    request->conjuncts.push_back(create_always_true_single_column_conjunct(
+            cast_set<int>(global_rowid_position.value())));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(rows, 6);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {1, 2, 3, 4, 5, 6}));
 }
 
 TEST_F(ParquetScanTest, EmptyScanPlanReturnsEofWithoutReadingColumns) {

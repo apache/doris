@@ -246,13 +246,15 @@ private:
     bool _has_current_row_group = false;
     // Readers retain pointers into this immutable row-group map, so it must outlive both maps below.
     std::unordered_map<int, tparquet::OffsetIndex> _current_offset_indexes;
-    std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
+    // File-local ids are signed because virtual columns use reserved negative values. Keeping the
+    // typed id as the map key prevents GLOBAL_ROWID_COLUMN_ID from wrapping to a storage ColumnId.
+    std::map<format::LocalColumnId, std::unique_ptr<ParquetColumnReader>>
             _current_predicate_columns; // predicate ColumnReaders
-    std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
+    std::map<format::LocalColumnId, std::unique_ptr<ParquetColumnReader>>
             _current_non_predicate_columns; // non-predicate ColumnReaders
-    std::map<ColumnId, IColumn::Filter>
+    std::map<format::LocalColumnId, IColumn::Filter>
             _current_dictionary_filters; // local id -> dict entry bitmap
-    std::map<ColumnId, std::vector<std::pair<VExprContextSPtr, VExprSPtr>>>
+    std::map<format::LocalColumnId, std::vector<std::pair<VExprContextSPtr, VExprSPtr>>>
             _current_dictionary_residual_conjuncts; // local id -> row-level residual conjuncts
     int64_t _current_row_group_rows = 0;            // current row group row count
     int _current_row_group_id = -1;                 // current row group id in parquet metadata
