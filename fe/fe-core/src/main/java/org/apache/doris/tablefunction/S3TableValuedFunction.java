@@ -36,6 +36,8 @@ import java.util.Map;
  * https://us-east-1.amazonaws.com/bucket/csv/taxi.csv with "use_path_style"="true"
  * or
  * https://bucket.us-east-1.amazonaws.com/csv/taxi.csv with "use_path_style"="false"
+ * or, for S3 Express One Zone:
+ * https://bucket--zone-id--x-s3.s3express-zone-id.region.amazonaws.com/path/to/file
  */
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "s3";

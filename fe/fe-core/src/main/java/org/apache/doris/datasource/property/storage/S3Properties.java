@@ -52,6 +52,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -68,7 +69,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public static final String PROVIDER = "s3.provider";
 
     private static final Pattern S3_EXPRESS_BUCKET_PATTERN =
-            Pattern.compile("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--[a-z0-9-]+-az[0-9]+--x-s3$");
+            Pattern.compile("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--([a-z0-9-]+-az[0-9]+)--x-s3$");
+    private static final Pattern S3_EXPRESS_ZONAL_ENDPOINT_PATTERN = Pattern.compile(
+            "^s3express-([a-z0-9-]+-az[0-9]+)\\.([a-z0-9-]+)\\.amazonaws\\.com$",
+            Pattern.CASE_INSENSITIVE);
 
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
@@ -232,10 +236,92 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     /** Returns whether the URI contains a complete S3 Express directory bucket name. */
     public static boolean isS3ExpressUri(String uri) {
         try {
-            return S3_EXPRESS_BUCKET_PATTERN.matcher(S3URI.create(uri).getBucket()).matches();
+            S3URI s3Uri = S3URI.create(uri);
+            if (!S3_EXPRESS_BUCKET_PATTERN.matcher(s3Uri.getBucket()).matches()) {
+                return false;
+            }
+            return !isHttpUri(uri) || validateS3ExpressObjectUrl(uri).isPresent();
         } catch (UserException e) {
             return false;
         }
+    }
+
+    private static Optional<String> validateS3ExpressObjectUrl(String uri) throws UserException {
+        if (!isHttpUri(uri)) {
+            return Optional.empty();
+        }
+
+        S3URI s3Uri = S3URI.create(uri);
+        Matcher bucketMatcher = S3_EXPRESS_BUCKET_PATTERN.matcher(s3Uri.getBucket());
+        String endpoint = s3Uri.getEndpoint().orElse("");
+        Matcher endpointMatcher = S3_EXPRESS_ZONAL_ENDPOINT_PATTERN.matcher(endpoint);
+        boolean directoryBucket = bucketMatcher.matches();
+        boolean expressEndpoint = StringUtils.startsWithIgnoreCase(endpoint, "s3express-")
+                || hasS3ExpressEndpointInAuthority(uri);
+        if (!directoryBucket && !expressEndpoint) {
+            return Optional.empty();
+        }
+        if (!StringUtils.startsWithIgnoreCase(uri, "https://")) {
+            throw new UserException("S3 Express Object URL must use HTTPS: " + uri);
+        }
+        if (!directoryBucket) {
+            throw new UserException("S3 Express Object URL must use a directory bucket name: " + uri);
+        }
+        if (!endpointMatcher.matches()) {
+            throw new UserException("S3 Express Object URL endpoint must match "
+                    + "s3express-<zone-id>.<region>.amazonaws.com: " + uri);
+        }
+
+        String bucketZone = bucketMatcher.group(1);
+        String endpointZone = endpointMatcher.group(1);
+        if (!bucketZone.equalsIgnoreCase(endpointZone)) {
+            throw new UserException("S3 Express Object URL Zone ID " + endpointZone
+                    + " does not match directory bucket Zone ID " + bucketZone + ": " + uri);
+        }
+        return Optional.of(endpointMatcher.group(2));
+    }
+
+    private static boolean isHttpUri(String uri) {
+        return StringUtils.startsWithIgnoreCase(uri, "http://")
+                || StringUtils.startsWithIgnoreCase(uri, "https://");
+    }
+
+    private static boolean hasS3ExpressEndpointInAuthority(String uri) {
+        int authorityStart = uri.indexOf(S3URI.SCHEME_DELIM) + S3URI.SCHEME_DELIM.length();
+        int authorityEnd = uri.indexOf('/', authorityStart);
+        String authority = uri.substring(authorityStart, authorityEnd);
+        return StringUtils.startsWithIgnoreCase(authority, "s3express-")
+                || StringUtils.containsIgnoreCase(authority, ".s3express-");
+    }
+
+    private void configureFromS3ExpressObjectUrl(String uri) throws UserException {
+        if (!isAwsProvider(origProps)) {
+            return;
+        }
+        Optional<String> urlRegion = validateS3ExpressObjectUrl(uri);
+        if (urlRegion.isEmpty()) {
+            return;
+        }
+        if (Boolean.parseBoolean(getUsePathStyle())) {
+            throw new UserException("S3 Express Object URL requires virtual-hosted-style access; "
+                    + "use_path_style must be false: " + uri);
+        }
+        if (StringUtils.isBlank(getRegion())) {
+            setRegion(urlRegion.get());
+        } else if (!getRegion().equalsIgnoreCase(urlRegion.get())) {
+            throw new UserException("S3 Express Object URL Region " + urlRegion.get()
+                    + " does not match configured S3 Region " + getRegion() + ": " + uri);
+        }
+    }
+
+    private void configureFromS3ExpressObjectUrlProperty() {
+        getPropertyIgnoreCase(origProps, URI_KEY).ifPresent(uri -> {
+            try {
+                configureFromS3ExpressObjectUrl(uri);
+            } catch (UserException e) {
+                throw new IllegalArgumentException(e.getMessage(), e);
+            }
+        });
     }
 
     private static Optional<String> getPropertyIgnoreCase(
@@ -279,7 +365,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Override
     public void initNormalizeAndCheckProps() {
+        // Common S3 initialization requires a region, so populate it from a complete Express Object URL first.
+        configureFromS3ExpressObjectUrlProperty();
         super.initNormalizeAndCheckProps();
+        // The common initialization binds user properties. Revalidate conflicts against those bound values.
+        configureFromS3ExpressObjectUrlProperty();
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isBlank(s3IAMRole)) {
             throw new IllegalArgumentException("s3.external_id must be used with s3.role_arn");
         }
@@ -315,7 +405,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 .map(Map.Entry::getValue)
                 .findFirst();
         if (uriValue.isPresent()) {
-            return uriValue.get().contains("amazonaws.com");
+            return uriValue.get().contains("amazonaws.com") || isS3Express(uriValue.get(), origProps);
         }
 
         // guess from region
@@ -338,6 +428,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     protected Set<String> schemas() {
         return ImmutableSet.of("s3", "s3a", "s3n");
+    }
+
+    @Override
+    public String validateAndNormalizeUri(String uri) throws UserException {
+        configureFromS3ExpressObjectUrl(uri);
+        return super.validateAndNormalizeUri(uri);
     }
 
     @Override

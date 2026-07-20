@@ -584,7 +584,7 @@ public class S3PropertiesTest {
         Assertions.assertFalse(S3Properties.isS3Express(origProps));
         origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
         origProps.put("s3.region", "us-west-2");
-        S3Properties s3Properties = S3Properties.of(origProps);
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
         Assertions.assertTrue(s3Properties.isS3Express());
         Map<String, String> backendProperties = s3Properties.getBackendConfigProperties();
         Assertions.assertEquals("AWS", backendProperties.get("provider"));
@@ -593,5 +593,78 @@ public class S3PropertiesTest {
         Assertions.assertEquals("https://s3.us-west-2.amazonaws.com",
                 backendProperties.get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlConfiguresStandardProperties() throws UserException {
+        String objectUrl = "https://analytics--eun1-az1--x-s3."
+                + "s3express-eun1-az1.eu-north-1.amazonaws.com/data/file.parquet";
+        origProps.put("uri", objectUrl);
+        origProps.put("s3.provider", "AWS");
+        origProps.put("s3.access_key", "myS3AccessKey");
+        origProps.put("s3.secret_key", "myS3SecretKey");
+
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+
+        Assertions.assertTrue(S3Properties.isS3ExpressUri(objectUrl));
+        Assertions.assertTrue(s3Properties.isS3Express());
+        Assertions.assertEquals("eu-north-1", s3Properties.getRegion());
+        Assertions.assertEquals("https://s3.eu-north-1.amazonaws.com", s3Properties.getEndpoint());
+        Assertions.assertEquals("s3://analytics--eun1-az1--x-s3/data/file.parquet",
+                s3Properties.validateAndNormalizeUri(objectUrl));
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlRejectsConflictingConfiguration() {
+        String objectUrl = "https://analytics--eun1-az1--x-s3."
+                + "s3express-eun1-az1.eu-north-1.amazonaws.com/data/file.parquet";
+        origProps.put("uri", objectUrl);
+        origProps.put("s3.provider", "AWS");
+
+        origProps.put("s3.region", "us-west-2");
+        IllegalArgumentException regionError = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertTrue(regionError.getMessage().contains(
+                "Object URL Region eu-north-1 does not match configured S3 Region us-west-2"));
+
+        origProps.put("s3.region", "eu-north-1");
+        origProps.put("use_path_style", "true");
+        IllegalArgumentException pathStyleError = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertTrue(pathStyleError.getMessage().contains("use_path_style must be false"));
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlRejectsInvalidHost() {
+        origProps.put("s3.provider", "AWS");
+
+        origProps.put("uri", "https://analytics--eun1-az1--x-s3."
+                + "s3express-eun1-az2.eu-north-1.amazonaws.com/data/file.parquet");
+        Assertions.assertFalse(S3Properties.isS3ExpressUri(origProps.get("uri")));
+        IllegalArgumentException zoneError = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertTrue(zoneError.getMessage().contains(
+                "Zone ID eun1-az2 does not match directory bucket Zone ID eun1-az1"));
+
+        origProps.put("uri", "https://analytics--eun1-az1--x-s3."
+                + "s3.eu-north-1.amazonaws.com/data/file.parquet");
+        Assertions.assertFalse(S3Properties.isS3ExpressUri(origProps.get("uri")));
+        IllegalArgumentException endpointError = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertTrue(endpointError.getMessage().contains(
+                "endpoint must match s3express-<zone-id>.<region>.amazonaws.com"));
+
+        origProps.put("uri", "https://analytics--eun1-az1--x-s3."
+                + "s3express-eun1-az1.dualstack.eu-north-1.amazonaws.com/data/file.parquet");
+        IllegalArgumentException dualStackError = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertTrue(dualStackError.getMessage().contains(
+                "endpoint must match s3express-<zone-id>.<region>.amazonaws.com"));
+
+        origProps.put("uri", "http://analytics--eun1-az1--x-s3."
+                + "s3express-eun1-az1.eu-north-1.amazonaws.com/data/file.parquet");
+        IllegalArgumentException schemeError = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertTrue(schemeError.getMessage().contains("Object URL must use HTTPS"));
     }
 }

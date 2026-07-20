@@ -155,30 +155,60 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
-    public void testS3ExpressParseFileSkipsEndpointPreflight() throws Exception {
+    public void testS3ExpressObjectUrlIsNormalizedForDirectAndNereidsTvf() throws AnalysisException {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "https://analytics--eun1-az1--x-s3."
+                    + "s3express-eun1-az1.eu-north-1.amazonaws.com/data/file.csv");
+            properties.put("s3.provider", "AWS");
+            properties.put("format", "csv");
+
+            S3TableValuedFunction directTvf = new S3TableValuedFunction(properties);
+            S3TableValuedFunction queryTvf = (S3TableValuedFunction) new S3(new Properties(properties))
+                    .getCatalogFunction();
+
+            Assert.assertEquals("s3://analytics--eun1-az1--x-s3/data/file.csv", directTvf.getFilePath());
+            Assert.assertEquals(directTvf.getFilePath(), queryTvf.getFilePath());
+            Assert.assertEquals("eu-north-1", directTvf.getBackendConnectProperties().get("AWS_REGION"));
+            Assert.assertEquals("https://s3.eu-north-1.amazonaws.com",
+                    directTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
+            Assert.assertEquals("AWS", directTvf.getBackendConnectProperties().get("provider"));
+            Assert.assertEquals(directTvf.getBackendConnectProperties(), queryTvf.getBackendConnectProperties());
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlParseFileSkipsEndpointPreflight() throws Exception {
         boolean previousRunningUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = false;
-        String uri = "s3://analytics--usw2-az1--x-s3/data/file.csv";
+        String objectUrl = "https://analytics--eun1-az1--x-s3."
+                + "s3express-eun1-az1.eu-north-1.amazonaws.com/data/file.csv";
+        String normalizedUri = "s3://analytics--eun1-az1--x-s3/data/file.csv";
         try {
             FileSystem fileSystem = Mockito.mock(FileSystem.class);
             Mockito.when(fileSystem.globListWithLimit(
-                            Mockito.any(Location.class), Mockito.eq(""), Mockito.eq(0L), Mockito.eq(0L)))
+                            Mockito.eq(Location.of(normalizedUri)), Mockito.eq(""), Mockito.eq(0L), Mockito.eq(0L)))
                     .thenReturn(new GlobListing(
-                            List.of(new FileEntry(Location.of(uri), 10L, false, 0L, List.of())),
-                            "analytics--usw2-az1--x-s3", "data/", "data/file.csv"));
+                            List.of(new FileEntry(Location.of(normalizedUri), 10L, false, 0L, List.of())),
+                            "analytics--eun1-az1--x-s3", "data/", "data/file.csv"));
             try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class);
                     MockedStatic<S3Util> mockedS3Util = Mockito.mockStatic(S3Util.class)) {
                 mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
                         .thenReturn(fileSystem);
 
                 Map<String, String> properties = Maps.newHashMap();
-                properties.put("uri", uri);
+                properties.put("uri", objectUrl);
                 properties.put("s3.provider", "AWS");
-                properties.put("s3.region", "us-west-2");
                 properties.put("format", "csv");
                 S3TableValuedFunction tvf = new S3TableValuedFunction(properties);
 
+                Assert.assertEquals(normalizedUri, tvf.getFilePath());
                 Assert.assertEquals(1, tvf.getFileStatuses().size());
+                Assert.assertEquals("eu-north-1", tvf.getBackendConnectProperties().get("AWS_REGION"));
                 Assert.assertEquals("AWS", tvf.getBackendConnectProperties().get("provider"));
                 mockedS3Util.verifyNoInteractions();
             }
