@@ -87,7 +87,6 @@ suite("test_ivm_subquery_alias_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_subquery_alias_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_subquery_alias_1_mv")
-    advance_ivm_stream_offset("test_ivm_subquery_alias_1_mv")
     order_qt_subquery_alias_scan_after_complete """
         SELECT k1, v1 FROM test_ivm_subquery_alias_1_mv
     """
@@ -101,7 +100,6 @@ suite("test_ivm_subquery_alias_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_subquery_alias_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_subquery_alias_1_mv")
-    advance_ivm_stream_offset("test_ivm_subquery_alias_1_mv")
     order_qt_subquery_alias_scan_after_complete_recovery """
         SELECT k1, v1 FROM test_ivm_subquery_alias_1_mv
     """

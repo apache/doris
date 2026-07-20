@@ -76,7 +76,6 @@ suite("test_ivm_outer_join_3") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_oj3_right_event_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_oj3_right_event_mv")
-    advance_ivm_stream_offset("ivm_oj3_right_event_mv")
     order_qt_right_event_after_complete """
         SELECT k1, left_v1, right_v2
         FROM ivm_oj3_right_event_mv
@@ -161,7 +160,6 @@ suite("test_ivm_outer_join_3") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_oj3_right_repair_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_oj3_right_repair_mv")
-    advance_ivm_stream_offset("ivm_oj3_right_repair_mv")
     order_qt_right_repair_after_complete """
         SELECT k1, left_v1, right_v2
         FROM ivm_oj3_right_repair_mv
