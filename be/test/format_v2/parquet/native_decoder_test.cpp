@@ -29,6 +29,7 @@
 
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -372,7 +373,8 @@ Status materialize_selected_plain_int32(const std::vector<int32_t>& physical_val
                                         const std::vector<uint8_t>& filter_values,
                                         const DataType& type, MutableColumnPtr* column,
                                         NullMap* null_map, ColumnChunkReaderStatistics* statistics,
-                                        bool strict_mode = false) {
+                                        bool strict_mode = false,
+                                        const ParquetDecodeContext* context_override = nullptr) {
     tparquet::PageHeader header;
     header.type = tparquet::PageType::DATA_PAGE;
     header.__set_compressed_page_size(physical_values.size() * sizeof(int32_t));
@@ -405,6 +407,9 @@ Status materialize_selected_plain_int32(const std::vector<int32_t>& physical_val
 
     ParquetDecodeContext decode_context;
     decode_context.physical_type = ParquetPhysicalType::INT32;
+    if (context_override != nullptr) {
+        decode_context = *context_override;
+    }
     ParquetMaterializationState state;
     state.enable_strict_mode = strict_mode;
     state.conversion_failure_null_map = null_map;
@@ -602,6 +607,42 @@ TEST(ParquetV2NativeDecoderTest, NullableSparsePlainSelectionRetainsCheaperRange
     EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 1);
 }
 
+TEST(ParquetV2NativeDecoderTest, NullableSparsePlainDecimalSelectionBatchesPhysicalPayload) {
+    constexpr size_t LOGICAL_VALUES = 4095;
+    std::vector<uint16_t> null_runs(LOGICAL_VALUES, 1);
+    std::vector<int32_t> physical_values((LOGICAL_VALUES + 1) / 2);
+    std::iota(physical_values.begin(), physical_values.end(), 0);
+    std::vector<uint8_t> filter(LOGICAL_VALUES, 0);
+    for (const size_t selected_row : {0, 1000, 1001, 2000, 4001}) {
+        filter[selected_row] = 1;
+    }
+
+    DataTypeDecimal32 type(9, 0);
+    auto column = type.create_column();
+    NullMap null_map;
+    ColumnChunkReaderStatistics statistics;
+    const ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                        .logical_type = ParquetLogicalType::DECIMAL,
+                                        .decimal_precision = 9,
+                                        .decimal_scale = 0};
+    ASSERT_TRUE(materialize_selected_plain_int32(physical_values, LOGICAL_VALUES, null_runs, filter,
+                                                 type, &column, &null_map, &statistics, false,
+                                                 &context)
+                        .ok());
+
+    const auto& values = assert_cast<const ColumnDecimal32&>(*column).get_data();
+    ASSERT_EQ(values.size(), 5);
+    EXPECT_EQ(values[0].value, 0);
+    EXPECT_EQ(values[1].value, 500);
+    EXPECT_EQ(values[2].value, 0);
+    EXPECT_EQ(values[3].value, 1000);
+    EXPECT_EQ(values[4].value, 0);
+    EXPECT_EQ(null_map, (NullMap {0, 0, 1, 0, 1}));
+    EXPECT_EQ(statistics.hybrid_selection_batches, 1);
+    EXPECT_EQ(statistics.hybrid_selection_ranges, 3);
+    EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
+}
+
 TEST(ParquetV2NativeDecoderTest, NullableSparseDictionarySelectionBatchesPhysicalPayload) {
     constexpr size_t LOGICAL_VALUES = 4095;
     std::vector<int32_t> dictionary(16);
@@ -641,6 +682,34 @@ TEST(ParquetV2NativeDecoderTest, NullableSparseDictionarySelectionBatchesPhysica
     EXPECT_EQ(statistics.hybrid_selection_batches, 1);
     EXPECT_EQ(statistics.hybrid_selection_ranges, 3);
     EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryMaterializationSkipsFailureScanWhenDictionaryIsClean) {
+    ParquetMaterializationState state;
+    state.typed_dictionary = ColumnInt32::create();
+    auto& dictionary = assert_cast<ColumnInt32&>(*state.typed_dictionary).get_data();
+    dictionary = {10, 20, 30, 40};
+    state.dictionary_indices = {3, 0, 2, 1, 3};
+    state.dictionary_conversion_failures.resize_fill(dictionary.size(), 0);
+
+    auto output = ColumnInt32::create();
+    ASSERT_TRUE(state.materialize_dictionary(*output).ok());
+    EXPECT_EQ(output->get_data(), (ColumnInt32::Container {40, 10, 30, 20, 40}));
+    EXPECT_EQ(state.dictionary_failure_scan_rows, 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryIndexBoundsCheckHandlesVectorTailAndUnsignedIds) {
+    const std::vector<uint32_t> valid {0, 7, 1, 6, 2, 5, 3, 4, 7, 0, 6};
+    EXPECT_TRUE(native::dictionary_indices_in_bounds(valid.data(), valid.size(), 8));
+
+    auto invalid_tail = valid;
+    invalid_tail.back() = 8;
+    EXPECT_FALSE(native::dictionary_indices_in_bounds(invalid_tail.data(), invalid_tail.size(), 8));
+
+    auto invalid_unsigned = valid;
+    invalid_unsigned[3] = std::numeric_limits<uint32_t>::max();
+    EXPECT_FALSE(native::dictionary_indices_in_bounds(invalid_unsigned.data(),
+                                                      invalid_unsigned.size(), 8));
 }
 
 TEST(ParquetV2NativeDecoderTest, NullableSparseSelectionRemapsConversionFailures) {

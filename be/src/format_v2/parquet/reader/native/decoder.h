@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -27,6 +28,10 @@
 #include <memory>
 #include <ostream>
 #include <vector>
+
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 
 #include "common/status.h"
 #include "core/custom_allocator.h"
@@ -36,6 +41,35 @@
 #include "util/slice.h"
 
 namespace doris::format::parquet::native {
+
+inline bool dictionary_indices_in_bounds(const uint32_t* indices, size_t count,
+                                         size_t dictionary_size) {
+    if (count == 0) {
+        return true;
+    }
+    if (dictionary_size == 0) {
+        return false;
+    }
+    uint32_t max_index = 0;
+    size_t row = 0;
+#ifdef __AVX2__
+    __m256i vector_max = _mm256_setzero_si256();
+    for (; row + 8 <= count; row += 8) {
+        const auto values = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(indices + row));
+        vector_max = _mm256_max_epu32(vector_max, values);
+    }
+    alignas(32) uint32_t lanes[8];
+    _mm256_store_si256(reinterpret_cast<__m256i*>(lanes), vector_max);
+    for (const auto lane : lanes) {
+        max_index = std::max(max_index, lane);
+    }
+#endif
+    for (; row < count; ++row) {
+        max_index = std::max(max_index, indices[row]);
+    }
+    return static_cast<size_t>(max_index) < dictionary_size;
+}
+
 class Decoder : public ParquetDecodeSource {
 public:
     Decoder() = default;
@@ -128,8 +162,14 @@ public:
             return Status::IOError("Can't read enough Parquet dictionary indices");
         }
         const size_t num_dictionary_values = dictionary_size();
-        for (size_t row = 0; row < num_values; ++row) {
-            if (UNLIKELY((*indices)[row] >= num_dictionary_values)) {
+        if (UNLIKELY(!dictionary_indices_in_bounds(indices->data(), num_values,
+                                                   num_dictionary_values))) {
+            // The SIMD common path only computes a bound; recover the exact corrupt row for the
+            // diagnostic after the batch has already been proven invalid.
+            for (size_t row = 0; row < num_values; ++row) {
+                if ((*indices)[row] < num_dictionary_values) {
+                    continue;
+                }
                 return Status::Corruption(
                         "Parquet dictionary index {} at row {} exceeds dictionary size {}",
                         (*indices)[row], row, num_dictionary_values);
@@ -154,8 +194,12 @@ public:
             if (UNLIKELY(decoded != range.count)) {
                 return Status::IOError("Can't read enough Parquet dictionary indices");
             }
-            for (size_t row = 0; row < range.count; ++row) {
-                if (UNLIKELY((*indices)[output + row] >= num_dictionary_values)) {
+            if (UNLIKELY(!dictionary_indices_in_bounds(indices->data() + output, range.count,
+                                                       num_dictionary_values))) {
+                for (size_t row = 0; row < range.count; ++row) {
+                    if ((*indices)[output + row] < num_dictionary_values) {
+                        continue;
+                    }
                     return Status::Corruption(
                             "Parquet dictionary index {} at row {} exceeds dictionary size {}",
                             (*indices)[output + row], range.first + row, num_dictionary_values);
@@ -200,9 +244,13 @@ protected:
                         "Can't skip enough Parquet dictionary indices at row {}: {} of {}",
                         row_offset + skipped_values, skipped, batch_size);
             }
-            // Filter gaps may be huge RLE runs; validate them without allocating by gap size.
-            for (size_t row = 0; row < batch_size; ++row) {
-                if (UNLIKELY(_skip_indices[row] >= num_dictionary_values)) {
+            // Filter gaps may be huge RLE runs; validate them in bounded SIMD-sized batches.
+            if (UNLIKELY(!dictionary_indices_in_bounds(_skip_indices.data(), batch_size,
+                                                       num_dictionary_values))) {
+                for (size_t row = 0; row < batch_size; ++row) {
+                    if (_skip_indices[row] < num_dictionary_values) {
+                        continue;
+                    }
                     return Status::Corruption(
                             "Parquet dictionary index {} at skipped row {} exceeds dictionary "
                             "size {}",

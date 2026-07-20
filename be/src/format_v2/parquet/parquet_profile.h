@@ -109,6 +109,8 @@ struct ParquetScanProfile {
 struct ParquetProfile {
     void init(RuntimeProfile* profile);
     void update_pruning_stats(const ParquetPruningStats& pruning_stats) const;
+    void update_deferred_pruning_stats(const ParquetPruningStats& pruning_stats,
+                                       bool selected) const;
 
     ParquetPageSkipProfile page_skip_profile() const;
     ParquetColumnReaderProfile column_reader_profile() const;

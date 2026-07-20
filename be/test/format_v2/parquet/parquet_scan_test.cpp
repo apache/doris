@@ -468,6 +468,14 @@ void write_page_index_parquet_file(const std::string& file_path) {
     write_table(file_path, table, ids.size(), false, true);
 }
 
+void write_multi_row_group_page_index_parquet_file(const std::string& file_path) {
+    std::vector<int32_t> ids(384);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto schema = arrow::schema({arrow::field("id", arrow::int32(), false)});
+    auto table = arrow::Table::Make(schema, {build_int32_array(ids)});
+    write_table(file_path, table, 128, false, true);
+}
+
 int64_t parquet_column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
     return column_metadata.has_dictionary_page()
                    ? static_cast<int64_t>(column_metadata.dictionary_page_offset())
@@ -1094,6 +1102,35 @@ TEST_F(ParquetScanTest, PredicateColumnsSkipUnreadColumnsWhenFirstPredicateFilte
     EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 6);
 }
 
+TEST_F(ParquetScanTest, PredicateOnlyColumnDropsPayloadAfterFiltering) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40, 50, 60}));
+    EXPECT_EQ(block.get_by_position(0).column->size(), rows);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
 // Scenario: every physical batch in every row group is rejected. Predicate readers reach each row
 // group boundary, while the lazy score reader remains at row 0. The boundary reset must discard that
 // reader and its pending lag instead of issuing SkipRecords for values that can never be observed.
@@ -1124,7 +1161,9 @@ TEST_F(ParquetScanTest, FullyFilteredRowGroupsDropPendingLazyReaders) {
     }
 
     EXPECT_EQ(total_rows, 0);
-    EXPECT_EQ(counter_value(profile, "EmptySelectionBatches"), 6);
+    // The first one-row probe grows after rejection and remains grown across consecutive empty
+    // row groups, so later two-row groups are consumed in one predicate batch each.
+    EXPECT_EQ(counter_value(profile, "EmptySelectionBatches"), 4);
     EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 0);
     ASSERT_NE(profile.get_counter("LevelOnlySkipTime"), nullptr);
     EXPECT_EQ(profile.get_counter("LevelOnlySkipTime")->value(), 0);
@@ -1172,8 +1211,9 @@ TEST_F(ParquetScanTest, PendingLazySkipDoesNotCrossRowGroupReset) {
 TEST_F(ParquetScanTest, LongFilteredPrefixSkipsMultipleLazyColumnsInBoundedChunks) {
     constexpr size_t ROWS = 70000;
     write_long_prefix_parquet_file(_file_path, ROWS);
-    auto reader = create_reader();
-    reader->set_batch_size(1024);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(32);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
@@ -1196,6 +1236,7 @@ TEST_F(ParquetScanTest, LongFilteredPrefixSkipsMultipleLazyColumnsInBoundedChunk
     EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_element(0), ROWS - 1);
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_element(0), ROWS + 9);
     EXPECT_EQ(int32_data_column(*block.get_by_position(2).column).get_element(0), ROWS + 19);
+    EXPECT_LT(counter_value(profile, "TotalBatches"), 32);
 }
 
 // Scenario: a nested lazy column stays behind while id=1 is rejected. Flushing skip(1) must consume
@@ -1330,6 +1371,31 @@ TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {
     EXPECT_GT(profile.get_counter("PageIndexReadCalls")->value(), 0);
     EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), 64);
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
+}
+
+TEST_F(ParquetScanTest, OpenDefersPageIndexProbeToCurrentRowGroup) {
+    write_multi_row_group_page_index_parquet_file(_file_path);
+    RuntimeProfile profile("lazy_page_index_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, -1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    // LIMIT can stop after the first block, so open must not pay remote index I/O for later groups.
+    EXPECT_EQ(counter_value(profile, "PageIndexReadCalls"), 0);
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 128);
+    EXPECT_EQ(counter_value(profile, "PageIndexReadCalls"), 1);
 }
 
 } // namespace

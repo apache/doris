@@ -80,21 +80,41 @@ Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
     return Status::OK();
 }
 
-bool can_use_native_footer_min_max(const ParquetTypeDescriptor& type_descriptor,
-                                   const tparquet::Statistics& statistics) {
+bool has_supported_type_defined_order(const tparquet::FileMetaData& metadata, int leaf_column_id) {
+    return leaf_column_id >= 0 && metadata.__isset.column_orders &&
+           leaf_column_id < static_cast<int>(metadata.column_orders.size()) &&
+           metadata.column_orders[leaf_column_id].__isset.TYPE_ORDER;
+}
+
+tparquet::Statistics sanitize_native_footer_statistics(const ParquetTypeDescriptor& type_descriptor,
+                                                       const tparquet::Statistics& statistics,
+                                                       bool has_type_defined_order) {
+    auto sanitized = statistics;
+    if (!has_type_defined_order || !sanitized.__isset.min_value || !sanitized.__isset.max_value) {
+        sanitized.__isset.min_value = false;
+        sanitized.__isset.max_value = false;
+        sanitized.min_value.clear();
+        sanitized.max_value.clear();
+    }
     const bool binary = type_descriptor.physical_type == tparquet::Type::BYTE_ARRAY ||
                         type_descriptor.physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY;
-    if (!binary) {
-        return true;
+    if (!sanitized.__isset.min || !sanitized.__isset.max ||
+        (binary && sanitized.min != sanitized.max)) {
+        sanitized.__isset.min = false;
+        sanitized.__isset.max = false;
+        sanitized.min.clear();
+        sanitized.max.clear();
     }
-    if (statistics.__isset.min_value || statistics.__isset.max_value) {
-        // Do not combine a type-defined bound with a deprecated bound: the two fields can use
-        // different byte ordering, so a mixed pair cannot form one valid interval.
-        return statistics.__isset.min_value && statistics.__isset.max_value;
-    }
-    // Deprecated binary min/max fields were ordered with signed bytes by legacy parquet-mr, while
-    // Parquet's type-defined order is unsigned. Only an equal pair is independent of that mismatch.
-    return statistics.__isset.min && statistics.__isset.max && statistics.min == statistics.max;
+    return sanitized;
+}
+
+bool can_use_native_footer_min_max(const ParquetTypeDescriptor& type_descriptor,
+                                   const tparquet::Statistics& statistics,
+                                   bool has_type_defined_order) {
+    const auto sanitized =
+            sanitize_native_footer_statistics(type_descriptor, statistics, has_type_defined_order);
+    return (sanitized.__isset.min_value && sanitized.__isset.max_value) ||
+           (sanitized.__isset.min && sanitized.__isset.max);
 }
 
 } // namespace detail
@@ -596,7 +616,8 @@ bool native_metadata_predicate_is_type_safe(const ParquetColumnSchema& column_sc
     return remove_nullable(column_schema.type)->get_primitive_type() != TYPE_VARBINARY;
 }
 
-bool check_native_statistics(const tparquet::RowGroup& row_group,
+bool check_native_statistics(const tparquet::FileMetaData& metadata,
+                             const tparquet::RowGroup& row_group,
                              const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                              const format::FileScanRequest& request,
                              ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone) {
@@ -620,15 +641,18 @@ bool check_native_statistics(const tparquet::RowGroup& row_group,
         std::shared_ptr<segment_v2::ZoneMap> zone_map;
         if (chunk.__isset.meta_data) {
             const auto& column_metadata = chunk.meta_data;
-            const auto* statistics =
-                    column_metadata.__isset.statistics ? &column_metadata.statistics : nullptr;
-            if (statistics != nullptr && !detail::can_use_native_footer_min_max(
-                                                 column_schema->type_descriptor, *statistics)) {
-                statistics = nullptr;
+            std::optional<tparquet::Statistics> safe_statistics;
+            if (column_metadata.__isset.statistics) {
+                safe_statistics = detail::sanitize_native_footer_statistics(
+                        column_schema->type_descriptor, column_metadata.statistics,
+                        detail::has_supported_type_defined_order(metadata,
+                                                                 column_schema->leaf_column_id));
             }
             zone_map = ParquetStatisticsUtils::MakeZoneMap(
                     ParquetStatisticsUtils::TransformColumnStatistics(
-                            *column_schema, statistics, column_metadata.num_values, timezone));
+                            *column_schema,
+                            safe_statistics.has_value() ? &*safe_statistics : nullptr,
+                            column_metadata.num_values, timezone));
         }
         add_slot_zonemap(&ctx, slot_index, column_schema->type, std::move(zone_map));
     }
@@ -847,7 +871,8 @@ Status select_row_groups_by_metadata(
         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
         const RuntimeState* runtime_state, ParquetFileContext* file_context,
-        const ParquetColumnReaderProfile& column_reader_profile) {
+        const ParquetColumnReaderProfile& column_reader_profile,
+        ParquetMetadataProbeMode probe_mode) {
     int64_t timer_sink = 0;
     SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
                                               : &pruning_stats->row_group_filter_time);
@@ -882,16 +907,20 @@ Status select_row_groups_by_metadata(
             continue;
         }
         ParquetRowGroupPruneReason prune_reason = ParquetRowGroupPruneReason::NONE;
-        if (has_expr_zonemap_filter(request, runtime_state) &&
-            check_native_statistics(row_group, file_schema, request, pruning_stats, timezone)) {
+        if (probe_mode != ParquetMetadataProbeMode::EXPENSIVE_ONLY &&
+            has_expr_zonemap_filter(request, runtime_state) &&
+            check_native_statistics(metadata, row_group, file_schema, request, pruning_stats,
+                                    timezone)) {
             prune_reason = ParquetRowGroupPruneReason::STATISTICS;
         }
-        if (prune_reason == ParquetRowGroupPruneReason::NONE) {
+        if (probe_mode != ParquetMetadataProbeMode::FOOTER_ONLY &&
+            prune_reason == ParquetRowGroupPruneReason::NONE) {
             prune_reason =
                     native_dictionary_prune_reason(row_group, row_group_idx, file_schema, request,
                                                    timezone, file_context, column_reader_profile);
         }
-        if (prune_reason == ParquetRowGroupPruneReason::NONE && enable_bloom_filter) {
+        if (probe_mode != ParquetMetadataProbeMode::FOOTER_ONLY &&
+            prune_reason == ParquetRowGroupPruneReason::NONE && enable_bloom_filter) {
             prune_reason = native_bloom_filter_prune_reason(row_group, file_schema, request,
                                                             file_context, pruning_stats);
         }
@@ -1142,6 +1171,7 @@ RowRange native_page_row_range(const tparquet::OffsetIndex& offset_index, size_t
 } // namespace
 
 Status select_row_group_ranges_by_native_page_index(
+        const tparquet::FileMetaData& metadata,
         const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int64_t row_group_rows,
@@ -1179,7 +1209,8 @@ Status select_row_group_ranges_by_native_page_index(
         }
         const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
         if (column_schema == nullptr || column_schema->type == nullptr ||
-            !native_metadata_predicate_is_type_safe(*column_schema)) {
+            !native_metadata_predicate_is_type_safe(*column_schema) ||
+            !detail::has_supported_type_defined_order(metadata, column_schema->leaf_column_id)) {
             continue;
         }
         const auto index_it = page_indexes.find(column_schema->leaf_column_id);

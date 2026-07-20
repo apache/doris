@@ -383,6 +383,88 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
 
 namespace {
 
+std::vector<RowRange> intersect_row_ranges(const std::vector<RowRange>& left,
+                                           const std::vector<RowRange>& right) {
+    std::vector<RowRange> result;
+    size_t left_idx = 0;
+    size_t right_idx = 0;
+    while (left_idx < left.size() && right_idx < right.size()) {
+        const int64_t left_end = left[left_idx].start + left[left_idx].length;
+        const int64_t right_end = right[right_idx].start + right[right_idx].length;
+        const int64_t start = std::max(left[left_idx].start, right[right_idx].start);
+        const int64_t end = std::min(left_end, right_end);
+        if (start < end) {
+            result.push_back({.start = start, .length = end - start});
+        }
+        if (left_end < right_end) {
+            ++left_idx;
+        } else {
+            ++right_idx;
+        }
+    }
+    return result;
+}
+
+Status finalize_native_row_group_read_plan(
+        const NativeParquetMetadata& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, bool enable_bloom_filter,
+        RowGroupReadPlan* row_group_plan, ParquetPruningStats* pruning_stats,
+        const cctz::time_zone* timezone, const RuntimeState* runtime_state,
+        ParquetFileContext* file_context, const ParquetColumnReaderProfile& column_reader_profile,
+        bool* selected) {
+    DORIS_CHECK(row_group_plan != nullptr && pruning_stats != nullptr && file_context != nullptr &&
+                selected != nullptr);
+    *selected = true;
+    if (!row_group_plan->expensive_pruning_pending) {
+        return Status::OK();
+    }
+    row_group_plan->expensive_pruning_pending = false;
+    const auto& thrift = metadata.to_thrift();
+    const std::vector<int> candidate {row_group_plan->row_group_id};
+    std::vector<int> metadata_selected;
+    RETURN_IF_ERROR(select_row_groups_by_metadata(
+            thrift, file_schema, request, &candidate, &metadata_selected, enable_bloom_filter,
+            pruning_stats, timezone, runtime_state, file_context, column_reader_profile,
+            ParquetMetadataProbeMode::EXPENSIVE_ONLY));
+    if (metadata_selected.empty()) {
+        *selected = false;
+        return Status::OK();
+    }
+
+    std::unordered_set<int> requested_leaf_ids;
+    for (const auto& projection : request_scan_columns(request)) {
+        const auto local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
+            continue;
+        }
+        collect_projected_leaf_column_ids(*file_schema[local_id], projection, &requested_leaf_ids);
+    }
+    std::unordered_map<int, NativeParquetPageIndex> page_indexes;
+    if (can_use_parquet_page_index(request, runtime_state)) {
+        RETURN_IF_ERROR(file_context->load_native_page_indexes(
+                row_group_plan->row_group_id, requested_leaf_ids, &page_indexes,
+                &pruning_stats->read_page_index_time, &pruning_stats->parse_page_index_time));
+    }
+    std::vector<RowRange> page_selected_ranges;
+    std::map<int, ParquetPageSkipPlan> page_skip_plans;
+    RETURN_IF_ERROR(select_row_group_ranges_by_native_page_index(
+            thrift, page_indexes, file_schema, request, row_group_plan->row_group_rows,
+            &page_selected_ranges, &page_skip_plans, pruning_stats, timezone, runtime_state));
+    row_group_plan->selected_ranges =
+            intersect_row_ranges(row_group_plan->selected_ranges, page_selected_ranges);
+    row_group_plan->page_skip_plans = std::move(page_skip_plans);
+    for (auto& [leaf_column_id, indexes] : page_indexes) {
+        row_group_plan->offset_indexes.emplace(leaf_column_id, std::move(indexes.offset_index));
+    }
+    if (row_group_plan->selected_ranges.empty()) {
+        *selected = false;
+        return Status::OK();
+    }
+    pruning_stats->selected_row_ranges += row_group_plan->selected_ranges.size();
+    return Status::OK();
+}
+
 Status build_native_row_group_read_plans(
         const NativeParquetMetadata& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -392,14 +474,6 @@ Status build_native_row_group_read_plans(
         ParquetFileContext* file_context) {
     DORIS_CHECK(plan != nullptr && file_context != nullptr);
     const auto& thrift = metadata.to_thrift();
-    std::unordered_set<int> requested_leaf_ids;
-    for (const auto& projection : request_scan_columns(request)) {
-        const auto local_id = projection.local_id();
-        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
-            continue;
-        }
-        collect_projected_leaf_column_ids(*file_schema[local_id], projection, &requested_leaf_ids);
-    }
     plan->row_groups.reserve(selected_row_groups.size());
     for (const int row_group_idx : selected_row_groups) {
         const auto& row_group = thrift.row_groups[row_group_idx];
@@ -410,24 +484,8 @@ Status build_native_row_group_read_plans(
         row_group_plan.row_group_id = row_group_idx;
         row_group_plan.first_file_row = row_group_first_rows[row_group_idx];
         row_group_plan.row_group_rows = row_group.num_rows;
-        std::unordered_map<int, NativeParquetPageIndex> page_indexes;
-        if (can_use_parquet_page_index(request, runtime_state)) {
-            RETURN_IF_ERROR(file_context->load_native_page_indexes(
-                    row_group_idx, requested_leaf_ids, &page_indexes,
-                    &plan->pruning_stats.read_page_index_time,
-                    &plan->pruning_stats.parse_page_index_time));
-        }
-        RETURN_IF_ERROR(select_row_group_ranges_by_native_page_index(
-                page_indexes, file_schema, request, row_group.num_rows,
-                &row_group_plan.selected_ranges, &row_group_plan.page_skip_plans,
-                &plan->pruning_stats, timezone, runtime_state));
-        for (auto& [leaf_column_id, indexes] : page_indexes) {
-            row_group_plan.offset_indexes.emplace(leaf_column_id, std::move(indexes.offset_index));
-        }
-        if (row_group_plan.selected_ranges.empty()) {
-            continue;
-        }
-        plan->pruning_stats.selected_row_ranges += row_group_plan.selected_ranges.size();
+        row_group_plan.selected_ranges = {{.start = 0, .length = row_group.num_rows}};
+        row_group_plan.expensive_pruning_pending = true;
         plan->row_groups.push_back(std::move(row_group_plan));
     }
     return Status::OK();
@@ -445,6 +503,7 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     DORIS_CHECK(plan != nullptr && file_context != nullptr);
     plan->row_groups.clear();
     plan->pruning_stats = {};
+    plan->enable_bloom_filter = enable_bloom_filter;
     std::vector<int64_t> row_group_first_rows;
     std::vector<int> scan_range_selected;
     RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
@@ -453,10 +512,39 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     RETURN_IF_ERROR(select_row_groups_by_metadata(
             metadata.to_thrift(), file_schema, request, &scan_range_selected, &metadata_selected,
             enable_bloom_filter, &plan->pruning_stats, timezone, runtime_state, file_context,
-            column_reader_profile));
+            column_reader_profile, ParquetMetadataProbeMode::FOOTER_ONLY));
     RETURN_IF_ERROR(build_native_row_group_read_plans(metadata, file_schema, request,
                                                       metadata_selected, row_group_first_rows, plan,
                                                       timezone, runtime_state, file_context));
+    plan->pruning_stats.selected_row_groups = plan->row_groups.size();
+    return Status::OK();
+}
+
+Status finalize_parquet_row_group_plans(
+        const NativeParquetMetadata& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, bool enable_bloom_filter, RowGroupScanPlan* plan,
+        const cctz::time_zone* timezone, const RuntimeState* runtime_state,
+        ParquetFileContext* file_context, const ParquetColumnReaderProfile& column_reader_profile,
+        const ParquetProfile* parquet_profile) {
+    DORIS_CHECK(plan != nullptr && file_context != nullptr);
+    std::vector<RowGroupReadPlan> selected_plans;
+    selected_plans.reserve(plan->row_groups.size());
+    for (auto& row_group_plan : plan->row_groups) {
+        ParquetPruningStats deferred_stats;
+        bool selected = false;
+        RETURN_IF_ERROR(finalize_native_row_group_read_plan(
+                metadata, file_schema, request, enable_bloom_filter, &row_group_plan,
+                &deferred_stats, timezone, runtime_state, file_context, column_reader_profile,
+                &selected));
+        if (parquet_profile != nullptr) {
+            parquet_profile->update_deferred_pruning_stats(deferred_stats, selected);
+        }
+        if (selected) {
+            selected_plans.push_back(std::move(row_group_plan));
+        }
+    }
+    plan->row_groups = std::move(selected_plans);
     plan->pruning_stats.selected_row_groups = plan->row_groups.size();
     return Status::OK();
 }
@@ -718,6 +806,7 @@ std::vector<RowRange> filter_ranges_by_condition_cache(const std::vector<RowRang
 } // namespace
 
 void ParquetScanScheduler::set_plan(RowGroupScanPlan plan) {
+    _enable_bloom_filter = plan.enable_bloom_filter;
     _row_group_plans = std::move(plan.row_groups);
     _condition_cache_filtered_rows = 0;
     _predicate_filtered_rows = 0;
@@ -877,7 +966,30 @@ Status ParquetScanScheduler::open_next_row_group(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, bool* has_row_group) {
     *has_row_group = false;
-    if (_next_row_group_plan_idx >= _row_group_plans.size()) {
+    RowGroupReadPlan* selected_plan = nullptr;
+    while (_next_row_group_plan_idx < _row_group_plans.size()) {
+        RowGroupReadPlan& candidate_plan = _row_group_plans[_next_row_group_plan_idx++];
+        // Probe only the row group about to execute. This keeps LIMIT/cancellation latency
+        // independent of the number of later remote row groups while preserving eager footer
+        // statistics pruning during open.
+        file_context.reset_random_access_ranges();
+        _current_merge_range_active = false;
+        ParquetPruningStats deferred_stats;
+        bool selected = false;
+        RETURN_IF_ERROR(finalize_native_row_group_read_plan(
+                *file_context.native_metadata, file_schema, request, _enable_bloom_filter,
+                &candidate_plan, &deferred_stats, _timezone, _runtime_state, &file_context,
+                _scan_profile.column_reader_profile, &selected));
+        if (_parquet_profile != nullptr) {
+            _parquet_profile->update_deferred_pruning_stats(deferred_stats, selected);
+        }
+        if (!selected) {
+            continue;
+        }
+        selected_plan = &candidate_plan;
+        break;
+    }
+    if (selected_plan == nullptr) {
         // The last row group's native readers have already been released by
         // reset_current_row_group(). Flush the shared merge reader now so its counters are visible
         // when EOF is returned and its bounded scratch does not survive until file close.
@@ -885,7 +997,7 @@ Status ParquetScanScheduler::open_next_row_group(
         _current_merge_range_active = false;
         return Status::OK();
     }
-    RowGroupReadPlan& row_group_plan = _row_group_plans[_next_row_group_plan_idx++];
+    RowGroupReadPlan& row_group_plan = *selected_plan;
     const int row_group_idx = row_group_plan.row_group_id;
     // Dictionary probes and data-page readers share the native metadata tree. Reset the previous
     // row-group merge reader before probing because dictionary-page offsets are not scan ordered.
@@ -1323,7 +1435,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         }
     };
 
-    auto compact_predicate_columns = [&]() -> Status {
+    auto compact_predicate_columns = [&](bool discard_predicate_only_payload) -> Status {
         bool compacted = false;
         int64_t compacted_bytes = 0;
         for (const uint32_t position : read_column_positions) {
@@ -1333,6 +1445,24 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 return Status::Corruption(
                         "Predicate column {} has {} values but {} remembered source rows", position,
                         old_column->size(), source_rows.size());
+            }
+            bool predicate_only = false;
+            if (discard_predicate_only_payload) {
+                predicate_only = std::ranges::any_of(
+                        request.predicate_only_columns, [&](format::LocalColumnId local_id) {
+                            const auto position_it = request.local_positions.find(local_id);
+                            return position_it != request.local_positions.end() &&
+                                   position_it->second.value() == position;
+                        });
+            }
+            if (predicate_only) {
+                auto placeholder = old_column->clone_empty();
+                // Hidden predicate values are dead after the last filter, but every file-block
+                // column must retain the selected row count until TableReader drops hidden slots.
+                placeholder->insert_many_defaults(*selected_rows);
+                file_block->replace_by_position(position, std::move(placeholder));
+                remember_column_selection(position);
+                continue;
             }
             bool already_compact = source_rows.size() == *selected_rows &&
                                    old_column->size() == static_cast<size_t>(*selected_rows);
@@ -1632,9 +1762,10 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         return Status::OK();
     };
 
-    auto compact_predicate_columns_with_profile = [&]() -> Status {
+    auto compact_predicate_columns_with_profile =
+            [&](bool discard_predicate_only_payload) -> Status {
         const int64_t start_ns = MonotonicNanos();
-        auto status = compact_predicate_columns();
+        auto status = compact_predicate_columns(discard_predicate_only_payload);
         update_counter_if_not_null(_scan_profile.predicate_compaction_time,
                                    MonotonicNanos() - start_ns);
         return status;
@@ -1642,17 +1773,23 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
 
     RETURN_IF_ERROR(read_round_by_round());
     // Single-column expressions only touch the just-read column, so earlier columns can retain
-    // their own row mappings. Compact once before a multi-column/output boundary.
-    RETURN_IF_ERROR(compact_predicate_columns_with_profile());
+    // their own row mappings. Compact only when a later expression needs a shared coordinate
+    // space; otherwise the final boundary can discard hidden predicate payloads without scanning
+    // them again.
+    if (!schedule.remaining_conjuncts.empty()) {
+        RETURN_IF_ERROR(compact_predicate_columns_with_profile(false));
+    }
     RETURN_IF_ERROR(execute_scheduled_conjuncts_with_profile(schedule.remaining_conjuncts));
-    RETURN_IF_ERROR(compact_predicate_columns_with_profile());
+    if (!request.delete_conjuncts.empty()) {
+        RETURN_IF_ERROR(compact_predicate_columns_with_profile(false));
+    }
     if (_scan_profile.predicate_filter_time == nullptr) {
         RETURN_IF_ERROR(execute_scheduled_delete_conjuncts());
     } else {
         SCOPED_TIMER(_scan_profile.predicate_filter_time);
         RETURN_IF_ERROR(execute_scheduled_delete_conjuncts());
     }
-    return compact_predicate_columns_with_profile();
+    return compact_predicate_columns_with_profile(true);
 }
 
 Status ParquetScanScheduler::prefetch_current_row_group_columns(
@@ -1847,6 +1984,21 @@ Status ParquetScanScheduler::read_next_batch(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, Block* file_block, size_t* rows, bool* eof) {
     *rows = 0;
+    int64_t predicate_batch_rows = _batch_size;
+    const int64_t max_predicate_batch_rows = std::min<int64_t>(
+            std::numeric_limits<uint16_t>::max(),
+            std::max<int64_t>(DEFAULT_READ_BATCH_SIZE, _runtime_state == nullptr
+                                                               ? DEFAULT_READ_BATCH_SIZE
+                                                               : _runtime_state->batch_size()));
+    auto grow_empty_predicate_batch = [max_predicate_batch_rows](int64_t current) {
+        for (const int64_t target :
+             {int64_t {256}, int64_t {1024}, int64_t {4096}, max_predicate_batch_rows}) {
+            if (current < target) {
+                return std::min(target, max_predicate_batch_rows);
+            }
+        }
+        return max_predicate_batch_rows;
+    };
     while (true) {
         if (!_has_current_row_group) {
             bool has_row_group = false;
@@ -1883,7 +2035,7 @@ Status ParquetScanScheduler::read_next_batch(
             continue;
         }
 
-        const int64_t batch_rows = std::min<int64_t>(_batch_size, remaining_rows);
+        const int64_t batch_rows = std::min<int64_t>(predicate_batch_rows, remaining_rows);
         const int64_t physical_rows_read = batch_rows;
         const int64_t batch_first_file_row =
                 _current_row_group_first_row + _current_row_group_rows_read;
@@ -1896,6 +2048,10 @@ Status ParquetScanScheduler::read_next_batch(
             _current_range_rows_read = 0;
         }
         if (*rows == 0) {
+            // Output-width feedback has no sample for a fully rejected batch. Grow only the
+            // predicate-side physical read so a 32-row probe cannot pin a long filtered prefix;
+            // any eventual output still stays below RuntimeState's row cap.
+            predicate_batch_rows = grow_empty_predicate_batch(predicate_batch_rows);
             continue;
         }
         *eof = false;

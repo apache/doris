@@ -5263,16 +5263,17 @@ TEST_F(NewOrcReaderTest, StripePrefetchPublishesMergedReadProfile) {
     }
     ASSERT_TRUE(reader->close().ok());
 
-    ASSERT_NE(profile.get_counter("RequestIO"), nullptr);
-    ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
-    ASSERT_NE(profile.get_counter("ApplyBytes"), nullptr);
-    ASSERT_NE(profile.get_counter("ClusterNum"), nullptr);
-    ASSERT_NE(profile.get_counter("OverReadBytes"), nullptr);
-    EXPECT_GT(profile.get_counter("RequestIO")->value(), profile.get_counter("MergedIO")->value());
-    EXPECT_GT(profile.get_counter("MergedIO")->value(), 0);
-    EXPECT_GT(profile.get_counter("ApplyBytes")->value(), 0);
-    EXPECT_GT(profile.get_counter("ClusterNum")->value(), 0);
-    EXPECT_GE(profile.get_counter("OverReadBytes")->value(), 0);
+    ASSERT_NE(profile.get_counter("OrcMergedRequestIO"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcMergedIO"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcMergedApplyBytes"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcMergedClusterNum"), nullptr);
+    ASSERT_NE(profile.get_counter("OrcMergedOverReadBytes"), nullptr);
+    EXPECT_GT(profile.get_counter("OrcMergedRequestIO")->value(),
+              profile.get_counter("OrcMergedIO")->value());
+    EXPECT_GT(profile.get_counter("OrcMergedIO")->value(), 0);
+    EXPECT_GT(profile.get_counter("OrcMergedApplyBytes")->value(), 0);
+    EXPECT_GT(profile.get_counter("OrcMergedClusterNum")->value(), 0);
+    EXPECT_GE(profile.get_counter("OrcMergedOverReadBytes")->value(), 0);
 }
 
 TEST_F(NewOrcReaderTest, StripePrefetchCanBeDisabledByZeroOnceMaxReadBytes) {

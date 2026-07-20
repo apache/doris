@@ -445,6 +445,14 @@ bool visit_nullable_expandable_column(IColumn& column, Visitor&& visitor) {
     return false;
 }
 
+bool is_decimal_column(const IColumn& column) {
+    return check_and_get_column<ColumnDecimal32>(&column) != nullptr ||
+           check_and_get_column<ColumnDecimal64>(&column) != nullptr ||
+           check_and_get_column<ColumnDecimal128V2>(&column) != nullptr ||
+           check_and_get_column<ColumnDecimal128V3>(&column) != nullptr ||
+           check_and_get_column<ColumnDecimal256>(&column) != nullptr;
+}
+
 template <typename ColumnType>
 void expand_nullable_pod_values(ColumnType& column, size_t old_size, size_t compact_values,
                                 const NullMap& selected_nulls) {
@@ -1262,11 +1270,12 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
                                                      state, select_vector,
                                                      &_chunk_statistics.materialization_time);
             _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
-        } else if (context.encoding == ParquetValueEncoding::DICTIONARY &&
+        } else if ((context.encoding == ParquetValueEncoding::DICTIONARY ||
+                    is_decimal_column(*doris_column)) &&
                    visit_nullable_expandable_column(*doris_column, [](auto&) {})) {
-            // PLAIN fixed-width pages already skip by pointer arithmetic; compact-and-expand is a
-            // net loss there. Keep this StarRocks-style nullable batching on dictionary pages,
-            // where it also collapses thousands of one-value RLE decoder calls into range reads.
+            // Nullable DECIMAL conversion is substantially heavier than PLAIN cursor arithmetic.
+            // Keep its SerDe/consumer alive for the whole sparse request so NULLs cannot turn one
+            // physical batch into thousands of tiny conversion calls.
             ++_chunk_statistics.hybrid_selection_batches;
             status = decode_selected_nullable_values(
                     *doris_column, serde, *_page_decoder, context, state, select_vector,

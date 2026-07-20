@@ -242,8 +242,7 @@ Status append_parquet_number(PaddedPODArray<DorisCppType>& data, const uint8_t* 
         if (!decoded_number_value_fits<DorisCppType>(value)) {
             if (state != nullptr && state->can_insert_null_on_conversion_failure()) {
                 data[old_size + row] = DorisCppType();
-                DORIS_CHECK_LT(old_size + row, state->conversion_failure_null_map->size());
-                (*state->conversion_failure_null_map)[old_size + row] = 1;
+                DORIS_CHECK(state->mark_conversion_failure(old_size + row));
                 continue;
             }
             data.resize(old_size);
@@ -274,8 +273,7 @@ Status append_parquet_logical_integers(PaddedPODArray<DorisCppType>& data, const
         if (!decoded_number_value_fits<DorisCppType>(logical_value)) {
             if (state != nullptr && state->can_insert_null_on_conversion_failure()) {
                 data[old_size + row] = DorisCppType();
-                DORIS_CHECK_LT(old_size + row, state->conversion_failure_null_map->size());
-                (*state->conversion_failure_null_map)[old_size + row] = 1;
+                DORIS_CHECK(state->mark_conversion_failure(old_size + row));
                 continue;
             }
             data.resize(old_size);
@@ -373,8 +371,7 @@ private:
                 if (!decoded_number_value_fits<DorisCppType>(value)) {
                     if (_state != nullptr && _state->can_insert_null_on_conversion_failure()) {
                         _data[old_size + row] = DorisCppType();
-                        DORIS_CHECK_LT(old_size + row, _state->conversion_failure_null_map->size());
-                        (*_state->conversion_failure_null_map)[old_size + row] = 1;
+                        DORIS_CHECK(_state->mark_conversion_failure(old_size + row));
                         continue;
                     }
                     _data.resize(old_size);

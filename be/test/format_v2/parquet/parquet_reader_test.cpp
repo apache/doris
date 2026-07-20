@@ -2545,7 +2545,15 @@ TEST_F(NewParquetReaderTest, DictionaryPruningPublishesColdAndWarmNativePageProf
         request->non_predicate_columns = {field_projection(0)};
         request->conjuncts.push_back(create_string_in_conjunct(1, {"not-present"}));
         use_schema_order_positions(request.get(), schema);
-        return reader->open(request);
+        RETURN_IF_ERROR(reader->open(request));
+        EXPECT_EQ(profile->get_counter("RowGroupsFilteredByDictionary")->value(), 0);
+        EXPECT_EQ(profile->get_counter("PageReadCount")->value(), 0);
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        // Expensive dictionary probes are current-row-group work now, so advance the scheduler
+        // once before inspecting page-cache and pruning counters.
+        return reader->get_block(&block, &rows, &eof);
     };
 
     RuntimeProfile cold_profile("dictionary_pruning_cold_profile");

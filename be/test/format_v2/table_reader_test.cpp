@@ -4289,6 +4289,7 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
 
     EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({1}));
+    EXPECT_TRUE(file_request.predicate_only_columns.empty());
     ASSERT_EQ(file_request.local_positions.size(), 2);
     EXPECT_EQ(file_request.local_positions.at(LocalColumnId(0)).value(), 1);
     EXPECT_EQ(file_request.local_positions.at(LocalColumnId(1)).value(), 0);

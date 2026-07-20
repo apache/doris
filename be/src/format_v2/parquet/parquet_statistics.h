@@ -56,7 +56,12 @@ Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
                                            int64_t payload_size, int64_t declared_length,
                                            size_t file_size);
 bool can_use_native_footer_min_max(const ParquetTypeDescriptor& type_descriptor,
-                                   const tparquet::Statistics& statistics);
+                                   const tparquet::Statistics& statistics,
+                                   bool has_type_defined_order);
+bool has_supported_type_defined_order(const tparquet::FileMetaData& metadata, int leaf_column_id);
+tparquet::Statistics sanitize_native_footer_statistics(const ParquetTypeDescriptor& type_descriptor,
+                                                       const tparquet::Statistics& statistics,
+                                                       bool has_type_defined_order);
 } // namespace detail
 
 // ============================================================================
@@ -100,6 +105,12 @@ struct NativeParquetPageIndex {
     tparquet::OffsetIndex offset_index;
 };
 
+enum class ParquetMetadataProbeMode {
+    ALL,
+    FOOTER_ONLY,
+    EXPENSIVE_ONLY,
+};
+
 bool can_use_parquet_page_index(const format::FileScanRequest& request,
                                 const RuntimeState* runtime_state);
 
@@ -130,9 +141,11 @@ Status select_row_groups_by_metadata(
         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
         const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr,
-        const ParquetColumnReaderProfile& column_reader_profile = {});
+        const ParquetColumnReaderProfile& column_reader_profile = {},
+        ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL);
 
 Status select_row_group_ranges_by_native_page_index(
+        const tparquet::FileMetaData& metadata,
         const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, int64_t row_group_rows,

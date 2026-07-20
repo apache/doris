@@ -233,12 +233,16 @@ struct ParquetMaterializationState {
     IColumn::Filter* conversion_failure_null_map = nullptr;
     IColumn::Filter dictionary_conversion_failures;
     bool capturing_dictionary_conversion_failures = false;
+    bool dictionary_has_conversion_failures = false;
+    size_t dictionary_failure_scan_rows = 0;
 
     void reset_dictionary() {
         typed_dictionary.reset();
         dictionary_indices.clear();
         dictionary_conversion_failures.clear();
         capturing_dictionary_conversion_failures = false;
+        dictionary_has_conversion_failures = false;
+        dictionary_failure_scan_rows = 0;
         dictionary_generation = std::numeric_limits<uint64_t>::max();
     }
 
@@ -253,12 +257,16 @@ struct ParquetMaterializationState {
         }
         DORIS_CHECK_LT(output_row, conversion_failure_null_map->size());
         (*conversion_failure_null_map)[output_row] = 1;
+        if (capturing_dictionary_conversion_failures) {
+            dictionary_has_conversion_failures = true;
+        }
         return true;
     }
 
     IColumn::Filter* begin_dictionary_conversion(size_t dictionary_size) {
         auto* output_null_map = conversion_failure_null_map;
         dictionary_conversion_failures.resize_fill(dictionary_size, 0);
+        dictionary_has_conversion_failures = false;
         conversion_failure_null_map = &dictionary_conversion_failures;
         capturing_dictionary_conversion_failures = true;
         return output_null_map;
@@ -271,23 +279,34 @@ struct ParquetMaterializationState {
 
     Status materialize_dictionary(IColumn& column) {
         const size_t old_size = column.size();
-        for (size_t row = 0; row < dictionary_indices.size(); ++row) {
-            const auto dictionary_id = dictionary_indices[row];
-            DORIS_CHECK_LT(dictionary_id, dictionary_conversion_failures.size());
-            if (dictionary_conversion_failures[dictionary_id] != 0 &&
-                !can_insert_null_on_conversion_failure()) {
-                // A malformed dictionary entry is irrelevant until a selected row references it;
-                // failing while building the dictionary would reject otherwise valid pages.
-                return Status::DataQualityError(
-                        "Parquet dictionary entry {} cannot be converted to the target type",
-                        dictionary_id);
+        dictionary_failure_scan_rows = 0;
+        if (UNLIKELY(dictionary_has_conversion_failures)) {
+            const bool insert_failure_as_null = can_insert_null_on_conversion_failure();
+            if (!insert_failure_as_null) {
+                for (size_t row = 0; row < dictionary_indices.size(); ++row) {
+                    ++dictionary_failure_scan_rows;
+                    const auto dictionary_id = dictionary_indices[row];
+                    DORIS_CHECK_LT(dictionary_id, dictionary_conversion_failures.size());
+                    if (dictionary_conversion_failures[dictionary_id] == 0) {
+                        continue;
+                    }
+                    // A malformed dictionary entry is irrelevant until a selected row references
+                    // it; failing while building the dictionary would reject valid pages.
+                    return Status::DataQualityError(
+                            "Parquet dictionary entry {} cannot be converted to the target type",
+                            dictionary_id);
+                }
             }
         }
         column.insert_indices_from(*typed_dictionary, dictionary_indices.data(),
                                    dictionary_indices.data() + dictionary_indices.size());
-        if (can_insert_null_on_conversion_failure()) {
+        if (UNLIKELY(dictionary_has_conversion_failures &&
+                     can_insert_null_on_conversion_failure())) {
             for (size_t row = 0; row < dictionary_indices.size(); ++row) {
-                if (dictionary_conversion_failures[dictionary_indices[row]] != 0) {
+                ++dictionary_failure_scan_rows;
+                const auto dictionary_id = dictionary_indices[row];
+                DORIS_CHECK_LT(dictionary_id, dictionary_conversion_failures.size());
+                if (dictionary_conversion_failures[dictionary_id] != 0) {
                     mark_conversion_failure(old_size + row);
                 }
             }

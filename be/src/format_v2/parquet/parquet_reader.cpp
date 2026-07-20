@@ -465,6 +465,9 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     // column chunks here: footer offsets are untrusted and this obsolete range map is not consumed.
     _state->scan_plan = row_group_plan;
     _state->scheduler.set_page_skip_profile(_parquet_profile.page_skip_profile());
+    if (_profile != nullptr) {
+        _state->scheduler.set_pruning_profile(&_parquet_profile);
+    }
     _state->scheduler.set_global_rowid_context(_global_rowid_context);
     _state->scheduler.set_scan_profile(_parquet_profile.scan_profile());
     _state->scheduler.set_plan(std::move(row_group_plan));
@@ -589,6 +592,14 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                                     request.agg_type);
     }
 
+    // Aggregate pushdown bypasses the scheduler but still requires the exact pruned row-group set.
+    // Finish lazy remote probes here; normal scans keep them at current-row-group granularity.
+    RETURN_IF_ERROR(finalize_parquet_row_group_plans(
+            *_state->file_context.native_metadata, _state->file_schema, *_request,
+            _state->enable_bloom_filter, &_state->scan_plan, _state->timezone,
+            _state->runtime_state, &_state->file_context, _parquet_profile.column_reader_profile(),
+            _profile == nullptr ? nullptr : &_parquet_profile));
+
     for (const auto& aggregate_column : request.columns) {
         const auto local_id = aggregate_column.projection.local_id();
         if (local_id < 0 || local_id >= static_cast<int32_t>(_state->file_schema.size())) {
@@ -697,9 +708,16 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             const auto& column_chunk = row_group_metadata.columns[leaf_schema->leaf_column_id];
             DORIS_CHECK(column_chunk.__isset.meta_data);
             const auto& column_metadata = column_chunk.meta_data;
+            std::optional<tparquet::Statistics> safe_statistics;
+            if (column_metadata.__isset.statistics) {
+                safe_statistics = detail::sanitize_native_footer_statistics(
+                        leaf_schema->type_descriptor, column_metadata.statistics,
+                        detail::has_supported_type_defined_order(
+                                _state->file_context.native_metadata->to_thrift(),
+                                leaf_schema->leaf_column_id));
+            }
             const auto statistics = ParquetStatisticsUtils::TransformColumnStatistics(
-                    *leaf_schema,
-                    column_metadata.__isset.statistics ? &column_metadata.statistics : nullptr,
+                    *leaf_schema, safe_statistics.has_value() ? &*safe_statistics : nullptr,
                     column_metadata.num_values, _state->timezone);
             if (!statistics.has_min_max) {
                 return Status::NotSupported("Missing parquet min/max statistics for column {}",

@@ -225,6 +225,34 @@ void ParquetProfile::update_pruning_stats(const ParquetPruningStats& pruning_sta
     COUNTER_UPDATE(in_zonemap_range_only, pruning_stats.in_zonemap_range_only_count);
 }
 
+void ParquetProfile::update_deferred_pruning_stats(const ParquetPruningStats& pruning_stats,
+                                                   bool selected) const {
+    const int64_t filtered = selected ? 0 : 1;
+    COUNTER_UPDATE(filtered_row_groups, filtered);
+    COUNTER_UPDATE(filtered_row_groups_by_dictionary,
+                   pruning_stats.filtered_row_groups_by_dictionary);
+    COUNTER_UPDATE(filtered_row_groups_by_bloom_filter,
+                   pruning_stats.filtered_row_groups_by_bloom_filter);
+    COUNTER_UPDATE(filtered_row_groups_by_page_index,
+                   pruning_stats.filtered_row_groups_by_page_index);
+    // Initial footer planning counts every surviving candidate as readable. Lazy probes correct
+    // that estimate only when a later dictionary, Bloom, or page-index check removes the group.
+    COUNTER_UPDATE(to_read_row_groups, -filtered);
+    COUNTER_UPDATE(selected_row_ranges, pruning_stats.selected_row_ranges);
+    COUNTER_UPDATE(filtered_group_rows, pruning_stats.filtered_group_rows);
+    COUNTER_UPDATE(filtered_bytes, pruning_stats.filtered_bytes);
+    COUNTER_UPDATE(filtered_page_rows, pruning_stats.filtered_page_rows);
+    COUNTER_UPDATE(page_index_read_calls, pruning_stats.page_index_read_calls);
+    COUNTER_UPDATE(bloom_filter_read_time, pruning_stats.bloom_filter_read_time);
+    COUNTER_UPDATE(row_group_filter_time, pruning_stats.row_group_filter_time);
+    COUNTER_UPDATE(page_index_filter_time, pruning_stats.page_index_filter_time);
+    COUNTER_UPDATE(read_page_index_time, pruning_stats.read_page_index_time);
+    COUNTER_UPDATE(parse_page_index_time, pruning_stats.parse_page_index_time);
+    COUNTER_UPDATE(expr_zonemap_unusable, pruning_stats.expr_zonemap_unusable_evals);
+    COUNTER_UPDATE(in_zonemap_point_check, pruning_stats.in_zonemap_point_check_count);
+    COUNTER_UPDATE(in_zonemap_range_only, pruning_stats.in_zonemap_range_only_count);
+}
+
 ParquetPageSkipProfile ParquetProfile::page_skip_profile() const {
     return {
             .skipped_pages = pages_skipped_by_data_page_filter,

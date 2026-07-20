@@ -104,14 +104,18 @@ struct RowGroupReadPlan {
     std::vector<RowRange> selected_ranges; // row ranges to read after page-index pruning
     std::map<int, ParquetPageSkipPlan>
             page_skip_plans; // leaf_column_id -> data pages that can be skipped completely
-    // Native planning already parsed these indexes. Transfer them to execution so narrowed scans
-    // do not issue the same remote index reads a second time while opening the row group.
+    // Deferred planning transfers parsed indexes to execution so narrowed scans never issue the
+    // same remote index reads a second time while opening the row group.
     std::unordered_map<int, tparquet::OffsetIndex> offset_indexes;
+    // Footer statistics are cheap and eager. Remote dictionary/Bloom/page-index probes fill the
+    // remaining fields only when this row group reaches the scheduler.
+    bool expensive_pruning_pending = false;
 };
 
 struct RowGroupScanPlan {
     std::vector<RowGroupReadPlan> row_groups; // row groups selected after pruning
     ParquetPruningStats pruning_stats;        // pruning statistics
+    bool enable_bloom_filter = false;
 };
 
 // ============================================================================
@@ -125,6 +129,14 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
                                const RuntimeState* runtime_state = nullptr,
                                ParquetFileContext* file_context = nullptr,
                                const ParquetColumnReaderProfile& column_reader_profile = {});
+
+Status finalize_parquet_row_group_plans(
+        const NativeParquetMetadata& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, bool enable_bloom_filter, RowGroupScanPlan* plan,
+        const cctz::time_zone* timezone, const RuntimeState* runtime_state,
+        ParquetFileContext* file_context, const ParquetColumnReaderProfile& column_reader_profile,
+        const ParquetProfile* parquet_profile = nullptr);
 
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);
@@ -150,6 +162,9 @@ public:
         _page_skip_profile = page_skip_profile;
     }
     void set_scan_profile(ParquetScanProfile scan_profile) { _scan_profile = scan_profile; }
+    void set_pruning_profile(const ParquetProfile* parquet_profile) {
+        _parquet_profile = parquet_profile;
+    }
     void set_merge_read_options(RuntimeProfile* profile, int64_t merge_read_slice_size) {
         _profile = profile;
         _merge_read_slice_size = merge_read_slice_size;
@@ -257,11 +272,13 @@ private:
     bool _current_merge_range_active = false;
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
+    const ParquetProfile* _parquet_profile = nullptr;
     RuntimeProfile* _profile = nullptr;
     int64_t _merge_read_slice_size = -1;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     const cctz::time_zone* _timezone = nullptr;
     bool _enable_strict_mode = false;
+    bool _enable_bloom_filter = false;
     RuntimeState* _runtime_state = nullptr;
     int64_t _batch_size = DEFAULT_READ_BATCH_SIZE;
     // Batch control scratch is scheduler-owned so adaptive row caps change logical sizes without

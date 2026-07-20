@@ -22,10 +22,12 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -126,6 +128,36 @@ public:
 
 private:
     const std::string _expr_name = "DictionaryStringInExpr";
+};
+
+class MetadataInt32GreaterThanExpr final : public VExpr {
+public:
+    explicit MetadataInt32GreaterThanExpr(int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataInt32GreaterThanExpr is metadata-only");
+    }
+    bool can_evaluate_zonemap_filter() const override { return true; }
+    void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        const auto zone_map = ctx.zone_map(0);
+        if (zone_map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        if (!zone_map->has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        return zone_map->max_value <= Field::create_field<TYPE_INT>(_value)
+                       ? ZoneMapFilterResult::kNoMatch
+                       : ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    int32_t _value;
+    const std::string _expr_name = "MetadataInt32GreaterThanExpr";
 };
 VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
     return {VExprContext::create_shared(
@@ -321,28 +353,113 @@ TEST(NativeParquetStatisticsTest, LegacyBinaryFooterBoundsRequireComparableOrder
 
     tparquet::Statistics max_only;
     max_only.__set_max("III");
-    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type, max_only));
+    EXPECT_FALSE(
+            format::parquet::detail::can_use_native_footer_min_max(binary_type, max_only, false));
 
     tparquet::Statistics legacy_different;
     legacy_different.__set_min("III");
     legacy_different.__set_max("\xe6\x98\xaf");
-    EXPECT_FALSE(
-            format::parquet::detail::can_use_native_footer_min_max(binary_type, legacy_different));
+    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type,
+                                                                        legacy_different, false));
 
     tparquet::Statistics legacy_equal;
     legacy_equal.__set_min("same");
     legacy_equal.__set_max("same");
-    EXPECT_TRUE(format::parquet::detail::can_use_native_footer_min_max(binary_type, legacy_equal));
+    EXPECT_TRUE(format::parquet::detail::can_use_native_footer_min_max(binary_type, legacy_equal,
+                                                                       false));
 
     tparquet::Statistics type_defined;
     type_defined.__set_min_value("III");
     type_defined.__set_max_value("\xe6\x98\xaf");
-    EXPECT_TRUE(format::parquet::detail::can_use_native_footer_min_max(binary_type, type_defined));
+    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type, type_defined,
+                                                                        false));
+    EXPECT_TRUE(format::parquet::detail::can_use_native_footer_min_max(binary_type, type_defined,
+                                                                       true));
 
     tparquet::Statistics mixed_fields;
     mixed_fields.__set_min_value("III");
     mixed_fields.__set_max("\xe6\x98\xaf");
-    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type, mixed_fields));
+    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type, mixed_fields,
+                                                                        true));
+}
+
+TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) {
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+
+    auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+    column_schema->type = std::make_shared<DataTypeInt32>();
+    column_schema->type_descriptor.doris_type = column_schema->type;
+    column_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+
+    tparquet::Statistics statistics;
+    statistics.__set_min_value(encode_int32(1));
+    statistics.__set_max_value(encode_int32(2));
+    statistics.__set_null_count(0);
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_num_values(1);
+    column_metadata.__set_statistics(statistics);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_num_rows(1);
+    tparquet::FileMetaData metadata;
+    metadata.__set_row_groups({row_group});
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {
+            VExprContext::create_shared(std::make_shared<MetadataInt32GreaterThanExpr>(100))};
+    std::vector<int> selected_row_groups;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(metadata, schema, request, nullptr,
+                                                               &selected_row_groups, false, nullptr)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+    format::parquet::NativeParquetPageIndex page_index;
+    page_index.column_index.__set_min_values({encode_int32(1)});
+    page_index.column_index.__set_max_values({encode_int32(2)});
+    page_index.column_index.__set_null_pages({false});
+    page_index.column_index.__set_null_counts({0});
+    tparquet::PageLocation location;
+    location.__set_offset(0);
+    location.__set_compressed_page_size(10);
+    location.__set_first_row_index(0);
+    page_index.offset_index.__set_page_locations({location});
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+    page_indexes.emplace(0, page_index);
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
+                        nullptr)
+                        .ok());
+    EXPECT_EQ(selected_ranges.size(), 1);
+
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    metadata.__set_column_orders({order});
+    selected_row_groups.clear();
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(metadata, schema, request, nullptr,
+                                                               &selected_row_groups, false, nullptr)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
+                        nullptr)
+                        .ok());
+    EXPECT_TRUE(selected_ranges.empty());
 }
 
 } // namespace
