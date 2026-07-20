@@ -19,19 +19,28 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -267,6 +276,37 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                         logicalAggregate().when(agg ->
                                 agg.getGroupByExpressions().size() == 1
                                         && agg.getGroupByExpressions().get(0).toSql().equals("id")));
+    }
+
+    @Test
+    void testCteConsumerSlotMapUpdatedByReplaceMap() {
+        // Verify that visitLogicalCTEConsumer correctly updates the slot maps
+        // when the replaceMap contains an ExprId replacement from the producer.
+        Slot oldProducerSlot = new SlotReference("old", IntegerType.INSTANCE, false);
+        Slot consumerSlot = new SlotReference("cons", IntegerType.INSTANCE, false);
+
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
+                new RelationId(1), new CTEId(0), "cte",
+                ImmutableMap.of(consumerSlot, oldProducerSlot),
+                ImmutableMultimap.of(oldProducerSlot, consumerSlot));
+
+        // Simulate replaceMap with ExprId replacement from aggregate rewrite
+        ExprId newProducerExprId = new ExprId(999);  // fresh Id from any_value alias
+        Map<ExprId, ExprId> replaceMap = new HashMap<>();
+        replaceMap.put(oldProducerSlot.getExprId(), newProducerExprId);
+
+        EliminateGroupByKey rewriter = new EliminateGroupByKey();
+        LogicalCTEConsumer updated = (LogicalCTEConsumer) rewriter.visitLogicalCTEConsumer(
+                consumer, replaceMap);
+
+        // The updated consumer's producerToConsumerSlotMap should be keyed by the new ExprId
+        Multimap<Slot, Slot> updatedMap = updated.getProducerToConsumerOutputMap();
+        Assertions.assertEquals(1, updatedMap.keySet().size());
+        Slot updatedProducerKey = updatedMap.keySet().iterator().next();
+        Assertions.assertEquals(newProducerExprId, updatedProducerKey.getExprId(),
+                "Producer slot ExprId should be updated to the new one from replaceMap");
+        Assertions.assertTrue(updatedMap.get(updatedProducerKey).contains(consumerSlot),
+                "Consumer slot should still be mapped");
     }
 
     @Test
