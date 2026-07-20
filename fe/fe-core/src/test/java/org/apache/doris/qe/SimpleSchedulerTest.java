@@ -53,6 +53,9 @@ public class SimpleSchedulerTest {
     public static void setUp() {
         SimpleScheduler.init();
         Config.heartbeat_interval_second = 2;
+        // Shrink blacklist removal threshold so the test does not need to wait
+        // the default 60s for an alive backend to be evicted from the blacklist.
+        Config.stay_in_backend_black_list_threshold_seconds = 3;
         be1 = new Backend(1000L, "192.168.100.0", 9050);
         be2 = new Backend(1001L, "192.168.100.1", 9050);
         be3 = new Backend(1002L, "192.168.100.2", 9050);

@@ -21,6 +21,7 @@
 #include <brpc/adaptive_protocol_type.h>
 #include <brpc/channel.h>
 #include <brpc/controller.h>
+#include <bthread/bthread.h>
 #include <butil/endpoint.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
@@ -30,6 +31,7 @@
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -65,25 +67,73 @@ using StubMap = phmap::parallel_flat_hash_map<
         std::allocator<std::pair<const std::string, StubEntry<T>>>, 8, std::mutex>;
 
 namespace doris {
+
+// True if `errcode` from brpc::Controller::ErrorCode() represents an actual
+// network-level fault (peer Pod terminating, mid-flight reset, port not
+// listening, etc.) — i.e. cases where we should mark the cached channel bad
+// and invalidate DNS so a re-resolve picks up the new Pod IP.
+//
+// IMPORTANT: keep this a strict white-list of network errnos. Do NOT add
+// EOVERCROWDED / ELIMIT / EREJECT (those are *business* overload signals — the
+// peer is alive and we must NOT trash the cache / DNS for them).
+inline bool is_brpc_network_fault(int errcode) {
+    switch (errcode) {
+    case EHOSTDOWN:    // 112 - Pod terminating (graceful shutdown SIGTERM path)
+    case ETIMEDOUT:    // connect / send timeout
+    case ECONNREFUSED: // peer port not yet listening (Pod just (re)started)
+    case ECONNRESET:   // peer closed connection mid-flight
+    case EHOSTUNREACH:
+    case ENETUNREACH:
+    case ENOTCONN:
+    case EPIPE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Common handler invoked on every detected brpc network fault. Two side effects:
+//   1) marks the cached channel bad so BrpcClientCache evicts it next get_client();
+//   2) synchronously marks `hostname` dirty in DNSCache so the next resolve goes
+//      through getaddrinfo() instead of returning the stale IP. Step 2 is the
+//      cure for the cross-node rolling-restart "stuck on old IP" deadlock.
+// `hostname` may be empty (e.g. for IP-only callers); in that case step 2 is a no-op.
+// Never spawns threads — invalidate() is just a set::insert.
+inline void on_brpc_network_fault(const std::shared_ptr<AtomicStatus>& channel_st,
+                                  const std::string& hostname, brpc::Controller* cntl) {
+    Status error_st = Status::NetworkError(
+            "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
+            berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
+            cntl->latency_us());
+    LOG(WARNING) << error_st;
+    channel_st->update(error_st);
+
+    if (!hostname.empty() && !is_valid_ip(hostname)) {
+        auto* env = ExecEnv::GetInstance();
+        auto* dns_cache = (env != nullptr) ? env->dns_cache() : nullptr;
+        if (dns_cache != nullptr) {
+            dns_cache->invalidate(hostname);
+        }
+    }
+}
+
 class FailureDetectClosure : public ::google::protobuf::Closure {
 public:
-    FailureDetectClosure(std::shared_ptr<AtomicStatus>& channel_st,
+    FailureDetectClosure(std::shared_ptr<AtomicStatus>& channel_st, std::string hostname,
                          ::google::protobuf::RpcController* controller,
                          ::google::protobuf::Closure* done)
-            : _channel_st(channel_st), _controller(controller), _done(done) {}
+            : _channel_st(channel_st),
+              _hostname(std::move(hostname)),
+              _controller(controller),
+              _done(done) {}
 
     void Run() override {
         Defer defer {[&]() { delete this; }};
         // All brpc related API will use brpc::Controller, so that it is safe
         // to do static cast here.
         auto* cntl = static_cast<brpc::Controller*>(_controller);
-        if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
-            Status error_st = Status::NetworkError(
-                    "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
-                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
-                    cntl->latency_us());
-            LOG(WARNING) << error_st;
-            _channel_st->update(error_st);
+        if (cntl->Failed() && is_brpc_network_fault(cntl->ErrorCode())) {
+            on_brpc_network_fault(_channel_st, _hostname, cntl);
         }
         // Sometimes done == nullptr, for example hand_shake API.
         if (_done != nullptr) {
@@ -95,6 +145,7 @@ public:
 
 private:
     std::shared_ptr<AtomicStatus> _channel_st;
+    std::string _hostname;
     ::google::protobuf::RpcController* _controller;
     ::google::protobuf::Closure* _done;
 };
@@ -108,6 +159,10 @@ public:
     FailureDetectChannel() : ::brpc::Channel() {
         _channel_st = std::make_shared<AtomicStatus>(); // default OK
     }
+    // Original FQDN this channel was built for. Used to invalidate DNSCache on
+    // network faults so the next get() re-resolves instead of returning stale IP.
+    void set_hostname(std::string hostname) { _hostname = std::move(hostname); }
+
     void CallMethod(const google::protobuf::MethodDescriptor* method,
                     google::protobuf::RpcController* controller,
                     const google::protobuf::Message* request, google::protobuf::Message* response,
@@ -116,19 +171,15 @@ public:
         if (done != nullptr) {
             // If done == nullptr, then it means the call is sync call, so that should not
             // gen a failure detect closure for it. Or it will core.
-            failure_detect_closure = new FailureDetectClosure(_channel_st, controller, done);
+            failure_detect_closure =
+                    new FailureDetectClosure(_channel_st, _hostname, controller, done);
         }
         ::brpc::Channel::CallMethod(method, controller, request, response, failure_detect_closure);
         // Done == nullptr, it is a sync call, should also deal with the bad channel.
         if (done == nullptr) {
             auto* cntl = static_cast<brpc::Controller*>(controller);
-            if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
-                Status error_st = Status::NetworkError(
-                        "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
-                        berror(cntl->ErrorCode()), cntl->ErrorText(),
-                        BackendOptions::get_localhost(), cntl->latency_us());
-                LOG(WARNING) << error_st;
-                _channel_st->update(error_st);
+            if (cntl->Failed() && is_brpc_network_fault(cntl->ErrorCode())) {
+                on_brpc_network_fault(_channel_st, _hostname, cntl);
             }
         }
     }
@@ -137,6 +188,7 @@ public:
 
 private:
     std::shared_ptr<AtomicStatus> _channel_st;
+    std::string _hostname; // original FQDN, may be empty for IP-only callers
 };
 
 template <class T>
@@ -166,66 +218,116 @@ public:
     }
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
-        std::string realhost = host;
-        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
-        if (dns_cache == nullptr) {
-            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
-        } else if (!is_valid_ip(host)) {
-            Status status = dns_cache->get(host, &realhost);
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to get ip from host:" << status.to_string();
-                return nullptr;
+        // The handshake-and-retry path is only enabled while the cluster-level
+        // graceful shutdown flag is on (operator did
+        // `SET GLOBAL enable_graceful_shutdown=true` before rolling restart).
+        // Outside of rolling restart, get_client stays one-shot.
+        return get_client(host, port, doris::k_in_graceful_shutdown);
+    }
+
+    // Explicit-override entry point. Pass `enable_handshake=true` to force the
+    // handshake-and-retry path (paid only on cache miss / rebuild — warm cache
+    // hits stay free). Pass `false` to disable. Max attempts is 5.
+    std::shared_ptr<T> get_client(const std::string& host, int port, bool enable_handshake) {
+        const int max_attempts = enable_handshake ? 5 : 1;
+        std::string host_port;
+        for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+            // Progressive backoff before retries so Kubernetes DNS/endpoints
+            // have more time to converge during graceful restart.
+            if (enable_handshake && attempt > 1) {
+                bthread_usleep(1000000 * (attempt - 1));
             }
-        }
-
-        // Use original host:port as key (like Java's TNetworkAddress address)
-        // This allows us to detect IP changes when DNS resolution changes
-        std::string host_port = fmt::format("{}:{}", host, port);
-
-        std::shared_ptr<T> stub_ptr;
-        bool need_remove = false;
-
-        auto check_entry = [&](const auto& v) {
-            const StubEntry<T>& entry = v.second;
-            // Check if cached IP matches current resolved IP
-            if (entry.real_ip != realhost) {
-                // IP changed (DNS resolution changed)
-                LOG(WARNING) << "Cached ip changed for " << host << ", before ip: " << entry.real_ip
-                             << ", current ip: " << realhost;
-                need_remove = true;
-            } else if (!static_cast<FailureDetectChannel*>(entry.stub->channel())
-                                ->channel_status()
-                                ->ok()) {
-                // Client is not in normal state, need to recreate
-                // At this point we cannot judge the progress of reconnecting the underlying channel.
-                // In the worst case, it may take two minutes. But we can't stand the connection refused
-                // for two minutes, so rebuild the channel directly.
-                need_remove = true;
-            } else {
-                // Cache hit: IP matches and client is healthy
-                stub_ptr = entry.stub;
+            std::string realhost = host;
+            auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+            if (dns_cache == nullptr) {
+                LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+            } else if (!is_valid_ip(host)) {
+                Status status = dns_cache->get(host, &realhost);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get ip from host: " << status.to_string()
+                                 << ", attempt=" << attempt << "/" << max_attempts;
+                    if (enable_handshake && attempt < max_attempts) {
+                        continue;
+                    }
+                    return nullptr;
+                }
             }
-        };
+            // Keep the original hostname as the cache key so a DNS answer
+            // change can replace the cached channel for the same logical peer.
+            host_port = fmt::format("{}:{}", host, port);
 
-        if (LIKELY(_stub_map.if_contains(host_port, check_entry))) {
-            if (stub_ptr != nullptr) {
-                return stub_ptr;
-            }
-            // IP changed or client unhealthy, need to remove old entry
-            if (need_remove) {
+            std::shared_ptr<T> stub_ptr;
+            bool need_remove = false;
+            auto check_entry = [&](const auto& v) {
+                const StubEntry<T>& entry = v.second;
+                if (entry.real_ip != realhost) {
+                    LOG(WARNING) << "Cached ip changed for " << host
+                                 << ", before ip: " << entry.real_ip
+                                 << ", current ip: " << realhost;
+                    need_remove = true;
+                } else if (!static_cast<FailureDetectChannel*>(entry.stub->channel())
+                                    ->channel_status()
+                                    ->ok()) {
+                    need_remove = true;
+                } else {
+                    stub_ptr = entry.stub;
+                }
+            };
+            if (LIKELY(_stub_map.if_contains(host_port, check_entry))) {
+                if (stub_ptr != nullptr) {
+                    // When enable_handshake is on (during graceful shutdown),
+                    // verify the cached channel is still reachable before
+                    // returning it. Otherwise a cached stub pointing to an
+                    // expired Pod IP will fail on the first real RPC.
+                    if (enable_handshake && !available(stub_ptr, host_port)) {
+                        LOG(WARNING) << "cached channel handshake failed to " << host_port
+                                     << ", attempt=" << attempt << "/" << max_attempts;
+                        _stub_map.erase(host_port);
+                        if (dns_cache != nullptr && !is_valid_ip(host)) {
+                            dns_cache->invalidate(host);
+                        }
+                        continue;
+                    }
+                    return stub_ptr;
+                }
+                DCHECK(need_remove);
                 _stub_map.erase(host_port);
             }
-        }
 
-        // Create new stub using resolved IP for actual connection
-        std::string real_host_port = get_host_port(realhost, port);
-        auto stub = get_new_client_no_cache(real_host_port);
-        if (stub != nullptr) {
+            const std::string real_host_port = get_host_port(realhost, port);
+            // Rebuild path.
+            auto stub = get_new_client_no_cache(real_host_port, "", "", "", host);
+            if (stub == nullptr) {
+                LOG(WARNING) << "failed to build brpc stub to " << real_host_port
+                             << ", attempt=" << attempt << "/" << max_attempts;
+                if (enable_handshake) {
+                    if (dns_cache != nullptr && !is_valid_ip(host)) {
+                        dns_cache->invalidate(host);
+                    }
+                    continue;
+                }
+                return nullptr;
+            }
+            if (enable_handshake && !available(stub, real_host_port)) {
+                LOG(WARNING) << "handshake failed to " << real_host_port << ", attempt=" << attempt
+                             << "/" << max_attempts;
+                // The rebuilt stub talked to a dead peer (or stale IP). Mark
+                // DNS dirty so the next iteration re-resolves via getaddrinfo,
+                // and drop the freshly-built stub.
+                if (dns_cache != nullptr && !is_valid_ip(host)) {
+                    dns_cache->invalidate(host);
+                }
+                continue;
+            }
+
             StubEntry<T> entry {realhost, stub};
             _stub_map.try_emplace_l(
                     host_port, [&stub](const auto& v) { stub = v.second.stub; }, entry);
+            return stub;
         }
-        return stub;
+        LOG(WARNING) << "get_client gave up after " << max_attempts << " handshake attempts to "
+                     << host_port;
+        return nullptr;
     }
 
     std::shared_ptr<T> get_client(const std::string& host_port) {
@@ -244,7 +346,8 @@ public:
     std::shared_ptr<T> get_new_client_no_cache(const std::string& host_port,
                                                const std::string& protocol = "",
                                                const std::string& connection_type = "",
-                                               const std::string& connection_group = "") {
+                                               const std::string& connection_group = "",
+                                               const std::string& original_hostname = "") {
         brpc::ChannelOptions options;
         Status status = doris::client::configure_brpc_channel_options(&options);
         if (!status.ok()) {
@@ -272,6 +375,9 @@ public:
         options.max_retry = 10;
 
         std::unique_ptr<FailureDetectChannel> channel(new FailureDetectChannel());
+        if (!original_hostname.empty()) {
+            channel->set_hostname(original_hostname);
+        }
         int ret_code = 0;
         if (host_port.find("://") == std::string::npos) {
             ret_code = channel->Init(host_port.c_str(), &options);

@@ -140,6 +140,16 @@ class DeleteBitmapAggCache;
 
 // set to true when BE is shutting down
 inline bool k_doris_exit = false;
+// set to true once FE Master has pulled a heartbeat carrying is_shutdown=true.
+// Used by Phase A of graceful shutdown to know FE has been informed.
+inline bool k_shutdown_fe_known = false;
+// Cluster-level "graceful shutdown" flag pushed by FE master via
+// TMasterInfo.in_graceful_shutdown (operator does `SET GLOBAL
+// enable_graceful_shutdown=true` before rolling restart). When true,
+// FragmentMgr::cancel_worker will skip cancelling queries for reasons related to
+// coord FE process_uuid change / coord-missing. Timeout / pipeline_task_leak
+// cancels are NOT affected. Updated in HeartbeatServer::_heartbeat.
+inline bool k_in_graceful_shutdown = false;
 // set to true after BE start ready
 inline bool k_is_server_ready = false;
 
@@ -382,6 +392,12 @@ public:
     DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
     void wait_for_all_tasks_done();
+
+    // Phase A of graceful shutdown: block until FE Master has observed
+    // our is_shutdown=true (via heartbeat round-trip), then sleep an extra
+    // buffer so the OP_HEARTBEAT EditLog can propagate to all Followers.
+    // Bounded by config::grace_shutdown_fe_known_wait_seconds.
+    void wait_for_all_fe_known();
 
     void update_frontends(const std::vector<TFrontendInfo>& new_infos);
     std::vector<TFrontendInfo> get_frontends();

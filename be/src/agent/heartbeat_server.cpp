@@ -90,6 +90,12 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
         // If be is gracefully stop, then k_doris_exist is set to true
         heartbeat_result.backend_info.__set_is_shutdown(doris::k_doris_exit);
+        if (doris::k_doris_exit) {
+            // FE Master has pulled at least one heartbeat carrying
+            // is_shutdown=true. Unblock Phase A in graceful_shutdown.
+            doris::k_shutdown_fe_known = true;
+            LOG(INFO) << " The heartbeat with is_shutdown=true has been pulled by FE Master.";
+        }
         heartbeat_result.backend_info.__set_fragment_executing_count(
                 get_fragment_executing_count());
         heartbeat_result.backend_info.__set_fragment_last_active_time(
@@ -244,6 +250,23 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 "Heartbeat from {}:{} does not have frontend_infos, this may because we are "
                 "upgrading cluster",
                 master_info.network_address.hostname, master_info.network_address.port);
+    }
+
+    // Propagate the cluster-level "graceful shutdown" flag pushed from FE master
+    // (set via SET GLOBAL enable_graceful_shutdown = true). When true, BE
+    // FragmentMgr::cancel_worker will skip cancelling queries for reasons related
+    // to coord FE process_uuid change / missing, so rolling restart does not kill
+    // in-flight stream load / select.
+    {
+        const bool new_flag =
+                master_info.__isset.in_graceful_shutdown ? master_info.in_graceful_shutdown : false;
+        if (new_flag != doris::k_in_graceful_shutdown) {
+            LOG(INFO) << "cluster in_graceful_shutdown flag changed: "
+                      << doris::k_in_graceful_shutdown << " -> " << new_flag
+                      << " (master=" << master_info.network_address.hostname << ":"
+                      << master_info.network_address.port << ")";
+            doris::k_in_graceful_shutdown = new_flag;
+        }
     }
 
     if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {

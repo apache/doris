@@ -22,7 +22,9 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DNSCache;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -31,7 +33,9 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
@@ -156,6 +160,10 @@ public class Backend implements Writable {
     // And once it back to alive, reset this counter.
     // No need to persist, because only master FE handle heartbeat.
     private int heartbeatFailureCounter = 0;
+
+    private static final int GRACEFUL_ALIVE_HEARTBEAT_CONFIRM_COUNT = 5;
+    private int gracefulAliveHeartbeatOkCount = 0;
+    private long gracefulAliveHeartbeatStartTime = -1;
 
     private long nextForceEditlogHeartbeatTime = System.currentTimeMillis() + (new SecureRandom()).nextInt(60 * 1000);
 
@@ -870,7 +878,25 @@ public class Backend implements Writable {
      */
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
+        // Snapshot state BEFORE any mutation, so we can detect a BE process restart
+        // (new beStartTime/epoch) and run proactive cleanup at the end of this method.
+        // Trigger cleanup when:
+        //   1. beStartTime changed (process restarted; covers the "alive whole time" case too), OR
+        //   2. BE was dead and is now coming back alive (may or may not have a new epoch, but
+        //      stale FE-side channels are still expected).
+        final long preHbStartTime = this.lastStartTime;
+        final boolean preHbIsAlive = this.isAlive.get();
+        final long newStartTime = hbResponse.getStatus() == HbStatus.OK ? hbResponse.getBeStartTime() : 0L;
+        // Require a prior valid epoch (preHbStartTime > 0) so the very first heartbeat of a
+        // freshly-added BE does not trigger a bogus "restart detected" cleanup/log.
+        final boolean restartDetected = hbResponse.getStatus() == HbStatus.OK
+                && preHbStartTime > 0
+                && ((newStartTime > 0 && preHbStartTime != newStartTime) || !preHbIsAlive);
         if (hbResponse.getStatus() == HbStatus.OK) {
+            if (shouldDelayAliveByGracefulHeartbeat(hbResponse, isReplay)) {
+                return false;
+            }
+
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;
                 this.version = hbResponse.getVersion();
@@ -948,6 +974,7 @@ public class Backend implements Writable {
                 this.nextForceEditlogHeartbeatTime = System.currentTimeMillis() + delaySecond * 1000L;
             }
         } else {
+            resetGracefulAliveHeartbeat();
             // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
             if (hbResponse.getHbTime() > 0) {
                 this.lastUpdateMs = hbResponse.getHbTime();
@@ -968,7 +995,151 @@ public class Backend implements Writable {
             lastMissingHeartbeatTime = System.currentTimeMillis();
         }
 
+        // If we detected a BE restart (new epoch, or dead->alive transition), proactively
+        // invalidate FE-side caches (DNSCache + gRPC channels + Thrift pool) so the first
+        // query after restart does not hit a stale channel.
+        //
+        // NOTE: This must run on BOTH master (isReplay=false) and follower FEs
+        // (isReplay=true, replaying OP_HEARTBEAT editlog). Each FE process holds its own
+        // in-memory caches, and follower FEs also serve client queries on port 9030. If we
+        // skipped follower replay, follower FEs would keep stale gRPC channels / Thrift
+        // sockets pointing to the previous BE IP and fail the first query after BE restart
+        if (restartDetected) {
+            try {
+                String reason = String.format(
+                        "heartbeat: restart detected (preHbStartTime=%d (%s), "
+                                + "postHbStartTime=%d (%s), preHbIsAlive=%s, postHbIsAlive=%s, "
+                                + "isAvailable=%s, isShutDown=%s, isQueryDisabled=%s)",
+                        preHbStartTime, TimeUtils.longToTimeString(preHbStartTime),
+                        newStartTime, TimeUtils.longToTimeString(newStartTime),
+                        preHbIsAlive, isAlive.get(), SimpleScheduler.isAvailable(this),
+                        isShutDown(), isQueryDisabled());
+                invalidateLocalConnections(host, reason);
+            } catch (Throwable t) {
+                LOG.warn("invalidateLocalConnections failed (heartbeat path), backendId={}, "
+                        + "host={}, err={}", id, host, t.getMessage(), t);
+            }
+        }
+
         return isChanged;
+    }
+
+    private boolean shouldDelayAliveByGracefulHeartbeat(BackendHbResponse hbResponse, boolean isReplay) {
+        if (isReplay || hbResponse.isShutDown() || !isGracefulShutdownEnabled()) {
+            resetGracefulAliveHeartbeat();
+            return false;
+        }
+        if (isAlive.get() && !isShutDown()) {
+            resetGracefulAliveHeartbeat();
+            return false;
+        }
+
+        long beStartTime = hbResponse.getBeStartTime();
+        if (gracefulAliveHeartbeatStartTime != beStartTime) {
+            gracefulAliveHeartbeatStartTime = beStartTime;
+            gracefulAliveHeartbeatOkCount = 0;
+        }
+        gracefulAliveHeartbeatOkCount++;
+
+        if (gracefulAliveHeartbeatOkCount < GRACEFUL_ALIVE_HEARTBEAT_CONFIRM_COUNT) {
+            LOG.info("{} delays marking backend alive during graceful shutdown, "
+                            + "okHeartbeatCount={}/{}, beStartTime={} ({}), isReplay={}",
+                    this.toString(), gracefulAliveHeartbeatOkCount,
+                    GRACEFUL_ALIVE_HEARTBEAT_CONFIRM_COUNT, beStartTime,
+                    TimeUtils.longToTimeString(beStartTime), isReplay);
+            return true;
+        }
+
+        LOG.info("{} confirms backend alive during graceful shutdown after {} consecutive OK heartbeats, "
+                        + "beStartTime={} ({})",
+                this.toString(), gracefulAliveHeartbeatOkCount, beStartTime,
+                TimeUtils.longToTimeString(beStartTime));
+        resetGracefulAliveHeartbeat();
+        return false;
+    }
+
+    private boolean isGracefulShutdownEnabled() {
+        try {
+            return VariableMgr.getDefaultSessionVariable().enableGracefulShutdown;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void resetGracefulAliveHeartbeat() {
+        gracefulAliveHeartbeatOkCount = 0;
+        gracefulAliveHeartbeatStartTime = -1;
+    }
+
+    /**
+     * Public entry to invalidate FE-side connection caches (DNSCache + gRPC channels +
+     * Thrift pool) targeting this backend. Safe to call from any thread; all three
+     * underlying operations are idempotent.
+     *
+     * <p>Called from two replay paths:
+     * <ul>
+     *   <li>{@link #handleHbResponse} when a heartbeat indicates a BE epoch change
+     *       (covers {@code OP_HEARTBEAT} editlog replay on follower FEs);</li>
+     *   <li>{@code SystemInfoService.updateBackendState()} which replays
+     *       {@code OP_BACKEND_STATE_CHANGE} editlog entries and bypasses the heartbeat
+     *       handler entirely.</li>
+     * </ul>
+     * Without this unified entry, follower FEs that learn about a BE restart via
+     * state-change editlog instead of heartbeat would never clear their in-memory
+     * connection caches and the next query would hit a stale gRPC channel / Thrift
+     * socket pointing to the previous BE IP.
+     *
+     * @param prevHost the host string seen BEFORE the update, used to invalidate the
+     *                 DNSCache entry for the old hostname in case the host field has
+     *                 been mutated by setters. Pass current host if it did not change.
+     * @param reason   short tag included in the log line for diagnostics
+     *                 (e.g. {@code "OP_BACKEND_STATE_CHANGE replay"}).
+     */
+    public void invalidateLocalConnections(String prevHost, String reason) {
+        LOG.info("BE restart detected on FE. reason={}, backendId={}, currentHost={}, "
+                        + "prevHost={}, bePort={}, brpcPort={}, isAlive={}, lastStartTime={} ({}). "
+                        + "Will proactively invalidate DNSCache, gRPC channels and Thrift pool "
+                        + "to avoid stale connections on next query.",
+                reason, id, host, prevHost, bePort, brpcPort, isAlive.get(),
+                lastStartTime, TimeUtils.longToTimeString(lastStartTime));
+
+        Env env = Env.getCurrentEnv();
+        DNSCache dnsCache = env == null ? null : env.getDnsCache();
+        if (dnsCache != null) {
+            if (prevHost != null && !prevHost.isEmpty()) {
+                String prevIp = dnsCache.get(prevHost);
+                dnsCache.remove(prevHost);
+                LOG.info("BE restart cleanup: invalidated FE DNSCache. backendId={}, host={}, "
+                                + "previousCachedIp={}. Next getProxy() will force re-resolution.",
+                        id, prevHost, prevIp);
+            }
+            if (host != null && !host.isEmpty() && !host.equals(prevHost)) {
+                String prevIp = dnsCache.get(host);
+                dnsCache.remove(host);
+                LOG.info("BE restart cleanup: invalidated FE DNSCache for current host. "
+                                + "backendId={}, host={}, previousCachedIp={}.",
+                        id, host, prevIp);
+            }
+        } else {
+            LOG.info("BE restart cleanup: DNSCache not available, skipped. backendId={}", id);
+        }
+
+        if (brpcPort > 0) {
+            TNetworkAddress brpcAddr = new TNetworkAddress(host, brpcPort);
+            LOG.info("BE restart cleanup: dropping gRPC channels on all shards. backendId={}, "
+                    + "brpcAddr={}", id, brpcAddr);
+            BackendServiceProxy.removeProxyForAll(brpcAddr);
+        }
+
+        if (bePort > 0) {
+            TNetworkAddress bePoolAddr = new TNetworkAddress(host, bePort);
+            ClientPool.backendPool.clearPool(bePoolAddr);
+            LOG.info("BE restart cleanup: cleared Thrift backendPool. backendId={}, bePoolAddr={}",
+                    id, bePoolAddr);
+        }
+
+        LOG.info("BE restart cleanup done. backendId={}, host={}, prevHost={}",
+                id, host, prevHost);
     }
 
     public void setTabletMaxCompactionScore(long compactionScore) {
@@ -1138,4 +1309,3 @@ public class Backend implements Writable {
     }
 
 }
-

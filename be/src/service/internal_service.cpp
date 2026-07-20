@@ -355,6 +355,12 @@ void PInternalService::exec_plan_fragment(google::protobuf::RpcController* contr
     timeval tv {};
     gettimeofday(&tv, nullptr);
     response->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
+    if (k_doris_exit) {
+        LOG(WARNING) << "BE is shutting down but still received exec_plan_fragment request.  "
+                        "k_shutdown_fe_known: "
+                     << k_shutdown_fe_known
+                     << ", k_in_graceful_shutdown: " << k_in_graceful_shutdown;
+    }
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
@@ -402,6 +408,12 @@ void PInternalService::exec_plan_fragment_prepare(google::protobuf::RpcControlle
     timeval tv {};
     gettimeofday(&tv, nullptr);
     response->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
+    if (k_doris_exit) {
+        LOG(WARNING) << "BE is shutting down but still received exec_plan_fragment_prepare "
+                        "request. k_shutdown_fe_known: "
+                     << k_shutdown_fe_known
+                     << ", k_in_graceful_shutdown: " << k_in_graceful_shutdown;
+    }
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });

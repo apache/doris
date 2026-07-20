@@ -65,6 +65,11 @@ public class BackendServiceClient {
         return channelConfigVersion == CHANNEL_PROVIDER.currentConfigVersion();
     }
 
+    // Return the current gRPC ConnectivityState for diagnostics/logging.
+    public ConnectivityState getConnectivityState() {
+        return channel.getState(false);
+    }
+
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
         return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
