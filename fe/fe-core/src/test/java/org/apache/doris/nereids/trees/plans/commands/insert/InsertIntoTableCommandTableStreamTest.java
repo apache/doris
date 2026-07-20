@@ -167,6 +167,28 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
     }
 
     @Test
+    public void testFastInsertIntoValuesAllowsMissingAnalyzedPlan() throws Exception {
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
+        boolean originalFastAnalyze = connectContext.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
+        connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(true);
+        try {
+            String sql = "insert into test_stream.tbl_target values (1, 2)";
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertTrue(logicalPlan instanceof InsertIntoTableCommand);
+
+            connectContext.setStartTime();
+            UUID uuid = UUID.randomUUID();
+            connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            InsertIntoTableCommand command = (InsertIntoTableCommand) logicalPlan;
+            Assertions.assertNotNull(command.initPlan(connectContext, executor, false));
+        } finally {
+            connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(originalFastAnalyze);
+        }
+    }
+
+    @Test
     public void testUnprotectedUpdateAdvancesPartitionOffsetAndConsumptionTime() throws Exception {
         // (B1) When no historicalPartitionTSO is present, unprotectedUpdateStreamUpdate should
         // advance partitionOffset to the committed `next` TSO, record partitionConsumptionTime,
