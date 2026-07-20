@@ -17,8 +17,13 @@
 
 package org.apache.doris.common.cache;
 
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
@@ -27,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -67,6 +73,14 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
     private static void newLiveConnectContext() {
         ConnectContext ctx = new ConnectContext();
         ctx.setThreadLocalInfo();
+    }
+
+    private static ListPartitionItem listItem(int value) throws Exception {
+        Column partitionColumn = new Column("id", PrimitiveType.INT);
+        PartitionValue partitionValue = new PartitionValue(String.valueOf(value));
+        PartitionKey partitionKey = PartitionKey.createPartitionKey(
+                ImmutableList.of(partitionValue), ImmutableList.of(partitionColumn));
+        return new ListPartitionItem(ImmutableList.of(partitionKey));
     }
 
     /**
@@ -132,5 +146,50 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
                 "fresh manager is empty; invalidate is a no-op that must not throw");
         Assertions.assertDoesNotThrow(() -> mgr.invalidateTable(CTL, DB, TBL),
                 "invalidateTable on an absent key must not throw");
+    }
+
+    // ──────────────────── Task 5: cache hit / version-rebuild / origin-map consistency ────────────────────
+
+    @Test
+    public void testCacheHitThenRebuildOnVersionChange() throws Exception {
+        newLiveConnectContext();
+        NereidsSortedPartitionsCacheManager mgr = new NereidsSortedPartitionsCacheManager();
+        FakeExternalTable t = new FakeExternalTable(true);
+        t.parts.put("id=1", listItem(1));
+        t.parts.put("id=2", listItem(2));
+
+        t.version = "s1@0";
+        SortedPartitionRanges<?> first = mgr.get(t.table, (CatalogRelation) null).orElse(null);
+        Assertions.assertNotNull(first, "ranges built and cached at snapshot s1");
+        SortedPartitionRanges<?> hit = mgr.get(t.table, (CatalogRelation) null).orElse(null);
+        Assertions.assertSame(first, hit, "same snapshot => cache hit returns the SAME instance");
+
+        t.version = "s2@0"; // snapshot advanced (ALTER ADD PARTITION)
+        t.parts.put("id=3", listItem(3));
+        SortedPartitionRanges<?> rebuilt = mgr.get(t.table, (CatalogRelation) null).orElse(null);
+        Assertions.assertNotSame(first, rebuilt, "version change => rebuild");
+        Assertions.assertEquals(3, rebuilt.sortedPartitions.size(), "rebuilt from the new partition set");
+
+        // Task 4 wiring: dropping the cache by (catalog, db, table) forces the next get() to rebuild too.
+        mgr.invalidateTable(CTL, DB, TBL);
+        SortedPartitionRanges<?> afterInvalidate = mgr.get(t.table, (CatalogRelation) null).orElse(null);
+        Assertions.assertNotSame(rebuilt, afterInvalidate,
+                "explicit invalidateTable(catalog, db, table) forces a rebuild on the next get()");
+    }
+
+    @Test
+    public void testRangesConsistentWithOriginMap() throws Exception {
+        // The cached ranges are built from getOriginPartitions(scan); every range id must be a key of
+        // that same map -- the invariant PruneFileScanPartition's Preconditions relies on (no TOCTOU).
+        newLiveConnectContext();
+        NereidsSortedPartitionsCacheManager mgr = new NereidsSortedPartitionsCacheManager();
+        FakeExternalTable t = new FakeExternalTable(true);
+        t.parts.put("id=1", listItem(1));
+        t.parts.put("id=2", listItem(2));
+
+        SortedPartitionRanges<?> r = mgr.get(t.table, (CatalogRelation) null).orElse(null);
+        Assertions.assertNotNull(r);
+        r.sortedPartitions.forEach(p ->
+                Assertions.assertTrue(t.parts.containsKey(p.id), "every range id is a key of the origin map"));
     }
 }
