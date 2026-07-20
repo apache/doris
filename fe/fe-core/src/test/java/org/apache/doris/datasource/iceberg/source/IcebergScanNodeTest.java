@@ -33,6 +33,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
+import org.apache.doris.thrift.TPushAggOp;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileFormat;
@@ -153,6 +154,56 @@ public class IcebergScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("filter column file_path is not materialized"));
         }
+    }
+
+    private static class CountPlanningIcebergScanNode extends IcebergScanNode {
+        private final TableScan tableScan;
+        private final long snapshotCount;
+        private int snapshotCountCalls;
+
+        CountPlanningIcebergScanNode(SessionVariable sv, TableScan tableScan, long snapshotCount) {
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
+            this.tableScan = tableScan;
+            this.snapshotCount = snapshotCount;
+        }
+
+        @Override
+        public TableScan createTableScan() {
+            return tableScan;
+        }
+
+        @Override
+        public long getCountFromSnapshot() {
+            ++snapshotCountCalls;
+            return snapshotCount;
+        }
+    }
+
+    @Test
+    public void testTableLevelCountSplitPlanningRequiresCountStar() {
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(false);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(Mockito.mock(Snapshot.class));
+
+        // COUNT(required_col) carries a non-empty semantic argument list. Even though its result
+        // equals COUNT(*) for valid data, BE intentionally reads the column to enforce schema
+        // contracts. FE must therefore leave all real file tasks available to that fallback.
+        CountPlanningIcebergScanNode countColumnNode =
+                new CountPlanningIcebergScanNode(sv, tableScan, 30_000);
+        countColumnNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        countColumnNode.setPushDownCountSlotIds(Collections.singletonList(new SlotId(7)));
+        Assert.assertFalse(countColumnNode.isBatchMode());
+        Assert.assertEquals(0, countColumnNode.snapshotCountCalls);
+
+        // COUNT(*) has an explicitly empty argument list, so snapshot row count remains eligible
+        // and doGetSplits may retain only representative tasks for parallel materialization.
+        CountPlanningIcebergScanNode countStarNode =
+                new CountPlanningIcebergScanNode(sv, tableScan, 30_000);
+        countStarNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        countStarNode.setPushDownCountSlotIds(Collections.emptyList());
+        Assert.assertFalse(countStarNode.isBatchMode());
+        Assert.assertEquals(1, countStarNode.snapshotCountCalls);
     }
 
     @Test
