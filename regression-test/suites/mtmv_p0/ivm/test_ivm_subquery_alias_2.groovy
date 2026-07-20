@@ -84,7 +84,6 @@ suite("test_ivm_subquery_alias_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_subquery_alias_2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_subquery_alias_2_mv")
-    advance_ivm_stream_offset("test_ivm_subquery_alias_2_mv")
     order_qt_subquery_alias_agg_after_complete_recovery """
         SELECT k1, cnt, sum_v1 FROM test_ivm_subquery_alias_2_mv
     """

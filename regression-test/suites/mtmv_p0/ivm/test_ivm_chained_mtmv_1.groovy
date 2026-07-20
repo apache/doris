@@ -65,7 +65,6 @@ suite("test_ivm_chained_mtmv_1") {
     //    consume only the changes produced after the initial snapshot.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_1 COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_chained_1")
-    advance_ivm_stream_offset("mv_ivm_chained_1")
 
     order_qt_mv1_after_first_refresh """SELECT k1, v1, v2 FROM mv_ivm_chained_1"""
 
@@ -83,7 +82,6 @@ suite("test_ivm_chained_mtmv_1") {
     // 6. Full refresh MV2 and advance stream offset to establish the chained baseline.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_chained_2 COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_chained_2")
-    advance_ivm_stream_offset("mv_ivm_chained_2")
 
     order_qt_mv2_after_first_refresh """SELECT k1, v1 FROM mv_ivm_chained_2"""
 

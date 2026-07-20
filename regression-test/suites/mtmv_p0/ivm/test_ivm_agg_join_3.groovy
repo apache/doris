@@ -74,7 +74,6 @@ suite("test_ivm_agg_join_3") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj3_p11_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj3_p11_mv")
-    advance_ivm_stream_offset("ivm_aj3_p11_mv")
     order_qt_p11_complete """SELECT category, fact_cnt, total_amount FROM ivm_aj3_p11_mv"""
 
     // Delete the joined key on the MOW side and add a non-joined insert row to trigger

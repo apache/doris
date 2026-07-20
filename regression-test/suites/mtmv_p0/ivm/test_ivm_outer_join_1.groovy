@@ -76,7 +76,6 @@ suite("test_ivm_outer_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_1_mv")
-    advance_ivm_stream_offset("test_ivm_outer_join_1_mv")
     order_qt_after_complete """
         SELECT k1, left_v1, right_v2
         FROM test_ivm_outer_join_1_mv
@@ -171,7 +170,6 @@ suite("test_ivm_outer_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_1_event_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_1_event_mv")
-    advance_ivm_stream_offset("test_ivm_outer_join_1_event_mv")
     order_qt_event_after_complete """
         SELECT k1, left_v1, right_v2
         FROM test_ivm_outer_join_1_event_mv
@@ -247,7 +245,6 @@ suite("test_ivm_outer_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_1_repair_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_1_repair_mv")
-    advance_ivm_stream_offset("test_ivm_outer_join_1_repair_mv")
     order_qt_repair_after_complete """
         SELECT k1, left_v1, right_v2
         FROM test_ivm_outer_join_1_repair_mv

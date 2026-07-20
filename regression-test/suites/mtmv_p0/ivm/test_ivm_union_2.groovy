@@ -81,7 +81,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_mow_dup_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_mow_dup_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_mow_dup_mv")
     order_qt_union_mow_dup_after_complete """
         SELECT k1, v1 FROM test_ivm_union_2_mow_dup_mv
     """
@@ -95,7 +94,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_mow_dup_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_mow_dup_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_mow_dup_mv")
     order_qt_union_mow_dup_after_complete_recovery """
         SELECT k1, v1 FROM test_ivm_union_2_mow_dup_mv
     """
@@ -191,7 +189,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_jj_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_jj_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_jj_mv")
     order_qt_union_jj_after_complete """
         SELECT k1, total FROM test_ivm_union_2_jj_mv
     """
@@ -208,7 +205,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_jj_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_jj_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_jj_mv")
     order_qt_union_jj_after_complete_recovery """
         SELECT k1, total FROM test_ivm_union_2_jj_mv
     """
@@ -292,7 +288,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_join_arm_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_join_arm_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_join_arm_mv")
     order_qt_union_join_arm_after_complete """
         SELECT k1, total FROM test_ivm_union_2_join_arm_mv
     """
@@ -308,7 +303,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_join_arm_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_join_arm_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_join_arm_mv")
     order_qt_union_join_arm_after_complete_recovery """
         SELECT k1, total FROM test_ivm_union_2_join_arm_mv
     """
@@ -373,7 +367,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_alias_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_alias_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_alias_mv")
     order_qt_union_alias_after_complete """
         SELECT id, value FROM test_ivm_union_2_alias_mv
     """
@@ -387,7 +380,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_alias_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_alias_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_alias_mv")
     order_qt_union_alias_after_complete_recovery """
         SELECT id, value FROM test_ivm_union_2_alias_mv
     """
@@ -453,7 +445,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_delete_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_delete_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_delete_mv")
     order_qt_union_delete_after_complete """
         SELECT k1, v1 FROM test_ivm_union_2_delete_mv
     """
@@ -471,7 +462,6 @@ suite("test_ivm_union_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_2_delete_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_2_delete_mv")
-    advance_ivm_stream_offset("test_ivm_union_2_delete_mv")
     order_qt_union_delete_after_complete_recovery """
         SELECT k1, v1 FROM test_ivm_union_2_delete_mv
     """

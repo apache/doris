@@ -26,7 +26,7 @@ PhysicalOlapTableSink
 ----------------------PhysicalProject
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalProject
-----------------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
+----------------------------filter(test_ivm_explain_refresh_t2.__DORIS_BINLOG_OP__ IN (0, 3))
 ------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 ----------------------PhysicalEmptyRelation
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
@@ -35,7 +35,7 @@ PhysicalOlapTableSink
 ----------------------PhysicalProject
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalProject
-----------------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
+----------------------------filter(( not test_ivm_explain_refresh_t2.__DORIS_BINLOG_OP__ IN (0, 3)))
 ------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 ----------------------PhysicalProject
 ------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
@@ -68,7 +68,7 @@ PhysicalOlapTableSink
 ----------------------PhysicalProject
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalProject
-----------------------------filter(__DORIS_BINLOG_OP__ IN (0, 3))
+----------------------------filter(test_ivm_explain_refresh_t2.__DORIS_BINLOG_OP__ IN (0, 3))
 ------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 ----------------------PhysicalEmptyRelation
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
@@ -77,7 +77,7 @@ PhysicalOlapTableSink
 ----------------------PhysicalProject
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalProject
-----------------------------filter(( not __DORIS_BINLOG_OP__ IN (0, 3)))
+----------------------------filter(( not test_ivm_explain_refresh_t2.__DORIS_BINLOG_OP__ IN (0, 3)))
 ------------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 ----------------------PhysicalProject
 ------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
