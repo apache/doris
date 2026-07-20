@@ -722,7 +722,7 @@ DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
-// not introduce seeks.  The literature seems to agree that with 8 MB reads, random
+// not introduce seeks. The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
