@@ -675,6 +675,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
      * Resolve the StructField selected by a constant int/string literal.
      * Returns null when the selector is not a recognized literal or index is out of bounds.
      */
+    // VisibleForTesting
     static StructField resolveStructField(StructType structType, Expression fieldExpr) {
         if (!fieldExpr.isLiteral()) {
             return null;
