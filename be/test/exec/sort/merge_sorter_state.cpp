@@ -33,6 +33,7 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/sort/heap_sorter.h"
 #include "exec/sort/sorter.h"
 #include "exec/sort/topn_sorter.h"

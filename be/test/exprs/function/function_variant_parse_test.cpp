@@ -33,10 +33,11 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "core/value/variant/variant_encoding.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/parse/variant_json.h"
 #include "exprs/function/simple_function_factory.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_json.h"
 
 namespace doris {
 namespace {

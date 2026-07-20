@@ -36,12 +36,12 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/field.h"
+#include "core/value/variant/variant_block_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
 #include "exprs/function_context.h"
 #include "gtest/gtest.h"
 #include "runtime/runtime_state.h"
 #include "util/jsonb_writer.h"
-#include "util/variant/variant_block_builder.h"
 
 namespace doris::CastWrapper {
 namespace {
@@ -73,7 +73,7 @@ ColumnVariantV2::MutablePtr one_encoded_int(int64_t value) {
     row.finish();
     VariantEncodedBlock block = builder.finish_block();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block.view());
+    result->insert_encoded_block(block);
     return result;
 }
 
@@ -152,9 +152,9 @@ TEST(CastVariantV2ToTest, JsonbObjectUsesDocumentTranscode) {
     CastResult cast = execute_to_variant(source->get_ptr(), std::make_shared<DataTypeJsonb>());
     ASSERT_TRUE(cast.status.ok()) << cast.status;
     const auto& variant = assert_cast<const ColumnVariantV2&>(*cast.column);
-    VariantValueRef value = variant.get_value_ref(0);
+    VariantRef value = variant.get_value_ref(0);
     ASSERT_EQ(value.basic_type(), VariantBasicType::OBJECT);
-    VariantValueRef field;
+    VariantRef field;
     ASSERT_TRUE(value.object_find(StringRef("a"), &field));
     EXPECT_EQ(field.get_int(), 1);
 }
@@ -176,7 +176,7 @@ TEST(CastVariantV2ToTest, ArrayRecursesAndPreservesElementNull) {
 
     CastResult cast = execute_to_variant(source->get_ptr(), type);
     ASSERT_TRUE(cast.status.ok()) << cast.status;
-    VariantValueRef array = assert_cast<const ColumnVariantV2&>(*cast.column).get_value_ref(0);
+    VariantRef array = assert_cast<const ColumnVariantV2&>(*cast.column).get_value_ref(0);
     ASSERT_EQ(array.basic_type(), VariantBasicType::ARRAY);
     ASSERT_EQ(array.num_elements(), 3);
     EXPECT_EQ(array.array_at(0).get_int(), 1);

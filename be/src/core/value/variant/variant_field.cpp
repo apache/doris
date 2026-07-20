@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_field.h"
+#include "core/value/variant/variant_field.h"
 
 #include <algorithm>
 #include <cstring>
@@ -24,8 +24,8 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/value/variant/variant_encoding.h"
 #include "util/utf8_check.h"
-#include "util/variant/variant_encoding.h"
 
 namespace doris {
 namespace {
@@ -90,7 +90,7 @@ void require_decimal_in_range(const VariantDecimal& decimal) {
     }
 }
 
-void require_valid_primitive(VariantValueRef value) {
+void require_valid_primitive(VariantRef value) {
     switch (value.primitive_id()) {
     case VariantPrimitiveId::NULL_VALUE:
     case VariantPrimitiveId::TRUE_VALUE:
@@ -144,15 +144,16 @@ void require_valid_primitive(VariantValueRef value) {
     throw Exception(ErrorCode::CORRUPTION, "VariantField contains an unknown primitive type");
 }
 
-void require_exact_value(VariantValueRef value, uint32_t depth);
+void require_exact_value(VariantRef value, uint32_t depth);
 
 struct ObjectValueSpan {
     size_t offset;
     size_t size;
 };
 
-size_t object_values_offset(VariantValueRef value, uint32_t count) {
-    const uint8_t value_header = static_cast<uint8_t>(value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+size_t object_values_offset(VariantRef value, uint32_t count) {
+    const uint8_t value_header =
+            static_cast<uint8_t>(value.value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
     const auto offset_width =
             static_cast<uint8_t>(((value_header >> VARIANT_OBJECT_OFFSET_SIZE_SHIFT) & 0x03U) + 1);
     const auto id_width =
@@ -163,26 +164,26 @@ size_t object_values_offset(VariantValueRef value, uint32_t count) {
            (static_cast<size_t>(count) + 1) * offset_width;
 }
 
-void require_valid_object(VariantValueRef value, uint32_t depth) {
+void require_valid_object(VariantRef value, uint32_t depth) {
     const uint32_t count = value.num_elements();
     const size_t values_offset = object_values_offset(value, count);
-    const char* values_begin = value.data + values_offset;
-    const size_t values_size = value.size - values_offset;
+    const char* values_begin = value.value.data + values_offset;
+    const size_t values_size = value.value.size - values_offset;
     std::vector<ObjectValueSpan> spans;
     spans.reserve(count);
 
     StringRef previous_key;
     for (uint32_t index = 0; index < count; ++index) {
         uint32_t field_id = 0;
-        const VariantValueRef child = value.object_value_at(index, &field_id);
+        const VariantRef child = value.object_value_at(index, &field_id);
         const StringRef key = value.metadata.key_at(field_id);
         if (index != 0 && previous_key.compare(key) >= 0) {
             throw Exception(ErrorCode::CORRUPTION,
                             "VariantField object keys are not strictly ordered at field {}", index);
         }
         require_exact_value(child, depth + 1);
-        spans.push_back(
-                {.offset = static_cast<size_t>(child.data - values_begin), .size = child.size});
+        spans.push_back({.offset = static_cast<size_t>(child.value.data - values_begin),
+                         .size = child.value.size});
         previous_key = key;
     }
 
@@ -207,24 +208,24 @@ void require_valid_object(VariantValueRef value, uint32_t depth) {
     }
 }
 
-void require_valid_array(VariantValueRef value, uint32_t depth) {
+void require_valid_array(VariantRef value, uint32_t depth) {
     const uint32_t count = value.num_elements();
     for (uint32_t index = 0; index < count; ++index) {
         require_exact_value(value.array_at(index), depth + 1);
     }
 }
 
-void require_exact_value(VariantValueRef value, uint32_t depth) {
+void require_exact_value(VariantRef value, uint32_t depth) {
     if (depth > VARIANT_MAX_NESTING_DEPTH) {
         throw Exception(ErrorCode::CORRUPTION,
                         "VariantField value exceeds maximum nesting depth {}",
                         VARIANT_MAX_NESTING_DEPTH);
     }
     const size_t encoded_size = value.value_size();
-    if (encoded_size != value.size) {
+    if (encoded_size != value.value.size) {
         throw Exception(ErrorCode::CORRUPTION,
                         "VariantField value has {} trailing bytes after its {} byte root",
-                        value.size - encoded_size, encoded_size);
+                        value.value.size - encoded_size, encoded_size);
     }
 
     switch (value.basic_type()) {
@@ -246,7 +247,7 @@ void require_exact_value(VariantValueRef value, uint32_t depth) {
 
 struct RowSlices {
     VariantMetadataRef metadata;
-    VariantValueRef value;
+    VariantRef value;
 };
 
 RowSlices split_untrusted(StringRef bytes) {
@@ -264,9 +265,8 @@ RowSlices split_untrusted(StringRef bytes) {
                         payload_size);
     }
     VariantMetadataRef metadata {.data = bytes.data + METADATA_SIZE_PREFIX, .size = metadata_size};
-    VariantValueRef value {.metadata = metadata,
-                           .data = metadata.data + metadata.size,
-                           .size = payload_size - metadata.size};
+    VariantRef value {.metadata = metadata,
+                      .value = {metadata.data + metadata.size, payload_size - metadata.size}};
     return {.metadata = metadata, .value = value};
 }
 
@@ -292,8 +292,8 @@ void validate_variant_metadata(VariantMetadataRef metadata) {
     }
 }
 
-void validate_variant_payload(VariantValueRef value) {
-    require_non_null({value.data, value.size}, "value");
+void validate_variant_payload(VariantRef value) {
+    require_non_null(value.value, "value");
     require_exact_value(value, 0);
 }
 
@@ -324,7 +324,7 @@ VariantField& VariantField::operator=(VariantField&& other) noexcept {
     return *this;
 }
 
-VariantField VariantField::encode(VariantValueRef value) {
+VariantField VariantField::encode(VariantRef value) {
     if (value.metadata.size > std::numeric_limits<uint32_t>::max()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "VariantField metadata size {} exceeds uint32 limit", value.metadata.size);
@@ -334,18 +334,18 @@ VariantField VariantField::encode(VariantValueRef value) {
                         "VariantField metadata size exceeds the addressable row size");
     }
     const size_t value_offset = METADATA_SIZE_PREFIX + value.metadata.size;
-    if (value.size > std::numeric_limits<size_t>::max() - value_offset) {
+    if (value.value.size > std::numeric_limits<size_t>::max() - value_offset) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "VariantField value size exceeds the addressable row size");
     }
 
     validate_variant_metadata(value.metadata);
     validate_variant_payload(value);
-    const size_t total_size = value_offset + value.size;
+    const size_t total_size = value_offset + value.value.size;
     auto data = std::make_unique<char[]>(total_size);
     write_u32(data.get(), static_cast<uint32_t>(value.metadata.size));
     std::memcpy(data.get() + METADATA_SIZE_PREFIX, value.metadata.data, value.metadata.size);
-    std::memcpy(data.get() + value_offset, value.data, value.size);
+    std::memcpy(data.get() + value_offset, value.value.data, value.value.size);
     return {std::move(data), total_size};
 }
 
@@ -356,7 +356,7 @@ VariantField VariantField::decode(StringRef bytes) {
     return {copy_bytes(bytes), bytes.size};
 }
 
-VariantValueRef VariantField::ref() const {
+VariantRef VariantField::ref() const {
     if (_size == 0) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot reference an empty or moved-from VariantField");
@@ -367,8 +367,7 @@ VariantValueRef VariantField::ref() const {
     DCHECK_LE(metadata_size, _size - METADATA_SIZE_PREFIX);
     VariantMetadataRef metadata {.data = _data.get() + METADATA_SIZE_PREFIX, .size = metadata_size};
     return {.metadata = metadata,
-            .data = metadata.data + metadata.size,
-            .size = _size - METADATA_SIZE_PREFIX - metadata.size};
+            .value = {metadata.data + metadata.size, _size - METADATA_SIZE_PREFIX - metadata.size}};
 }
 
 StringRef VariantField::bytes() const noexcept {

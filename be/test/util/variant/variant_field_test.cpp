@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_field.h"
+#include "core/value/variant/variant_field.h"
 
 #include <gtest/gtest.h>
 
@@ -29,10 +29,10 @@
 
 #include "common/exception.h"
 #include "core/field.h"
+#include "core/value/variant/variant_encoding.h"
+#include "exprs/function/parse/variant_json.h"
 #include "util/json/json_parser.h"
 #include "util/json/simd_json_parser.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_json.h"
 
 namespace doris {
 namespace {
@@ -179,10 +179,9 @@ std::string object(const std::vector<uint32_t>& field_ids, const std::vector<uin
     return result;
 }
 
-VariantValueRef value_ref(const std::string& metadata_bytes, const std::string& value_bytes) {
+VariantRef value_ref(const std::string& metadata_bytes, const std::string& value_bytes) {
     return {.metadata = {.data = metadata_bytes.data(), .size = metadata_bytes.size()},
-            .data = value_bytes.data(),
-            .size = value_bytes.size()};
+            .value = {value_bytes.data(), value_bytes.size()}};
 }
 
 std::string raw_field(const std::string& metadata_bytes, const std::string& value_bytes) {
@@ -243,10 +242,10 @@ TEST(VariantFieldTest, ScalarObjectAndArrayRoundTrip) {
             object({0, 1}, {0, static_cast<uint32_t>(int_value.size())}, {int_value, array_value});
     VariantField nested = VariantField::encode(value_ref(object_metadata, object_value));
 
-    VariantValueRef a;
+    VariantRef a;
     ASSERT_TRUE(nested.ref().object_find(StringRef("a"), &a));
     EXPECT_EQ(a.get_int(), -12345);
-    VariantValueRef b;
+    VariantRef b;
     ASSERT_TRUE(nested.ref().object_find(StringRef("b"), &b));
     ASSERT_EQ(b.num_elements(), 2);
     EXPECT_TRUE(b.array_at(0).is_null());
@@ -313,10 +312,10 @@ TEST(VariantFieldTest, PreservesLegalNonCanonicalBytes) {
     VariantField decoded = VariantField::decode({expected.data(), expected.size()});
     EXPECT_EQ(as_view(decoded.bytes()), expected);
 
-    VariantValueRef a;
+    VariantRef a;
     ASSERT_TRUE(decoded.ref().object_find(StringRef("a"), &a));
     EXPECT_TRUE(a.get_bool());
-    VariantValueRef b;
+    VariantRef b;
     ASSERT_TRUE(decoded.ref().object_find(StringRef("b"), &b));
     EXPECT_TRUE(b.is_null());
 
@@ -490,19 +489,18 @@ TEST(VariantFieldTest, RejectsMalformedFramingMetadataAndValue) {
     EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
 
     const char one_byte = 0;
-    EXPECT_THROW(VariantField::encode({{nullptr, 1}, &one_byte, 1}), Exception);
-    EXPECT_THROW(VariantField::encode({{empty_metadata.data(), empty_metadata.size()}, nullptr, 1}),
+    EXPECT_THROW(VariantField::encode({{nullptr, 1}, {&one_byte, 1}}), Exception);
+    EXPECT_THROW(VariantField::encode({{empty_metadata.data(), empty_metadata.size()},
+                                       {static_cast<const char*>(nullptr), 1}}),
                  Exception);
     EXPECT_THROW(VariantField::encode({{empty_metadata.data(), empty_metadata.size()},
-                                       &one_byte,
-                                       std::numeric_limits<size_t>::max()}),
+                                       {&one_byte, std::numeric_limits<size_t>::max()}}),
                  Exception);
     if constexpr (sizeof(size_t) > sizeof(uint32_t)) {
         EXPECT_THROW(VariantField::encode(
                              {{empty_metadata.data(),
                                static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 1},
-                              &one_byte,
-                              1}),
+                              {&one_byte, 1}}),
                      Exception);
     }
 }
@@ -544,10 +542,10 @@ TEST(VariantFieldTest, LegacyJsonDataParserStableSubsetDoesNotReplaceT02) {
     EXPECT_EQ(old_object->paths[0].get_path(), "a");
     EXPECT_EQ(old_object->paths[1].get_path(), "b");
     VariantField new_object = encode_json(object_json);
-    VariantValueRef a;
+    VariantRef a;
     ASSERT_TRUE(new_object.ref().object_find(StringRef("a"), &a));
     EXPECT_EQ(a.get_int(), 1);
-    VariantValueRef b;
+    VariantRef b;
     ASSERT_TRUE(new_object.ref().object_find(StringRef("b"), &b));
     EXPECT_EQ(b.get_string(), StringRef("x"));
 
@@ -560,7 +558,7 @@ TEST(VariantFieldTest, LegacyJsonDataParserStableSubsetDoesNotReplaceT02) {
     EXPECT_TRUE(old_elements[1].is_null());
     EXPECT_EQ(old_elements[2].get<TYPE_STRING>(), "x");
     VariantField new_array_field = encode_json(array_json);
-    VariantValueRef new_array = new_array_field.ref();
+    VariantRef new_array = new_array_field.ref();
     ASSERT_EQ(new_array.num_elements(), 3);
     EXPECT_EQ(new_array.array_at(0).get_int(), 1);
     EXPECT_TRUE(new_array.array_at(1).is_null());

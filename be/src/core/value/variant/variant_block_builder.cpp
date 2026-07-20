@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_block_builder.h"
+#include "core/value/variant/variant_block_builder.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -25,12 +25,11 @@
 #include <utility>
 
 #include "common/exception.h"
+#include "core/value/variant/variant_encoded_block.h"
+#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_scalar_encoding.h"
+#include "core/value/variant/variant_tracked_storage.h"
 #include "util/utf8_check.h"
-#include "util/variant/variant_block_builder_internal.h"
-#include "util/variant/variant_encoded_block.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_scalar_encoding.h"
-#include "util/variant/variant_tracked_storage.h"
 
 namespace doris {
 namespace {
@@ -102,15 +101,16 @@ void validate_string_ref(StringRef value, const char* description) {
     }
 }
 
-void validate_import_root(VariantValueRef value) {
+void validate_import_root(VariantRef value) {
     if (value.metadata.data == nullptr && value.metadata.size != 0) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Variant imported metadata has a null data pointer for {} bytes",
                         value.metadata.size);
     }
-    if (value.data == nullptr && value.size != 0) {
+    if (value.value.data == nullptr && value.value.size != 0) {
         throw Exception(ErrorCode::CORRUPTION,
-                        "Variant imported value has a null data pointer for {} bytes", value.size);
+                        "Variant imported value has a null data pointer for {} bytes",
+                        value.value.size);
     }
     value.metadata.validate();
 }
@@ -123,12 +123,12 @@ void require_import_depth(uint32_t depth) {
     }
 }
 
-void require_exact_import_value(VariantValueRef value) {
+void require_exact_import_value(VariantRef value) {
     const size_t encoded_size = value.value_size();
-    if (encoded_size != value.size) {
+    if (encoded_size != value.value.size) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Variant imported value has {} trailing bytes after its {} byte root",
-                        value.size - encoded_size, encoded_size);
+                        value.value.size - encoded_size, encoded_size);
     }
 }
 
@@ -391,7 +391,7 @@ public:
 
     void add_int(int64_t value) { add_scalar(VariantScalarEncodingPlan::integer(value)); }
 
-    void add_value(VariantValueRef value) {
+    void add_value(VariantRef value) {
         ensure_can_add_value();
         planned_object_children.clear();
         try {
@@ -410,7 +410,7 @@ public:
         DCHECK(planned_object_children.empty());
     }
 
-    void import_primitive(VariantValueRef value) {
+    void import_primitive(VariantRef value) {
         const VariantPrimitiveId id = value.primitive_id();
         switch (id) {
         case VariantPrimitiveId::NULL_VALUE:
@@ -480,9 +480,9 @@ public:
         }
     }
 
-    size_t object_values_offset(VariantValueRef value, uint32_t count) const noexcept {
+    size_t object_values_offset(VariantRef value, uint32_t count) const noexcept {
         const uint8_t value_header =
-                static_cast<uint8_t>(value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+                static_cast<uint8_t>(value.value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
         const auto offset_width = static_cast<uint8_t>(
                 ((value_header >> VARIANT_OBJECT_OFFSET_SIZE_SHIFT) & 0x03) + 1);
         const auto id_width =
@@ -494,11 +494,11 @@ public:
                (static_cast<size_t>(count) + 1) * offset_width;
     }
 
-    void validate_import_object(VariantValueRef value, uint32_t count) {
+    void validate_import_object(VariantRef value, uint32_t count) {
         const size_t values_offset = object_values_offset(value, count);
-        DCHECK_LE(values_offset, value.size);
-        const char* values_begin = value.data + values_offset;
-        const auto values_size = static_cast<uint32_t>(value.size - values_offset);
+        DCHECK_LE(values_offset, value.value.size);
+        const char* values_begin = value.value.data + values_offset;
+        const auto values_size = static_cast<uint32_t>(value.value.size - values_offset);
         // Pass-2 planning is idle during collection, so reuse its retained capacity to validate
         // the source object's physical value intervals without adding a per-row scratch buffer.
         planned_object_children.clear();
@@ -507,7 +507,7 @@ public:
         StringRef previous_key;
         for (uint32_t index = 0; index < count; ++index) {
             uint32_t field_id = 0;
-            const VariantValueRef child = value.object_value_at(index, &field_id);
+            const VariantRef child = value.object_value_at(index, &field_id);
             const StringRef key = value.metadata.key_at(field_id);
             require_import_utf8(key, "object key");
             if (index != 0 && previous_key.compare(key) >= 0) {
@@ -517,10 +517,11 @@ public:
                                 index);
             }
             previous_key = key;
-            const auto begin = static_cast<uint32_t>(child.data - values_begin);
-            DCHECK_LE(child.size, std::numeric_limits<uint32_t>::max());
+            const auto begin = static_cast<uint32_t>(child.value.data - values_begin);
+            DCHECK_LE(child.value.size, std::numeric_limits<uint32_t>::max());
             planned_object_children.push_back(
-                    {.node_index = begin, .final_field_id = static_cast<uint32_t>(child.size)});
+                    {.node_index = begin,
+                     .final_field_id = static_cast<uint32_t>(child.value.size)});
         }
 
         sort_object_entries(planned_object_children, 0, planned_object_children.size(),
@@ -545,20 +546,20 @@ public:
         planned_object_children.clear();
     }
 
-    void import_object(VariantValueRef value, uint32_t depth) {
+    void import_object(VariantRef value, uint32_t depth) {
         const uint32_t count = value.num_elements();
         validate_import_object(value, count);
         const uint32_t token = start_container(NodeKind::OBJECT);
         for (uint32_t index = 0; index < count; ++index) {
             uint32_t field_id = 0;
-            const VariantValueRef child = value.object_value_at(index, &field_id);
+            const VariantRef child = value.object_value_at(index, &field_id);
             add_key(token, value.metadata.key_at(field_id));
             import_node(child, depth + 1);
         }
         finish_container(token, NodeKind::OBJECT);
     }
 
-    void import_array(VariantValueRef value, uint32_t depth) {
+    void import_array(VariantRef value, uint32_t depth) {
         const uint32_t count = value.num_elements();
         const uint32_t token = start_container(NodeKind::ARRAY);
         for (uint32_t index = 0; index < count; ++index) {
@@ -567,7 +568,7 @@ public:
         finish_container(token, NodeKind::ARRAY);
     }
 
-    void import_node(VariantValueRef value, uint32_t depth) {
+    void import_node(VariantRef value, uint32_t depth) {
         require_import_depth(depth);
         require_exact_import_value(value);
         switch (value.basic_type()) {
@@ -1215,7 +1216,7 @@ void VariantBlockBuilder::_add_int(uint64_t generation, int64_t value) {
     _impl->collection.add_int(value);
 }
 
-void VariantBlockBuilder::_add_value(uint64_t generation, VariantValueRef value) {
+void VariantBlockBuilder::_add_value(uint64_t generation, VariantRef value) {
     _impl->ensure_active(generation);
     _impl->collection.add_value(value);
 }
@@ -1336,26 +1337,25 @@ VariantEncodedBlock VariantBlockBuilder::finish_block() {
 #ifdef BE_TEST
     _impl->observe_collection_growth(before);
 #endif
-    auto storage = std::make_unique<VariantEncodedBlockStorage>();
-    storage->offsets = std::move(offsets);
-    storage->values.resize(total_size);
-    char* output = storage->values.data();
+    VariantTrackedString values;
+    values.resize(total_size);
+    char* output = values.data();
     for (uint32_t root : _impl->roots) {
         _impl->collection.write_node(root, output);
     }
-    DCHECK_EQ(output, storage->values.data() + storage->values.size());
+    DCHECK_EQ(output, values.data() + values.size());
 
 #ifdef BE_TEST
     _impl->refresh_counters(_impl->metadata._key_capacity(),
                             _impl->metadata._key_capacity_growths(), _impl->metadata.num_keys());
     _impl->counters_finalized = true;
 #endif
-    _impl->metadata._move_encoded_metadata(*storage);
+    VariantTrackedString metadata = _impl->metadata._take_encoded_metadata();
     _impl->collection.release_scratch();
     release_variant_tracked_container(_impl->roots);
     release_variant_tracked_container(_impl->previous_object_tokens);
     release_variant_tracked_container(_impl->pending_object_tokens);
-    return VariantEncodedBlock(std::move(storage));
+    return VariantEncodedBlock(std::move(metadata), std::move(values), std::move(offsets));
 }
 
 #ifdef BE_TEST
@@ -1494,7 +1494,7 @@ void VariantBlockBuilder::Row::add_largeint(__int128 value) {
     _add_scalar(VariantScalarEncodingPlan::largeint(value));
 }
 
-void VariantBlockBuilder::Row::add_value(VariantValueRef value) {
+void VariantBlockBuilder::Row::add_value(VariantRef value) {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }

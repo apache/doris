@@ -28,9 +28,9 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/value/variant/variant_block_builder.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_uniq.h"
-#include "util/variant/variant_block_builder.h"
 
 namespace doris {
 namespace {
@@ -111,7 +111,7 @@ ColumnVariantV2::MutablePtr encoded_values() {
 
     VariantEncodedBlock block = builder.finish_block();
     auto column = ColumnVariantV2::create();
-    column->insert_encoded_block(block.view());
+    column->insert_encoded_block(block);
     return column;
 }
 

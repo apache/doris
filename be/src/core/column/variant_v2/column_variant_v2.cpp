@@ -35,12 +35,12 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/columns_common.h"
-#include "core/column/variant_v2/column_variant_v2_typed_scalar.h"
+#include "core/column/variant_v2/column_variant_v2_typed_column.h"
 #include "core/custom_allocator.h"
+#include "core/value/variant/variant_canonical.h"
+#include "core/value/variant/variant_encoded_block.h"
+#include "core/value/variant/variant_scalar_encoding.h"
 #include "util/hash_util.hpp"
-#include "util/variant/variant_canonical.h"
-#include "util/variant/variant_encoded_block.h"
-#include "util/variant/variant_scalar_encoding.h"
 
 namespace doris {
 namespace {
@@ -228,6 +228,7 @@ struct TypedEncodingResult {
     ColumnVariantV2::TypedEncodingStats stats;
 };
 
+#ifdef BE_TEST
 void count_fallback(TypedFallbackKind fallback, ColumnVariantV2::TypedEncodingStats& stats) {
     switch (fallback) {
     case TypedFallbackKind::NONE:
@@ -240,25 +241,12 @@ void count_fallback(TypedFallbackKind fallback, ColumnVariantV2::TypedEncodingSt
         return;
     }
 }
+#endif
 
 template <PrimitiveType Type, typename Column>
 TypedEncodingResult encode_typed_column(const ColumnNullable& nullable, const Column& column,
                                         uint32_t scale) {
-    size_t value_bytes = 0;
     TypedEncodingResult result;
-    visit_typed_rows<Type>(
-            nullable, column, scale, 0, nullable.size(),
-            [&](size_t, auto&& physical_factory, auto&&, TypedFallbackKind fallback) {
-                const VariantScalarEncodingPlan plan = physical_factory();
-                if (plan.size() > std::numeric_limits<size_t>::max() - value_bytes) {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                    "Typed Variant values exceed addressable size");
-                }
-                value_bytes += plan.size();
-                count_fallback(fallback, result.stats);
-            });
-    ColumnString::check_chars_length(value_bytes, nullable.size(), 0);
-
     result.metadatas = ColumnString::create();
     result.metadata_ids = MetaIdsColumn::create();
     result.values = ColumnString::create();
@@ -269,19 +257,28 @@ TypedEncodingResult encode_typed_column(const ColumnNullable& nullable, const Co
     std::fill(result.metadata_ids->get_data().begin(), result.metadata_ids->get_data().end(), 0);
     auto& chars = result.values->get_chars();
     auto& offsets = result.values->get_offsets();
-    chars.resize(value_bytes);
     offsets.resize(nullable.size());
 
-    size_t offset = 0;
-    visit_typed_rows<Type>(nullable, column, scale, 0, nullable.size(),
-                           [&](size_t row, auto&& physical_factory, auto&&, TypedFallbackKind) {
-                               const VariantScalarEncodingPlan plan = physical_factory();
-                               plan.write(reinterpret_cast<char*>(chars.data()) + offset,
-                                          plan.size());
-                               offset += plan.size();
-                               offsets[row] = static_cast<ColumnString::Offset>(offset);
-                           });
-    DCHECK_EQ(offset, value_bytes);
+    visit_typed_rows<Type>(
+            nullable, column, scale, 0, nullable.size(),
+            [&](size_t row, auto&& physical_factory, auto&&, TypedFallbackKind fallback) {
+                const VariantScalarEncodingPlan plan = physical_factory();
+                if (plan.size() > std::numeric_limits<size_t>::max() - chars.size()) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "Typed Variant values exceed addressable size");
+                }
+                const size_t old_size = chars.size();
+                const size_t new_size = old_size + plan.size();
+                ColumnString::check_chars_length(new_size, row + 1, row);
+                chars.resize(new_size);
+                plan.write(reinterpret_cast<char*>(chars.data()) + old_size, plan.size());
+                offsets[row] = static_cast<ColumnString::Offset>(new_size);
+#ifdef BE_TEST
+                count_fallback(fallback, result.stats);
+#else
+                static_cast<void>(fallback);
+#endif
+            });
     return result;
 }
 
@@ -594,8 +591,7 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
     }
 
     // Source metadata ids are local to this batch. Build one source-to-destination remap, append
-    // every referenced metadata blob at most once, then publish row ids and values together. The
-    // rollback below restores all three encoded subcolumns if validation or allocation throws.
+    // every referenced metadata blob at most once, then publish row ids and values together.
     DorisVector<uint32_t> remap(metadata_count, UNMAPPED_METADATA_ID);
     DorisVector<uint32_t> appended_ids(rows);
     require_exclusive(_meta_ids, "metadata ids");
@@ -604,54 +600,34 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
     auto& metadata_ids = assert_cast<MetaIdsColumn&>(*_meta_ids);
     reserve_rows(values, metadata_ids, data.value_bytes.size, rows);
 
-    const auto& metadata_ptr = static_cast<const IColumn::Ptr&>(_metadatas);
-    const size_t old_metadata_count = metadata_ptr->size();
-    IColumn::Ptr original_metadata;
-    if (!metadata_ptr->is_exclusive()) {
-        original_metadata = metadata_ptr;
-    }
-    const size_t old_rows = size();
-    try {
-        if (data.meta_ids.empty()) {
-            const StringRef metadata(data.metadata_bytes.data,
-                                     data.metadata_offsets[1] - data.metadata_offsets[0]);
-            remap[0] = _find_or_insert_metadata(metadata);
-            std::ranges::fill(appended_ids, remap[0]);
-        } else {
-            for (uint32_t source_id : data.meta_ids) {
-                DORIS_CHECK_LT(source_id, metadata_count)
-                        << "encoded row metadata id is out of range";
-                if (remap[source_id] == UNMAPPED_METADATA_ID) {
-                    const uint32_t begin = data.metadata_offsets[source_id];
-                    const uint32_t end = data.metadata_offsets[source_id + 1];
-                    remap[source_id] = _find_or_insert_metadata(
-                            {data.metadata_bytes.data + begin, end - begin});
-                }
-            }
-            for (size_t row = 0; row < rows; ++row) {
-                appended_ids[row] = remap[data.meta_ids[row]];
+    if (data.meta_ids.empty()) {
+        const StringRef metadata(data.metadata_bytes.data,
+                                 data.metadata_offsets[1] - data.metadata_offsets[0]);
+        remap[0] = _find_or_insert_metadata(metadata);
+        std::ranges::fill(appended_ids, remap[0]);
+    } else {
+        for (uint32_t source_id : data.meta_ids) {
+            DORIS_CHECK_LT(source_id, metadata_count) << "encoded row metadata id is out of range";
+            if (remap[source_id] == UNMAPPED_METADATA_ID) {
+                const uint32_t begin = data.metadata_offsets[source_id];
+                const uint32_t end = data.metadata_offsets[source_id + 1];
+                remap[source_id] =
+                        _find_or_insert_metadata({data.metadata_bytes.data + begin, end - begin});
             }
         }
-        values.insert_many_continuous_binary_data(data.value_bytes.data, data.value_offsets.data(),
-                                                  rows);
-        append_metadata_ids(metadata_ids, appended_ids);
-    } catch (...) {
-        if (metadata_ids.size() > old_rows) {
-            metadata_ids.pop_back(metadata_ids.size() - old_rows);
+        for (size_t row = 0; row < rows; ++row) {
+            appended_ids[row] = remap[data.meta_ids[row]];
         }
-        if (values.size() > old_rows) {
-            values.pop_back(values.size() - old_rows);
-        }
-        _rollback_metadata(old_metadata_count, std::move(original_metadata));
-        _check_invariants();
-        throw;
     }
+    values.insert_many_continuous_binary_data(data.value_bytes.data, data.value_offsets.data(),
+                                              rows);
+    append_metadata_ids(metadata_ids, appended_ids);
 
     DCHECK_EQ(_meta_ids->size(), _values->size());
     _check_invariants();
 }
 
-void ColumnVariantV2::insert_encoded_block(VariantEncodedBlockView block) {
+void ColumnVariantV2::insert_encoded_block(const VariantEncodedBlock& block) {
     const VariantMetadataRef metadata = block.metadata_ref();
     if (metadata.size > std::numeric_limits<uint32_t>::max()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -665,7 +641,7 @@ void ColumnVariantV2::insert_encoded_block(VariantEncodedBlockView block) {
                          .value_offsets = block.value_offsets()});
 }
 
-VariantValueRef ColumnVariantV2::get_value_ref(size_t row) const {
+VariantRef ColumnVariantV2::get_value_ref(size_t row) const {
     DCHECK(!_typed);
     DCHECK(_typed_type == nullptr);
     DCHECK_LT(row, size());
@@ -675,9 +651,7 @@ VariantValueRef ColumnVariantV2::get_value_ref(size_t row) const {
     const StringRef metadata =
             assert_cast<const ColumnString&>(*_metadatas).get_data_at(metadata_id);
     const StringRef value = assert_cast<const ColumnString&>(*_values).get_data_at(row);
-    return {.metadata = {.data = metadata.data, .size = metadata.size},
-            .data = value.data,
-            .size = value.size};
+    return {.metadata = {.data = metadata.data, .size = metadata.size}, .value = value};
 }
 
 Field ColumnVariantV2::operator[](size_t) const {
@@ -1043,13 +1017,13 @@ StringRef ColumnVariantV2::get_data_at(size_t) const {
 }
 
 void ColumnVariantV2::insert_data(const char* pos, size_t length) {
-    const VariantValueRef value = parse_canonical_serialized({pos, length});
+    const VariantRef value = parse_canonical_serialized({pos, length});
     const std::array<uint32_t, 2> metadata_offsets {0, static_cast<uint32_t>(value.metadata.size)};
-    const std::array<uint32_t, 2> value_offsets {0, static_cast<uint32_t>(value.size)};
+    const std::array<uint32_t, 2> value_offsets {0, static_cast<uint32_t>(value.value.size)};
     insert_encoded_rows({.metadata_bytes = {value.metadata.data, value.metadata.size},
                          .metadata_offsets = metadata_offsets,
                          .meta_ids = {},
-                         .value_bytes = {value.data, value.size},
+                         .value_bytes = value.value,
                          .value_offsets = value_offsets});
 }
 

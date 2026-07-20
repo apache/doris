@@ -35,13 +35,13 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/field.h"
+#include "core/value/variant/variant_block_builder.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
 #include "exprs/function_context.h"
 #include "gtest/gtest.h"
 #include "runtime/runtime_state.h"
 #include "util/jsonb_utils.h"
-#include "util/variant/variant_block_builder.h"
 
 namespace doris::CastWrapper {
 namespace {
@@ -71,7 +71,7 @@ CastResult execute_from_variant(const ColumnPtr& source, const DataTypePtr& targ
 ColumnVariantV2::MutablePtr finish(VariantBlockBuilder* builder) {
     VariantEncodedBlock block = builder->finish_block();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block.view());
+    result->insert_encoded_block(block);
     return result;
 }
 
@@ -384,7 +384,7 @@ TEST(CastVariantV2FromTest, NestedArrayRoundTripPreservesNullAndEmptyArray) {
                                                               nullptr)
                         .ok());
     ColumnPtr encoded = to_block.get_by_position(1).column;
-    VariantValueRef root = assert_cast<const ColumnVariantV2&>(*encoded).get_value_ref(0);
+    VariantRef root = assert_cast<const ColumnVariantV2&>(*encoded).get_value_ref(0);
     ASSERT_EQ(root.basic_type(), VariantBasicType::ARRAY);
     ASSERT_EQ(root.num_elements(), 2);
     EXPECT_EQ(root.array_at(0).num_elements(), 2);

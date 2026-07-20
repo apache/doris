@@ -78,16 +78,15 @@ VariantMetadataRef ColumnVariantV2::ReadView::metadata_at(uint32_t id) const {
     return result;
 }
 
-VariantValueRef ColumnVariantV2::ReadView::value_at(size_t row) const {
+VariantRef ColumnVariantV2::ReadView::value_at(size_t row) const {
     DORIS_CHECK(!_typed_state) << "value_at requires ColumnVariantV2 encoded state";
     const uint32_t metadata_id = metadata_id_at(row);
     const StringRef value = assert_cast<const ColumnString&>(*_values).get_data_at(row);
-    VariantValueRef result {
-            .metadata = metadata_at(metadata_id), .data = value.data, .size = value.size};
+    VariantRef result {.metadata = metadata_at(metadata_id), .value = value};
     const size_t encoded_size = result.value_size();
-    if (encoded_size != result.size) {
+    if (encoded_size != result.value.size) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant value has {} trailing bytes",
-                        result.size - encoded_size);
+                        result.value.size - encoded_size);
     }
     return result;
 }

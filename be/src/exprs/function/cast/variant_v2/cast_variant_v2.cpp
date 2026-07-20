@@ -26,8 +26,8 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/value/variant/variant_block_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
-#include "util/variant/variant_block_builder.h"
 
 namespace doris::CastWrapper {
 namespace {
@@ -93,7 +93,7 @@ Status execute_to_variant(const DataTypePtr& captured_from_type, FunctionContext
             }
             VariantEncodedBlock encoded_block = builder.finish_block();
             auto nulls = ColumnVariantV2::create();
-            nulls->insert_encoded_block(encoded_block.view());
+            nulls->insert_encoded_block(encoded_block);
             output = std::move(nulls);
         } else if (primitive == TYPE_VARIANT) {
             if (check_and_get_column<ColumnVariantV2>(source) == nullptr) {
@@ -153,7 +153,7 @@ Status execute_from_variant(const DataTypePtr& captured_to_type, FunctionContext
                 RETURN_IF_ERROR(cast_typed_variant_to_scalar(
                         context, *source, to_type, rows, forced_nulls(null_map, rows), &output));
             } else {
-                DorisVector<VariantValueRef> values;
+                DorisVector<VariantRef> values;
                 values.reserve(rows);
                 for (size_t row = 0; row < rows; ++row) {
                     values.push_back(source->get_value_ref(row));

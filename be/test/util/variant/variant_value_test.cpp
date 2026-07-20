@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_value.h"
 
 #include <gtest/gtest.h>
 
@@ -89,8 +89,8 @@ VariantMetadataRef metadata_ref(const std::string& bytes) {
     return {.data = bytes.data(), .size = bytes.size()};
 }
 
-VariantValueRef value_ref(const std::string& metadata_bytes, const std::string& value) {
-    return {.metadata = metadata_ref(metadata_bytes), .data = value.data(), .size = value.size()};
+VariantRef value_ref(const std::string& metadata_bytes, const std::string& value) {
+    return {.metadata = metadata_ref(metadata_bytes), .value = {value.data(), value.size()}};
 }
 
 std::string short_string(std::string_view value) {
@@ -353,7 +353,7 @@ TEST(VariantValueTest, OffsetWidthsAndElementCountBoundaries) {
         }
         ASSERT_EQ(child.size(), child_sizes[width - 1]);
         const std::string encoded = array_value({child}, width, false);
-        const VariantValueRef ref = value_ref(empty_metadata, encoded);
+        const VariantRef ref = value_ref(empty_metadata, encoded);
         EXPECT_EQ(ref.value_size(), encoded.size());
         EXPECT_EQ(ref.array_at(0).value_size(), child.size());
     }
@@ -361,13 +361,13 @@ TEST(VariantValueTest, OffsetWidthsAndElementCountBoundaries) {
     const std::string null_value = primitive(VariantPrimitiveId::NULL_VALUE);
     const std::vector<std::string> small_values(255, null_value);
     const std::string small_array = array_value(small_values, 1, false);
-    const VariantValueRef small_ref = value_ref(empty_metadata, small_array);
+    const VariantRef small_ref = value_ref(empty_metadata, small_array);
     EXPECT_EQ(small_ref.num_elements(), 255);
     EXPECT_TRUE(small_ref.array_at(254).is_null());
 
     const std::vector<std::string> large_values(256, null_value);
     const std::string large_array = array_value(large_values, 2, true);
-    const VariantValueRef large_ref = value_ref(empty_metadata, large_array);
+    const VariantRef large_ref = value_ref(empty_metadata, large_array);
     EXPECT_EQ(large_ref.num_elements(), 256);
     EXPECT_TRUE(large_ref.array_at(255).is_null());
 }
@@ -378,10 +378,10 @@ TEST(VariantValueTest, ObjectLookupSortedAndUnsortedMetadata) {
     const std::string true_value = primitive(VariantPrimitiveId::TRUE_VALUE);
     const std::string physically_reordered =
             object_value({0, 1}, {1, 0}, {false_value, true_value});
-    const VariantValueRef sorted_ref = value_ref(sorted_metadata, physically_reordered);
+    const VariantRef sorted_ref = value_ref(sorted_metadata, physically_reordered);
     EXPECT_EQ(sorted_ref.value_size(), physically_reordered.size());
 
-    VariantValueRef found;
+    VariantRef found;
     ASSERT_TRUE(sorted_ref.object_find(StringRef("a", 1), &found));
     EXPECT_TRUE(found.get_bool());
     ASSERT_TRUE(sorted_ref.object_find_by_id(1, &found));
@@ -392,7 +392,7 @@ TEST(VariantValueTest, ObjectLookupSortedAndUnsortedMetadata) {
     const std::string unsorted_object =
             object_value({1, 2, 0}, {0, 1, 2},
                          {primitive(VariantPrimitiveId::NULL_VALUE), true_value, false_value});
-    const VariantValueRef unsorted_ref = value_ref(unsorted_metadata, unsorted_object);
+    const VariantRef unsorted_ref = value_ref(unsorted_metadata, unsorted_object);
     ASSERT_TRUE(unsorted_ref.object_find(StringRef("a", 1), &found));
     EXPECT_TRUE(found.is_null());
     ASSERT_TRUE(unsorted_ref.object_find(StringRef("m", 1), &found));
@@ -407,7 +407,7 @@ TEST(VariantValueTest, ObjectLookupSortedAndUnsortedMetadata) {
 
 TEST(VariantValueTest, ObjectFindRejectsInvalidReceivers) {
     const std::string empty_metadata = metadata({}, true);
-    VariantValueRef found;
+    VariantRef found;
     EXPECT_THROW(value_ref(empty_metadata, primitive(VariantPrimitiveId::NULL_VALUE))
                          .object_find(StringRef("missing", 7), &found),
                  Exception);
@@ -433,7 +433,7 @@ TEST(VariantValueTest, ObjectIdWidthsAndInvalidId) {
     for (uint8_t id_width = 1; id_width <= 4; ++id_width) {
         const uint32_t id = id_width == 1 ? 255 : 256;
         const std::string encoded = object_value({id}, {0}, {null_value}, id_width);
-        const VariantValueRef ref = value_ref(wide_metadata, encoded);
+        const VariantRef ref = value_ref(wide_metadata, encoded);
         uint32_t decoded_id = 0;
         EXPECT_TRUE(ref.object_value_at(0, &decoded_id).is_null());
         EXPECT_EQ(decoded_id, id);
@@ -443,7 +443,7 @@ TEST(VariantValueTest, ObjectIdWidthsAndInvalidId) {
     const std::string invalid_id_object = object_value({1}, {0}, {null_value});
     EXPECT_THROW(value_ref(one_key_metadata, invalid_id_object).object_value_at(0, nullptr),
                  Exception);
-    VariantValueRef found;
+    VariantRef found;
     EXPECT_THROW(
             value_ref(one_key_metadata, invalid_id_object).object_find(StringRef("a", 1), &found),
             Exception);
@@ -456,7 +456,7 @@ TEST(VariantValueTest, ContainerBoundsAndTruncationFail) {
     const std::string valid_array = array_value({null_value}, 1, false);
     for (size_t truncated_size = 0; truncated_size < valid_array.size(); ++truncated_size) {
         EXPECT_THROW(
-                (VariantValueRef {metadata_ref(empty_metadata), valid_array.data(), truncated_size})
+                (VariantRef {metadata_ref(empty_metadata), {valid_array.data(), truncated_size}})
                         .value_size(),
                 Exception);
     }
@@ -474,10 +474,10 @@ TEST(VariantValueTest, ContainerBoundsAndTruncationFail) {
     const std::string one_key_metadata = metadata({"a"}, true);
     const std::string valid_object = object_value({0}, {0}, {null_value});
     for (size_t truncated_size = 0; truncated_size < valid_object.size(); ++truncated_size) {
-        EXPECT_THROW((VariantValueRef {metadata_ref(one_key_metadata), valid_object.data(),
-                                       truncated_size})
-                             .value_size(),
-                     Exception);
+        EXPECT_THROW(
+                (VariantRef {metadata_ref(one_key_metadata), {valid_object.data(), truncated_size}})
+                        .value_size(),
+                Exception);
     }
 
     std::string empty_object_with_values = object_value({}, {}, {null_value});

@@ -23,12 +23,54 @@
 #include <memory>
 
 #include "core/string_ref.h"
-#include "util/variant/variant_encoded_block.h"
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_encoded_block.h"
+#include "core/value/variant/variant_metadata.h"
+#include "core/value/variant/variant_tracked_storage.h"
+#include "core/value/variant/variant_value.h"
 
 namespace doris {
 
 class VariantScalarEncodingPlan;
+class VariantCollectionCore;
+
+// Internal dictionary owner for one VariantBlockBuilder encoding unit. Rows collect temporary key
+// ids first; seal() fixes the sorted dictionary and id remap for the completed block.
+class VariantMetadataBuilder {
+public:
+    VariantMetadataBuilder();
+    ~VariantMetadataBuilder();
+
+    VariantMetadataBuilder(const VariantMetadataBuilder&) = delete;
+    VariantMetadataBuilder& operator=(const VariantMetadataBuilder&) = delete;
+    VariantMetadataBuilder(VariantMetadataBuilder&&) = delete;
+    VariantMetadataBuilder& operator=(VariantMetadataBuilder&&) = delete;
+
+    uint32_t register_key(StringRef key);
+    void seal();
+
+    bool is_sealed() const noexcept;
+    size_t num_keys() const noexcept;
+    uint32_t final_id(uint32_t temporary_id) const;
+    StringRef encoded_metadata() const;
+    VariantMetadataRef metadata_ref() const;
+
+private:
+    friend class VariantBlockBuilder;
+    friend class VariantCollectionCore;
+
+    void _begin_row();
+    void _retain_key(uint32_t temporary_id) noexcept;
+    void _complete_row() noexcept;
+    void _abort_row(const uint32_t* temporary_ids, size_t count, bool was_collecting) noexcept;
+    void _reserve_keys(size_t count);
+    VariantTrackedString _take_encoded_metadata() noexcept;
+    StringRef _temporary_key(uint32_t temporary_id) const noexcept;
+    size_t _key_capacity() const noexcept;
+    size_t _key_capacity_growths() const noexcept;
+
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
+};
 
 // Collects a block through one stack-only active Row at a time. The implementation owns one
 // metadata dictionary and one set of block-level scalar/node/container/child/row-root arenas.
@@ -152,7 +194,7 @@ public:
         void add_string(StringRef value);
         void add_uuid(const std::array<uint8_t, 16>& value);
         void add_largeint(__int128 value);
-        void add_value(VariantValueRef value);
+        void add_value(VariantRef value);
 
         ObjectScope start_object();
         ArrayScope start_array();
@@ -196,7 +238,7 @@ private:
     void _add_null(uint64_t generation);
     void _add_bool(uint64_t generation, bool value);
     void _add_int(uint64_t generation, int64_t value);
-    void _add_value(uint64_t generation, VariantValueRef value);
+    void _add_value(uint64_t generation, VariantRef value);
     uint32_t _start_container(uint64_t generation, bool object);
     void _add_key(uint64_t generation, uint32_t token, StringRef key);
     void _finish_container(uint64_t generation, uint32_t token, bool object);

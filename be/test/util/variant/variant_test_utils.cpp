@@ -26,8 +26,8 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/value/variant/variant_encoding.h"
 #include "util/utf8_check.h"
-#include "util/variant/variant_encoding.h"
 
 namespace doris {
 namespace {
@@ -119,9 +119,9 @@ bool unsigned_bytes_less(StringRef left, StringRef right) {
     });
 }
 
-void validate_node(VariantValueRef value, std::vector<bool>& referenced_keys);
+void validate_node(VariantRef value, std::vector<bool>& referenced_keys);
 
-void validate_primitive(VariantValueRef value) {
+void validate_primitive(VariantRef value) {
     const VariantPrimitiveId id = value.primitive_id();
     switch (id) {
     case VariantPrimitiveId::INT8:
@@ -171,8 +171,9 @@ void validate_primitive(VariantValueRef value) {
 }
 
 // NOLINTNEXTLINE(readability-function-size): Kept contiguous to mirror the encoded container layout.
-void validate_container(VariantValueRef value, std::vector<bool>& referenced_keys, bool is_object) {
-    const uint8_t value_header = static_cast<uint8_t>(value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+void validate_container(VariantRef value, std::vector<bool>& referenced_keys, bool is_object) {
+    const uint8_t value_header =
+            static_cast<uint8_t>(value.value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
     if ((is_object && (value_header & 0x20U) != 0) || (!is_object && (value_header & 0x38U) != 0)) {
         fail("container reserved bits are nonzero");
     }
@@ -183,21 +184,21 @@ void validate_container(VariantValueRef value, std::vector<bool>& referenced_key
     const bool is_large = (value_header &
                            (is_object ? VARIANT_OBJECT_LARGE_MASK : VARIANT_ARRAY_LARGE_MASK)) != 0;
     const uint8_t count_width = is_large ? sizeof(uint32_t) : sizeof(uint8_t);
-    require_bytes(value.size - 1, count_width);
-    const auto count = static_cast<uint32_t>(read_unsigned(value.data + 1, count_width));
+    require_bytes(value.value.size - 1, count_width);
+    const auto count = static_cast<uint32_t>(read_unsigned(value.value.data + 1, count_width));
     if (is_large != (count > std::numeric_limits<uint8_t>::max())) {
         fail("container count does not use its minimum form");
     }
 
     size_t position = 1 + count_width;
     if (is_object) {
-        if (count > (value.size - position) / id_width) {
+        if (count > (value.value.size - position) / id_width) {
             fail("truncated object id table");
         }
     }
     const size_t ids_offset = position;
     position += static_cast<size_t>(count) * id_width;
-    if (static_cast<uint64_t>(count) + 1 > (value.size - position) / offset_width) {
+    if (static_cast<uint64_t>(count) + 1 > (value.value.size - position) / offset_width) {
         fail("truncated container offset table");
     }
     const size_t offsets_offset = position;
@@ -208,7 +209,7 @@ void validate_container(VariantValueRef value, std::vector<bool>& referenced_key
     uint32_t previous_id = 0;
     for (uint32_t index = 0; index < count && is_object; ++index) {
         const auto id = static_cast<uint32_t>(read_unsigned(
-                value.data + ids_offset + static_cast<size_t>(index) * id_width, id_width));
+                value.value.data + ids_offset + static_cast<size_t>(index) * id_width, id_width));
         if (id >= referenced_keys.size()) {
             fail("object field id is outside metadata");
         }
@@ -224,28 +225,29 @@ void validate_container(VariantValueRef value, std::vector<bool>& referenced_key
     }
 
     const auto final_offset = static_cast<uint32_t>(read_unsigned(
-            value.data + offsets_offset + static_cast<size_t>(count) * offset_width, offset_width));
+            value.value.data + offsets_offset + static_cast<size_t>(count) * offset_width,
+            offset_width));
     if (offset_width != minimum_unsigned_width(final_offset)) {
         fail("container offsets do not use their minimum width");
     }
-    if (final_offset != value.size - values_offset) {
+    if (final_offset != value.value.size - values_offset) {
         fail("container final offset does not end at the value boundary");
     }
 
     uint32_t expected_offset = 0;
     for (uint32_t index = 0; index < count; ++index) {
         const auto offset = static_cast<uint32_t>(read_unsigned(
-                value.data + offsets_offset + static_cast<size_t>(index) * offset_width,
+                value.value.data + offsets_offset + static_cast<size_t>(index) * offset_width,
                 offset_width));
         const auto next_offset = static_cast<uint32_t>(read_unsigned(
-                value.data + offsets_offset + (static_cast<size_t>(index) + 1) * offset_width,
+                value.value.data + offsets_offset + (static_cast<size_t>(index) + 1) * offset_width,
                 offset_width));
         if (offset != expected_offset || next_offset <= offset || next_offset > final_offset) {
             fail("container offsets are not tightly increasing");
         }
-        VariantValueRef child {.metadata = value.metadata,
-                               .data = value.data + values_offset + offset,
-                               .size = next_offset - offset};
+        VariantRef child {
+                .metadata = value.metadata,
+                .value = {value.value.data + values_offset + offset, next_offset - offset}};
         validate_node(child, referenced_keys);
         expected_offset = next_offset;
     }
@@ -254,8 +256,8 @@ void validate_container(VariantValueRef value, std::vector<bool>& referenced_key
     }
 }
 
-void validate_node(VariantValueRef value, std::vector<bool>& referenced_keys) {
-    if (value.value_size() != value.size) {
+void validate_node(VariantRef value, std::vector<bool>& referenced_keys) {
+    if (value.value_size() != value.value.size) {
         fail("value contains trailing bytes");
     }
     switch (value.basic_type()) {
@@ -277,7 +279,7 @@ void validate_node(VariantValueRef value, std::vector<bool>& referenced_keys) {
 
 } // namespace
 
-void validate_canonical(VariantMetadataRef metadata, std::span<const VariantValueRef> rows) {
+void validate_canonical(VariantMetadataRef metadata, std::span<const VariantRef> rows) {
     metadata.validate();
     if (metadata.version() != VARIANT_ENCODING_VERSION || !metadata.sorted_strings()) {
         fail("metadata must use version 1 and a sorted dictionary");
@@ -307,7 +309,7 @@ void validate_canonical(VariantMetadataRef metadata, std::span<const VariantValu
     }
 
     std::vector<bool> referenced_keys(key_count, false);
-    for (VariantValueRef row : rows) {
+    for (VariantRef row : rows) {
         if (row.metadata.size != metadata.size ||
             std::memcmp(row.metadata.data, metadata.data, metadata.size) != 0) {
             fail("rows do not share the encoding unit metadata");
@@ -319,8 +321,8 @@ void validate_canonical(VariantMetadataRef metadata, std::span<const VariantValu
     }
 }
 
-void validate_canonical(VariantValueRef row) {
-    const std::array<VariantValueRef, 1> rows {row};
+void validate_canonical(VariantRef row) {
+    const std::array<VariantRef, 1> rows {row};
     validate_canonical(row.metadata, rows);
 }
 

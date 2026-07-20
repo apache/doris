@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_jsonb.h"
+#include "exprs/function/parse/variant_jsonb.h"
 
 #include <array>
 #include <cstdint>
@@ -24,9 +24,9 @@
 
 #include "common/exception.h"
 #include "core/types.h"
+#include "core/value/variant/variant_encoding.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
-#include "util/variant/variant_encoding.h"
 
 namespace doris {
 namespace {
@@ -303,7 +303,7 @@ public:
     VariantToJsonbConverter(JsonbWriter& writer, const VariantJsonFormatOptions& options)
             : _writer(writer), _options(options) {}
 
-    void write(VariantValueRef value, uint32_t depth) {
+    void write(VariantRef value, uint32_t depth) {
         const VariantBasicType type = value.basic_type();
         const bool is_container =
                 type == VariantBasicType::OBJECT || type == VariantBasicType::ARRAY;
@@ -351,7 +351,7 @@ private:
         }
     }
 
-    void write_primitive(VariantValueRef value) {
+    void write_primitive(VariantRef value) {
         switch (value.primitive_id()) {
         case VariantPrimitiveId::NULL_VALUE:
             require_jsonb_write(_writer.writeNull(), "null value");
@@ -428,13 +428,13 @@ private:
         throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
     }
 
-    void write_object(VariantValueRef value, uint32_t depth) {
+    void write_object(VariantRef value, uint32_t depth) {
         require_jsonb_write(_writer.writeStartObject(), "object start");
         const uint32_t count = value.num_elements();
         StringRef previous_key;
         for (uint32_t index = 0; index < count; ++index) {
             uint32_t field_id = 0;
-            const VariantValueRef child = value.object_value_at(index, &field_id);
+            const VariantRef child = value.object_value_at(index, &field_id);
             const StringRef key = value.metadata.key_at(field_id);
             variant_json_detail::require_valid_json_utf8(key, "Variant object key");
             if (key.size > std::numeric_limits<uint8_t>::max()) {
@@ -455,7 +455,7 @@ private:
         require_jsonb_write(_writer.writeEndObject(), "object end");
     }
 
-    void write_array(VariantValueRef value, uint32_t depth) {
+    void write_array(VariantRef value, uint32_t depth) {
         require_jsonb_write(_writer.writeStartArray(), "array start");
         const uint32_t count = value.num_elements();
         for (uint32_t index = 0; index < count; ++index) {
@@ -543,7 +543,7 @@ void jsonb_to_variant(StringRef document, VariantBlockBuilder::Row& row, uint32_
     }
 }
 
-void variant_to_jsonb(VariantValueRef value, JsonbWriter& writer,
+void variant_to_jsonb(VariantRef value, JsonbWriter& writer,
                       const VariantJsonFormatOptions& options) {
     writer.reset();
     try {

@@ -36,9 +36,9 @@
 #include <utility>
 #include <vector>
 
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_value.h"
 #include "variant_test_utils.h"
 
 namespace doris {
@@ -268,7 +268,7 @@ std::string fixed_hex(uint64_t value, size_t digits) {
     return {buffer.data() + 16 - digits, digits};
 }
 
-std::string root_type(VariantValueRef value) {
+std::string root_type(VariantRef value) {
     switch (value.basic_type()) {
     case VariantBasicType::SHORT_STRING:
         return "string";
@@ -325,18 +325,18 @@ std::string root_type(VariantValueRef value) {
     throw std::runtime_error("Unknown Variant primitive type in golden vector");
 }
 
-std::string describe(VariantValueRef value);
+std::string describe(VariantRef value);
 
-std::string describe_object(VariantValueRef value) {
+std::string describe_object(VariantRef value) {
     std::string result = "object{";
     for (uint32_t index = 0; index < value.num_elements(); ++index) {
         if (index != 0) {
             result.push_back(';');
         }
         uint32_t field_id = std::numeric_limits<uint32_t>::max();
-        const VariantValueRef child = value.object_value_at(index, &field_id);
+        const VariantRef child = value.object_value_at(index, &field_id);
         const StringRef key = value.metadata.key_at(field_id);
-        VariantValueRef found;
+        VariantRef found;
         if (!value.object_find(key, &found)) {
             throw std::runtime_error("Doris object lookup missed an iterated golden field");
         }
@@ -352,7 +352,7 @@ std::string describe_object(VariantValueRef value) {
     return result;
 }
 
-std::string describe_array(VariantValueRef value) {
+std::string describe_array(VariantRef value) {
     std::string result = "array[";
     for (uint32_t index = 0; index < value.num_elements(); ++index) {
         if (index != 0) {
@@ -364,7 +364,7 @@ std::string describe_array(VariantValueRef value) {
     return result;
 }
 
-std::string describe_uuid(VariantValueRef value) {
+std::string describe_uuid(VariantRef value) {
     const std::array bytes = value.get_uuid();
     std::string encoded;
     for (size_t index = 0; index < bytes.size(); ++index) {
@@ -377,7 +377,7 @@ std::string describe_uuid(VariantValueRef value) {
     return "uuid:" + encoded;
 }
 
-std::string describe(VariantValueRef value) {
+std::string describe(VariantRef value) {
     switch (value.basic_type()) {
     case VariantBasicType::SHORT_STRING:
         return "string:" + hex(value.get_string());
@@ -444,9 +444,9 @@ EncodedVariant build_doris(const std::function<void(VariantBlockBuilder::Row&)>&
     row.finish();
     VariantEncodedBlock block = builder.finish_block();
     const VariantMetadataRef metadata = block.metadata_ref();
-    const VariantValueRef value = block.value_at(0);
+    const VariantRef value = block.value_at(0);
     return {.metadata = std::string(metadata.data, metadata.size),
-            .value = std::string(value.data, value.size)};
+            .value = std::string(value.value.data, value.value.size)};
 }
 
 // NOLINTNEXTLINE(readability-function-size) -- keep the cross-language vector matrix together.
@@ -705,10 +705,9 @@ TEST(VariantGoldenVectorTest, ParquetJavaBytesDecodeWithDoris) {
                 .size = vector.metadata.size(),
         };
         ASSERT_NO_THROW(metadata.validate());
-        VariantValueRef value {
+        VariantRef value {
                 .metadata = metadata,
-                .data = vector.value.data(),
-                .size = vector.value.size(),
+                .value = {vector.value.data(), vector.value.size()},
         };
         ASSERT_EQ(value.value_size(), vector.value.size());
         ASSERT_EQ(root_type(value), vector.root_type);
@@ -736,10 +735,9 @@ TEST(VariantGoldenVectorTest, DorisBytesMatchJavaDecodedCorpus) {
                 .data = encoded.metadata.data(),
                 .size = encoded.metadata.size(),
         };
-        VariantValueRef value {
+        VariantRef value {
                 .metadata = metadata,
-                .data = encoded.value.data(),
-                .size = encoded.value.size(),
+                .value = {encoded.value.data(), encoded.value.size()},
         };
         ASSERT_NO_THROW(validate_canonical(value));
         ASSERT_EQ(root_type(value), expected.root_type);

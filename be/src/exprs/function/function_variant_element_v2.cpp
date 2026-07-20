@@ -26,9 +26,9 @@
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/custom_allocator.h"
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_tracked_storage.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_tracked_storage.h"
 
 namespace doris {
 
@@ -69,11 +69,11 @@ public:
         _object_ids.assign(_source.metadata_count() * _path.size(), -1);
     }
 
-    bool find_at(size_t row, VariantValueRef* const output) {
+    bool find_at(size_t row, VariantRef* const output) {
         DORIS_CHECK(output != nullptr);
         const uint32_t metadata_id = _source.metadata_id_at(row);
         _resolve_metadata(metadata_id);
-        VariantValueRef current = _source.value_at(row);
+        VariantRef current = _source.value_at(row);
         const size_t cache_base = static_cast<size_t>(metadata_id) * _path.size();
         for (size_t position = 0; position < _path.size(); ++position) {
             if (_path.kind_at(position) == VariantElementV2PathSegment::Kind::OBJECT_KEY) {
@@ -280,8 +280,8 @@ uint32_t append_metadata(ExtractedRows& rows, VariantMetadataRef metadata) {
     return static_cast<uint32_t>(rows.metadata_offsets.size() - 2);
 }
 
-void append_value(ExtractedRows& rows, VariantValueRef value, uint32_t metadata_id) {
-    rows.value_offsets.push_back(append_bytes(rows.value_bytes, {value.data, value.size}, "value"));
+void append_value(ExtractedRows& rows, VariantRef value, uint32_t metadata_id) {
+    rows.value_offsets.push_back(append_bytes(rows.value_bytes, value.value, "value"));
     rows.metadata_ids.push_back(metadata_id);
 }
 
@@ -306,7 +306,7 @@ Status extract_encoded_variant_element(const ColumnVariantV2& source,
     null_row.add_null();
     null_row.finish();
     VariantEncodedBlock null_block = null_builder.finish_block();
-    const VariantValueRef null_value = null_block.value_at(0);
+    const VariantRef null_value = null_block.value_at(0);
 
     ExtractedRows rows;
     rows.metadata_ids.reserve(source.size());
@@ -335,7 +335,7 @@ Status extract_encoded_variant_element(const ColumnVariantV2& source,
                     append_metadata(rows, reader.metadata_at(source_metadata_id));
         }
 
-        VariantValueRef current;
+        VariantRef current;
         if (reader.find_at(row, &current)) {
             append_value(rows, current, output_metadata_ids[source_metadata_id]);
             nulls->insert_value(0);
@@ -359,7 +359,7 @@ Status make_all_null_variant_element_result(size_t rows, ColumnPtr* const output
     }
     VariantEncodedBlock block = builder.finish_block();
     auto values = ColumnVariantV2::create();
-    values->insert_encoded_block(block.view());
+    values->insert_encoded_block(block);
     ColumnPtr candidate = ColumnNullable::create(std::move(values), ColumnUInt8::create(rows, 1));
     output->swap(candidate);
     return Status::OK();

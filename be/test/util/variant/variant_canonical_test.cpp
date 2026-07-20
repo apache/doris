@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_canonical.h"
+#include "core/value/variant/variant_canonical.h"
 
 #include <crc32c/crc32c.h>
 #include <gtest/gtest.h>
@@ -33,8 +33,8 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/value/variant/variant_encoding.h"
 #include "exec/common/sip_hash.h"
-#include "util/variant/variant_encoding.h"
 #include "variant_test_utils.h"
 
 namespace doris {
@@ -44,10 +44,9 @@ struct OwnedValue {
     std::string metadata;
     std::string value;
 
-    VariantValueRef ref() const {
+    VariantRef ref() const {
         return {.metadata = {.data = metadata.data(), .size = metadata.size()},
-                .data = value.data(),
-                .size = value.size()};
+                .value = {value.data(), value.size()}};
     }
 };
 
@@ -284,7 +283,7 @@ OwnedValue array_value(const std::vector<std::string>& children) {
     return {.metadata = empty_metadata(), .value = array_bytes(children)};
 }
 
-Hashes hashes(VariantValueRef value) {
+Hashes hashes(VariantRef value) {
     SipHash sip;
     canonical_hash(value, sip);
     VariantXxHashSink xx(0x123456789ABCDEF0ULL);
@@ -308,7 +307,7 @@ Hashes hashes(VariantCanonicalScalarRef value) {
     return {.sip = sip.get64(), .xx = xx.digest(), .crc = crc.digest(), .crc32c = crc32c.digest()};
 }
 
-std::string arena(VariantValueRef value) {
+std::string arena(VariantRef value) {
     std::string encoded;
     const size_t appended = canonical_serialize(value, encoded);
     EXPECT_EQ(appended, encoded.size());
@@ -326,7 +325,7 @@ std::string arena(VariantCanonicalScalarRef value) {
     return encoded;
 }
 
-VariantValueRef arena_value_ref(const std::string& encoded) {
+VariantRef arena_value_ref(const std::string& encoded) {
     EXPECT_GE(encoded.size(), sizeof(uint32_t) + 3);
     EXPECT_EQ(read_u32(encoded.data()), encoded.size() - sizeof(uint32_t));
     const char* metadata = encoded.data() + sizeof(uint32_t);
@@ -342,8 +341,7 @@ VariantValueRef arena_value_ref(const std::string& encoded) {
             offsets_position + (static_cast<size_t>(count) + 1) * width + strings_size;
     EXPECT_LT(sizeof(uint32_t) + metadata_size, encoded.size());
     return {.metadata = {.data = metadata, .size = metadata_size},
-            .data = metadata + metadata_size,
-            .size = encoded.size() - sizeof(uint32_t) - metadata_size};
+            .value = {metadata + metadata_size, encoded.size() - sizeof(uint32_t) - metadata_size}};
 }
 
 void expect_canonical_parse_error(const std::string& encoded, int expected) {
@@ -384,7 +382,7 @@ void expect_scalar_equivalent(VariantCanonicalScalarRef scalar_ref,
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive typed/encoded parity matrix.
-TEST(VariantCanonicalTest, TypedScalarCanonicalMatchesVariantValueRef) {
+TEST(VariantCanonicalTest, TypedScalarCanonicalMatchesVariantRef) {
     expect_scalar_equivalent(VariantCanonicalScalarRef::null_value(),
                              scalar(primitive(VariantPrimitiveId::NULL_VALUE)));
     expect_scalar_equivalent(VariantCanonicalScalarRef::boolean(false),
@@ -578,7 +576,7 @@ TEST(VariantCanonicalTest, TimestampUnitsNormalizeByLogicalTime) {
          {std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()}) {
         const OwnedValue value = fixed_value(VariantPrimitiveId::TIMESTAMP_MICROS, extreme, 8);
         const std::string encoded = arena(value.ref());
-        const VariantValueRef canonical = arena_value_ref(encoded);
+        const VariantRef canonical = arena_value_ref(encoded);
         EXPECT_EQ(canonical.primitive_id(), VariantPrimitiveId::TIMESTAMP_MICROS);
         EXPECT_EQ(canonical.get_timestamp_micros(), extreme);
         EXPECT_TRUE(canonical_equals(value.ref(), canonical));
@@ -649,7 +647,7 @@ TEST(VariantCanonicalTest, ArenaPrefixAndCanonicalEncoding) {
     EXPECT_EQ(destination.substr(0, 6), "prefix");
     const std::string encoded = destination.substr(6);
     EXPECT_EQ(read_u32(encoded.data()), appended - sizeof(uint32_t));
-    const VariantValueRef canonical = arena_value_ref(encoded);
+    const VariantRef canonical = arena_value_ref(encoded);
     validate_canonical(canonical);
     EXPECT_TRUE(canonical.metadata.sorted_strings());
     EXPECT_EQ(canonical.metadata.dict_size(), 2);
@@ -670,9 +668,8 @@ TEST(VariantCanonicalTest, ParseCanonicalCellRejectsInvalidBoundaries) {
              array_bytes({string_value("value", true).value, integer_value(9, 1).value})},
             {0, 1});
     const std::string encoded = arena(input.ref());
-    const VariantValueRef parsed =
-            parse_canonical_serialized(StringRef(encoded.data(), encoded.size()));
-    EXPECT_EQ(parsed.value_size(), parsed.size);
+    const VariantRef parsed = parse_canonical_serialized(StringRef(encoded.data(), encoded.size()));
+    EXPECT_EQ(parsed.value_size(), parsed.value.size);
     EXPECT_TRUE(canonical_equals(input.ref(), parsed));
 
     expect_canonical_parse_error(encoded.substr(0, sizeof(uint32_t) - 1), ErrorCode::CORRUPTION);
@@ -702,15 +699,15 @@ TEST(VariantCanonicalTest, ParseCanonicalCellRejectsInvalidBoundaries) {
     write_u32(trailing_value.data(), trailing_value.size() - sizeof(uint32_t));
     expect_canonical_parse_error(trailing_value, ErrorCode::CORRUPTION);
 
-    VariantValueRef nested;
+    VariantRef nested;
     ASSERT_TRUE(parsed.object_find(StringRef("nested"), &nested));
     ASSERT_EQ(nested.basic_type(), VariantBasicType::ARRAY);
-    const size_t nested_offset = nested.data - encoded.data();
+    const size_t nested_offset = nested.value.data - encoded.data();
     ASSERT_EQ(static_cast<uint8_t>(encoded[nested_offset + 2]), 0);
     std::string invalid_nested_boundary = encoded;
     invalid_nested_boundary[nested_offset + 2] = 1;
-    const VariantValueRef valid_outer_layout = arena_value_ref(invalid_nested_boundary);
-    EXPECT_EQ(valid_outer_layout.value_size(), valid_outer_layout.size);
+    const VariantRef valid_outer_layout = arena_value_ref(invalid_nested_boundary);
+    EXPECT_EQ(valid_outer_layout.value_size(), valid_outer_layout.value.size);
     expect_canonical_parse_error(invalid_nested_boundary, ErrorCode::CORRUPTION);
 
     const OwnedValue two_fields = object_value(
@@ -718,16 +715,16 @@ TEST(VariantCanonicalTest, ParseCanonicalCellRejectsInvalidBoundaries) {
             {primitive(VariantPrimitiveId::NULL_VALUE), primitive(VariantPrimitiveId::TRUE_VALUE)},
             {0, 1});
     std::string overlapping_object = arena(two_fields.ref());
-    const VariantValueRef object_ref = arena_value_ref(overlapping_object);
+    const VariantRef object_ref = arena_value_ref(overlapping_object);
     ASSERT_EQ(object_ref.num_elements(), 2);
-    const size_t object_offset = object_ref.data - overlapping_object.data();
+    const size_t object_offset = object_ref.value.data - overlapping_object.data();
     // Small-object layout: header, count, two ids, then three one-byte value offsets.
-    ASSERT_GE(object_ref.size, 9);
+    ASSERT_GE(object_ref.value.size, 9);
     overlapping_object[object_offset + 5] = 0;
     expect_canonical_parse_error(overlapping_object, ErrorCode::CORRUPTION);
 
     std::string invalid_metadata_utf8 = arena(two_fields.ref());
-    VariantValueRef metadata_ref = arena_value_ref(invalid_metadata_utf8);
+    VariantRef metadata_ref = arena_value_ref(invalid_metadata_utf8);
     const size_t metadata_offset = metadata_ref.metadata.data - invalid_metadata_utf8.data();
     ASSERT_GE(metadata_ref.metadata.size, 7);
     invalid_metadata_utf8[metadata_offset + metadata_ref.metadata.size - 1] =

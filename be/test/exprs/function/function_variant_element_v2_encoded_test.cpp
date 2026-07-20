@@ -25,10 +25,10 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_field.h"
 #include "exprs/function/function_variant_element_v2.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_field.h"
-#include "util/variant/variant_json.h"
+#include "exprs/function/parse/variant_json.h"
 #include "util/variant/variant_test_utils.h"
 
 namespace doris {
@@ -230,7 +230,7 @@ TEST(VariantElementV2EncodedTest, LegalNoncanonicalMetadataIsCopiedWithoutCanoni
     auto path = resolve({Segment::object_key(StringRef("a"))});
 
     ColumnPtr result = extract(*source, *path);
-    const VariantValueRef value = variant_result(result).get_value_ref(0);
+    const VariantRef value = variant_result(result).get_value_ref(0);
     EXPECT_TRUE(value.get_bool());
     EXPECT_EQ(bytes(value.metadata), bytes(source->get_value_ref(0).metadata));
 }
@@ -258,8 +258,8 @@ TEST(VariantElementV2EncodedTest, BadMetadataAndValueAreErrorsAndResultIsAtomic)
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
     EXPECT_EQ(result.get(), sentinel_identity);
 
-    const VariantValueRef valid_ref = valid.ref();
-    std::string trailing_value(valid_ref.data, valid_ref.size);
+    const VariantRef valid_ref = valid.ref();
+    std::string trailing_value(valid_ref.value.data, valid_ref.value.size);
     trailing_value.push_back('\0');
     auto trailing_value_column = raw_column({valid_ref.metadata.data, valid_ref.metadata.size},
                                             {trailing_value.data(), trailing_value.size()});

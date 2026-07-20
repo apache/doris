@@ -24,11 +24,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/string_buffer.hpp"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
+#include "exprs/function/parse/variant_json.h"
 #include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
-#include "util/jsonb_writer.h"
-#include "util/variant/variant_json.h"
-#include "util/variant/variant_jsonb.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
 namespace {
@@ -40,7 +38,7 @@ VariantJsonFormatOptions json_options(FunctionContext* context) {
     return {.timezone = &context->state()->timezone_obj()};
 }
 
-bool uses_concrete_string_cast(VariantValueRef value) {
+bool uses_concrete_string_cast(VariantRef value) {
     if (value.basic_type() == VariantBasicType::SHORT_STRING) {
         return true;
     }
@@ -86,7 +84,7 @@ const ColumnVariantV2& encoded_source(const ColumnVariantV2& source, ColumnPtr* 
     return assert_cast<const ColumnVariantV2&>(**owner);
 }
 
-Status append_fallback_string(VariantValueRef value, bool forced_null,
+Status append_fallback_string(VariantRef value, bool forced_null,
                               const VariantJsonFormatOptions& options, VectorBufferWriter* writer,
                               ColumnUInt8* nulls) {
     if (forced_null) {
@@ -106,28 +104,6 @@ Status append_fallback_string(VariantValueRef value, bool forced_null,
 
 } // namespace
 
-Status cast_jsonb_to_variant(const ColumnPtr& source, size_t rows, ForcedNulls forced_nulls,
-                             ColumnPtr* output) {
-    const auto* strings = check_and_get_column<ColumnString>(source.get());
-    if (strings == nullptr || strings->size() != rows ||
-        (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid JSONB input shape for Variant V2 CAST");
-    }
-    JsonbToVariantEncoder encoder(VariantBlockBuilder::ReserveHint {.rows = rows});
-    for (size_t row = 0; row < rows; ++row) {
-        if (!forced_nulls.empty() && forced_nulls[row] != 0) {
-            encoder.add_null();
-        } else {
-            encoder.add_jsonb(strings->get_data_at(row));
-        }
-    }
-    VariantEncodedBlock block = encoder.finish_block();
-    auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block.view());
-    *output = std::move(result);
-    return Status::OK();
-}
-
 Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
                               ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
@@ -136,7 +112,7 @@ Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& s
     ColumnPtr encoded_owner;
     const ColumnVariantV2& encoded = encoded_source(source, &encoded_owner);
 
-    DorisVector<VariantValueRef> concrete_values;
+    DorisVector<VariantRef> concrete_values;
     DorisVector<size_t> concrete_rows;
     DorisVector<size_t> fallback_rows;
     concrete_values.reserve(rows);
@@ -144,7 +120,7 @@ Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& s
     fallback_rows.reserve(rows);
     for (size_t row = 0; row < rows; ++row) {
         const bool forced = !forced_nulls.empty() && forced_nulls[row] != 0;
-        VariantValueRef value = encoded.get_value_ref(row);
+        VariantRef value = encoded.get_value_ref(row);
         if (!forced && uses_concrete_string_cast(value)) {
             concrete_values.push_back(value);
             concrete_rows.push_back(row);
@@ -194,31 +170,6 @@ Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& s
     ColumnPtr concatenated =
             ColumnNullable::create(std::move(concatenated_strings), std::move(concatenated_nulls));
     *output = concatenated->permute(permutation, rows);
-    return Status::OK();
-}
-
-Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
-                             ForcedNulls forced_nulls, ColumnPtr* output) {
-    if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input shape for JSONB CAST");
-    }
-    ColumnPtr encoded_owner;
-    const ColumnVariantV2& encoded = encoded_source(source, &encoded_owner);
-    auto strings = ColumnString::create();
-    auto nulls = ColumnUInt8::create(rows, 0);
-    strings->reserve(rows);
-    JsonbWriter writer;
-    const VariantJsonFormatOptions options = json_options(context);
-    for (size_t row = 0; row < rows; ++row) {
-        if (!forced_nulls.empty() && forced_nulls[row] != 0) {
-            strings->insert_default();
-            nulls->get_data()[row] = 1;
-            continue;
-        }
-        variant_to_jsonb(encoded.get_value_ref(row), writer, options);
-        strings->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
-    }
-    *output = ColumnNullable::create(std::move(strings), std::move(nulls));
     return Status::OK();
 }
 

@@ -32,9 +32,9 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/value/variant/variant_canonical.h"
+#include "core/value/variant/variant_scalar_encoding.h"
 #include "exec/common/format_ip.h"
-#include "util/variant/variant_canonical.h"
-#include "util/variant/variant_scalar_encoding.h"
 
 namespace doris::column_variant_v2_internal {
 

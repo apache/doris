@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_canonical.h"
+#include "core/value/variant/variant_canonical.h"
 
 #include <crc32c/crc32c.h>
 
@@ -31,11 +31,11 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_field.h"
 #include "exec/common/sip_hash.h"
 #include "util/hash_util.hpp"
 #include "util/utf8_check.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_field.h"
 
 namespace doris {
 namespace {
@@ -97,7 +97,7 @@ struct NormalizedValue {
 
 struct ObjectEntry {
     StringRef key;
-    VariantValueRef value;
+    VariantRef value;
 };
 
 NormalizedValue normalized_kind(CanonicalKind kind) {
@@ -140,12 +140,12 @@ void require_depth(uint32_t depth) {
     }
 }
 
-void require_exact_value(VariantValueRef value) {
+void require_exact_value(VariantRef value) {
     const size_t encoded_size = value.value_size();
-    if (encoded_size != value.size) {
+    if (encoded_size != value.value.size) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Variant value has {} trailing bytes after its {} byte root",
-                        value.size - encoded_size, encoded_size);
+                        value.value.size - encoded_size, encoded_size);
     }
 }
 
@@ -174,7 +174,7 @@ NormalizedValue normalize_floating(double value) {
     return normalized_floating(bits);
 }
 
-NormalizedValue normalize_primitive(VariantValueRef value) {
+NormalizedValue normalize_primitive(VariantRef value) {
     switch (value.primitive_id()) {
     case VariantPrimitiveId::NULL_VALUE:
         return normalized_kind(CanonicalKind::NULL_VALUE);
@@ -244,7 +244,7 @@ NormalizedValue normalize_primitive(VariantValueRef value) {
                     static_cast<uint8_t>(value.primitive_id()));
 }
 
-NormalizedValue normalize_value(VariantValueRef value) {
+NormalizedValue normalize_value(VariantRef value) {
     switch (value.basic_type()) {
     case VariantBasicType::SHORT_STRING: {
         const StringRef string = value.get_string();
@@ -261,10 +261,10 @@ NormalizedValue normalize_value(VariantValueRef value) {
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Unknown Variant basic type");
 }
 
-ObjectEntry object_entry_at(VariantValueRef object, uint32_t index, StringRef previous_key,
+ObjectEntry object_entry_at(VariantRef object, uint32_t index, StringRef previous_key,
                             bool has_previous) {
     uint32_t field_id = 0;
-    VariantValueRef child = object.object_value_at(index, &field_id);
+    VariantRef child = object.object_value_at(index, &field_id);
     const StringRef key = object.metadata.key_at(field_id);
     require_valid_utf8(key, "object key");
     if (has_previous && previous_key.compare(key) >= 0) {
@@ -303,7 +303,7 @@ bool scalar_equals(const NormalizedValue& left, const NormalizedValue& right) {
     return false;
 }
 
-bool equals_node(VariantValueRef left, VariantValueRef right, uint32_t depth) {
+bool equals_node(VariantRef left, VariantRef right, uint32_t depth) {
     require_depth(depth);
     require_exact_value(left);
     require_exact_value(right);
@@ -417,7 +417,7 @@ void hash_normalized_scalar(const NormalizedValue& normalized, Sink& sink) {
 }
 
 template <typename Sink>
-void hash_node(VariantValueRef value, Sink& sink, uint32_t depth) {
+void hash_node(VariantRef value, Sink& sink, uint32_t depth) {
     require_depth(depth);
     require_exact_value(value);
     const NormalizedValue normalized = normalize_value(value);
@@ -552,7 +552,7 @@ struct SerializePlan {
     std::vector<StringRef> keys;
 };
 
-uint32_t build_plan_node(SerializePlan& plan, VariantValueRef value, uint32_t depth) {
+uint32_t build_plan_node(SerializePlan& plan, VariantRef value, uint32_t depth) {
     require_depth(depth);
     require_exact_value(value);
     if (plan.nodes.size() == std::numeric_limits<uint32_t>::max()) {
@@ -581,7 +581,7 @@ uint32_t build_plan_node(SerializePlan& plan, VariantValueRef value, uint32_t de
 
     StringRef previous;
     for (uint32_t index = 0; index < count; ++index) {
-        VariantValueRef child;
+        VariantRef child;
         StringRef key;
         if (normalized.kind == CanonicalKind::OBJECT) {
             const ObjectEntry entry = object_entry_at(value, index, previous, index != 0);
@@ -1011,21 +1011,19 @@ void VariantCrc32cHashSink::update(const char* data, size_t size) {
     _state = crc32c_extend(_state, reinterpret_cast<const uint8_t*>(data), size);
 }
 
-bool canonical_equals(VariantValueRef left, VariantValueRef right) {
+bool canonical_equals(VariantRef left, VariantRef right) {
     return equals_node(left, right, 0);
 }
 
 template <typename Sink>
-void canonical_hash(VariantValueRef value, Sink& sink) {
+void canonical_hash(VariantRef value, Sink& sink) {
     hash_node(value, sink, 0);
 }
 
-template void canonical_hash<SipHash>(VariantValueRef value, SipHash& sink);
-template void canonical_hash<VariantXxHashSink>(VariantValueRef value, VariantXxHashSink& sink);
-template void canonical_hash<VariantCrc32HashSink>(VariantValueRef value,
-                                                   VariantCrc32HashSink& sink);
-template void canonical_hash<VariantCrc32cHashSink>(VariantValueRef value,
-                                                    VariantCrc32cHashSink& sink);
+template void canonical_hash<SipHash>(VariantRef value, SipHash& sink);
+template void canonical_hash<VariantXxHashSink>(VariantRef value, VariantXxHashSink& sink);
+template void canonical_hash<VariantCrc32HashSink>(VariantRef value, VariantCrc32HashSink& sink);
+template void canonical_hash<VariantCrc32cHashSink>(VariantRef value, VariantCrc32cHashSink& sink);
 
 VariantCanonicalScalarRef VariantCanonicalScalarRef::null_value() noexcept {
     return VariantCanonicalScalarRef(Kind::NULL_VALUE);
@@ -1194,7 +1192,7 @@ CanonicalScalarSerializationPlan prepare_canonical_serialize(VariantCanonicalSca
     return {value, CANONICAL_SIZE_PREFIX + EMPTY_METADATA_SIZE + value_size};
 }
 
-CanonicalSerializationPlan prepare_canonical_serialize(VariantValueRef value) {
+CanonicalSerializationPlan prepare_canonical_serialize(VariantRef value) {
     auto implementation = std::make_unique<CanonicalSerializationPlan::Impl>();
     build_plan_node(implementation->plan, value, 0);
     finish_plan(implementation->plan);
@@ -1215,7 +1213,7 @@ CanonicalSerializationPlan prepare_canonical_serialize(VariantValueRef value) {
     return CanonicalSerializationPlan(std::move(implementation));
 }
 
-size_t canonical_serialize(VariantValueRef value, std::string& destination) {
+size_t canonical_serialize(VariantRef value, std::string& destination) {
     const CanonicalSerializationPlan plan = prepare_canonical_serialize(value);
     const size_t cell_size = plan.size();
     if (cell_size > destination.max_size() - destination.size()) {
@@ -1229,7 +1227,7 @@ size_t canonical_serialize(VariantValueRef value, std::string& destination) {
     return cell_size;
 }
 
-VariantValueRef parse_canonical_serialized(StringRef serialized) {
+VariantRef parse_canonical_serialized(StringRef serialized) {
     if (serialized.size != 0 && serialized.data == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant canonical cell has a null pointer for {} bytes", serialized.size);
@@ -1284,9 +1282,8 @@ VariantValueRef parse_canonical_serialized(StringRef serialized) {
     }
 
     VariantMetadataRef metadata {.data = payload.data, .size = metadata_size};
-    VariantValueRef value {.metadata = metadata,
-                           .data = payload.data + metadata_size,
-                           .size = payload.size - metadata_size};
+    VariantRef value {.metadata = metadata,
+                      .value = {payload.data + metadata_size, payload.size - metadata_size}};
     validate_variant_metadata(metadata);
     validate_variant_payload(value);
     return value;

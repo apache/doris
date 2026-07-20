@@ -32,7 +32,7 @@ void preflight_json(const ReadInput& input, size_t start, size_t end,
                     const DataTypeSerDe::FormatOptions& options) {
     for_each_value(
             input, start, end, nullptr, [](size_t) {},
-            [&](size_t, VariantValueRef value) {
+            [&](size_t, VariantRef value) {
                 CountingWriter writer;
                 write_json_value(value, writer, options);
             });
@@ -55,7 +55,7 @@ Status DataTypeVariantV2SerDe::serialize_one_cell_to_json(const IColumn& column,
         preflight_json(input, row, row + 1, options);
         for_each_value(
                 input, row, row + 1, nullptr, [](size_t) {},
-                [&](size_t, VariantValueRef value) { write_json_value(value, bw, options); });
+                [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
     });
     return Status::OK();
 }
@@ -70,7 +70,7 @@ Status DataTypeVariantV2SerDe::serialize_column_to_json(const IColumn& column, i
         preflight_json(input, start, end, options);
         for_each_value(
                 input, start, end, nullptr, [](size_t) {},
-                [&](size_t row, VariantValueRef value) {
+                [&](size_t row, VariantRef value) {
                     if (row != start) {
                         bw.write(options.field_delim.data(), options.field_delim.size());
                     }
@@ -104,9 +104,9 @@ Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arr
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/value/jsonb_value.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "exprs/function/parse/variant_jsonb.h"
 #include "util/jsonb_writer.h"
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_jsonb.h"
 
 namespace doris {
 namespace {
@@ -135,7 +135,7 @@ Status DataTypeVariantV2SerDe::deserialize_one_cell_from_json(IColumn& column, S
         JsonToVariantEncoder encoder;
         encoder.add_json({slice.data, slice.size});
         VariantEncodedBlock block = encoder.finish_block();
-        destination(column).insert_encoded_block(block.view());
+        destination(column).insert_encoded_block(block);
     });
     return Status::OK();
 }
@@ -155,7 +155,7 @@ Status DataTypeVariantV2SerDe::deserialize_one_cell_from_csv(IColumn& column, Sl
         row.add_string({slice.data, slice.size});
         row.finish();
         VariantEncodedBlock block = builder.finish_block();
-        destination(column).insert_encoded_block(block.view());
+        destination(column).insert_encoded_block(block);
     });
     return Status::OK();
 }
@@ -180,7 +180,7 @@ Status DataTypeVariantV2SerDe::deserialize_column_from_json_vector(IColumn& colu
             encoder.add_json({slice.data, slice.size});
         }
         VariantEncodedBlock block = encoder.finish_block();
-        result.insert_encoded_block(block.view());
+        result.insert_encoded_block(block);
         *num_deserialized += slices.size();
     });
     return Status::OK();
@@ -194,7 +194,7 @@ void DataTypeVariantV2SerDe::write_one_cell_to_jsonb(const IColumn& column, Json
     JsonbWriter document;
     data_type_variant_v2_serde_internal::for_each_value(
             input, row, row + 1, nullptr, [](size_t) {},
-            [&](size_t, VariantValueRef value) {
+            [&](size_t, VariantRef value) {
                 variant_to_jsonb(value, document, {.timezone = options.timezone});
             });
     // DataTypeNullableSerDe pre-writes the key for a non-null nested value. A direct row-store call
@@ -218,7 +218,7 @@ void DataTypeVariantV2SerDe::read_one_cell_from_jsonb(IColumn& column,
     JsonbToVariantEncoder encoder;
     encoder.add_jsonb({binary->getBlob(), binary->getBlobLen()});
     VariantEncodedBlock block = encoder.finish_block();
-    destination(column).insert_encoded_block(block.view());
+    destination(column).insert_encoded_block(block);
 }
 
 } // namespace doris
@@ -251,7 +251,7 @@ DorisVector<size_t> json_lengths(const ReadInput& input, size_t start, size_t en
     DorisVector<size_t> lengths(end - start, 0);
     for_each_value(
             input, start, end, null_map, [](size_t) {},
-            [&](size_t row, VariantValueRef value) {
+            [&](size_t row, VariantRef value) {
                 CountingWriter writer;
                 write_json_value(value, writer, options);
                 lengths[row - start] = writer.count;
@@ -277,7 +277,7 @@ Status write_arrow(const IColumn& column, const ReadInput& input, const NullMap*
                     status = checkArrowStatus(builder.AppendNull(), column, builder);
                 }
             },
-            [&](size_t row, VariantValueRef value) {
+            [&](size_t row, VariantRef value) {
                 if (!status.ok()) {
                     return;
                 }
@@ -302,7 +302,7 @@ void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, Bu
     DCHECK_EQ(lengths.size(), 1);
     for_each_value(
             input, row_num, row_num + 1, nullptr, [](size_t) {},
-            [&](size_t, VariantValueRef value) { write_json_value(value, bw, options); });
+            [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
 }
 
 Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -316,7 +316,7 @@ Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& colum
         DorisVector<char> rendered(lengths[0]);
         for_each_value(
                 input, row, row + 1, nullptr, [](size_t) {},
-                [&](size_t, VariantValueRef value) {
+                [&](size_t, VariantRef value) {
                     FixedWriter writer {.destination = rendered.data(),
                                         .capacity = rendered.size()};
                     write_json_value(value, writer, options);
@@ -389,7 +389,7 @@ Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const ICo
                     batch->data[row] = nullptr;
                     batch->length[row] = 0;
                 },
-                [&](size_t row, VariantValueRef value) {
+                [&](size_t row, VariantRef value) {
                     batch->notNull[row] = 1;
                     batch->data[row] = output + offset;
                     FixedWriter writer {.destination = output + offset,

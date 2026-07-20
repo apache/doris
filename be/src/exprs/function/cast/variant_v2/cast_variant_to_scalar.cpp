@@ -202,7 +202,7 @@ void append_string(ScalarGroups& groups, size_t row, StringRef value) {
     group.source_rows.push_back(row);
 }
 
-void classify_value(ScalarGroups& groups, size_t row, VariantValueRef value, bool forced_null) {
+void classify_value(ScalarGroups& groups, size_t row, VariantRef value, bool forced_null) {
     if (forced_null) {
         append_invalid(groups, row);
         return;
@@ -449,8 +449,7 @@ Status cast_typed_variant_to_scalar(FunctionContext* context, const ColumnVarian
     return apply_forced_nulls(std::move(converted), forced_nulls, output);
 }
 
-Status cast_variant_refs_to_scalar(FunctionContext* context,
-                                   std::span<const VariantValueRef> values,
+Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const VariantRef> values,
                                    const DataTypePtr& target_type, ForcedNulls forced_nulls,
                                    ColumnPtr* output) {
     if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {

@@ -26,11 +26,11 @@
 #include <utility>
 
 #include "common/exception.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_encoded_block.h"
+#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_tracked_storage.h"
 #include "util/utf8_check.h"
-#include "util/variant/variant_block_builder_internal.h"
-#include "util/variant/variant_encoded_block.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_tracked_storage.h"
 
 namespace doris {
 namespace {
@@ -276,14 +276,14 @@ StringRef VariantMetadataBuilder::encoded_metadata() const {
     return {_impl->encoded.data(), _impl->encoded.size()};
 }
 
-void VariantMetadataBuilder::_move_encoded_metadata(
-        VariantEncodedBlockStorage& destination) noexcept {
+VariantTrackedString VariantMetadataBuilder::_take_encoded_metadata() noexcept {
     DCHECK(_impl->sealed);
-    destination.metadata = std::move(_impl->encoded);
+    VariantTrackedString encoded = std::move(_impl->encoded);
     release_variant_tracked_container(_impl->keys);
     release_variant_tracked_container(_impl->key_to_temporary_id);
     release_variant_tracked_container(_impl->key_use_counts);
     release_variant_tracked_container(_impl->temporary_to_final_id);
+    return encoded;
 }
 
 VariantMetadataRef VariantMetadataBuilder::metadata_ref() const {

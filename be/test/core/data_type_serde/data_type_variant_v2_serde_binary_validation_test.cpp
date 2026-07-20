@@ -38,9 +38,9 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_json.h"
+#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_encoding.h"
+#include "exprs/function/parse/variant_json.h"
 #include "util/variant/variant_test_utils.h"
 
 namespace doris {

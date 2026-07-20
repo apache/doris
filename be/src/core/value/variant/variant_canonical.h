@@ -23,7 +23,7 @@
 #include <memory>
 #include <string>
 
-#include "util/variant/variant_value.h"
+#include "core/value/variant/variant_value.h"
 
 namespace doris {
 
@@ -130,20 +130,19 @@ private:
 // Compares logical Variant values. Numeric normalization is deliberately limited to the exact
 // integer domain that canonical Variant decimal16 can encode: [-(10^38-1), +(10^38-1)]. A finite
 // integral float/double outside that domain remains floating so canonical arena bytes stay valid.
-bool canonical_equals(VariantValueRef left, VariantValueRef right);
+bool canonical_equals(VariantRef left, VariantRef right);
 
 // Hashes canonical logical tokens without re-encoding the value. Supported production sinks are
 // SipHash, VariantXxHashSink, VariantCrc32HashSink, and VariantCrc32cHashSink; all four are explicit
 // instantiations of the same traversal skeleton.
 template <typename Sink>
-void canonical_hash(VariantValueRef value, Sink& sink);
+void canonical_hash(VariantRef value, Sink& sink);
 
-extern template void canonical_hash<SipHash>(VariantValueRef value, SipHash& sink);
-extern template void canonical_hash<VariantXxHashSink>(VariantValueRef value,
-                                                       VariantXxHashSink& sink);
-extern template void canonical_hash<VariantCrc32HashSink>(VariantValueRef value,
+extern template void canonical_hash<SipHash>(VariantRef value, SipHash& sink);
+extern template void canonical_hash<VariantXxHashSink>(VariantRef value, VariantXxHashSink& sink);
+extern template void canonical_hash<VariantCrc32HashSink>(VariantRef value,
                                                           VariantCrc32HashSink& sink);
-extern template void canonical_hash<VariantCrc32cHashSink>(VariantValueRef value,
+extern template void canonical_hash<VariantCrc32cHashSink>(VariantRef value,
                                                            VariantCrc32cHashSink& sink);
 
 extern template void canonical_hash<SipHash>(VariantCanonicalScalarRef value, SipHash& sink);
@@ -201,22 +200,22 @@ private:
 
     std::unique_ptr<Impl> _impl;
 
-    friend CanonicalSerializationPlan prepare_canonical_serialize(VariantValueRef value);
+    friend CanonicalSerializationPlan prepare_canonical_serialize(VariantRef value);
 };
 
 // Validates and plans one canonical arena cell without allocating its final output bytes.
-CanonicalSerializationPlan prepare_canonical_serialize(VariantValueRef value);
+CanonicalSerializationPlan prepare_canonical_serialize(VariantRef value);
 
 // Appends one canonical arena cell and returns the number of appended bytes. The layout is
 // [u32 payload_size][canonical_metadata][canonical_value], where payload_size excludes its own
 // four-byte prefix. On validation or size failure, destination is unchanged. This convenience
 // overload delegates to CanonicalSerializationPlan.
-size_t canonical_serialize(VariantValueRef value, std::string& destination);
+size_t canonical_serialize(VariantRef value, std::string& destination);
 
 // Splits one bounded canonical arena cell without allocating or canonicalizing it. The returned
 // view borrows serialized and remains valid only while the input bytes remain stable. This checks
 // the exact payload prefix, derives the self-delimiting metadata size with bounded arithmetic, and
 // requires the remainder to contain exactly one complete Variant value.
-VariantValueRef parse_canonical_serialized(StringRef serialized);
+VariantRef parse_canonical_serialized(StringRef serialized);
 
 } // namespace doris

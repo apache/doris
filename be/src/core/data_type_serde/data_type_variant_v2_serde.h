@@ -84,10 +84,10 @@ public:
 #include "core/assert_cast.h"
 #include "core/column/column_const.h"
 #include "core/column/variant_v2/column_variant_v2.h"
-#include "core/column/variant_v2/column_variant_v2_typed_scalar.h"
+#include "core/column/variant_v2/column_variant_v2_typed_column.h"
 #include "core/custom_allocator.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_json.h"
+#include "core/value/variant/variant_encoding.h"
+#include "exprs/function/parse/variant_json.h"
 
 namespace doris::data_type_variant_v2_serde_internal {
 
@@ -147,12 +147,11 @@ inline size_t checked_row(int64_t row) {
 
 class ScalarScratch {
 public:
-    VariantValueRef value(VariantScalarEncodingPlan plan) {
+    VariantRef value(VariantScalarEncodingPlan plan) {
         _bytes.resize(plan.size());
         plan.write(_bytes.data(), _bytes.size());
         return {.metadata = {.data = EMPTY_METADATA.data(), .size = EMPTY_METADATA.size()},
-                .data = _bytes.data(),
-                .size = _bytes.size()};
+                .value = {_bytes.data(), _bytes.size()}};
     }
 
 private:
@@ -185,7 +184,7 @@ struct FixedWriter {
 };
 
 template <typename OuterNullCallback, typename ValueCallback>
-// Any VariantValueRef passed to on_value borrows either the source column or the reusable scalar
+// Any VariantRef passed to on_value borrows either the source column or the reusable scalar
 // scratch and is valid only until that callback returns. Callbacks must not retain it.
 void for_each_value(const ReadInput& input, size_t start, size_t end, const NullMap* outer_nulls,
                     OuterNullCallback&& on_outer_null, ValueCallback&& on_value) {
@@ -236,7 +235,7 @@ void for_each_value(const ReadInput& input, size_t start, size_t end, const Null
 }
 
 template <typename Writer>
-void write_json_value(VariantValueRef value, Writer& writer,
+void write_json_value(VariantRef value, Writer& writer,
                       const DataTypeSerDe::FormatOptions& options) {
     VariantJsonFormatOptions json_options {.timezone = options.timezone};
     to_json(value, writer, json_options);
