@@ -76,25 +76,29 @@ void test_all_bit_widths(int num_values) {
 
 template <typename T>
 void test_truncated_input() {
-    constexpr int num_values = 65;
+    constexpr int num_values = 160;
+    constexpr T sentinel = std::numeric_limits<T>::max();
     for (int bit_width = 1; bit_width <= std::numeric_limits<T>::digits; ++bit_width) {
         std::vector<T> expected = make_values<T>(bit_width, num_values);
         faststring packed;
         pack_values(expected, bit_width, &packed);
-        const int64_t input_bytes = packed.size() - 1;
+        const auto* packed_data = reinterpret_cast<const uint8_t*>(packed.data());
+        std::vector<uint8_t> input(packed_data, packed_data + packed.size() - 1);
+        const int64_t input_bytes = input.size();
         const int64_t expected_values_read = input_bytes * 8 / bit_width;
         const int64_t expected_bytes_read = (expected_values_read * bit_width + 7) / 8;
-        std::vector<T> actual(num_values, std::numeric_limits<T>::max());
+        std::vector<T> actual(num_values, sentinel);
 
-        auto [end, values_read] =
-                BitPacking::UnpackValues(bit_width, reinterpret_cast<const uint8_t*>(packed.data()),
-                                         input_bytes, num_values, actual.data());
+        auto [end, values_read] = BitPacking::UnpackValues(bit_width, input.data(), input_bytes,
+                                                           num_values, actual.data());
 
         EXPECT_EQ(values_read, expected_values_read) << "bit_width=" << bit_width;
-        EXPECT_EQ(end, reinterpret_cast<const uint8_t*>(packed.data()) + expected_bytes_read)
-                << "bit_width=" << bit_width;
+        EXPECT_EQ(end, input.data() + expected_bytes_read) << "bit_width=" << bit_width;
         EXPECT_TRUE(std::equal(expected.begin(), expected.begin() + expected_values_read,
                                actual.begin()))
+                << "bit_width=" << bit_width;
+        EXPECT_TRUE(std::all_of(actual.begin() + expected_values_read, actual.end(),
+                                [](T value) { return value == sentinel; }))
                 << "bit_width=" << bit_width;
     }
 }
