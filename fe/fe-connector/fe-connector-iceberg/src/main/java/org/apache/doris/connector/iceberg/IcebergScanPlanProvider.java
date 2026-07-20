@@ -915,10 +915,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // a puffin DV still travels as FORMAT_PARQUET, exactly as legacy getNativePositionDeleteFileFormat does.
         TFileFormatType fileFormat = getNativePositionDeleteFileFormat(deleteFile.format());
         if (deleteFile.format() == FileFormat.PUFFIN) {
+            Long contentOffset = deleteFile.contentOffset();
+            Long contentLength = deleteFile.contentSizeInBytes();
+            validateDeletionVectorMetadata(
+                    originalPath, deleteFile.fileSizeInBytes(), contentOffset, contentLength);
             builder.positionDeleteSysTableSplit(
                     IcebergScanRange.DeleteFile.CONTENT_DELETION_VECTOR, fileFormat, originalPath);
             builder.positionDeleteDeletionVector(deleteFile.referencedDataFile(),
-                    deleteFile.contentOffset(), deleteFile.contentSizeInBytes());
+                    contentOffset, contentLength);
         } else {
             builder.positionDeleteSysTableSplit(
                     IcebergScanRange.DeleteFile.CONTENT_POSITION_DELETE, fileFormat, originalPath);
@@ -952,6 +956,41 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         throw new UnsupportedOperationException(
                 "Unsupported Iceberg position delete file format: " + fileFormat);
+    }
+
+    /**
+     * Validate an Iceberg deletion-vector blob descriptor before it reaches BE cache lookup / memory allocation.
+     * Port of legacy {@code IcebergDeleteFileFilter.validateDeletionVectorMetadata} (upstream #65676): a puffin DV
+     * carries {@code content_offset}/{@code content_size_in_bytes} that address a blob inside the puffin file, so a
+     * missing, negative, overflowing, or out-of-file-bounds range is malformed metadata we must reject on the FE
+     * (fail loud) rather than hand BE an invalid offset/length. Shared by both DV emitters: the normal-scan
+     * merge-on-read path ({@link #convertDelete}) and the {@code $position_deletes} split path
+     * ({@link #buildPositionDeleteRange}).
+     */
+    static void validateDeletionVectorMetadata(
+            String deleteFilePath, long fileSize, Long contentOffset, Long contentLength) {
+        if (contentOffset == null || contentLength == null) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector metadata misses content offset or length: %s", deleteFilePath));
+        }
+        if (fileSize < 0 || contentOffset < 0 || contentLength < 0) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector metadata must be non-negative, file: %s, file size: %d, "
+                            + "content offset: %d, content length: %d",
+                    deleteFilePath, fileSize, contentOffset, contentLength));
+        }
+        if (contentOffset > Long.MAX_VALUE - contentLength) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector metadata range overflows, file: %s, content offset: %d, "
+                            + "content length: %d",
+                    deleteFilePath, contentOffset, contentLength));
+        }
+        if (contentOffset + contentLength > fileSize) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector metadata range exceeds file size, file: %s, file size: %d, "
+                            + "content offset: %d, content length: %d",
+                    deleteFilePath, fileSize, contentOffset, contentLength));
+        }
     }
 
     /**
@@ -1191,8 +1230,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Long lowerBound = readPositionBound(delete.lowerBounds());
             Long upperBound = readPositionBound(delete.upperBounds());
             if (delete.format() == FileFormat.PUFFIN) {
+                Long contentOffset = delete.contentOffset();
+                Long contentLength = delete.contentSizeInBytes();
+                validateDeletionVectorMetadata(
+                        delete.path().toString(), delete.fileSizeInBytes(), contentOffset, contentLength);
                 return IcebergScanRange.DeleteFile.deletionVector(path, lowerBound, upperBound,
-                        delete.contentOffset(), delete.contentSizeInBytes());
+                        contentOffset, contentLength);
             }
             return IcebergScanRange.DeleteFile.positionDelete(path, deleteFileFormat(delete.format()),
                     lowerBound, upperBound);
