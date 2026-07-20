@@ -450,13 +450,11 @@ offsets, and coalesced survivor spans so string columns perform larger range cop
 `StringRef[]` staging array. Other binary encodings may use persistent references that remain valid
 only while the page or dictionary buffer is pinned by the persistent leaf reader.
 
-The direct path covers identical logical types, string-family compatibility, decimal
-precision/scale changes, integer changes, and FLOAT-to-DOUBLE widening. Less common table-schema
-changes such as STRING-to-DATE or DECIMAL-to-STRING keep the generic `ColumnTypeConverter`: the
-file logical SerDe first fills a reusable source Doris column, then the generic cast appends to the
-requested column.
-This compatibility path is deliberately separate from the decoder ABI and does not reintroduce a
-physical-value batch or `PhysicalToLogicalConverter` into ordinary Parquet reads.
+The direct path materializes the projected file type. Table-schema changes, including numeric
+widening, decimal precision/scale changes, and string/date conversions, are represented by
+`ColumnMapper` and executed by `TableReader` after file-local predicates finish. The native reader
+rejects a different requested type because accepting it would move schema evolution into physical
+decode and could change predicate semantics. No intermediate physical-value batch is introduced.
 
 `DecodedColumnView` is not the native Parquet decoder output ABI. It describes already decoded
 physical values and is useful to generic format conversion code, but routing every Parquet value

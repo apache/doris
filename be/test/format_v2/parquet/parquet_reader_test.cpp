@@ -1584,7 +1584,7 @@ TEST_F(NewParquetReaderTest, NativeDecimalAndFixedBinaryMaterializeDirectly) {
 
     ASSERT_NE(profile.get_counter("LevelOnlyReadTime"), nullptr);
     EXPECT_EQ(profile.get_counter("LevelOnlyReadTime")->value(), 0);
-    ASSERT_NE(profile.get_counter("ConvertTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("ConvertTime"), nullptr);
     ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
     EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
 }

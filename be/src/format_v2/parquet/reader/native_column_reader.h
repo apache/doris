@@ -89,8 +89,7 @@ public:
                                          MutableColumnPtr& column, IColumn::Filter* row_filter,
                                          bool* used_filter) override;
     Status select_with_plain_filter(const SelectionVector& selection, uint16_t selected_rows,
-                                    int64_t batch_rows,
-                                    const std::vector<PlainFixedPredicate>& predicates,
+                                    int64_t batch_rows, const VExprSPtrs& conjuncts, int column_id,
                                     IColumn::Filter* row_filter, bool* used_filter) override;
     void flush_profile() override;
     bool crossed_page_since_last_batch() override;
@@ -113,7 +112,7 @@ private:
                             MutableColumnPtr& column, const DataTypePtr& output_type,
                             bool dictionary_ids, int64_t* rows_read);
     Status read_with_plain_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
-                                  const std::vector<PlainFixedPredicate>& predicates,
+                                  const VExprSPtrs& conjuncts, int column_id,
                                   IColumn::Filter* row_filter, int64_t* rows_read,
                                   bool* used_filter);
     int64_t sync_native_profile();
@@ -122,7 +121,7 @@ private:
     void advance_selected_span(int64_t rows);
 
     // Native ParquetColumnReader keeps a reference to RowRanges; declare it before the reader.
-    ::doris::RowRanges _row_ranges;
+    segment_v2::RowRanges _row_ranges;
     std::set<uint64_t> _projected_column_ids;
     std::set<uint64_t> _filter_column_ids;
     const std::unordered_map<int, tparquet::OffsetIndex>* _offset_indexes = nullptr;

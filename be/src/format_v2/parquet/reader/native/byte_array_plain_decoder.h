@@ -27,7 +27,6 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/types.h"
-#include "format/format_common.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "util/bit_util.h"
 #include "util/coding.h"

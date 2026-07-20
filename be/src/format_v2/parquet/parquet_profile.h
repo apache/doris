@@ -50,7 +50,6 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* decode_dictionary_time = nullptr;
     RuntimeProfile::Counter* decode_level_time = nullptr;
     RuntimeProfile::Counter* decode_null_map_time = nullptr;
-    RuntimeProfile::Counter* convert_time = nullptr;
     RuntimeProfile::Counter* page_index_read_calls = nullptr;
     RuntimeProfile::Counter* skip_page_header_count = nullptr;
     RuntimeProfile::Counter* parse_page_header_count = nullptr;
@@ -215,7 +214,6 @@ struct ParquetProfile {
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;
-    RuntimeProfile::Counter* convert_time = nullptr;
     RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
 };
 

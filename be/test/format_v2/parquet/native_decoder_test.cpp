@@ -22,6 +22,7 @@
 
 #include <array>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <string>
@@ -36,13 +37,15 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/parquet_timestamp.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/parquet/reader/native/byte_array_dict_decoder.h"
 #include "format_v2/parquet/reader/native/column_reader.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/delta_bit_pack_decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
-#include "format_v2/parquet/reader/plain_fixed_predicate.h"
 #include "io/fs/buffered_reader.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
@@ -54,24 +57,117 @@
 namespace doris::format::parquet::native {
 namespace {
 
-TEST(ParquetV2NativeDecoderTest, PlainFixedPredicateEvaluatesPhysicalValuesWithoutColumn) {
+VExprSPtr create_int32_raw_comparison(int column_id, const std::string& function_name,
+                                      TExprOpcode::type opcode, int32_t literal,
+                                      bool literal_on_left = false) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    TFunctionName fn_name;
+    fn_name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({int_type->to_thrift(), int_type->to_thrift()});
+    fn.__set_ret_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    fn.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(2);
+    node.__set_is_nullable(false);
+    auto root = VectorizedFnCall::create_shared(node);
+    auto slot = VSlotRef::create_shared(column_id, column_id, -1, int_type, "plain_int");
+    auto value = VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(literal));
+    if (literal_on_left) {
+        root->add_child(value);
+        root->add_child(slot);
+    } else {
+        root->add_child(slot);
+        root->add_child(value);
+    }
+    return root;
+}
+
+VExprSPtr create_float_raw_comparison(int column_id, const std::string& function_name,
+                                      TExprOpcode::type opcode, float literal) {
+    const auto float_type = std::make_shared<DataTypeFloat32>();
+    TFunctionName fn_name;
+    fn_name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({float_type->to_thrift(), float_type->to_thrift()});
+    fn.__set_ret_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    fn.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(2);
+    node.__set_is_nullable(false);
+    auto root = VectorizedFnCall::create_shared(node);
+    root->add_child(VSlotRef::create_shared(column_id, column_id, -1, float_type, "plain_float"));
+    root->add_child(VLiteral::create_shared(float_type, Field::create_field<TYPE_FLOAT>(literal)));
+    return root;
+}
+
+TEST(ParquetV2NativeDecoderTest, RawExprEvaluatesPhysicalValuesWithoutColumn) {
     const std::array<int32_t, 6> values = {1, 4, 7, 10, 13, 16};
     std::array<uint8_t, values.size()> matches {};
     matches.fill(1);
-    const auto greater_equal = PlainFixedPredicate::create(PlainFixedPredicateType::INT32,
-                                                           PlainFixedPredicateOp::GE, int32_t {7});
-    const auto less_than = PlainFixedPredicate::create(PlainFixedPredicateType::INT32,
-                                                       PlainFixedPredicateOp::LT, int32_t {16});
+    const auto greater_equal = create_int32_raw_comparison(0, "ge", TExprOpcode::GE, 7);
+    const auto less_than = create_int32_raw_comparison(0, "lt", TExprOpcode::LT, 16);
+    const auto int_type = std::make_shared<DataTypeInt32>();
 
+    ASSERT_TRUE(greater_equal->can_execute_on_raw_fixed_values(int_type, 0));
     ASSERT_TRUE(greater_equal
-                        .evaluate(reinterpret_cast<const uint8_t*>(values.data()), values.size(),
-                                  sizeof(int32_t), matches.data())
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(int32_t), int_type, 0, matches.data())
                         .ok());
     ASSERT_TRUE(less_than
-                        .evaluate(reinterpret_cast<const uint8_t*>(values.data()), values.size(),
-                                  sizeof(int32_t), matches.data())
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(int32_t), int_type, 0, matches.data())
                         .ok());
     EXPECT_EQ(matches, (std::array<uint8_t, values.size()> {0, 0, 1, 1, 1, 0}));
+
+    matches.fill(1);
+    const auto literal_less_than_slot =
+            create_int32_raw_comparison(0, "lt", TExprOpcode::LT, 7, true);
+    ASSERT_TRUE(literal_less_than_slot
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(int32_t), int_type, 0, matches.data())
+                        .ok());
+    EXPECT_EQ(matches, (std::array<uint8_t, values.size()> {0, 0, 0, 1, 1, 1}));
+}
+
+TEST(ParquetV2NativeDecoderTest, RawExprPreservesFloatNanOrdering) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const std::array<float, 4> values {-1, 0, 1, nan};
+    const auto float_type = std::make_shared<DataTypeFloat32>();
+
+    std::array<uint8_t, values.size()> matches {};
+    matches.fill(1);
+    const auto greater_than_zero = create_float_raw_comparison(0, "gt", TExprOpcode::GT, 0);
+    ASSERT_TRUE(greater_than_zero
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(float), float_type, 0, matches.data())
+                        .ok());
+    EXPECT_EQ(matches, (std::array<uint8_t, values.size()> {0, 0, 1, 1}));
+
+    matches.fill(1);
+    const auto equals_nan = create_float_raw_comparison(0, "eq", TExprOpcode::EQ, nan);
+    ASSERT_TRUE(equals_nan
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(float), float_type, 0, matches.data())
+                        .ok());
+    EXPECT_EQ(matches, (std::array<uint8_t, values.size()> {0, 0, 0, 1}));
 }
 
 class RejectFixedConsumer final : public ParquetFixedValueConsumer {
@@ -343,6 +439,7 @@ Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t
     }
     NativeFieldSchema field;
     field.physical_type = tparquet::Type::INT32;
+    field.data_type = std::make_shared<DataTypeInt32>();
     field.repetition_level = 0;
     field.definition_level = 0;
     ParquetPageReadContext context(preload_page_cache, page_cache_file_key);
@@ -666,7 +763,7 @@ Status materialize_selected_dictionary_strings(const std::vector<std::string>& d
     return Status::OK();
 }
 
-TEST(ParquetV2NativeDecoderTest, PlainFixedPredicateMapsNullableSparseRowsDirectly) {
+TEST(ParquetV2NativeDecoderTest, RawExprMapsNullableSparseRowsDirectly) {
     const std::vector<int32_t> physical_values {1, 4, 7, 10, 13};
     constexpr size_t LOGICAL_VALUES = 7;
     tparquet::PageHeader header;
@@ -691,6 +788,7 @@ TEST(ParquetV2NativeDecoderTest, PlainFixedPredicateMapsNullableSparseRowsDirect
     chunk.meta_data.__set_data_page_offset(0);
     NativeFieldSchema field;
     field.physical_type = tparquet::Type::INT32;
+    field.data_type = std::make_shared<DataTypeInt32>();
     ParquetPageReadContext page_context(false, "");
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, LOGICAL_VALUES,
                                                  nullptr, page_context);
@@ -703,17 +801,14 @@ TEST(ParquetV2NativeDecoderTest, PlainFixedPredicateMapsNullableSparseRowsDirect
     ASSERT_TRUE(filter.init(input_filter.data(), input_filter.size(), false).ok());
     ColumnSelectVector select_vector;
     ASSERT_TRUE(select_vector.init(null_runs, LOGICAL_VALUES, nullptr, &filter, 0).ok());
-    const std::vector<PlainFixedPredicate> predicates {
-            PlainFixedPredicate::create(PlainFixedPredicateType::INT32, PlainFixedPredicateOp::GE,
-                                        int32_t {4}),
-            PlainFixedPredicate::create(PlainFixedPredicateType::INT32, PlainFixedPredicateOp::LT,
-                                        int32_t {13})};
+    const VExprSPtrs predicates {create_int32_raw_comparison(0, "ge", TExprOpcode::GE, 4),
+                                 create_int32_raw_comparison(0, "lt", TExprOpcode::LT, 13)};
     NullMap selected_nulls;
     IColumn::Filter physical_matches;
     IColumn::Filter row_filter;
     bool used_filter = false;
     ASSERT_TRUE(chunk_reader
-                        .filter_plain_values(predicates, select_vector, &selected_nulls,
+                        .filter_plain_values(predicates, 0, select_vector, &selected_nulls,
                                              &physical_matches, &row_filter, &used_filter)
                         .ok());
 
@@ -2951,8 +3046,8 @@ TEST(ParquetV2NativeDecoderTest, ComplexPageStatisticsPreservePerLeafCrossings) 
     second_chunk.page_read_counter = 1;
     second_chunk.data_page_read_counter = 1;
     ColumnReader::ColumnStatistics combined;
-    ColumnReader::ColumnStatistics first(first_chunk, 0, 0);
-    ColumnReader::ColumnStatistics second(second_chunk, 0, 0);
+    ColumnReader::ColumnStatistics first(first_chunk, 0);
+    ColumnReader::ColumnStatistics second(second_chunk, 0);
     combined.merge(first);
     combined.merge(second);
 

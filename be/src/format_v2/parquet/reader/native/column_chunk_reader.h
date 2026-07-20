@@ -30,12 +30,12 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "exprs/vexpr_fwd.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/reader/native/common.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
-#include "format_v2/parquet/reader/plain_fixed_predicate.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -165,11 +165,11 @@ public:
 
     // Evaluate selected fixed-width PLAIN values and return one keep byte per selected logical
     // row. NULL comparisons are false and therefore never enter the physical consumer.
-    Status filter_plain_values(const std::vector<PlainFixedPredicate>& predicates,
+    Status filter_plain_values(const VExprSPtrs& conjuncts, int column_id,
                                ColumnSelectVector& select_vector, NullMap* selected_nulls,
                                IColumn::Filter* physical_matches, IColumn::Filter* row_filter,
                                bool* used_filter);
-    bool can_filter_plain_values(const std::vector<PlainFixedPredicate>& predicates) const;
+    bool can_filter_plain_values(const VExprSPtrs& conjuncts, int column_id) const;
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }

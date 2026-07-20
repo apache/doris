@@ -21,8 +21,8 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "exprs/vexpr_fwd.h"
 #include "format_v2/parquet/parquet_profile.h"
-#include "format_v2/parquet/reader/plain_fixed_predicate.h"
 #include "format_v2/parquet/selection_vector.h"
 
 namespace doris::format::parquet {
@@ -65,7 +65,7 @@ public:
     // predicate column. Implementations must leave the cursor untouched when used_filter=false.
     virtual Status select_with_plain_filter(const SelectionVector& selection,
                                             uint16_t selected_rows, int64_t batch_rows,
-                                            const std::vector<PlainFixedPredicate>& predicates,
+                                            const VExprSPtrs& conjuncts, int column_id,
                                             IColumn::Filter* row_filter, bool* used_filter);
 
     // Native statistics are cumulative and can be recursively aggregated for complex columns.

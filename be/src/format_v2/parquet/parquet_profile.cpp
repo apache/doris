@@ -197,7 +197,6 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                              TUnit::UNIT, parquet_profile, 1);
     rows_filtered_by_dict_filter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowsFilteredByDictFilter",
                                                                 TUnit::UNIT, parquet_profile, 1);
-    convert_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ConvertTime", parquet_profile, 1);
     bloom_filter_read_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "BloomFilterReadTime", parquet_profile, 1);
 }
@@ -282,7 +281,6 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .decode_dictionary_time = decode_dict_time,
             .decode_level_time = decode_level_time,
             .decode_null_map_time = decode_null_map_time,
-            .convert_time = convert_time,
             .page_index_read_calls = page_index_read_calls,
             .skip_page_header_count = skip_page_header_num,
             .parse_page_header_count = parse_page_header_num,

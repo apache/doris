@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
+#include "exprs/vexpr.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
@@ -60,32 +61,6 @@ ParquetTimeUnit parquet_time_unit(const tparquet::TimeUnit& unit) {
     return ParquetTimeUnit::UNKNOWN;
 }
 
-bool is_direct_integer_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-        return true;
-    default:
-        return false;
-    }
-}
-
-bool is_direct_decimal_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256:
-        return true;
-    default:
-        return false;
-    }
-}
-
 template <typename T>
 bool release_vector_if_oversized(std::vector<T>* values, size_t max_retained_bytes) {
     DORIS_CHECK(values != nullptr);
@@ -98,10 +73,6 @@ bool release_vector_if_oversized(std::vector<T>* values, size_t max_retained_byt
 
 size_t retained_set_bytes(const std::unordered_set<size_t>& values) {
     return values.bucket_count() * sizeof(void*) + values.size() * sizeof(size_t);
-}
-
-bool is_direct_binary_type(PrimitiveType type) {
-    return is_string_type(type) || type == TYPE_VARBINARY;
 }
 
 Status validate_decimal_physical_type(const NativeFieldSchema& field, int precision, int scale) {
@@ -294,23 +265,6 @@ void mark_local_timestamp_defaults(const NativeFieldSchema& field, const DataTyp
             (*output_null_map)[row] = 1;
         }
     }
-}
-
-// The target SerDe can fuse physical decode with these logical type changes. Less common schema
-// changes retain the generic file-format converter as a compatibility path: the decoder still
-// exposes raw spans, but the source SerDe first materializes a reusable source column before the
-// generic logical cast. Ordinary scans and numeric widening never allocate that source column.
-bool serde_can_materialize_directly(const DataTypePtr& source_type,
-                                    const DataTypePtr& target_type) {
-    const auto source = remove_nullable(source_type)->get_primitive_type();
-    const auto target = remove_nullable(target_type)->get_primitive_type();
-    return source == target || (is_direct_integer_type(source) && is_direct_integer_type(target)) ||
-           (source == TYPE_FLOAT && target == TYPE_DOUBLE) ||
-           (is_direct_decimal_type(source) && is_direct_decimal_type(target)) ||
-           // Parquet STRING and VARBINARY share BYTE_ARRAY bytes. Materializing through the target
-           // SerDe preserves those bytes and avoids a converter whose scratch column uses the
-           // String representation instead of the native ColumnVarbinary representation.
-           (is_direct_binary_type(source) && is_direct_binary_type(target));
 }
 
 Status init_decode_context(const NativeFieldSchema& field, const cctz::time_zone* ctz,
@@ -797,12 +751,6 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     if (release_selection) {
         _select_vector = ColumnSelectVector();
     }
-    if (_logical_conversion_scratch_bytes > max_retained_bytes) {
-        _logical_converter.reset();
-        _converter_source_type = nullptr;
-        _converter_target_type = nullptr;
-        _logical_conversion_scratch_bytes = 0;
-    }
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -1100,8 +1048,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_plain_filter_values(
-        size_t num_values, const std::vector<PlainFixedPredicate>& predicates,
-        FilterMap& filter_map, IColumn::Filter* row_filter) {
+        size_t num_values, const VExprSPtrs& conjuncts, int column_id, FilterMap& filter_map,
+        IColumn::Filter* row_filter) {
     DORIS_CHECK(row_filter != nullptr);
     _null_run_lengths.clear();
     if (_chunk_reader->max_def_level() > 0) {
@@ -1143,8 +1091,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_plain_filter_value
     _filter_map_index += num_values;
     bool used_filter = false;
     RETURN_IF_ERROR(_chunk_reader->filter_plain_values(
-            predicates, _select_vector, &_plain_predicate_nulls, &_plain_predicate_matches,
-            row_filter, &used_filter));
+            conjuncts, column_id, _select_vector, &_plain_predicate_nulls,
+            &_plain_predicate_matches, row_filter, &used_filter));
     // Chunk encodings are prevalidated before any definition level is consumed, so a false result
     // here would make a materializing fallback observe an advanced level cursor.
     DORIS_CHECK(used_filter);
@@ -1153,9 +1101,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_plain_filter_value
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_plain_filter(
-        const std::vector<PlainFixedPredicate>& predicates, FilterMap& filter_map,
-        size_t batch_size, IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
-        bool* used_filter) {
+        const VExprSPtrs& conjuncts, int column_id, FilterMap& filter_map, size_t batch_size,
+        IColumn::Filter* row_filter, size_t* read_rows, bool* eof, bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(read_rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -1163,22 +1110,13 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_plain_filter(
     row_filter->clear();
     *read_rows = 0;
     *used_filter = false;
-    if (_in_nested || predicates.empty()) {
+    if (_in_nested || conjuncts.empty()) {
         return Status::OK();
     }
-    const auto source_primitive = remove_nullable(_field_schema->data_type)->get_primitive_type();
-    const bool matching_source_type =
-            std::ranges::all_of(predicates, [&](const PlainFixedPredicate& predicate) {
-                return (source_primitive == TYPE_INT &&
-                        predicate.type() == PlainFixedPredicateType::INT32) ||
-                       (source_primitive == TYPE_BIGINT &&
-                        predicate.type() == PlainFixedPredicateType::INT64) ||
-                       (source_primitive == TYPE_FLOAT &&
-                        predicate.type() == PlainFixedPredicateType::FLOAT) ||
-                       (source_primitive == TYPE_DOUBLE &&
-                        predicate.type() == PlainFixedPredicateType::DOUBLE);
-            });
-    if (!matching_source_type) {
+    if (!std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return conjunct != nullptr &&
+                   conjunct->can_execute_on_raw_fixed_values(_field_schema->data_type, column_id);
+        })) {
         return Status::OK();
     }
     // Levels use RLE/BIT_PACKED, while every value page must be PLAIN. Reject mixed-encoding
@@ -1207,7 +1145,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_plain_filter(
     } else {
         RETURN_IF_ERROR(_chunk_reader->parse_page_header());
         RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
-        if (!_chunk_reader->can_filter_plain_values(predicates)) {
+        if (!_chunk_reader->can_filter_plain_values(conjuncts, column_id)) {
             return Status::OK();
         }
         size_t has_read = 0;
@@ -1219,8 +1157,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_plain_filter(
             const size_t values =
                     std::min(static_cast<size_t>(range.to() - range.from()), batch_size - has_read);
             IColumn::Filter fragment_filter;
-            RETURN_IF_ERROR(
-                    _read_plain_filter_values(values, predicates, filter_map, &fragment_filter));
+            RETURN_IF_ERROR(_read_plain_filter_values(values, conjuncts, column_id, filter_map,
+                                                      &fragment_filter));
             row_filter->insert(row_filter->end(), fragment_filter.begin(), fragment_filter.end());
             has_read += values;
             *read_rows += values;
@@ -1397,34 +1335,17 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         const std::shared_ptr<NativeSchemaNode>& root_node, FilterMap& filter_map,
         size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
         int64_t real_column_size) {
-    const DataTypePtr target_type = remove_nullable(type);
-    const DataTypePtr source_type = remove_nullable(_field_schema->data_type);
-    const bool needs_logical_conversion =
-            !is_dict_filter && !serde_can_materialize_directly(source_type, target_type);
-
-    ColumnPtr converted_source_column;
-    ColumnPtr* read_column = &doris_column;
-    DataTypePtr materialization_type = target_type;
-    if (needs_logical_conversion) {
-        if (_logical_converter == nullptr || _converter_source_type != source_type.get() ||
-            _converter_target_type != target_type.get()) {
-            _logical_converter = converter::ColumnTypeConverter::get_converter(
-                    source_type, target_type, converter::FileFormat::PARQUET);
-            if (!_logical_converter->support()) {
-                return Status::InternalError(
-                        "The column type of '{}' has changed and is not supported: {}",
-                        _field_schema->name, _logical_converter->get_error_msg());
-            }
-            _converter_source_type = source_type.get();
-            _converter_target_type = target_type.get();
-        }
-        converted_source_column = _logical_converter->get_column(source_type, doris_column, type);
-        read_column = &converted_source_column;
-        materialization_type = remove_nullable(_logical_converter->get_type());
+    const DataTypePtr materialization_type = remove_nullable(type);
+    const DataTypePtr file_type = remove_nullable(_field_schema->data_type);
+    if (!is_dict_filter && !file_type->equals(*materialization_type)) {
+        // File-to-table casts belong to ColumnMapper. Reaching this reader with a table type would
+        // also evaluate file-local predicates against values produced under the wrong type.
+        return Status::InternalError(
+                "Native Parquet reader type mismatch for file column '{}': file={}, requested={}",
+                _field_schema->name, file_type->get_name(), materialization_type->get_name());
     }
 
-    const DataTypePtr serde_type =
-            is_dict_filter ? remove_nullable(_field_schema->data_type) : materialization_type;
+    const DataTypePtr serde_type = is_dict_filter ? file_type : materialization_type;
     if (_serde_type != serde_type.get() || _dictionary_index_only != is_dict_filter) {
         _serde_type = serde_type.get();
         _serde = serde_type->get_serde();
@@ -1433,37 +1354,13 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     }
     _decode_context.dictionary_index_only = is_dict_filter;
 
-    auto finish_logical_conversion = [&]() -> Status {
-        if (!needs_logical_conversion) {
-            return Status::OK();
-        }
-        DORIS_CHECK(_logical_converter != nullptr);
-        doris_column = IColumn::mutate(std::move(doris_column));
-        auto converted_column = doris_column->assert_mutable();
-        if (is_column_nullable(*converted_column)) {
-            const auto* source_nullable =
-                    check_and_get_column<ColumnNullable>(*converted_source_column);
-            DORIS_CHECK(source_nullable != nullptr);
-            auto& destination_null_map =
-                    assert_cast<ColumnNullable&>(*converted_column).get_null_map_data();
-            const auto& source_null_map = source_nullable->get_null_map_data();
-            destination_null_map.insert(source_null_map.begin(), source_null_map.end());
-        }
-        SCOPED_RAW_TIMER(&_convert_time);
-        RETURN_IF_ERROR(_logical_converter->convert(converted_source_column, converted_column));
-        _logical_conversion_scratch_bytes = converted_source_column->allocated_bytes();
-        doris_column = std::move(converted_column);
-        return Status::OK();
-    };
-
     _def_levels.clear();
     _rep_levels.clear();
     *read_rows = 0;
 
     if (_in_nested) {
-        RETURN_IF_ERROR(_read_nested_column(*read_column, materialization_type, filter_map,
-                                            batch_size, read_rows, eof, is_dict_filter));
-        return finish_logical_conversion();
+        return _read_nested_column(doris_column, materialization_type, filter_map, batch_size,
+                                   read_rows, eof, is_dict_filter);
     }
 
     int64_t right_row = 0;
@@ -1518,7 +1415,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
                 if (skip_whole_batch) {
                     RETURN_IF_ERROR(_skip_values(read_values));
                 } else {
-                    RETURN_IF_ERROR(_read_values(read_values, *read_column, materialization_type,
+                    RETURN_IF_ERROR(_read_values(read_values, doris_column, materialization_type,
                                                  filter_map, is_dict_filter));
                 }
                 has_read += read_values;
@@ -1539,7 +1436,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         }
     }
 
-    return finish_logical_conversion();
+    return Status::OK();
 }
 
 Status ArrayColumnReader::init(std::unique_ptr<ColumnReader> element_reader,

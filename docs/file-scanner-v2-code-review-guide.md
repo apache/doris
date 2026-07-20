@@ -137,11 +137,10 @@ format-specific checklist when reviewing Parquet or ORC.
   Validate INT96 nanos-of-day before widened Julian-day arithmetic, reject unit scaling overflow,
   and enforce Doris year 0001-9999 before materialization. Conversion failures must follow the same
   strict/non-strict and dictionary-ID propagation rules as other direct types.
-- Verify schema-change routing separately from physical decode. Integer, FLOAT-to-DOUBLE, decimal,
-  and string-family changes should use the direct target-SerDe path. Other supported logical casts
-  may use one persistent generic `ColumnTypeConverter` source column; its value/null-map sizes must
-  reset per batch while normal-size capacity is retained, oversized capacity must be released after
-  the top-level parent consumes the batch, and it must never become a decoder-facing ABI.
+- Verify schema-change routing separately from physical decode. The reader must emit the projected
+  file type, while `ColumnMapper`/`TableReader` perform file-to-table casts after file predicates.
+  Any different requested type at the native reader boundary must fail as an invariant violation;
+  do not add a reader-local conversion column or decoder-facing conversion ABI.
 - Dictionary review must separate dictionary-entry IDs from logical rows and non-null payload
   ordinals. Materialize the typed dictionary once per generation through the same SerDe, validate
   every index before access, and invalidate cached dictionary state at Row Group/file/type changes.
@@ -151,10 +150,12 @@ format-specific checklist when reviewing Parquet or ORC.
   DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, and BYTE_STREAM_SPLIT. Filtering must advance encoded
   values without allocating output; null runs must append defaults without advancing payload.
 - For predicate-only fixed-width PLAIN primitives, allow direct comparison only after proving the
-  whole Column Chunk uses compatible PLAIN value pages and the expression has identical physical
-  comparison semantics. The fallback decision must precede definition-level consumption. Verify
-  sparse input selection, interleaved NULLs, reversed literal comparisons, multiple ANDed
-  comparisons, mixed-encoding fallback, and a stable row-shaped hidden-slot placeholder.
+  whole Column Chunk uses compatible PLAIN value pages and every Expr advertises raw fixed-value
+  evaluation with identical Doris comparison semantics, including NaN ordering. The fallback
+  decision must precede definition-level consumption. Disable the direct path when a residual or
+  delete conjunct still references the hidden slot, because it needs the materialized payload.
+  Verify sparse input selection, interleaved NULLs, reversed literal comparisons, multiple ANDed
+  comparisons, mixed-encoding fallback, residual slot reuse, and a stable row-shaped placeholder.
 - For a filtered scalar page fragment, require one SerDe entry and one batch-level selected-decode
   dispatch. Nullable selections must first map logical rows to selected non-NULL physical ranges,
   decode those ranges once, and restore NULL slots in place; falling back per NULL run is a review

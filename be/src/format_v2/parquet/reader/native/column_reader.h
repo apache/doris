@@ -29,14 +29,13 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
-#include "format/column_type_convert.h"
-#include "format/generic_reader.h"
+#include "exprs/vexpr_fwd.h"
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native/common.h"
-#include "format_v2/parquet/reader/plain_fixed_predicate.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "storage/segment/row_ranges.h"
 
 namespace cctz {
 class time_zone;
@@ -48,6 +47,8 @@ struct IOContext;
 
 namespace doris::format::parquet::native {
 using ::doris::ColumnString;
+using segment_v2::RowRange;
+using segment_v2::RowRanges;
 
 #ifdef BE_TEST
 Status init_decode_context_for_test(const NativeFieldSchema& field, const cctz::time_zone* ctz,
@@ -77,7 +78,6 @@ public:
                   decode_dict_time(0),
                   decode_level_time(0),
                   decode_null_map_time(0),
-                  convert_time(0),
                   skip_page_header_num(0),
                   parse_page_header_num(0),
                   read_page_header_time(0),
@@ -90,8 +90,7 @@ public:
                   page_cache_compressed_hit_counter(0),
                   page_cache_decompressed_hit_counter(0) {}
 
-        ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time,
-                         int64_t convert_time_)
+        ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time)
                 : page_index_read_calls(0),
                   decompress_time(cs.decompress_time),
                   decompress_cnt(cs.decompress_cnt),
@@ -104,7 +103,6 @@ public:
                   decode_dict_time(cs.decode_dict_time),
                   decode_level_time(cs.decode_level_time),
                   decode_null_map_time(null_map_time),
-                  convert_time(convert_time_),
                   skip_page_header_num(cs.skip_page_header_num),
                   parse_page_header_num(cs.parse_page_header_num),
                   read_page_header_time(cs.read_page_header_time),
@@ -130,7 +128,6 @@ public:
         int64_t decode_dict_time;
         int64_t decode_level_time;
         int64_t decode_null_map_time;
-        int64_t convert_time;
         int64_t skip_page_header_num;
         int64_t parse_page_header_num;
         int64_t read_page_header_time;
@@ -159,7 +156,6 @@ public:
             decode_dict_time += col_statistics.decode_dict_time;
             decode_level_time += col_statistics.decode_level_time;
             decode_null_map_time += col_statistics.decode_null_map_time;
-            convert_time += col_statistics.convert_time;
             skip_page_header_num += col_statistics.skip_page_header_num;
             parse_page_header_num += col_statistics.parse_page_header_num;
             read_page_header_time += col_statistics.read_page_header_time;
@@ -192,7 +188,7 @@ public:
 
     // Evaluate a predicate-only scalar directly from fixed-width PLAIN page bytes. The default is
     // a non-consuming fallback for nested and synthetic readers.
-    virtual Status read_plain_filter(const std::vector<PlainFixedPredicate>&, FilterMap&, size_t,
+    virtual Status read_plain_filter(const VExprSPtrs&, int, FilterMap&, size_t,
                                      IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
                                      bool* used_filter) {
         DORIS_CHECK(row_filter != nullptr);
@@ -283,9 +279,9 @@ public:
                             const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
-    Status read_plain_filter(const std::vector<PlainFixedPredicate>& predicates,
-                             FilterMap& filter_map, size_t batch_size, IColumn::Filter* row_filter,
-                             size_t* read_rows, bool* eof, bool* used_filter) override;
+    Status read_plain_filter(const VExprSPtrs& conjuncts, int column_id, FilterMap& filter_map,
+                             size_t batch_size, IColumn::Filter* row_filter, size_t* read_rows,
+                             bool* eof, bool* used_filter) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
     Result<MutableColumnPtr> convert_dict_column_to_string_column(
@@ -294,8 +290,7 @@ public:
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
     ColumnStatistics column_statistics() override {
-        return ColumnStatistics(_chunk_reader->chunk_statistics(), _decode_null_map_time,
-                                _convert_time);
+        return ColumnStatistics(_chunk_reader->chunk_statistics(), _decode_null_map_time);
     }
     void close() override {}
 
@@ -383,9 +378,6 @@ private:
 
     DataTypeSerDeSPtr _serde;
     const IDataType* _serde_type = nullptr;
-    std::unique_ptr<converter::ColumnTypeConverter> _logical_converter;
-    const IDataType* _converter_source_type = nullptr;
-    const IDataType* _converter_target_type = nullptr;
     ParquetDecodeContext _decode_context;
     ParquetMaterializationState _materialization_state;
     bool _dictionary_index_only = false;
@@ -398,8 +390,6 @@ private:
     IColumn::Filter _plain_predicate_matches;
     FilterMap _nested_filter_map;
     ColumnSelectVector _select_vector;
-    int64_t _convert_time = 0;
-    size_t _logical_conversion_scratch_bytes = 0;
     uint8_t _oversized_scratch_idle_batches = 0;
 
     size_t retained_batch_scratch_bytes() const;
@@ -408,8 +398,7 @@ private:
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, const DataTypePtr& type,
                         FilterMap& filter_map, bool is_dict_filter);
-    Status _read_plain_filter_values(size_t num_values,
-                                     const std::vector<PlainFixedPredicate>& predicates,
+    Status _read_plain_filter_values(size_t num_values, const VExprSPtrs& conjuncts, int column_id,
                                      FilterMap& filter_map, IColumn::Filter* row_filter);
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,

@@ -256,6 +256,52 @@ private:
     const std::string _expr_name = "Int32PairSumExpr";
 };
 
+class Int32DirectGreaterExpr final : public VExpr {
+public:
+    Int32DirectGreaterExpr(int column_id, int32_t lower_bound)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _lower_bound(lower_bound) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        const auto& input = int32_data_column(*block->get_by_position(_column_id).column);
+        auto result = ColumnUInt8::create(count, 0);
+        for (size_t row = 0; row < count; ++row) {
+            result->get_data()[row] = input.get_element(row) > _lower_bound;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override {
+        return column_id == _column_id &&
+               remove_nullable(data_type)->get_primitive_type() == TYPE_INT;
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr&, int, uint8_t* matches) const override {
+        DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+        for (size_t row = 0; row < num_values; ++row) {
+            matches[row] &= unaligned_load<int32_t>(values + row * sizeof(int32_t)) > _lower_bound;
+        }
+        return Status::OK();
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    int _column_id;
+    int32_t _lower_bound;
+    const std::string _expr_name = "Int32DirectGreaterExpr";
+};
+
 VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::Op op,
                                                int32_t value) {
     return VExprContext::create_shared(std::make_shared<Int32ZoneMapExpr>(column_id, op, value));
@@ -297,6 +343,11 @@ VExprContextSPtr create_int32_pair_sum_conjunct(int left_column_id, int right_co
                                                 int32_t upper_bound) {
     return VExprContext::create_shared(
             std::make_shared<Int32PairSumExpr>(left_column_id, right_column_id, upper_bound));
+}
+
+VExprContextSPtr create_int32_direct_greater_conjunct(int column_id, int32_t lower_bound) {
+    return VExprContext::create_shared(
+            std::make_shared<Int32DirectGreaterExpr>(column_id, lower_bound));
 }
 
 int64_t counter_value(RuntimeProfile& profile, const std::string& name) {
@@ -1194,6 +1245,36 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainComparisonUsesPhysicalDirectPath) {
     EXPECT_EQ(counter_value(profile, "PlainPredicateDirectRows"), 6);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
+TEST_F(ParquetScanTest, PlainDirectPathKeepsPayloadForMultiColumnResidual) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(create_int32_direct_greater_conjunct(0, 2));
+    request->conjuncts.push_back(create_int32_pair_sum_conjunct(0, 1, 42));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30}));
+    EXPECT_EQ(block.get_by_position(0).column->size(), rows);
+    // A residual expression still consumes id, so raw filtering must leave its payload available.
+    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectBatches"), 0);
 }
 
 // Scenario: every physical batch in every row group is rejected. Predicate readers reach each row

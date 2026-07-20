@@ -38,6 +38,7 @@
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/parquet_timestamp.h"
+#include "exprs/vexpr.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
@@ -615,24 +616,30 @@ Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& ser
 
 class PlainPredicateConsumer final : public ParquetFixedValueConsumer {
 public:
-    PlainPredicateConsumer(const std::vector<PlainFixedPredicate>& predicates,
+    PlainPredicateConsumer(const VExprSPtrs& conjuncts, DataTypePtr data_type, int column_id,
                            IColumn::Filter* matches)
-            : _predicates(predicates), _matches(matches) {
+            : _conjuncts(conjuncts),
+              _data_type(std::move(data_type)),
+              _column_id(column_id),
+              _matches(matches) {
         DORIS_CHECK(_matches != nullptr);
     }
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         const size_t old_size = _matches->size();
         _matches->resize_fill(old_size + num_values, 1);
-        for (const auto& predicate : _predicates) {
-            RETURN_IF_ERROR(predicate.evaluate(values, num_values, value_width,
-                                               _matches->data() + old_size));
+        for (const auto& conjunct : _conjuncts) {
+            RETURN_IF_ERROR(conjunct->execute_on_raw_fixed_values(values, num_values, value_width,
+                                                                  _data_type, _column_id,
+                                                                  _matches->data() + old_size));
         }
         return Status::OK();
     }
 
 private:
-    const std::vector<PlainFixedPredicate>& _predicates;
+    const VExprSPtrs& _conjuncts;
+    DataTypePtr _data_type;
+    int _column_id;
     IColumn::Filter* _matches;
 };
 
@@ -1338,32 +1345,21 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_plain_values(
-        const std::vector<PlainFixedPredicate>& predicates) const {
-    if (predicates.empty() || _current_encoding != tparquet::Encoding::PLAIN ||
+        const VExprSPtrs& conjuncts, int column_id) const {
+    if (conjuncts.empty() || _current_encoding != tparquet::Encoding::PLAIN ||
         (_metadata.type != tparquet::Type::INT32 && _metadata.type != tparquet::Type::INT64 &&
          _metadata.type != tparquet::Type::FLOAT && _metadata.type != tparquet::Type::DOUBLE)) {
         return false;
     }
-    const size_t physical_width =
-            _metadata.type == tparquet::Type::INT32 || _metadata.type == tparquet::Type::FLOAT
-                    ? sizeof(uint32_t)
-                    : sizeof(uint64_t);
-    return std::ranges::all_of(predicates, [&](const auto& predicate) {
-        const bool matching_type = (_metadata.type == tparquet::Type::INT32 &&
-                                    predicate.type() == PlainFixedPredicateType::INT32) ||
-                                   (_metadata.type == tparquet::Type::INT64 &&
-                                    predicate.type() == PlainFixedPredicateType::INT64) ||
-                                   (_metadata.type == tparquet::Type::FLOAT &&
-                                    predicate.type() == PlainFixedPredicateType::FLOAT) ||
-                                   (_metadata.type == tparquet::Type::DOUBLE &&
-                                    predicate.type() == PlainFixedPredicateType::DOUBLE);
-        return matching_type && predicate.value_width() == physical_width;
+    return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+        return conjunct != nullptr &&
+               conjunct->can_execute_on_raw_fixed_values(_field_schema->data_type, column_id);
     });
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
-        const std::vector<PlainFixedPredicate>& predicates, ColumnSelectVector& select_vector,
+        const VExprSPtrs& conjuncts, int column_id, ColumnSelectVector& select_vector,
         NullMap* selected_nulls, IColumn::Filter* physical_matches, IColumn::Filter* row_filter,
         bool* used_filter) {
     DORIS_CHECK(selected_nulls != nullptr);
@@ -1372,7 +1368,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
     DORIS_CHECK(used_filter != nullptr);
     *used_filter = false;
     row_filter->clear();
-    if (!can_filter_plain_values(predicates)) {
+    if (!can_filter_plain_values(conjuncts, column_id)) {
         return Status::OK();
     }
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
@@ -1424,7 +1420,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
     if (selection.selected_values == 0) {
         RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
     } else {
-        PlainPredicateConsumer consumer(predicates, physical_matches);
+        PlainPredicateConsumer consumer(conjuncts, _field_schema->data_type, column_id,
+                                        physical_matches);
         RETURN_IF_ERROR(_page_decoder->decode_selected_fixed_values(selection, consumer));
         DORIS_CHECK_EQ(physical_matches->size(), selection.selected_values);
     }

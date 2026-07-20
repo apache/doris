@@ -137,11 +137,10 @@ instructions as well; this file adds format-v2-specific review expectations.
   batch or a stateful load-before-build phase. Ordinary predicate/output scans construct
   `NativeColumnReader`, consume compressed page data through the native decoder, and append directly
   into the final Doris column.
-- Keep logical schema changes distinct from physical decoding. Identical types, integer changes,
-  FLOAT-to-DOUBLE widening, decimal precision/scale changes, and string-family changes should
-  materialize through the target SerDe directly. A less common logical cast may use the generic
-  `ColumnTypeConverter` with a reusable source Doris column, but must not revive
-  `PhysicalToLogicalConverter` or expose a decoder-owned value batch.
+- Keep logical schema changes distinct from physical decoding. The native reader materializes the
+  projected file type only; `ColumnMapper` and `TableReader` own every file-to-table cast. A type
+  mismatch at the native reader boundary is an invariant violation, not a reason to create a
+  reader-local conversion path or expose a decoder-owned value batch.
 - `CountColumnReader` uses the v2 native `LevelReader`; it selects one representative leaf (the key
   for MAP) and advances only definition/repetition levels. It exposes no value API and must not be
   reused as a scan reader or expanded into a fallback path.

@@ -239,7 +239,7 @@ Status NativeColumnReader::init(
         DORIS_CHECK(range.start >= 0);
         DORIS_CHECK(range.length > 0);
         DORIS_CHECK(range.start + range.length <= _row_group_rows);
-        _row_ranges.add(::doris::RowRange(range.start, range.start + range.length));
+        _row_ranges.add(segment_v2::RowRange(range.start, range.start + range.length));
     }
     // Offset indexes are immutable row-group metadata owned by ParquetScanScheduler. Sharing them
     // avoids retaining the full N-column page-location map once per projected reader.
@@ -337,10 +337,10 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     return Status::OK();
 }
 
-Status NativeColumnReader::read_with_plain_filter(
-        int64_t rows, const uint8_t* filter_data, bool filter_all,
-        const std::vector<PlainFixedPredicate>& predicates, IColumn::Filter* row_filter,
-        int64_t* rows_read, bool* used_filter) {
+Status NativeColumnReader::read_with_plain_filter(int64_t rows, const uint8_t* filter_data,
+                                                  bool filter_all, const VExprSPtrs& conjuncts,
+                                                  int column_id, IColumn::Filter* row_filter,
+                                                  int64_t* rows_read, bool* used_filter) {
     DORIS_CHECK(rows >= 0);
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(rows_read != nullptr);
@@ -362,7 +362,7 @@ Status NativeColumnReader::read_with_plain_filter(
         IColumn::Filter loop_filter;
         bool loop_used = false;
         RETURN_IF_ERROR(_native_reader->read_plain_filter(
-                predicates, filter, static_cast<size_t>(rows - *rows_read), &loop_filter,
+                conjuncts, column_id, filter, static_cast<size_t>(rows - *rows_read), &loop_filter,
                 &loop_rows, &eof, &loop_used));
         if (!loop_used) {
             // A fallback is safe only before this call has consumed a logical row. Plain-only
@@ -584,10 +584,11 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
     return Status::OK();
 }
 
-Status NativeColumnReader::select_with_plain_filter(
-        const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
-        const std::vector<PlainFixedPredicate>& predicates, IColumn::Filter* row_filter,
-        bool* used_filter) {
+Status NativeColumnReader::select_with_plain_filter(const SelectionVector& selection,
+                                                    uint16_t selected_rows, int64_t batch_rows,
+                                                    const VExprSPtrs& conjuncts, int column_id,
+                                                    IColumn::Filter* row_filter,
+                                                    bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
@@ -595,8 +596,8 @@ Status NativeColumnReader::select_with_plain_filter(
     const uint8_t* filter_data = nullptr;
     RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
     int64_t rows_read = 0;
-    RETURN_IF_ERROR(read_with_plain_filter(batch_rows, filter_data, selected_rows == 0, predicates,
-                                           row_filter, &rows_read, used_filter));
+    RETURN_IF_ERROR(read_with_plain_filter(batch_rows, filter_data, selected_rows == 0, conjuncts,
+                                           column_id, row_filter, &rows_read, used_filter));
     if (!*used_filter) {
         return Status::OK();
     }
@@ -679,9 +680,6 @@ int64_t NativeColumnReader::sync_native_profile() {
     if (_profile.decode_null_map_time != nullptr) {
         COUNTER_UPDATE(_profile.decode_null_map_time,
                        stats.decode_null_map_time - reported.decode_null_map_time);
-    }
-    if (_profile.convert_time != nullptr) {
-        COUNTER_UPDATE(_profile.convert_time, stats.convert_time - reported.convert_time);
     }
     if (_profile.materialization_time != nullptr) {
         COUNTER_UPDATE(_profile.materialization_time,
