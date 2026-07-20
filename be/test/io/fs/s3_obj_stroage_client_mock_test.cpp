@@ -22,13 +22,28 @@
 #include <aws/s3/model/Object.h>
 
 #include "gmock/gmock.h"
+#include "io/fs/rate_limited_obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
 #include "util/string_util.h"
 
 using namespace Aws::S3::Model;
 
 namespace doris::io {
+namespace {
+
+struct RateLimiterConfigGuard {
+    bool enable = config::enable_s3_rate_limiter;
+
+    ~RateLimiterConfigGuard() {
+        config::enable_s3_rate_limiter = enable;
+        S3RateLimiterManager::instance().refresh();
+    }
+};
+
+} // namespace
+
 class MockS3Client : public Aws::S3::S3Client {
 public:
     MockS3Client() {};
@@ -81,9 +96,16 @@ ListObjectsV2Result CreatePageResult(const std::string& nextToken,
     return result;
 }
 
-TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
+TEST_F(S3ObjStorageClientMockTest, list_objects_pagination_charges_one_get_qps) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 1);
+    manager.bytes_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    S3ObjStorageClient s3_obj_storage_client(mock_s3_client);
+    auto s3_obj_storage_client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    RateLimitedObjStorageClient rate_limited_client(s3_obj_storage_client);
 
     std::vector<std::vector<std::string>> pages = {
             {"key1", "key2"}, // page1
@@ -110,14 +132,19 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
             });
 
     std::vector<io::FileInfo> files;
-    auto response = s3_obj_storage_client.list_objects(
-            {.bucket = "dummy-bucket",
-             .prefix = "S3ObjStorageClientMockTest/list_objects_with_pagination"},
-            &files);
+    const ObjectStoragePathOptions opts {
+            .bucket = "dummy-bucket",
+            .prefix = "S3ObjStorageClientMockTest/list_objects_with_pagination"};
+    auto response = rate_limited_client.list_objects(opts, &files);
 
     EXPECT_EQ(response.status.code, ErrorCode::OK);
     EXPECT_EQ(files.size(), 5);
-    files.clear();
+
+    // The first logical list used one GET token despite issuing three provider requests.
+    // A second logical list is rejected before it reaches the provider.
+    response = rate_limited_client.list_objects(opts, &files);
+    EXPECT_NE(response.status.code, ErrorCode::OK);
+    EXPECT_EQ(response.http_code, 429);
 }
 
 TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {

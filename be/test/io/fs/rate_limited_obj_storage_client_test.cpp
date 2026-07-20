@@ -26,12 +26,17 @@
 namespace doris::io {
 namespace {
 
+constexpr size_t kNoThrottleBytesPerSecond = 1ULL << 40;
+
 // Provider-free fake: counts calls and reports a configurable read size.
 class FakeObjStorageClient : public ObjStorageClient {
 public:
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override {
         ++calls;
+        ++create_multipart_upload_calls;
+        create_multipart_upload_provider_calls +=
+                create_multipart_upload_provider_calls_per_logical_call;
         return {};
     }
     ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
@@ -78,6 +83,9 @@ public:
     ObjectStorageResponse delete_objects_recursively(
             const ObjectStoragePathOptions& opts) override {
         ++calls;
+        ++delete_objects_recursively_calls;
+        delete_objects_recursively_provider_calls +=
+                delete_objects_recursively_provider_calls_per_logical_call;
         return ObjectStorageResponse::OK();
     }
     std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
@@ -88,6 +96,12 @@ public:
 
     int calls = 0;
     size_t actual_read_size = 0;
+    int create_multipart_upload_calls = 0;
+    int create_multipart_upload_provider_calls = 0;
+    int create_multipart_upload_provider_calls_per_logical_call = 1;
+    int delete_objects_recursively_calls = 0;
+    int delete_objects_recursively_provider_calls = 0;
+    int delete_objects_recursively_provider_calls_per_logical_call = 1;
 };
 
 struct RateLimiterConfigGuard {
@@ -156,7 +170,7 @@ TEST(RateLimitedObjStorageClientTest, get_object_settles_short_read) {
     auto& manager = S3RateLimiterManager::instance();
     manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
     auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
-    bytes->reset(1000, 1000, 0);
+    bytes->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1000);
 
     auto fake = std::make_shared<FakeObjStorageClient>();
     fake->actual_read_size = 100; // short read: 600 requested, 100 returned
@@ -167,9 +181,9 @@ TEST(RateLimitedObjStorageClientTest, get_object_settles_short_read) {
     EXPECT_EQ(0, client.get_object(opts, nullptr, 0, 600, &size_return).status.code);
     EXPECT_EQ(100, size_return);
 
-    // Only 100 tokens were effectively consumed, so another 900 pass without sleeping.
+    // Only 100 bytes remain cumulatively charged, so exactly 900 more are admitted.
     EXPECT_EQ(0, bytes->add(900));
-    EXPECT_GT(bytes->add(100), 0);
+    EXPECT_EQ(-1, bytes->add(1));
 }
 
 TEST(RateLimitedObjStorageClientTest, put_object_charges_payload_bytes) {
@@ -178,7 +192,7 @@ TEST(RateLimitedObjStorageClientTest, put_object_charges_payload_bytes) {
     auto& manager = S3RateLimiterManager::instance();
     manager.qps_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
     auto* bytes = manager.bytes_limiter(S3RateLimitType::PUT);
-    bytes->reset(1000, 1000, 0);
+    bytes->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1000);
 
     auto fake = std::make_shared<FakeObjStorageClient>();
     RateLimitedObjStorageClient client(fake);
@@ -186,8 +200,77 @@ TEST(RateLimitedObjStorageClientTest, put_object_charges_payload_bytes) {
 
     std::string payload(600, 'x');
     EXPECT_EQ(0, client.put_object(opts, payload).status.code);
-    EXPECT_EQ(0, bytes->add(400)); // exactly the remainder of the bucket
-    EXPECT_GT(bytes->add(100), 0);
+    EXPECT_EQ(0, bytes->add(400)); // exactly the cumulative count remainder
+    EXPECT_EQ(-1, bytes->add(1));
+}
+
+TEST(RateLimitedObjStorageClientTest, recursive_delete_charges_one_put_qps) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 1);
+    manager.qps_limiter(S3RateLimitType::PUT)->reset(0, 0, 1);
+    manager.bytes_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
+
+    auto fake = std::make_shared<FakeObjStorageClient>();
+    fake->delete_objects_recursively_provider_calls_per_logical_call = 4;
+    RateLimitedObjStorageClient client(fake);
+    ObjectStoragePathOptions opts {.bucket = "b", .prefix = "p"};
+
+    // Exhaust GET first. Recursive delete still succeeds because the logical API is PUT.
+    EXPECT_EQ(0, client.head_object(opts).resp.status.code);
+    EXPECT_EQ(0, client.delete_objects_recursively(opts).status.code);
+    EXPECT_EQ(1, fake->delete_objects_recursively_calls);
+    EXPECT_EQ(4, fake->delete_objects_recursively_provider_calls);
+
+    auto resp = client.delete_objects_recursively(opts);
+    EXPECT_NE(0, resp.status.code);
+    EXPECT_EQ(429, resp.http_code);
+    EXPECT_EQ(1, fake->delete_objects_recursively_calls);
+    EXPECT_EQ(4, fake->delete_objects_recursively_provider_calls);
+}
+
+TEST(RateLimitedObjStorageClientTest, azure_noop_multipart_create_charges_one_put_qps) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    manager.qps_limiter(S3RateLimitType::PUT)->reset(0, 0, 1);
+    manager.bytes_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
+
+    auto fake = std::make_shared<FakeObjStorageClient>();
+    // Azure implements create_multipart_upload as a provider-side no-op.
+    fake->create_multipart_upload_provider_calls_per_logical_call = 0;
+    RateLimitedObjStorageClient client(fake);
+    ObjectStoragePathOptions opts {.bucket = "b", .key = "k"};
+
+    EXPECT_EQ(0, client.create_multipart_upload(opts).resp.status.code);
+    EXPECT_EQ(1, fake->create_multipart_upload_calls);
+    EXPECT_EQ(0, fake->create_multipart_upload_provider_calls);
+
+    auto resp = client.create_multipart_upload(opts);
+    EXPECT_NE(0, resp.resp.status.code);
+    EXPECT_EQ(429, resp.resp.http_code);
+    EXPECT_EQ(1, fake->create_multipart_upload_calls);
+    EXPECT_EQ(0, fake->create_multipart_upload_provider_calls);
+}
+
+TEST(RateLimitedObjStorageClientTest, presigned_url_bypasses_rate_limiters) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    auto* get_qps = manager.qps_limiter(S3RateLimitType::GET);
+    auto* put_qps = manager.qps_limiter(S3RateLimitType::PUT);
+    get_qps->reset(0, 0, 1);
+    put_qps->reset(0, 0, 1);
+    EXPECT_EQ(0, get_qps->add(1));
+    EXPECT_EQ(0, put_qps->add(1));
+
+    auto fake = std::make_shared<FakeObjStorageClient>();
+    RateLimitedObjStorageClient client(fake);
+    ObjectStoragePathOptions opts {.bucket = "b", .key = "k"};
+
+    EXPECT_EQ("presigned", client.generate_presigned_url(opts, 60, S3ClientConf {}));
+    EXPECT_EQ(1, fake->calls);
 }
 
 } // namespace doris::io
