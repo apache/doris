@@ -743,7 +743,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                         splitStart,
                         splitEnd,
                         null,
-                        tableSchemas);
+                        Collections.singletonMap(tableId, tableChange));
         return split;
     }
 
