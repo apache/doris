@@ -38,7 +38,9 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.CloudTableStreamReadStateHook;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -64,6 +66,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -301,6 +304,29 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             insertExecutor.onFail(new RuntimeException("test cleanup"));
             resetQueryContext();
         }
+    }
+
+    @Test
+    public void testUserInsertRejectsIvmInternalTableStream() throws Exception {
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
+        String streamName = IvmUtil.streamName(12345L, "tbl_stream_base");
+        createTable("create stream if not exists test_stream." + streamName
+                + " on table test_stream.tbl_stream_base\n"
+                + "properties('show_initial_rows' = 'true')");
+        String sql = "insert into test_stream.tbl_target select * from test_stream." + streamName;
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof InsertIntoTableCommand);
+
+        connectContext.setStartTime();
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        InsertIntoTableCommand command = (InsertIntoTableCommand) logicalPlan;
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> command.initPlan(connectContext, executor, true));
+        Assertions.assertTrue(ex.getMessage().contains("IVM internal table stream cannot be used in INSERT INTO"),
+                "unexpected message: " + ex.getMessage());
     }
 
     @Test

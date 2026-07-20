@@ -28,6 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -55,7 +57,9 @@ import org.mockito.Mockito;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class CreateMTMVCommandTest extends TestWithFeService {
@@ -1922,7 +1926,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     // TODO: Add CREATE MV coverage for null-side UNION ALL after subquery alias is supported by IVM.
 
     @Test
-    public void testAlterExcludedTriggerTablesRejectsShrinkingCoverage() throws Exception {
+    public void testAlterExcludedTriggerTablesRejectsIncludingUnsupportedBaseTable() throws Exception {
         createTable("create table test.ivm_alter_agg_base (k1 int, v1 int SUM)\n"
                 + "aggregate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
@@ -1934,11 +1938,10 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("ivm_alter_excluded_mv");
         Assertions.assertTrue(mtmv.isIvm());
 
-        // Removing the AGG table from excluded_trigger_tables should fail validation
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> alterMtmv("ALTER MATERIALIZED VIEW ivm_alter_excluded_mv "
                         + "SET ('excluded_trigger_tables' = '')"));
-        Assertions.assertTrue(ex.getMessage().contains("can only be expanded"),
+        Assertions.assertTrue(ex.getMessage().contains("requires base tables to be"),
                 "unexpected message: " + ex.getMessage());
     }
 
@@ -1963,7 +1966,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testAlterExcludedTriggerTablesRejectsNarrowingConfiguredScope() throws Exception {
+    public void testAlterExcludedTriggerTablesAllowsNarrowingConfiguredScope() throws Exception {
         createTable("create table test.ivm_narrow_agg_base (k1 int, v1 int SUM)\n"
                 + "aggregate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
@@ -1975,11 +1978,13 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("ivm_narrow_excluded_mv");
         Assertions.assertTrue(mtmv.isIvm());
 
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> alterMtmv("ALTER MATERIALIZED VIEW ivm_narrow_excluded_mv "
-                        + "SET ('excluded_trigger_tables' = 'test.ivm_narrow_agg_base')"));
-        Assertions.assertTrue(ex.getMessage().contains("can only be expanded"),
-                "unexpected message: " + ex.getMessage());
+        alterMtmv("ALTER MATERIALIZED VIEW ivm_narrow_excluded_mv "
+                + "SET ('excluded_trigger_tables' = 'test.ivm_narrow_agg_base')");
+
+        Assertions.assertEquals(1, mtmv.getExcludedTriggerTables().size());
+        TableNameInfo excludedTable = mtmv.getExcludedTriggerTables().iterator().next();
+        Assertions.assertEquals("test", excludedTable.getDb());
+        Assertions.assertEquals("ivm_narrow_agg_base", excludedTable.getTbl());
     }
 
     @Test
@@ -2079,6 +2084,131 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         String stream2 = IvmUtil.streamName(mtmv.getId(), "ivm_excl_stream_base2");
         Assertions.assertNull(db.getTableNullable(stream2),
                 "Stream should NOT be created for excluded table");
+    }
+
+    @Test
+    public void testAlterExcludedTriggerTablesReconcilesStreams() throws Exception {
+        createTable("create table test.ivm_alter_excl_stream_base1 (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createTable("create table test.ivm_alter_excl_stream_base2 (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_alter_excl_stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_alter_excl_stream_base1.k1, ivm_alter_excl_stream_base1.v1 "
+                + "FROM ivm_alter_excl_stream_base1 "
+                + "INNER JOIN ivm_alter_excl_stream_base2 "
+                + "ON ivm_alter_excl_stream_base1.k1 = ivm_alter_excl_stream_base2.k1;");
+        MTMV mtmv = getMtmv("ivm_alter_excl_stream_mv");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        String stream1 = IvmUtil.streamName(mtmv.getId(), "ivm_alter_excl_stream_base1");
+        String stream2 = IvmUtil.streamName(mtmv.getId(), "ivm_alter_excl_stream_base2");
+        Assertions.assertNotNull(db.getTableNullable(stream1));
+        Assertions.assertNotNull(db.getTableNullable(stream2));
+
+        alterMtmv("ALTER MATERIALIZED VIEW ivm_alter_excl_stream_mv "
+                + "SET ('excluded_trigger_tables' = 'ivm_alter_excl_stream_base2')");
+
+        Assertions.assertFalse(mtmv.getIvmInfo().isBinlogBroken(),
+                "Excluding a base table should not mark its binlog as broken");
+        Assertions.assertNotNull(db.getTableNullable(stream1),
+                "Stream should remain for non-excluded table");
+        Assertions.assertNull(db.getTableNullable(stream2),
+                "Stream should be dropped for newly excluded table");
+
+        String createStreamSql = "CREATE STREAM test." + stream2
+                + " ON TABLE test.ivm_alter_excl_stream_base2 "
+                + "PROPERTIES ('type' = 'min_delta', 'show_initial_rows' = 'true')";
+        resetStatementContext(createStreamSql);
+        super.createTable(createStreamSql);
+        Assertions.assertNotNull(db.getTableNullable(stream2));
+
+        alterMtmv("ALTER MATERIALIZED VIEW ivm_alter_excl_stream_mv "
+                + "SET ('excluded_trigger_tables' = 'ivm_alter_excl_stream_base2')");
+
+        Assertions.assertNull(db.getTableNullable(stream2),
+                "Stream should be dropped when its base table is already excluded");
+
+        alterMtmv("ALTER MATERIALIZED VIEW ivm_alter_excl_stream_mv "
+                + "SET ('excluded_trigger_tables' = 'ivm_alter_excl_stream_base1')");
+
+        Assertions.assertNull(db.getTableNullable(stream1),
+                "Stream should be dropped for newly excluded table");
+        Assertions.assertNotNull(db.getTableNullable(stream2),
+                "Stream should be created for a table removed from excluded_trigger_tables");
+        Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken(),
+                "Including a base table should require rebuilding the IVM baseline");
+    }
+
+    @Test
+    public void testAlterExcludedTriggerTablesReplayDoesNotCreateStream() throws Exception {
+        createTable("create table test.ivm_replay_excl_stream_base (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_replay_excl_stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1', "
+                + "'excluded_trigger_tables' = 'ivm_replay_excl_stream_base')\n"
+                + " AS SELECT k1, v1 FROM ivm_replay_excl_stream_base;");
+        MTMV mtmv = getMtmv("ivm_replay_excl_stream_mv");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        String streamName = IvmUtil.streamName(mtmv.getId(), "ivm_replay_excl_stream_base");
+        Assertions.assertNull(db.getTableNullable(streamName));
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "");
+        AlterMTMV replayAlter = new AlterMTMV(
+                new TableNameInfo("test", "ivm_replay_excl_stream_mv"), MTMVAlterOpType.ALTER_PROPERTY);
+        replayAlter.setMvProperties(properties);
+        Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
+
+        Assertions.assertTrue(mtmv.getExcludedTriggerTables().isEmpty());
+        Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken(),
+                "ALTER replay should restore the IVM baseline invalidation state");
+        Assertions.assertNull(db.getTableNullable(streamName),
+                "ALTER replay should rely on OP_CREATE_TABLE replay instead of creating a new stream");
+    }
+
+    @Test
+    public void testAlterExcludedTriggerTablesStopsWhenDatabaseDropped() throws Exception {
+        createIvmMowTable("ivm_dropped_db_stream_base");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_dropped_db_stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM ivm_dropped_db_stream_base;");
+        MTMV mtmv = getMtmv("ivm_dropped_db_stream_mv");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        String streamName = IvmUtil.streamName(mtmv.getId(), "ivm_dropped_db_stream_base");
+        Assertions.assertNotNull(db.getTableNullable(streamName));
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "ivm_dropped_db_stream_base");
+        AlterMTMV alter = new AlterMTMV(
+                new TableNameInfo("test", "ivm_dropped_db_stream_mv"), MTMVAlterOpType.ALTER_PROPERTY);
+        alter.setMvProperties(properties);
+
+        db.markDropped();
+        try {
+            Env.getCurrentEnv().getAlterInstance().processAlterMTMV(alter, false);
+        } finally {
+            db.unmarkDropped();
+        }
+
+        Assertions.assertTrue(mtmv.getExcludedTriggerTables().isEmpty(),
+                "ALTER should not update properties after failing to lock a dropped database");
+        Assertions.assertNotNull(db.getTableNullable(streamName),
+                "ALTER should not drop streams after failing to lock a dropped database");
     }
 
     @Test
