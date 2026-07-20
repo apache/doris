@@ -80,7 +80,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
             'libomp'
           )
           brew install "${cellars[@]}" || true
