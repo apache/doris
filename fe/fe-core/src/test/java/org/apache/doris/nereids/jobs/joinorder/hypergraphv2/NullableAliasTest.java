@@ -126,19 +126,30 @@ public class NullableAliasTest extends SqlTestBase {
 
     @Test
     void testMixedSubplanPreservesAliasInputs() {
-        // Alias s = T1.score + T2.score over {T1,T2} on nullable side.
-        // T1 and T3 can be inner-joined first (mixed subplan {T1,T3}).
-        // Verifies getAllAliasInputSlotsForNodes uses isOverlap so T1.score
-        // survives through the {T1,T3} join for later alias evaluation.
+        // Alias s = InnerT2.score + InnerT3.score on the nullable side,
+        // source bitmap {InnerT2, InnerT3, InnerT1} (mapped to subTreeNodes).
+        // The inner join cluster has three relations: InnerT2, InnerT3, InnerT1.
+        //
+        // DPHyp can build {InnerT2, InnerT1} first (via InnerT2.id = InnerT1.id),
+        // a mixed subplan that partially overlaps the alias source {InnerT2, InnerT3}
+        // at InnerT2. Without getAllAliasInputSlotsForNodes, calculateRequiredSlots
+        // sees only the join key InnerT2.id as required for the next edge
+        // {InnerT2}--{InnerT3}, and prunes InnerT2.score. The alias s cannot be
+        // rebuilt later because its input column is gone.
+        //
+        // With the fix: getAllAliasInputSlotsForNodes uses isOverlap (not isSubset)
+        // to detect that the alias source overlaps the current node set at InnerT2,
+        // and preserves InnerT2.score + InnerT3.score in requireSlots.
+        //
+        // s is consumed in the outer SELECT so it is not pruned before DPHyp.
         CascadesContext c1 = createCascadesContext(
-                "select T1.id, sum(T2.score + T3.score) "
-                        + "from T1 inner join T2 on T1.id = T2.id "
-                        + "inner join T3 on T1.id = T3.id "
-                        + "left join ("
-                        + "  select T1.id, (T1.score + T2.score) as s "
-                        + "  from T1 inner join T2 on T1.id = T2.id"
-                        + ") Sub on T1.id = Sub.id "
-                        + "group by T1.id",
+                "select OuterT1.id, Sub.s "
+                        + "from T1 OuterT1 left join ("
+                        + "  select InnerT2.id, (InnerT2.score + InnerT3.score) as s "
+                        + "  from T2 InnerT2"
+                        + "  inner join T3 InnerT3 on InnerT2.id = InnerT3.id"
+                        + "  inner join T1 InnerT1 on InnerT2.id = InnerT1.id"
+                        + ") Sub on OuterT1.id = Sub.id",
                 connectContext
         );
         Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
