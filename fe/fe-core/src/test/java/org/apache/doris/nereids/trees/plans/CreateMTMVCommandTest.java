@@ -339,6 +339,30 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateIvmMVRejectsReservedOutputColumnNames() throws Exception {
+        createIvmDupTable("mtmv_reserved_alias_base");
+
+        String rowIdAliasMv = "CREATE MATERIALIZED VIEW mtmv_reserved_row_id_alias\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1 AS __DORIS_IVM_ROW_ID_COL__, v1 FROM mtmv_reserved_alias_base;";
+        assertCreateMtmvFails(rowIdAliasMv, "column name can't start with '__DORIS_'");
+
+        String hiddenAliasMv = "CREATE MATERIALIZED VIEW mtmv_reserved_hidden_alias\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1 AS __DORIS_IVM_USER_COL__, v1 FROM mtmv_reserved_alias_base;";
+        assertCreateMtmvFails(hiddenAliasMv, "column name can't start with '__DORIS_'");
+
+        String explicitColumnMv = "CREATE MATERIALIZED VIEW mtmv_reserved_explicit_column\n"
+                + " (__DORIS_IVM_USER_COL__, mv_v1)\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM mtmv_reserved_alias_base;";
+        assertCreateMtmvFails(explicitColumnMv, "column name can't start with '__DORIS_'");
+    }
+
+    @Test
     public void testCreateMTMVWithIncrementalFallback() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mtmv_increment_fallback\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL\n"

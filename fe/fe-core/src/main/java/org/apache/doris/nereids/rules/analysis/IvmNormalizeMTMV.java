@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
@@ -597,6 +598,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     // whitelisted: result sink — recurse into child, then prepend row-id to output exprs
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, NormalizeContext context) {
+        validateUserOutputColumnNames(sink.getOutputExprs());
         Plan newChild = sink.child().accept(this, context);
         List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(),
                 context.isFirstNonSink);
@@ -604,6 +606,16 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             return sink;
         }
         return sink.withOutputExprs(newOutputs).withChildren(ImmutableList.of(newChild));
+    }
+
+    private void validateUserOutputColumnNames(List<NamedExpression> outputs) {
+        for (NamedExpression output : outputs) {
+            try {
+                FeNameFormat.checkColumnName(output.getName());
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, e.getMessage(), e);
+            }
+        }
     }
 
     @Override
