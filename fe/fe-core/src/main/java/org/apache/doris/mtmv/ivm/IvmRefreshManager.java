@@ -20,8 +20,10 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -49,16 +51,19 @@ import java.util.Optional;
  */
 public class IvmRefreshManager {
     private static final Logger LOG = LogManager.getLogger(IvmRefreshManager.class);
+    public static final String DEBUG_POINT_FORCE_FALLBACK_REASON =
+            "IvmRefreshManager.doRefresh.force_fallback_reason";
 
     public IvmRefreshManager() {
     }
 
     public IvmRefreshResult doRefresh(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
-        IvmRefreshResult precheckResult = precheck(mtmv);
-        if (!precheckResult.isSuccess()) {
-            LOG.warn("IVM precheck failed for mv={}, result={}", mtmv.getName(), precheckResult);
-            return precheckResult;
+        String forceFallbackReason = DebugPointUtil.getDebugParamOrDefault(
+                DEBUG_POINT_FORCE_FALLBACK_REASON, "reason", "");
+        if (!forceFallbackReason.isEmpty()) {
+            return IvmRefreshResult.fallback(
+                    IvmFailureReason.valueOf(forceFallbackReason), "forced by debug point");
         }
         final IvmRefreshContext context;
         try {
@@ -80,21 +85,10 @@ public class IvmRefreshManager {
     }
 
     @VisibleForTesting
-    IvmRefreshResult precheck(MTMV mtmv) {
-        Objects.requireNonNull(mtmv, "mtmv can not be null");
-        if (mtmv.getIvmInfo().isBinlogBroken()) {
-            return IvmRefreshResult.fallback(IvmFailureReason.BINLOG_BROKEN,
-                    "Stream binlog is marked as broken");
-        }
-        // return checkStreamSupport(mtmv);
-        return IvmRefreshResult.success();
-    }
-
-    @VisibleForTesting
     IvmRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
         ConnectContext connectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                 MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        return new IvmRefreshContext(mtmv, connectContext);
+        return new IvmRefreshContext(mtmv, connectContext, new IvmRewriteResult());
     }
 
     private IvmRefreshResult doRefreshInternal(IvmRefreshContext context) throws Exception {
@@ -108,7 +102,7 @@ public class IvmRefreshManager {
             // the typed failure reason so MTMVTask can decide whether ordinary partition
             // fallback is enough or a full layout-baseline rebuild is required.
             IvmRefreshResult result = IvmRefreshResult.fallback(
-                    e.getFailureReason(), e.getMessage());
+                    e.getFailureReason(), e.getMessage(), context.getRewriteResult().getPlanSignature());
             LOG.warn("IVM plan analysis failed for mv={}, result={}", mtmv.getName(), result, e);
             return result;
         }
@@ -122,6 +116,7 @@ public class IvmRefreshManager {
         MTMV mtmv = context.getMtmv();
         StatementContext statementContext = new StatementContext(
                 context.getConnectContext(), new OriginStatement(mtmv.getQuerySql(), 0));
+        statementContext.setIvmRefreshContext(Optional.of(context));
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.incremental(mtmv, false)));
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,
@@ -158,15 +153,46 @@ public class IvmRefreshManager {
         return (LogicalPlan) plan;
     }
 
-    public static void updatePlanSignatureAfterFullRefresh(MTMV mtmv, String planSignature,
-            String canonicalString) {
-        IvmInfo ivmInfo = mtmv.getIvmInfo();
-        ivmInfo.setPlanSignature(planSignature);
+    public static long markIvmBaselineBroken(MTMV mtmv) {
+        mtmv.writeMvLock();
+        try {
+            // Stage a detached metadata snapshot before catalog update and journaling.
+            IvmInfo updatedIvmInfo = new IvmInfo(mtmv.getIvmInfo());
+            if (!updatedIvmInfo.isBinlogBroken()) {
+                updatedIvmInfo.setBinlogBroken(true);
+                persistFullRefreshIvmInfo(mtmv, updatedIvmInfo);
+            }
+            return mtmv.getIvmBinlogBrokenGeneration();
+        } finally {
+            mtmv.writeMvUnlock();
+        }
+    }
+
+    public static void finishIvmFullRefresh(MTMV mtmv, long expectedGeneration,
+            IvmPlanSignature planSignature) throws JobException {
+        mtmv.writeMvLock();
+        try {
+            if (expectedGeneration != mtmv.getIvmBinlogBrokenGeneration()) {
+                throw new JobException("Base table metadata changed during COMPLETE refresh, mv="
+                        + mtmv.getName());
+            }
+            IvmInfo updatedIvmInfo = new IvmInfo(mtmv.getIvmInfo());
+            if (planSignature != null) {
+                updatedIvmInfo.setPlanSignature(planSignature.getSha256());
+            }
+            updatedIvmInfo.setBinlogBroken(false);
+            persistFullRefreshIvmInfo(mtmv, updatedIvmInfo);
+            LOG.info("IVM baseline published after full refresh for mv={}, signature={}, canonicalLayout={}",
+                    mtmv.getName(), updatedIvmInfo.getPlanSignature(),
+                    planSignature == null ? "unchanged" : planSignature.getCanonicalString());
+        } finally {
+            mtmv.writeMvUnlock();
+        }
+    }
+
+    private static void persistFullRefreshIvmInfo(MTMV mtmv, IvmInfo ivmInfo) {
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
         Env.getCurrentEnv().alterMTMVIvmInfo(tableName, ivmInfo);
-        LOG.info("IVM layout signature baseline updated after full refresh for mv={}, signature={}, "
-                        + "canonicalLayout={}",
-                mtmv.getName(), planSignature, canonicalString == null ? "null" : canonicalString);
     }
 
 }

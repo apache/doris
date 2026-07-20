@@ -115,6 +115,20 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
+    public void testManagerPreservesPlanSignatureFromMismatch() {
+        MTMV mtmv = mockMtmv();
+        IvmPlanSignature signature = new IvmPlanSignature("current plan", "current-signature");
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
+        manager.planSignatureMismatch = signature;
+
+        IvmRefreshResult result = manager.doRefresh(mtmv);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, result.getFailureReason());
+        Assertions.assertSame(signature, result.getPlanSignature());
+    }
+
+    @Test
     public void testManagerReturnsSnapshotFallbackWhenBuildContextFails() {
         MTMV mtmv = mockMtmv();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(null, Collections.emptyList());
@@ -141,77 +155,6 @@ public class IvmRefreshManagerTest {
         Assertions.assertFalse(manager.executeCalled);
     }
 
-    @Test
-    public void testManagerReturnsBinlogBrokenBeforeNereidsFlow() {
-        MTMV mtmv = mockMtmv();
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.setBinlogBroken(true);
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
-        manager.useSuperPrecheck = true;
-
-        IvmRefreshResult result = manager.doRefresh(mtmv);
-
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN, result.getFailureReason());
-        Assertions.assertFalse(manager.executeCalled);
-    }
-
-    @Test
-    public void testManagerPrecheckDoesNotConsultExcludedTriggerTables() {
-        MTMV mtmv = mockMtmv();
-        IvmInfo ivmInfo = new IvmInfo();
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
-        manager.useSuperPrecheck = true;
-
-        IvmRefreshResult result = manager.doRefresh(mtmv);
-
-        // Empty bundles → success (no-op, all base tables up to date)
-        Assertions.assertTrue(result.isSuccess());
-        Assertions.assertFalse(manager.executeCalled);
-        Mockito.verify(mtmv, Mockito.never()).getExcludedTriggerTables();
-    }
-
-    @Test
-    public void testManagerPrecheckPassesWithoutStreamCheck() {
-        // checkStreamSupport is currently disabled (stream/binlog not ready),
-        // so precheck only checks binlogBroken.
-        // With binlogBroken false the precheck passes and the manager proceeds to analyze,
-        // which returns empty bundles -> success (no-op).
-        MTMV mtmv = mockMtmv();
-        IvmInfo ivmInfo = new IvmInfo();
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
-        manager.useSuperPrecheck = true;
-
-        IvmRefreshResult result = manager.doRefresh(mtmv);
-
-        Assertions.assertTrue(result.isSuccess());
-        Assertions.assertFalse(manager.executeCalled);
-    }
-
-    @Test
-    public void testManagerPassesHealthyPrecheckAndExecutes() {
-        // With checkStreamSupport disabled, precheck only verifies binlogBroken.
-        // No relation/table mocking is needed.
-        MTMV mtmv = mockMtmv();
-        Command cmd = Mockito.mock(Command.class);
-        IvmInfo ivmInfo = new IvmInfo();
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), makeCommands(cmd));
-        manager.useSuperPrecheck = true;
-
-        IvmRefreshResult result = manager.doRefresh(mtmv);
-
-        Assertions.assertTrue(result.isSuccess());
-        Assertions.assertTrue(manager.executeCalled);
-    }
-
     private void assertKnownExecutionFailureFallback(IvmFailureReason expectedReason, String detail) {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
@@ -226,7 +169,7 @@ public class IvmRefreshManagerTest {
     }
 
     private static IvmRefreshContext newContext(MTMV mtmv) {
-        return new IvmRefreshContext(mtmv, new ConnectContext());
+        return new IvmRefreshContext(mtmv, new ConnectContext(), new IvmRewriteResult());
     }
 
     private static MTMV mockMtmv() {
@@ -250,19 +193,11 @@ public class IvmRefreshManagerTest {
         private boolean throwOnBuild;
         private boolean throwIvmExceptionOnAnalyze;
         private boolean throwBinlogNotEnabledOnAnalyze;
-        private boolean useSuperPrecheck;
+        private IvmPlanSignature planSignatureMismatch;
 
         private TestIvmRefreshManager(IvmRefreshContext context, List<Command> commands) {
             this.context = context;
             this.commands = commands;
-        }
-
-        @Override
-        IvmRefreshResult precheck(MTMV mtmv) {
-            if (useSuperPrecheck) {
-                return super.precheck(mtmv);
-            }
-            return IvmRefreshResult.success();
         }
 
         @Override
@@ -275,6 +210,10 @@ public class IvmRefreshManagerTest {
 
         @Override
         void executeInternalRefresh(IvmRefreshContext ctx) throws Exception {
+            if (planSignatureMismatch != null) {
+                ctx.getRewriteResult().setPlanSignature(planSignatureMismatch);
+                throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, "layout drift");
+            }
             if (throwIvmExceptionOnAnalyze) {
                 throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED, "unsupported aggregate");
             }
