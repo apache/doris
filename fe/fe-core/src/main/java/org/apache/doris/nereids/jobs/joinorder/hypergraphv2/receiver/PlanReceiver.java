@@ -228,6 +228,15 @@ public class PlanReceiver extends AbstractReceiver {
                 if (edge.isEnforcedOrder()) {
                     return false;
                 } else {
+                    // Reject missed edges that reference a projected alias whose
+                    // source bitmap spans both left and right. The alias layer
+                    // is emitted by proposeProject (after proposeJoin), so the
+                    // join predicate would reference a slot that does not exist
+                    // in either child's output. Wait for a later join step where
+                    // the alias source is fully contained in one child.
+                    if (!hyperGraph.isEdgeSafeForJoin(edge, left, right)) {
+                        return false;
+                    }
                     // add the missed edge to edges
                     missingEdges.add(edge);
                 }
