@@ -20,6 +20,7 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.DorisConnectorException;
@@ -28,6 +29,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
@@ -96,6 +98,19 @@ public class HiveConnector implements Connector {
     // enters SPI_READY_TYPES. Its metastore-metadata sibling is the CachingHmsClient wrapping the HmsClient.
     private final HiveFileListingCache fileListingCache;
 
+    // PERF-06 (S6): cross-query DERIVED partition-view cache ("cache A", the generic ConnectorPartitionViewCache
+    // from fe-connector-cache), layered ABOVE the raw per-name HMS listing served by CachingHmsClient: it
+    // memoizes the BUILT List<ConnectorPartitionInfo> (HiveConnectorMetadata#listPartitionsUncached's per-name
+    // HiveWriteUtils.toPartitionValues parse + ConnectorPartitionInfo construction), keyed by
+    // (db, table, -1, -1) — hive is snapshot-less (beginQuerySnapshot always pins -1) and its handle carries no
+    // schema version, so every query for a table shares ONE entry, invalidated by the hooks below + TTL. ONE
+    // typed field (like paimon): hive's getMvccPartitionView returns the SPI default (Optional.empty()) for a
+    // real hive handle, so listPartitions is the only enumeration hook to wrap. Unlike iceberg, hive has NO
+    // session=user / per-user credential-isolation cache-disabling convention (its per-catalog caches —
+    // CachingHmsClient, HiveFileListingCache — are already built unconditionally below), so this is constructed
+    // unconditionally too.
+    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache;
+
     // Embedded iceberg SIBLING connector: a flipped hms gateway delegates its iceberg-on-HMS tables to it. Built
     // once per gateway connector (lazily) in the iceberg plugin's OWN child-first classloader via
     // context.createSiblingConnector — never co-packaged into the hive zip (a second AWS SDK would poison S3
@@ -116,6 +131,9 @@ public class HiveConnector implements Connector {
         this.properties = Collections.unmodifiableMap(properties);
         this.context = context;
         this.fileListingCache = new HiveFileListingCache(this.properties);
+        // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
+        // via the framework's CacheSpec (default ON / 24h / 1000).
+        this.partitionViewCache = new ConnectorPartitionViewCache<>("hive", this.properties);
     }
 
     @Override
@@ -170,7 +188,7 @@ public class HiveConnector implements Connector {
     HiveConnectorMetadata newMetadata(HmsClient client) {
         return new HiveConnectorMetadata(client, properties, context,
                 this::getOrCreateIcebergSibling, this::getOrCreateHudiSibling, this::resolveSiblingOwnerLabeled,
-                fileListingCache);
+                fileListingCache, partitionViewCache);
     }
 
     /**
@@ -351,6 +369,9 @@ public class HiveConnector implements Connector {
             ((CachingHmsClient) client).flush(dbName, tableName);
         }
         fileListingCache.invalidateTable(dbName, tableName);
+        // PERF-06: also drop this table's cached derived partition-view entry, so the next listPartitions
+        // re-derives live.
+        partitionViewCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -373,6 +394,7 @@ public class HiveConnector implements Connector {
             ((CachingHmsClient) client).flushDb(dbName);
         }
         fileListingCache.invalidateDb(dbName);
+        partitionViewCache.invalidateDb(dbName);
     }
 
     /**
@@ -393,6 +415,7 @@ public class HiveConnector implements Connector {
             ((CachingHmsClient) client).flushAll();
         }
         fileListingCache.invalidateAll();
+        partitionViewCache.invalidateAll();
     }
 
     /**
@@ -422,6 +445,9 @@ public class HiveConnector implements Connector {
             ((CachingHmsClient) client).invalidatePartitions(dbName, tableName, partitionValues);
         }
         fileListingCache.invalidatePartitions(dbName, tableName, partitionValues);
+        // PERF-06: cache A's key carries no partition-name axis (only db/table/-1/-1), so a partition-level
+        // change cannot be scoped finer than the whole table's single cached entry — invalidate it wholesale.
+        partitionViewCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -471,6 +497,11 @@ public class HiveConnector implements Connector {
     /** The connector-owned directory-listing cache, exposed for unit tests (mirrors iceberg manifestCacheForTest). */
     HiveFileListingCache fileListingCacheForTest() {
         return fileListingCache;
+    }
+
+    /** Test-only: the derived listPartitions view cache (PERF-06). Never null (hive has no session=user gate). */
+    ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCacheForTest() {
+        return partitionViewCache;
     }
 
     private HmsClient getOrCreateClient() {
