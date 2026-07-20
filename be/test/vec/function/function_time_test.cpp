@@ -29,7 +29,6 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
-#include "vec/functions/cast/cast_base.h"
 #include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -2608,12 +2607,17 @@ TEST(VTimestampFunctionsTest, now_legacy_datetime_result_for_old_plan) {
     // CAST(NOW() AS DATETIMEV2(0)). Before the compatibility fix, now() returned a physical
     // ColumnDateV2 here, and the outer DateTime-to-DateTimeV2 cast dereferenced a null downcast.
     auto datetimev2_type = std::make_shared<DataTypeDateTimeV2>(0);
-    auto cast = get_cast_wrapper(fn_ctx, legacy_datetime_type, datetimev2_type);
-    Block cast_block {{now_block.get_by_position(0).column, legacy_datetime_type, "now"},
-                      {nullptr, datetimev2_type, "result"}};
-    ASSERT_TRUE(cast(fn_ctx, cast_block, {0}, 1, 1, nullptr).ok());
+    ColumnsWithTypeAndName cast_arguments {
+            {now_block.get_by_position(0).column, legacy_datetime_type, "now"},
+            {nullptr, datetimev2_type, "target_type"}};
+    auto cast =
+            SimpleFunctionFactory::instance().get_function("CAST", cast_arguments, datetimev2_type);
+    ASSERT_NE(cast, nullptr);
+    Block cast_block {cast_arguments};
+    cast_block.insert({nullptr, datetimev2_type, "result"});
+    ASSERT_TRUE(cast->execute(fn_ctx, cast_block, {0}, 2, 1).ok());
     const auto* result_const =
-            check_and_get_column<ColumnConst>(cast_block.get_by_position(1).column.get());
+            check_and_get_column<ColumnConst>(cast_block.get_by_position(2).column.get());
     ASSERT_NE(result_const, nullptr);
     EXPECT_NE(check_and_get_column<ColumnDateTimeV2>(&result_const->get_data_column()), nullptr);
 
@@ -2641,12 +2645,16 @@ TEST(VTimestampFunctionsTest, curdate_legacy_date_result_for_old_plan) {
     ASSERT_NE(check_and_get_column<ColumnDate>(&curdate_const->get_data_column()), nullptr);
 
     auto datev2_type = std::make_shared<DataTypeDateV2>();
-    auto cast = get_cast_wrapper(fn_ctx, legacy_date_type, datev2_type);
-    Block cast_block {{curdate_block.get_by_position(0).column, legacy_date_type, "curdate"},
-                      {nullptr, datev2_type, "result"}};
-    ASSERT_TRUE(cast(fn_ctx, cast_block, {0}, 1, 1, nullptr).ok());
+    ColumnsWithTypeAndName cast_arguments {
+            {curdate_block.get_by_position(0).column, legacy_date_type, "curdate"},
+            {nullptr, datev2_type, "target_type"}};
+    auto cast = SimpleFunctionFactory::instance().get_function("CAST", cast_arguments, datev2_type);
+    ASSERT_NE(cast, nullptr);
+    Block cast_block {cast_arguments};
+    cast_block.insert({nullptr, datev2_type, "result"});
+    ASSERT_TRUE(cast->execute(fn_ctx, cast_block, {0}, 2, 1).ok());
     const auto* result_const =
-            check_and_get_column<ColumnConst>(cast_block.get_by_position(1).column.get());
+            check_and_get_column<ColumnConst>(cast_block.get_by_position(2).column.get());
     ASSERT_NE(result_const, nullptr);
     EXPECT_NE(check_and_get_column<ColumnDateV2>(&result_const->get_data_column()), nullptr);
 
@@ -2675,13 +2683,17 @@ TEST(VTimestampFunctionsTest, utc_timestamp_legacy_datetime_result_for_old_plan)
               nullptr);
 
     auto datetimev2_type = std::make_shared<DataTypeDateTimeV2>(0);
-    auto cast = get_cast_wrapper(fn_ctx, legacy_datetime_type, datetimev2_type);
-    Block cast_block {
+    ColumnsWithTypeAndName cast_arguments {
             {utc_timestamp_block.get_by_position(0).column, legacy_datetime_type, "utc_timestamp"},
-            {nullptr, datetimev2_type, "result"}};
-    ASSERT_TRUE(cast(fn_ctx, cast_block, {0}, 1, 1, nullptr).ok());
+            {nullptr, datetimev2_type, "target_type"}};
+    auto cast =
+            SimpleFunctionFactory::instance().get_function("CAST", cast_arguments, datetimev2_type);
+    ASSERT_NE(cast, nullptr);
+    Block cast_block {cast_arguments};
+    cast_block.insert({nullptr, datetimev2_type, "result"});
+    ASSERT_TRUE(cast->execute(fn_ctx, cast_block, {0}, 2, 1).ok());
     const auto* result_const =
-            check_and_get_column<ColumnConst>(cast_block.get_by_position(1).column.get());
+            check_and_get_column<ColumnConst>(cast_block.get_by_position(2).column.get());
     ASSERT_NE(result_const, nullptr);
     EXPECT_NE(check_and_get_column<ColumnDateTimeV2>(&result_const->get_data_column()), nullptr);
 
