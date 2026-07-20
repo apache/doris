@@ -990,9 +990,10 @@ void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int le
 
 std::shared_ptr<segment_v2::RowIdColumnIteratorV2> FileScanner::_create_row_id_column_iterator() {
     auto& id_file_map = _state->get_id_file_map();
-    auto file_id = id_file_map->get_file_mapping_id(
-            std::make_shared<FileMapping>(_local_state->cast<FileScanLocalState>().parent_id(),
-                                          _current_range, _should_enable_file_meta_cache()));
+    auto& local_state = _local_state->cast<FileScanLocalState>();
+    auto file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
+            local_state.parent_id(), _current_range, _should_enable_file_meta_cache(),
+            local_state.table_name()));
     return std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
                                                    BackendOptions::get_backend_id(), file_id);
 }
@@ -1644,6 +1645,9 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                                           int64_t* init_reader_ms, int64_t* get_block_ms) {
     _current_range = range;
     _update_io_context_from_range();
+    if (_io_ctx && !external_info.table_name.empty()) {
+        _io_ctx->table_name = external_info.table_name;
+    }
     RETURN_IF_ERROR(_generate_partition_columns());
 
     TFileFormatType::type format_type = _get_current_format_type();

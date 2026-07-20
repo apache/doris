@@ -175,8 +175,7 @@ FileBlockSPtr create_manual_peer_test_block(const fs::path& file_path, size_t of
                         .type = FileCacheType::NORMAL,
                         .tablet_id = 0,
                         .table_name = "",
-                        .partition_name = "",
-                        .context_id = 0};
+                        .partition_name = ""};
     return std::make_shared<FileBlock>(key, size, cache, FileBlock::State::EMPTY);
 }
 

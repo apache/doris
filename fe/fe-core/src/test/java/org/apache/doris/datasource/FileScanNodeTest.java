@@ -127,6 +127,26 @@ public class FileScanNodeTest {
     }
 
     @Test
+    public void testNormalizeDefaultPartitionSentinelBeforeBuildPartitionKeyValues() {
+        FilePartitionUtils.ParsedColumnsFromPath parsedColumnsFromPath =
+                FilePartitionUtils.normalizeColumnsFromPath(
+                        Arrays.asList("__HIVE_DEFAULT_PARTITION__", "2026-03-19"));
+
+        List<TPartitionKeyValue> partitionKeyValues = FileScanNode.buildPartitionKeyValues(
+                Arrays.asList("t_int", "dt"),
+                parsedColumnsFromPath.getValues(),
+                parsedColumnsFromPath.getIsNull());
+
+        Assert.assertEquals(2, partitionKeyValues.size());
+        Assert.assertEquals("t_int", partitionKeyValues.get(0).getKey());
+        Assert.assertEquals("", partitionKeyValues.get(0).getValue());
+        Assert.assertTrue(partitionKeyValues.get(0).isIsNull());
+        Assert.assertEquals("dt", partitionKeyValues.get(1).getKey());
+        Assert.assertEquals("2026-03-19", partitionKeyValues.get(1).getValue());
+        Assert.assertFalse(partitionKeyValues.get(1).isIsNull());
+    }
+
+    @Test
     public void testBuildPartitionKeyValuesFromMapUsesStableKeyOrder() {
         Map<String, String> partitionValues = new LinkedHashMap<>();
         partitionValues.put("dt", "20260319");

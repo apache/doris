@@ -49,6 +49,7 @@ public class IcebergSplit extends FileSplit {
     private long tableLevelRowCount = -1;
     // Partition values are used to do runtime filter partition pruning.
     private Map<String, String> icebergPartitionValues = null;
+    private boolean cacheablePartitionContext = true;
     private Integer partitionSpecId = null;
     private String partitionDataJson = null;
     private Long firstRowId = null;

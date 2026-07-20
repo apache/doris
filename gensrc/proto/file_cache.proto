@@ -59,6 +59,7 @@ message BlockMetaPb {
     optional FileCacheType type = 1;
     optional uint64 size = 2;
     optional uint64 ttl = 3;
-    optional uint64 context_id = 4;
+    reserved 4;
+    optional string table_name = 5;
+    optional string partition_name = 6;
 }
-

@@ -46,7 +46,7 @@ TEST(IdFileMapTest, BasicOperations) {
     scan_range.path = "https:a/b/c/d/a.parquet";
     scan_range.start_offset = 120;
 
-    auto mapping2 = std::make_shared<FileMapping>(2, scan_range, false);
+    auto mapping2 = std::make_shared<FileMapping>(2, scan_range, false, "id_manager_test");
     uint32_t id2 = id_file_map.get_file_mapping_id(mapping2);
     EXPECT_EQ(id2, 1);
 
@@ -71,6 +71,7 @@ TEST(IdFileMapTest, BasicOperations) {
 
     auto retrieved_mapping2 = id_file_map.get_file_mapping(id2);
     EXPECT_EQ(retrieved_mapping2->type, FileMappingType::EXTERNAL);
+    EXPECT_EQ(retrieved_mapping2->get_external_file_info().table_name, "id_manager_test");
     auto str = retrieved_mapping2->file_mapping_info_to_string();
     EXPECT_TRUE(str.find(scan_range.path) != str.npos);
 

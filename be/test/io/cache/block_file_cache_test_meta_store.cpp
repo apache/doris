@@ -603,7 +603,7 @@ TEST_F(BlockFileCacheTest, version3_write_version_when_cache_dir_empty) {
     ASSERT_EQ(std::string(buf, static_cast<size_t>(ifs.gcount())), "3.0");
 }
 
-TEST_F(BlockFileCacheTest, change_cache_type_preserves_context_id) {
+TEST_F(BlockFileCacheTest, change_cache_type_preserves_partition_context) {
     config::enable_evict_file_cache_in_advance = false;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -653,14 +653,10 @@ TEST_F(BlockFileCacheTest, change_cache_type_preserves_context_id) {
     ASSERT_TRUE(wait_for_condition(
             [&]() {
                 meta = meta_store->get(mkey);
-                return meta.has_value() && meta->context_id != 0;
+                return meta.has_value() && meta->table_name == context.table_name &&
+                       meta->partition_name == context.partition_name;
             },
             std::chrono::seconds(2)));
-    const uint64_t context_id = meta->context_id;
-    auto context_value = meta_store->get_context(context_id);
-    ASSERT_TRUE(context_value.has_value());
-    EXPECT_EQ(context_value->first, context.table_name);
-    EXPECT_EQ(context_value->second, context.partition_name);
 
     ASSERT_TRUE(blocks[0]->change_cache_type(io::FileCacheType::TTL));
 
@@ -668,7 +664,8 @@ TEST_F(BlockFileCacheTest, change_cache_type_preserves_context_id) {
             [&]() {
                 meta = meta_store->get(mkey);
                 return meta.has_value() && meta->type == io::FileCacheType::TTL &&
-                       meta->context_id == context_id;
+                       meta->table_name == context.table_name &&
+                       meta->partition_name == context.partition_name;
             },
             std::chrono::seconds(2)));
     EXPECT_EQ(meta->ttl, 0);
@@ -679,7 +676,7 @@ TEST_F(BlockFileCacheTest, change_cache_type_preserves_context_id) {
     }
 }
 
-TEST_F(BlockFileCacheTest, direct_load_preserves_context_id_before_change_cache_type) {
+TEST_F(BlockFileCacheTest, direct_load_preserves_partition_context_before_change_cache_type) {
     config::enable_evict_file_cache_in_advance = false;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -702,7 +699,8 @@ TEST_F(BlockFileCacheTest, direct_load_preserves_context_id_before_change_cache_
     constexpr int64_t kTabletId = 27182;
     const auto key = io::BlockFileCache::hash("direct_load_context_key");
     const BlockMetaKey mkey(kTabletId, key, 0);
-    uint64_t context_id = 0;
+    const std::string table_name = "ctl.db.tbl";
+    const std::string partition_name = "partition_direct";
     {
         io::BlockFileCache cache(cache_base_path, settings);
         ASSERT_TRUE(cache.initialize());
@@ -714,8 +712,8 @@ TEST_F(BlockFileCacheTest, direct_load_preserves_context_id_before_change_cache_
         context.stats = &rstats;
         context.cache_type = io::FileCacheType::NORMAL;
         context.tablet_id = kTabletId;
-        context.table_name = "ctl.db.tbl";
-        context.partition_name = "partition_direct";
+        context.table_name = table_name;
+        context.partition_name = partition_name;
 
         auto holder = cache.get_or_set(key, 0, 100000, context);
         auto blocks = fromHolder(holder);
@@ -731,10 +729,10 @@ TEST_F(BlockFileCacheTest, direct_load_preserves_context_id_before_change_cache_
         ASSERT_TRUE(wait_for_condition(
                 [&]() {
                     meta = meta_store->get(mkey);
-                    return meta.has_value() && meta->context_id != 0;
+                    return meta.has_value() && meta->table_name == table_name &&
+                           meta->partition_name == partition_name;
                 },
                 std::chrono::seconds(2)));
-        context_id = meta->context_id;
     }
 
     auto sp = SyncPoint::get_instance();
@@ -772,7 +770,8 @@ TEST_F(BlockFileCacheTest, direct_load_preserves_context_id_before_change_cache_
     auto holder = cache->get_or_set(key, 0, 100000, context);
     auto blocks = fromHolder(holder);
     ASSERT_EQ(blocks.size(), 1);
-    EXPECT_EQ(blocks[0]->_key.meta.context_id, context_id);
+    EXPECT_EQ(blocks[0]->_key.meta.table_name, table_name);
+    EXPECT_EQ(blocks[0]->_key.meta.partition_name, partition_name);
 
     ASSERT_TRUE(blocks[0]->change_cache_type(io::FileCacheType::TTL));
 
@@ -784,7 +783,7 @@ TEST_F(BlockFileCacheTest, direct_load_preserves_context_id_before_change_cache_
             [&]() {
                 meta = meta_store->get(mkey);
                 return meta.has_value() && meta->type == io::FileCacheType::TTL &&
-                       meta->context_id == context_id;
+                       meta->table_name == table_name && meta->partition_name == partition_name;
             },
             std::chrono::seconds(2)));
 

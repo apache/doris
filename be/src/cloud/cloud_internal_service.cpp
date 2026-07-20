@@ -475,7 +475,8 @@ Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t 
 Status trigger_peer_server_fill(io::FileBlockSPtr& fb, int64_t fill_tablet_id,
                                 const std::string& filename, const std::string& resource_id,
                                 const std::string& remote_path, int64_t file_size, int64_t offset,
-                                int64_t size, int32_t timeout_ms) {
+                                int64_t size, int32_t timeout_ms, const std::string& table_name,
+                                const std::string& partition_name) {
     g_peer_server_fill_requested << 1;
 
     // Concurrency guard: atomically reserve a fill slot.
@@ -549,8 +550,8 @@ Status trigger_peer_server_fill(io::FileBlockSPtr& fb, int64_t fill_tablet_id,
                     // duration of nested peer retries and timeouts.
                     .is_warmup = false,
                     .bypass_peer_read = true,
-                    .table_name = "",
-                    .partition_name = ""},
+                    .table_name = table_name,
+                    .partition_name = partition_name},
             .download_done =
                     [fill_done, fill_status](Status st) {
                         *fill_status = std::move(st);
@@ -637,6 +638,8 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     io::CacheContext ctx {};
     io::ReadStatistics local_stats;
     ctx.stats = &local_stats;
+    ctx.table_name = request->has_table_name() ? request->table_name() : "";
+    ctx.partition_name = request->has_partition_name() ? request->partition_name() : "";
     const size_t file_size =
             request->has_file_size()
                     ? static_cast<size_t>(std::max<int64_t>(0, request->file_size()))
@@ -718,7 +721,8 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
                         request->has_file_size() ? request->file_size() : -1,
                         static_cast<int64_t>(fb->range().left),
                         static_cast<int64_t>(fb->range().size()),
-                        config::peer_server_cache_fill_timeout_ms);
+                        config::peer_server_cache_fill_timeout_ms, ctx.table_name,
+                        ctx.partition_name);
                 if (!fill_st.ok()) {
                     g_file_cache_get_by_peer_failed_num << 1;
                     g_file_cache_get_by_peer_not_downloaded_block_num << 1;

@@ -21,12 +21,13 @@
 
 #include <atomic>
 #include <filesystem>
-#include <optional>
 #include <random>
 #include <thread>
 #include <vector>
 
 #include "common/status.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
 
 namespace doris::io {
 
@@ -55,7 +56,7 @@ protected:
 TEST_F(CacheBlockMetaStoreTest, BasicPutAndGet) {
     uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
     BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
-    BlockMeta meta1(NORMAL, 1024, 3600, 11);
+    BlockMeta meta1(NORMAL, 1024, 3600);
 
     // Test put operation
     meta_store_->put(key1, meta1);
@@ -69,7 +70,8 @@ TEST_F(CacheBlockMetaStoreTest, BasicPutAndGet) {
     EXPECT_EQ(result->type, meta1.type);
     EXPECT_EQ(result->size, meta1.size);
     EXPECT_EQ(result->ttl, meta1.ttl);
-    EXPECT_EQ(result->context_id, meta1.context_id);
+    EXPECT_EQ(result->table_name, meta1.table_name);
+    EXPECT_EQ(result->partition_name, meta1.partition_name);
 
     // Test non-existent key
     uint128_t hash2 = (static_cast<uint128_t>(999) << 64) | 999;
@@ -177,7 +179,7 @@ TEST_F(CacheBlockMetaStoreTest, DeleteOperation) {
 TEST_F(CacheBlockMetaStoreTest, SerializationDeserialization) {
     uint128_t hash3 = (static_cast<uint128_t>(456789) << 64) | 987654;
     BlockMetaKey original_key(123, UInt128Wrapper(hash3), 1024);
-    BlockMeta original_meta(INDEX, 4096, 7200, 23);
+    BlockMeta original_meta(INDEX, 4096, 7200);
 
     // Test round-trip through put and get operations
     meta_store_->put(original_key, original_meta);
@@ -188,7 +190,6 @@ TEST_F(CacheBlockMetaStoreTest, SerializationDeserialization) {
     EXPECT_EQ(retrieved->type, original_meta.type);
     EXPECT_EQ(retrieved->size, original_meta.size);
     EXPECT_EQ(retrieved->ttl, original_meta.ttl);
-    EXPECT_EQ(retrieved->context_id, original_meta.context_id);
 
     // Test non-existent key
     uint128_t hash4 = (static_cast<uint128_t>(999999) << 64) | 888888;
@@ -375,7 +376,7 @@ TEST_F(CacheBlockMetaStoreTest, BlockMetaEquality) {
     BlockMeta meta3(INDEX, 1024, 3600);
     BlockMeta meta4(NORMAL, 2048, 3600);
     BlockMeta meta5(NORMAL, 1024, 7200);
-    BlockMeta meta6(NORMAL, 1024, 3600, 1);
+    BlockMeta meta6(NORMAL, 1024, 3600, "ctl.db.tbl", "partition_a");
 
     EXPECT_TRUE(meta1 == meta2);
     EXPECT_FALSE(meta1 == meta3);
@@ -384,46 +385,63 @@ TEST_F(CacheBlockMetaStoreTest, BlockMetaEquality) {
     EXPECT_FALSE(meta1 == meta6);
 }
 
-TEST_F(CacheBlockMetaStoreTest, ContextIdDictionaryRoundTrip) {
-    const uint64_t context_id1 =
-            meta_store_->get_or_create_context_id("internal.db.tbl", "p20260319");
-    ASSERT_NE(context_id1, 0);
+TEST_F(CacheBlockMetaStoreTest, BlockMetaContextRoundTrip) {
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key(1, UInt128Wrapper(hash), 0);
+    BlockMeta meta(NORMAL, 1024, 3600, "internal.db.tbl", "p20260319");
 
-    EXPECT_EQ(context_id1, meta_store_->get_or_create_context_id("internal.db.tbl", "p20260319"));
+    meta_store_->put(key, meta);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-    auto context = meta_store_->get_context(context_id1);
-    ASSERT_TRUE(context.has_value());
-    EXPECT_EQ(context->first, "internal.db.tbl");
-    EXPECT_EQ(context->second, "p20260319");
-
-    const uint64_t context_id2 =
-            meta_store_->get_or_create_context_id("internal.db.tbl", "p20260320");
-    EXPECT_NE(context_id1, context_id2);
+    auto result = meta_store_->get(key);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->table_name, "internal.db.tbl");
+    EXPECT_EQ(result->partition_name, "p20260319");
 }
 
-TEST_F(CacheBlockMetaStoreTest, ContextDictionaryPersistsAcrossReopen) {
-    const uint64_t original_context_id =
-            meta_store_->get_or_create_context_id("ctl.db.tbl", "partition_a");
-    ASSERT_NE(original_context_id, 0);
+TEST_F(CacheBlockMetaStoreTest, BlockMetaContextPersistsAcrossReopen) {
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key(1, UInt128Wrapper(hash), 0);
+    meta_store_->put(key, BlockMeta(NORMAL, 1024, 3600, "ctl.db.tbl", "partition_a"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     meta_store_.reset();
     meta_store_ = std::make_unique<CacheBlockMetaStore>(test_db_path_.string());
 
-    auto context = meta_store_->get_context(original_context_id);
-    ASSERT_TRUE(context.has_value());
-    EXPECT_EQ(context->first, "ctl.db.tbl");
-    EXPECT_EQ(context->second, "partition_a");
-
-    EXPECT_EQ(original_context_id,
-              meta_store_->get_or_create_context_id("ctl.db.tbl", "partition_a"));
-
-    const uint64_t next_context_id =
-            meta_store_->get_or_create_context_id("ctl.db.tbl", "partition_b");
-    EXPECT_GT(next_context_id, original_context_id);
+    auto result = meta_store_->get(key);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->table_name, "ctl.db.tbl");
+    EXPECT_EQ(result->partition_name, "partition_a");
 }
 
-TEST_F(CacheBlockMetaStoreTest, SerializeDeserializeContextId) {
-    BlockMeta original_meta(NORMAL, 1024, 1800, 99);
+TEST_F(CacheBlockMetaStoreTest, BlockMetaContextKeepsOldColumnFamilyOpenCompatible) {
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key(1, UInt128Wrapper(hash), 0);
+    meta_store_->put(key, BlockMeta(NORMAL, 1024, 3600, "ctl.db.tbl", "partition_a"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    meta_store_.reset();
+
+    rocksdb::Options options;
+    options.create_if_missing = false;
+    std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+    column_families.emplace_back(rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions());
+    column_families.emplace_back("file_cache_meta", rocksdb::ColumnFamilyOptions());
+
+    std::vector<rocksdb::ColumnFamilyHandle*> handles;
+    rocksdb::DB* db = nullptr;
+    const auto status =
+            rocksdb::DB::Open(options, test_db_path_.string(), column_families, &handles, &db);
+    ASSERT_TRUE(status.ok()) << status.ToString();
+
+    for (auto* handle : handles) {
+        db->DestroyColumnFamilyHandle(handle);
+    }
+    delete db;
+}
+
+TEST_F(CacheBlockMetaStoreTest, SerializeDeserializeContext) {
+    BlockMeta original_meta(NORMAL, 1024, 1800, "ctl.db.tbl", "partition_a");
     std::string serialized = serialize_value(original_meta);
 
     Status status;
@@ -434,22 +452,8 @@ TEST_F(CacheBlockMetaStoreTest, SerializeDeserializeContextId) {
     EXPECT_EQ(deserialized->type, original_meta.type);
     EXPECT_EQ(deserialized->size, original_meta.size);
     EXPECT_EQ(deserialized->ttl, original_meta.ttl);
-    EXPECT_EQ(deserialized->context_id, original_meta.context_id);
-}
-
-TEST_F(CacheBlockMetaStoreTest, ClearAlsoRemovesContextDictionary) {
-    const uint64_t original_context_id =
-            meta_store_->get_or_create_context_id("ctl.db.tbl", "partition_a");
-    ASSERT_NE(original_context_id, 0);
-
-    meta_store_->clear();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    EXPECT_FALSE(meta_store_->get_context(original_context_id).has_value());
-
-    const uint64_t recreated_context_id =
-            meta_store_->get_or_create_context_id("ctl.db.tbl", "partition_a");
-    EXPECT_EQ(recreated_context_id, 1);
+    EXPECT_EQ(deserialized->table_name, original_meta.table_name);
+    EXPECT_EQ(deserialized->partition_name, original_meta.partition_name);
 }
 
 TEST_F(CacheBlockMetaStoreTest, BlockMetaKeyEquality) {

@@ -118,14 +118,8 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
 
             // Convert hash to string
             std::string hash_str = key.hash.to_string();
-            std::string table_name;
-            std::string partition_name;
-            if (value.context_id != 0) {
-                if (auto context = meta_store->get_context(value.context_id); context) {
-                    table_name = std::move(context->first);
-                    partition_name = std::move(context->second);
-                }
-            }
+            std::string table_name = value.table_name;
+            std::string partition_name = value.partition_name;
 
             // Add to cache entries
             cache_entries.emplace_back(hash_str, static_cast<int64_t>(key.offset), key.tablet_id,

@@ -275,6 +275,10 @@ Status ParallelScannerBuilder::_load() {
             std::vector<uint32_t> segment_rows;
             OlapReaderStatistics preload_stats;
             auto preload_io_ctx = create_preload_io_context(_state, &preload_stats);
+            if (auto it = _tablet_contexts.find(tablet_id); it != _tablet_contexts.end()) {
+                preload_io_ctx.table_name = it->second.first;
+                preload_io_ctx.partition_name = it->second.second;
+            }
             RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, enable_segment_cache,
                                                               &preload_stats, &preload_io_ctx));
             _tablet_preload_file_cache_stats[tablet_id].merge_from(preload_stats.file_cache_stats);

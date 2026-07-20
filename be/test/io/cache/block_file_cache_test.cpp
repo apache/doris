@@ -173,8 +173,7 @@ FileCacheKey make_test_file_cache_key(std::string_view key_name, size_t offset =
                                   .type = FileCacheType::NORMAL,
                                   .tablet_id = 0,
                                   .table_name = "",
-                                  .partition_name = "",
-                                  .context_id = 0}};
+                                  .partition_name = ""}};
 }
 
 struct MockFallbackAppendvWriterState {

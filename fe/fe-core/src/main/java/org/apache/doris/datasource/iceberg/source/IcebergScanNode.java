@@ -385,25 +385,36 @@ public class IcebergScanNode extends FileQueryScanNode {
         Map<String, String> partitionValues = icebergSplit.getIcebergPartitionValues();
         List<String> orderedPartitionKeys = getOrderedPathPartitionKeys();
         if (partitionValues != null && !orderedPartitionKeys.isEmpty()) {
-            fillPartitionContextFromMap(rangeDesc, partitionValues, orderedPartitionKeys);
+            fillPartitionContextFromMap(
+                    rangeDesc, partitionValues, orderedPartitionKeys, icebergSplit.isCacheablePartitionContext());
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
     private void fillPartitionContextFromMap(
-            TFileRangeDesc rangeDesc, Map<String, String> partitionValues, List<String> orderedPartitionKeys) {
+            TFileRangeDesc rangeDesc, Map<String, String> partitionValues,
+            List<String> orderedPartitionKeys, boolean fillCachePartitionContext) {
         List<String> fromPathKeys = new ArrayList<>();
         List<String> fromPathValues = new ArrayList<>();
+        List<Boolean> fromPathIsNull = new ArrayList<>();
         for (String partitionKey : orderedPartitionKeys) {
             if (!partitionValues.containsKey(partitionKey)) {
                 continue;
             }
             fromPathKeys.add(partitionKey);
-            fromPathValues.add(partitionValues.get(partitionKey));
+            String value = partitionValues.get(partitionKey);
+            fromPathValues.add(value == null ? "" : value);
+            fromPathIsNull.add(value == null);
         }
         List<TPartitionKeyValue> partitionKeyValues =
-                FileScanNode.buildPartitionKeyValues(fromPathKeys, fromPathValues);
-        FileScanNode.fillPathPartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
+                FileScanNode.buildPartitionKeyValues(fromPathKeys, fromPathValues, fromPathIsNull);
+        if (fillCachePartitionContext) {
+            FileScanNode.fillPathPartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
+        } else if (!partitionKeyValues.isEmpty()) {
+            rangeDesc.setColumnsFromPathKeys(fromPathKeys);
+            rangeDesc.setColumnsFromPath(fromPathValues);
+            rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
+        }
     }
 
     private void setIcebergPositionDeleteSysTableParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit,
@@ -1038,10 +1049,13 @@ public class IcebergScanNode extends FileQueryScanNode {
                                     partitionData, partitionSpec, sessionVariable.getTimeZone());
                             return values == null ? Collections.emptyMap() : values;
                         });
-                // Only set partition values if all partitions are identity transform. For non-cacheable partitions,
-                // keep an empty sentinel in partitionMapInfos so partition accounting is still correct.
-                if (!partitionInfoMap.isEmpty()) {
-                    split.setIcebergPartitionValues(partitionInfoMap);
+                Map<String, String> identityPartitionValues = partitionInfoMap.isEmpty()
+                        ? IcebergUtils.getIdentityPartitionInfoMap(
+                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone())
+                        : partitionInfoMap;
+                if (!identityPartitionValues.isEmpty()) {
+                    split.setIcebergPartitionValues(identityPartitionValues);
+                    split.setCacheablePartitionContext(!partitionInfoMap.isEmpty());
                 }
             } else {
                 partitionMapInfos.put(null, Collections.emptyMap());

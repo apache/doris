@@ -148,7 +148,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -808,8 +807,7 @@ public class IcebergUtils {
             }
             Object value = partitionData.get(i);
             try {
-                partitionInfoMap.put(columnName.toLowerCase(Locale.ROOT),
-                        serializePartitionValue(field.type(), value, timeZone));
+                partitionInfoMap.put(columnName, serializePartitionValue(field.type(), value, timeZone));
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
                         e.getMessage());

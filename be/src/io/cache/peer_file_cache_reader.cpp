@@ -157,7 +157,6 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
                                          PeerFetchResult* result, size_t file_size,
                                          const IOContext* ctx, bool request_fill, int64_t tablet_id,
                                          std::string resource_id) {
-    (void)ctx;
     if (result == nullptr) {
         return Status::InvalidArgument("peer cache fetch requires non-null result");
     }
@@ -181,6 +180,10 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     rowset_meta_pb->set_rowset_id(0);
     rowset_meta_pb->set_resource_id(resource_id);
     rowset_meta_pb->set_tablet_id(tablet_id);
+    if (ctx != nullptr) {
+        req.set_table_name(ctx->table_name);
+        req.set_partition_name(ctx->partition_name);
+    }
     if (request_fill) {
         // Ask the peer server to pull missing blocks from remote storage before serving them.
         // Only set for cross-CG reads targeting the designated fill compute group

@@ -31,6 +31,7 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
+import org.apache.doris.datasource.FilePartitionUtils;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
@@ -342,8 +343,12 @@ public class HudiScanNode extends HiveScanNode {
             fromPathKeys.add(partitionKey);
             fromPathValues.add(partitionValues.get(partitionKey));
         }
-        List<TPartitionKeyValue> partitionKeyValues =
-                FileScanNode.buildPartitionKeyValues(fromPathKeys, fromPathValues);
+        FilePartitionUtils.ParsedColumnsFromPath parsedColumnsFromPath =
+                FilePartitionUtils.normalizeColumnsFromPath(fromPathValues);
+        List<TPartitionKeyValue> partitionKeyValues = FileScanNode.buildPartitionKeyValues(
+                fromPathKeys,
+                parsedColumnsFromPath.getValues(),
+                parsedColumnsFromPath.getIsNull());
         if (partitionKeyValues.isEmpty()) {
             return;
         }

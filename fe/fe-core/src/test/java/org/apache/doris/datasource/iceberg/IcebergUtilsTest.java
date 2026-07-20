@@ -464,6 +464,30 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testGetIdentityPartitionInfoMapForCacheKeepsSourceColumnCase() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Dt", Types.StringType.get()),
+                Types.NestedField.required(2, "Country", Types.StringType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("Dt", "partition_dt")
+                .identity("Country", "partition_country")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "2026-03-19");
+        partitionData.set(1, "CN");
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMapForCache(
+                partitionData, partitionSpec, "UTC");
+
+        Map<String, String> expected = new LinkedHashMap<>();
+        expected.put("Dt", "2026-03-19");
+        expected.put("Country", "CN");
+        Assert.assertEquals(expected, partitionInfoMap);
+        Assert.assertFalse(partitionInfoMap.containsKey("dt"));
+        Assert.assertFalse(partitionInfoMap.containsKey("country"));
+    }
+
+    @Test
     public void testGetIdentityPartitionInfoMapForCacheRejectsTransformPartitions() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "dt", Types.StringType.get()),
