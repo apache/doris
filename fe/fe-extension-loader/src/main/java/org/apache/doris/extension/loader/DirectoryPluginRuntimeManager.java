@@ -22,12 +22,9 @@ import org.apache.doris.extension.spi.PluginFactory;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.MalformedURLException;
-import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.security.CodeSource;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -39,9 +36,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.jar.Attributes;
 import java.util.jar.JarFile;
-import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -335,11 +330,11 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
      * failing the load.
      */
     private String readImplementationVersion(Class<?> factoryClass, List<Path> candidateJars) {
-        String packagePath = packagePathOf(factoryClass);
-        Path definingJar = jarOf(factoryClass);
+        String packagePath = ManifestVersions.packagePathOf(factoryClass);
+        Path definingJar = ManifestVersions.jarOf(factoryClass);
         if (definingJar != null) {
             try (JarFile jarFile = new JarFile(definingJar.toFile())) {
-                return manifestImplementationVersion(jarFile, packagePath);
+                return ManifestVersions.fromManifest(jarFile, packagePath);
             } catch (IOException ignored) {
                 // Fall through to scanning the candidate jars.
             }
@@ -350,54 +345,12 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 if (jarFile.getEntry(classEntry) == null) {
                     continue;
                 }
-                return manifestImplementationVersion(jarFile, packagePath);
+                return ManifestVersions.fromManifest(jarFile, packagePath);
             } catch (IOException ignored) {
                 // Display-only metadata; fall through to the next candidate jar.
             }
         }
         return null;
-    }
-
-    private static String manifestImplementationVersion(JarFile jarFile, String packagePath)
-            throws IOException {
-        Manifest manifest = jarFile.getManifest();
-        if (manifest == null) {
-            return null;
-        }
-        // Per the jar spec a package section ("Name: com/acme/plugin/") overrides
-        // the main attributes for classes in that package, mirroring
-        // Package.getImplementationVersion().
-        if (packagePath != null) {
-            Attributes packageAttributes = manifest.getAttributes(packagePath);
-            if (packageAttributes != null) {
-                String version = packageAttributes.getValue(Attributes.Name.IMPLEMENTATION_VERSION);
-                if (version != null) {
-                    return version;
-                }
-            }
-        }
-        return manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_VERSION);
-    }
-
-    /** Manifest section name for the class's package ("com/acme/plugin/"), or null. */
-    private static String packagePathOf(Class<?> clazz) {
-        String className = clazz.getName();
-        int lastDot = className.lastIndexOf('.');
-        return lastDot < 0 ? null : className.substring(0, lastDot).replace('.', '/') + "/";
-    }
-
-    /** Jar file that defined the class per its protection domain, or null. */
-    private static Path jarOf(Class<?> clazz) {
-        try {
-            CodeSource codeSource = clazz.getProtectionDomain().getCodeSource();
-            if (codeSource == null || codeSource.getLocation() == null) {
-                return null;
-            }
-            Path path = Paths.get(codeSource.getLocation().toURI());
-            return Files.isRegularFile(path) ? path : null;
-        } catch (URISyntaxException | RuntimeException e) {
-            return null;
-        }
     }
 
     /**

@@ -33,10 +33,10 @@
 namespace doris {
 
 std::vector<SchemaScanner::ColumnDesc> SchemaPluginsScanner::_s_tbls_columns = {
-        {"PLUGIN_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"PLUGIN_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"PLUGIN_VERSION", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"SOURCE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"PLUGIN_NAME", TYPE_STRING, sizeof(StringRef), true},
+        {"PLUGIN_TYPE", TYPE_STRING, sizeof(StringRef), true},
+        {"PLUGIN_VERSION", TYPE_STRING, sizeof(StringRef), true},
+        {"SOURCE", TYPE_STRING, sizeof(StringRef), true},
         {"DESCRIPTION", TYPE_STRING, sizeof(StringRef), true},
 };
 
@@ -50,7 +50,11 @@ Status SchemaPluginsScanner::start(RuntimeState* state) {
     _block_rows_limit = state->batch_size();
     _rpc_timeout_ms = state->execution_timeout() * 1000;
     // Plugins are per-FE local state: ask the FE this session is connected to.
-    _fe_addr = state->get_query_ctx()->current_connect_fe;
+    auto* query_ctx = state->get_query_ctx();
+    if (query_ctx == nullptr) {
+        return Status::InternalError("query context is null");
+    }
+    _fe_addr = query_ctx->current_connect_fe;
     return Status::OK();
 }
 
@@ -81,6 +85,14 @@ Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
         return status;
     }
 
+    std::vector<TRow> result_data = std::move(result.data_batch);
+    if (!result_data.empty()) {
+        auto col_size = result_data[0].column_value.size();
+        if (col_size != _s_tbls_columns.size()) {
+            return Status::InternalError<false>("plugins schema is not match for FE and BE");
+        }
+    }
+
     _plugins_block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
         auto data_type =
@@ -90,14 +102,6 @@ Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
     }
     _plugins_block->reserve(_block_rows_limit);
 
-    std::vector<TRow> result_data = std::move(result.data_batch);
-    if (!result_data.empty()) {
-        auto col_size = result_data[0].column_value.size();
-        if (col_size != _s_tbls_columns.size()) {
-            return Status::InternalError<false>("plugins schema is not match for FE and BE");
-        }
-    }
-
     for (int i = 0; i < result_data.size(); i++) {
         const TRow& row = result_data[i];
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
@@ -106,7 +110,9 @@ Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
             // insert_block_column would materialize it as an empty string.
             if (!cell.__isset.stringVal) {
                 MutableColumnPtr mutable_col_ptr =
-                        IColumn::mutate(std::move(_plugins_block->get_by_position(j).column));
+                        IColumn::mutate(_plugins_block->get_by_position(j).column);
+                // All _s_tbls_columns are declared nullable, so the column is
+                // always a ColumnNullable wrapping the string column.
                 assert_cast<ColumnNullable*>(mutable_col_ptr.get())->insert_data(nullptr, 0);
                 _plugins_block->replace_by_position(j, std::move(mutable_col_ptr));
                 continue;

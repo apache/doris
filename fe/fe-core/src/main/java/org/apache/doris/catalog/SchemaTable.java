@@ -864,10 +864,10 @@ public class SchemaTable extends Table {
                             .build()))
             .put("plugins",
                     new SchemaTable(SystemIdGenerator.getNextId(), "plugins", TableType.SCHEMA,
-                        builder().column("PLUGIN_NAME", ScalarType.createVarchar(64))
-                            .column("PLUGIN_TYPE", ScalarType.createVarchar(64))
-                            .column("PLUGIN_VERSION", ScalarType.createVarchar(128))
-                            .column("SOURCE", ScalarType.createVarchar(16))
+                        builder().column("PLUGIN_NAME", ScalarType.createStringType())
+                            .column("PLUGIN_TYPE", ScalarType.createStringType())
+                            .column("PLUGIN_VERSION", ScalarType.createStringType())
+                            .column("SOURCE", ScalarType.createStringType())
                             .column("DESCRIPTION", ScalarType.createStringType())
                             .build()))
             .put("table_streams",

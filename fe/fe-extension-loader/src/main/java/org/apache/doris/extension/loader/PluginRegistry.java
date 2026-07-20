@@ -22,6 +22,8 @@ import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,6 +31,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.jar.JarFile;
 
 /**
  * Process-wide registry of loaded plugins across all plugin families
@@ -69,12 +72,12 @@ public final class PluginRegistry {
 
         public PluginRecord(String type, String name, String version, String description,
                 PluginSource source, Instant loadTime) {
-            this.type = Objects.requireNonNull(type, "type");
-            this.name = Objects.requireNonNull(name, "name");
+            this.type = Objects.requireNonNull(type, "plugin record requires a non-null family type");
+            this.name = Objects.requireNonNull(name, "plugin record requires a non-null plugin name");
             this.version = version;
             this.description = description == null ? "" : description;
-            this.source = Objects.requireNonNull(source, "source");
-            this.loadTime = Objects.requireNonNull(loadTime, "loadTime");
+            this.source = Objects.requireNonNull(source, "plugin record requires a non-null source");
+            this.loadTime = Objects.requireNonNull(loadTime, "plugin record requires a non-null load time");
         }
 
         public String getType() {
@@ -132,6 +135,10 @@ public final class PluginRegistry {
      * @return true if the record was inserted, false if rejected
      */
     public boolean register(String type, String name, String version, String description, PluginSource source) {
+        if (type == null || type.trim().isEmpty()) {
+            LOG.warn("Reject plugin registration with null or blank family type: name={}", name);
+            return false;
+        }
         String validationError = PluginNames.validate(name);
         if (validationError != null) {
             LOG.warn("Reject plugin registration with invalid name: type={}, name={}, reason={}",
@@ -143,7 +150,7 @@ public final class PluginRegistry {
         if (existing != null) {
             // The same plugin may be legitimately loaded by more than one manager
             // instance within a family (e.g. authentication); keep the first row.
-            LOG.info("Skip duplicated plugin registration: type={}, name={}, existingSource={}, newSource={}",
+            LOG.warn("Skip duplicated plugin registration: type={}, name={}, existingSource={}, newSource={}",
                     record.getType(), record.getName(), existing.getSource(), source);
             return false;
         }
@@ -182,11 +189,26 @@ public final class PluginRegistry {
 
     /**
      * Best-effort release version of a classpath (built-in) plugin, from the
-     * Implementation-Version of the jar that contains the given class.
+     * Implementation-Version of the jar that defined the given class.
      *
-     * @return the version, or null when unavailable (e.g. classes directory)
+     * <p>Reads the defining jar's manifest directly instead of
+     * {@code Package.getImplementationVersion()}: Package metadata is fixed by
+     * whichever jar defines the package first on a classloader, so with two
+     * same-package factories from different jars the later plugin would report
+     * the earlier jar's version. Falls back to Package metadata only when the
+     * defining jar cannot be determined (e.g. classes directory in tests).
+     *
+     * @return the version, or null when unavailable
      */
     public static String implementationVersionOf(Class<?> clazz) {
+        Path definingJar = ManifestVersions.jarOf(clazz);
+        if (definingJar != null) {
+            try (JarFile jarFile = new JarFile(definingJar.toFile())) {
+                return ManifestVersions.fromManifest(jarFile, ManifestVersions.packagePathOf(clazz));
+            } catch (IOException e) {
+                return null;
+            }
+        }
         Package pkg = clazz.getPackage();
         return pkg == null ? null : pkg.getImplementationVersion();
     }
