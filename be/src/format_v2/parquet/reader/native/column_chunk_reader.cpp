@@ -31,6 +31,9 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/column/column.h"
+#include "core/column/column_decimal.h"
+#include "core/column/column_dictionary.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -402,6 +405,197 @@ Status decode_selected_non_null_values(IColumn& column, const DataTypeSerDe& ser
     SelectedDecodeSource selected_source(decoder, selection);
     return read_native_or_serde(column, serde, selected_source, context, selection.selected_values,
                                 state);
+}
+
+template <typename Visitor>
+bool visit_nullable_expandable_column(IColumn& column, Visitor&& visitor) {
+#define VISIT_COLUMN(TYPE)                                   \
+    if (auto* typed = check_and_get_column<TYPE>(&column)) { \
+        visitor(*typed);                                     \
+        return true;                                         \
+    }
+    VISIT_COLUMN(ColumnUInt8)
+    VISIT_COLUMN(ColumnInt8)
+    VISIT_COLUMN(ColumnInt16)
+    VISIT_COLUMN(ColumnInt32)
+    VISIT_COLUMN(ColumnInt64)
+    VISIT_COLUMN(ColumnInt128)
+    VISIT_COLUMN(ColumnDate)
+    VISIT_COLUMN(ColumnDateTime)
+    VISIT_COLUMN(ColumnDateV2)
+    VISIT_COLUMN(ColumnDateTimeV2)
+    VISIT_COLUMN(ColumnFloat32)
+    VISIT_COLUMN(ColumnFloat64)
+    VISIT_COLUMN(ColumnIPv4)
+    VISIT_COLUMN(ColumnIPv6)
+    VISIT_COLUMN(ColumnTimeV2)
+    VISIT_COLUMN(ColumnTimeStampTz)
+    VISIT_COLUMN(ColumnOffset32)
+    VISIT_COLUMN(ColumnOffset64)
+    VISIT_COLUMN(ColumnDecimal32)
+    VISIT_COLUMN(ColumnDecimal64)
+    VISIT_COLUMN(ColumnDecimal128V2)
+    VISIT_COLUMN(ColumnDecimal128V3)
+    VISIT_COLUMN(ColumnDecimal256)
+    VISIT_COLUMN(ColumnString)
+    VISIT_COLUMN(ColumnString64)
+    VISIT_COLUMN(ColumnVarbinary)
+    VISIT_COLUMN(ColumnDictI32)
+#undef VISIT_COLUMN
+    return false;
+}
+
+template <typename ColumnType>
+void expand_nullable_pod_values(ColumnType& column, size_t old_size, size_t compact_values,
+                                const NullMap& selected_nulls) {
+    auto& data = column.get_data();
+    DORIS_CHECK_EQ(data.size(), old_size + compact_values);
+    data.resize(old_size + selected_nulls.size());
+    size_t source = compact_values;
+    for (size_t output = selected_nulls.size(); output > 0;) {
+        --output;
+        if (selected_nulls[output] != 0) {
+            data[old_size + output] = typename ColumnType::value_type {};
+        } else {
+            DORIS_CHECK(source > 0);
+            --source;
+            data[old_size + output] = std::move(data[old_size + source]);
+        }
+    }
+    DORIS_CHECK_EQ(source, 0);
+}
+
+template <typename Offset>
+void expand_nullable_string_values(ColumnStr<Offset>& column, size_t old_size,
+                                   size_t compact_values, const NullMap& selected_nulls) {
+    auto& offsets = column.get_offsets();
+    DORIS_CHECK_EQ(offsets.size(), old_size + compact_values);
+    const Offset prefix_end = old_size == 0 ? 0 : offsets[old_size - 1];
+    offsets.resize(old_size + selected_nulls.size());
+    size_t source = compact_values;
+    for (size_t output = selected_nulls.size(); output > 0;) {
+        --output;
+        if (selected_nulls[output] == 0) {
+            DORIS_CHECK(source > 0);
+            --source;
+            offsets[old_size + output] = offsets[old_size + source];
+        } else {
+            offsets[old_size + output] = source == 0 ? prefix_end : offsets[old_size + source - 1];
+        }
+    }
+    DORIS_CHECK_EQ(source, 0);
+}
+
+template <typename ColumnType>
+void expand_nullable_values(ColumnType& column, size_t old_size, size_t compact_values,
+                            const NullMap& selected_nulls) {
+    expand_nullable_pod_values(column, old_size, compact_values, selected_nulls);
+}
+
+template <typename Offset>
+void expand_nullable_values(ColumnStr<Offset>& column, size_t old_size, size_t compact_values,
+                            const NullMap& selected_nulls) {
+    expand_nullable_string_values(column, old_size, compact_values, selected_nulls);
+}
+
+void remap_nullable_conversion_failures(IColumn::Filter* conversion_failure_null_map,
+                                        size_t old_size, size_t compact_values,
+                                        const NullMap& selected_nulls) {
+    if (conversion_failure_null_map == nullptr) {
+        return;
+    }
+    DORIS_CHECK(conversion_failure_null_map->size() >= old_size + selected_nulls.size());
+    size_t source = compact_values;
+    // Walk backwards so writing an expanded row cannot overwrite an unread compact failure bit.
+    for (size_t output = selected_nulls.size(); output > 0;) {
+        --output;
+        if (selected_nulls[output] != 0) {
+            (*conversion_failure_null_map)[old_size + output] = 1;
+        } else {
+            DORIS_CHECK(source > 0);
+            --source;
+            (*conversion_failure_null_map)[old_size + output] =
+                    (*conversion_failure_null_map)[old_size + source];
+        }
+    }
+    DORIS_CHECK_EQ(source, 0);
+}
+
+Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& serde,
+                                       Decoder& decoder, const ParquetDecodeContext& context,
+                                       ParquetMaterializationState& state,
+                                       ColumnSelectVector& select_vector, NullMap& selected_nulls,
+                                       int64_t* materialization_time) {
+    auto& selection = state.selection;
+    selection.ranges.clear();
+    selection.total_values = 0;
+    selection.selected_values = 0;
+    selected_nulls.clear();
+    selected_nulls.reserve(select_vector.num_values() - select_vector.num_filtered());
+
+    size_t physical_cursor = 0;
+    ColumnSelectVector::DataReadType read_type;
+    while (const size_t run_length = select_vector.get_next_run<true>(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT:
+            if (!selection.ranges.empty() &&
+                selection.ranges.back().first + selection.ranges.back().count == physical_cursor) {
+                selection.ranges.back().count += run_length;
+            } else {
+                selection.ranges.push_back({.first = physical_cursor, .count = run_length});
+            }
+            selection.selected_values += run_length;
+            selected_nulls.resize_fill(selected_nulls.size() + run_length, 0);
+            physical_cursor += run_length;
+            break;
+        case ColumnSelectVector::NULL_DATA:
+            selected_nulls.resize_fill(selected_nulls.size() + run_length, 1);
+            break;
+        case ColumnSelectVector::FILTERED_CONTENT:
+            physical_cursor += run_length;
+            break;
+        case ColumnSelectVector::FILTERED_NULL:
+            break;
+        }
+    }
+    selection.total_values = physical_cursor;
+    DORIS_CHECK_EQ(selection.total_values, select_vector.num_values() - select_vector.num_nulls());
+    DORIS_CHECK_EQ(selected_nulls.size(),
+                   select_vector.num_values() - select_vector.num_filtered());
+
+    const size_t old_size = column.size();
+    SCOPED_RAW_TIMER(materialization_time);
+    if (selection.selected_values == 0) {
+        RETURN_IF_ERROR(decoder.skip_values(selection.total_values));
+        column.insert_many_defaults(selected_nulls.size());
+        return Status::OK();
+    }
+
+    if (state.conversion_failure_null_map != nullptr) {
+        DORIS_CHECK(state.conversion_failure_null_map->size() >= old_size + selected_nulls.size());
+        memset(state.conversion_failure_null_map->data() + old_size, 0, selection.selected_values);
+    }
+    SelectedDecodeSource selected_source(decoder, selection);
+    const auto status = read_native_or_serde(column, serde, selected_source, context,
+                                             selection.selected_values, state);
+    if (!status.ok()) {
+        if (state.conversion_failure_null_map != nullptr) {
+            memcpy(state.conversion_failure_null_map->data() + old_size, selected_nulls.data(),
+                   selected_nulls.size());
+        }
+        return status;
+    }
+    DORIS_CHECK_EQ(column.size(), old_size + selection.selected_values);
+
+    remap_nullable_conversion_failures(state.conversion_failure_null_map, old_size,
+                                       selection.selected_values, selected_nulls);
+    const bool expanded = visit_nullable_expandable_column(column, [&](auto& typed_column) {
+        // Decode into the final nested column compactly, then expand in place. This preserves the
+        // V2 no-intermediate-column invariant while matching StarRocks' nullable sparse layout.
+        expand_nullable_values(typed_column, old_size, selection.selected_values, selected_nulls);
+    });
+    DORIS_CHECK(expanded);
+    return Status::OK();
 }
 
 } // namespace
@@ -1067,6 +1261,16 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
             status = decode_selected_non_null_values(*doris_column, serde, *_page_decoder, context,
                                                      state, select_vector,
                                                      &_chunk_statistics.materialization_time);
+            _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
+        } else if (context.encoding == ParquetValueEncoding::DICTIONARY &&
+                   visit_nullable_expandable_column(*doris_column, [](auto&) {})) {
+            // PLAIN fixed-width pages already skip by pointer arithmetic; compact-and-expand is a
+            // net loss there. Keep this StarRocks-style nullable batching on dictionary pages,
+            // where it also collapses thousands of one-value RLE decoder calls into range reads.
+            ++_chunk_statistics.hybrid_selection_batches;
+            status = decode_selected_nullable_values(
+                    *doris_column, serde, *_page_decoder, context, state, select_vector,
+                    _nullable_selection_nulls, &_chunk_statistics.materialization_time);
             _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
         } else {
             ++_chunk_statistics.hybrid_selection_null_fallback_batches;

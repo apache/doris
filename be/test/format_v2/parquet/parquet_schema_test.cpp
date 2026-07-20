@@ -75,7 +75,7 @@ TEST(ParquetSchemaTest, NativeMetadataTreePreservesNestedFieldNamesAndIds) {
     EXPECT_EQ(mapping->file_child_name("minReaderVersion"), "minReaderVersion");
     ASSERT_NE(mapping->child("minReaderVersion"), nullptr);
 }
-TEST(ParquetSchemaTest, NativeLogicalUtcTimeIsRejected) {
+TEST(ParquetSchemaTest, NativeLogicalUtcTimeIsDeferredToProjectionValidation) {
     tparquet::SchemaElement root;
     root.__set_name("schema");
     root.__set_num_children(1);
@@ -95,9 +95,12 @@ TEST(ParquetSchemaTest, NativeLogicalUtcTimeIsRejected) {
     native_schema.assign_ids();
     std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
     const auto status = build_parquet_column_schema(native_schema, &fields);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported"),
-              std::string::npos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(fields.size(), 1);
+    // Preserve the unsupported marker in metadata; request-level validation decides whether the
+    // leaf is a real projection or an ignorable COUNT(*) placeholder.
+    EXPECT_EQ(fields[0]->type_descriptor.unsupported_reason,
+              "Parquet TIME with isAdjustedToUTC=true is not supported");
 }
 
 TEST(ParquetSchemaTest, NativeGroupEnumLogicalTypeIsRejected) {

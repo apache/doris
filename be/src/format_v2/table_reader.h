@@ -746,10 +746,11 @@ protected:
     Status finalize_chunk(Block* block, const size_t rows) {
         SCOPED_TIMER(_profile.finalize_timer);
         size_t idx = 0;
-        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
+        const auto& mappings = _data_reader.column_mapper->mappings();
+        for (const auto& mapping : mappings) {
             ColumnPtr column;
             RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
-                                                        &column));
+                                                        &column, idx + 1 == mappings.size()));
             block->replace_by_position(idx, IColumn::mutate(std::move(column)));
             idx++;
         }
@@ -1098,6 +1099,17 @@ protected:
         return IColumn::mutate(std::move(column));
     }
 
+    static ColumnPtr _take_and_detach_block_column(Block* block, int position) {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(position >= 0 && position < static_cast<int>(block->columns()));
+        auto& source = block->get_by_position(position);
+        ColumnPtr column = source.column;
+        // The final mapping no longer needs the file block. Release its COW owner before mutate(),
+        // otherwise nested MAP/STRING columns are deep-copied and a multi-GB payload can OOM.
+        block->replace_by_position(position, source.type->create_column());
+        return _detach_column(std::move(column));
+    }
+
     static Status _align_column_nullability(ColumnPtr* column, const DataTypePtr& table_type) {
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(column->get() != nullptr);
@@ -1241,7 +1253,8 @@ protected:
     }
 
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
-                                       const size_t rows, ColumnPtr* column) {
+                                       const size_t rows, ColumnPtr* column,
+                                       bool take_projection_result = false) {
         if (!mapping.is_trivial && mapping.file_local_id.has_value() &&
             !mapping.child_mappings.empty()) {
             DCHECK(mapping.projection != nullptr);
@@ -1254,7 +1267,9 @@ protected:
                         mapping.table_column_name, mapping.global_index.value(),
                         *mapping.file_local_id, rows, st.to_string(), mapping.debug_string());
             }
-            ColumnPtr result_column = current_block->get_by_position(res_id).column;
+            ColumnPtr result_column = take_projection_result
+                                              ? _take_and_detach_block_column(current_block, res_id)
+                                              : current_block->get_by_position(res_id).column;
             RETURN_IF_ERROR(
                     _materialize_complex_mapping_column(mapping, result_column, rows, column));
             return Status::OK();
@@ -1273,8 +1288,12 @@ protected:
                         mapping.table_column_name, mapping.global_index.value(), file_local_id,
                         rows, st.to_string(), mapping.debug_string());
             }
-            ColumnPtr result_column = current_block->get_by_position(res_id).column;
-            *column = _detach_column(std::move(result_column));
+            if (take_projection_result) {
+                *column = _take_and_detach_block_column(current_block, res_id);
+            } else {
+                ColumnPtr result_column = current_block->get_by_position(res_id).column;
+                *column = _detach_column(std::move(result_column));
+            }
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
@@ -1650,9 +1669,10 @@ protected:
         for (size_t column_idx = 0; column_idx < _data_reader.column_mapper->mappings().size();
              ++column_idx) {
             ColumnPtr table_column;
-            RETURN_IF_ERROR(
-                    _materialize_mapping_column(_data_reader.column_mapper->mappings()[column_idx],
-                                                &file_block, 2, &table_column));
+            RETURN_IF_ERROR(_materialize_mapping_column(
+                    _data_reader.column_mapper->mappings()[column_idx], &file_block, 2,
+                    &table_column,
+                    column_idx + 1 == _data_reader.column_mapper->mappings().size()));
             block->replace_by_position(column_idx, std::move(table_column));
         }
         return Status::OK();

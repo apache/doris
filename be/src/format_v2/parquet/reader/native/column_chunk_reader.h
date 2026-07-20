@@ -344,6 +344,7 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
+    NullMap _nullable_selection_nulls;
     ColumnChunkReaderStatistics _chunk_statistics;
 };
 

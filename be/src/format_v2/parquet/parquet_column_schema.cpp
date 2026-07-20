@@ -206,24 +206,6 @@ std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldS
     return result;
 }
 
-Status validate_native_node_schema(const NativeFieldSchema& field) {
-    if (field.children.empty()) {
-        ParquetTypeDescriptor descriptor;
-        fill_native_type_descriptor(field, &descriptor);
-        if (!descriptor.unsupported_reason.empty()) {
-            // Native metadata must enforce the same logical-type contract used by scan planning;
-            // otherwise unsupported files reach the decoder only after their schema is accepted.
-            return Status::NotSupported("Unsupported parquet column '{}': {}", field.name,
-                                        descriptor.unsupported_reason);
-        }
-        return Status::OK();
-    }
-    for (const auto& child : field.children) {
-        RETURN_IF_ERROR(validate_native_node_schema(child));
-    }
-    return Status::OK();
-}
-
 } // namespace
 
 Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
@@ -235,7 +217,8 @@ Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
     const auto& native_fields = schema.get_fields_schema();
     fields->reserve(native_fields.size());
     for (size_t field_idx = 0; field_idx < native_fields.size(); ++field_idx) {
-        RETURN_IF_ERROR(validate_native_node_schema(native_fields[field_idx]));
+        // Unsupported logical leaves stay in the file schema so request-level validation can
+        // ignore unprojected fields and COUNT(*) placeholders without weakening real projections.
         // The scan projection and native readers must share one tree; rebuilding wrappers through
         // Arrow changes legacy LIST/STRUCT boundaries and makes valid nested values look absent.
         fields->push_back(

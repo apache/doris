@@ -141,27 +141,32 @@ public:
     Status decode_selected_dictionary_indices(const ParquetSelection& selection,
                                               std::vector<uint32_t>* indices) override {
         DORIS_CHECK(indices != nullptr);
-        _skip_indices.resize(selection.total_values);
-        const auto decoded = _index_batch_decoder->GetBatch(
-                _skip_indices.data(), cast_set<uint32_t>(selection.total_values));
-        if (UNLIKELY(decoded != selection.total_values)) {
-            return Status::IOError("Can't read enough Parquet dictionary indices");
-        }
         const size_t num_dictionary_values = dictionary_size();
-        for (size_t row = 0; row < selection.total_values; ++row) {
-            if (UNLIKELY(_skip_indices[row] >= num_dictionary_values)) {
-                return Status::Corruption(
-                        "Parquet dictionary index {} at row {} exceeds dictionary size {}",
-                        _skip_indices[row], row, num_dictionary_values);
-            }
-        }
         indices->resize(selection.selected_values);
+        size_t cursor = 0;
         size_t output = 0;
         for (const auto& range : selection.ranges) {
-            memcpy(indices->data() + output, _skip_indices.data() + range.first,
-                   range.count * sizeof(uint32_t));
+            DORIS_CHECK(range.first >= cursor);
+            RETURN_IF_ERROR(_decode_and_validate_skipped(range.first - cursor, cursor,
+                                                         num_dictionary_values));
+            const auto decoded = _index_batch_decoder->GetBatch(indices->data() + output,
+                                                                cast_set<uint32_t>(range.count));
+            if (UNLIKELY(decoded != range.count)) {
+                return Status::IOError("Can't read enough Parquet dictionary indices");
+            }
+            for (size_t row = 0; row < range.count; ++row) {
+                if (UNLIKELY((*indices)[output + row] >= num_dictionary_values)) {
+                    return Status::Corruption(
+                            "Parquet dictionary index {} at row {} exceeds dictionary size {}",
+                            (*indices)[output + row], range.first + row, num_dictionary_values);
+                }
+            }
             output += range.count;
+            cursor = range.first + range.count;
         }
+        DORIS_CHECK(cursor <= selection.total_values);
+        RETURN_IF_ERROR(_decode_and_validate_skipped(selection.total_values - cursor, cursor,
+                                                     num_dictionary_values));
         DORIS_CHECK_EQ(output, selection.selected_values);
         return Status::OK();
     }
@@ -176,16 +181,24 @@ public:
 
 protected:
     Status skip_values(size_t num_values) override {
+        return _decode_and_validate_skipped(num_values, 0, dictionary_size());
+    }
+
+    Status _decode_and_validate_skipped(size_t num_values, size_t row_offset,
+                                        size_t num_dictionary_values) {
         constexpr size_t kSkipBatchSize = 4096;
+        // Skipped dictionary ids are still external input and must be bounds-checked, but keeping
+        // only one bounded gap buffer avoids the page-sized scratch used by sparse selections.
         _skip_indices.resize(std::min(num_values, kSkipBatchSize));
-        const size_t num_dictionary_values = dictionary_size();
         size_t skipped_values = 0;
         while (skipped_values < num_values) {
             const size_t batch_size = std::min(num_values - skipped_values, kSkipBatchSize);
             const auto skipped = _index_batch_decoder->GetBatch(_skip_indices.data(),
                                                                 static_cast<uint32_t>(batch_size));
             if (UNLIKELY(skipped != batch_size)) {
-                return Status::IOError("Can't skip enough Parquet dictionary indices");
+                return Status::IOError(
+                        "Can't skip enough Parquet dictionary indices at row {}: {} of {}",
+                        row_offset + skipped_values, skipped, batch_size);
             }
             // Filter gaps may be huge RLE runs; validate them without allocating by gap size.
             for (size_t row = 0; row < batch_size; ++row) {
@@ -193,7 +206,8 @@ protected:
                     return Status::Corruption(
                             "Parquet dictionary index {} at skipped row {} exceeds dictionary "
                             "size {}",
-                            _skip_indices[row], skipped_values + row, num_dictionary_values);
+                            _skip_indices[row], row_offset + skipped_values + row,
+                            num_dictionary_values);
                 }
             }
             skipped_values += batch_size;

@@ -330,8 +330,49 @@ private:
 
 class TableReaderMaterializeTestHelper final : public TableReader {
 public:
+    using TableReader::_materialize_mapping_column;
     using TableReader::_materialize_map_mapping_column;
 };
+
+TEST(TableReaderTest, LastProjectionDetachesNestedMapWithoutCopyingStrings) {
+    auto keys = ColumnString::create();
+    keys->insert_data(std::string(1UL << 20, 'k').data(), 1UL << 20);
+    auto values = ColumnString::create();
+    values->insert_data(std::string(1UL << 20, 'v').data(), 1UL << 20);
+    const auto* original_value_bytes = values->get_chars().data();
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(1);
+    auto map = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    auto null_map = ColumnUInt8::create(1, 0);
+    ColumnPtr source = ColumnNullable::create(std::move(map), std::move(null_map));
+
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto map_type = make_nullable(std::make_shared<DataTypeMap>(string_type, string_type));
+    Block block;
+    block.insert({source, map_type, "large_map"});
+    source.reset();
+
+    ColumnMapping mapping;
+    mapping.global_index = GlobalIndex(0);
+    mapping.table_column_name = "large_map";
+    mapping.file_column_name = "large_map";
+    mapping.file_local_id = 0;
+    mapping.file_type = map_type;
+    mapping.table_type = map_type;
+    mapping.is_trivial = true;
+    mapping.projection =
+            VExprContext::create_shared(VSlotRef::create_shared(0, 0, -1, map_type, "large_map"));
+    TableReaderMaterializeTestHelper reader;
+    ColumnPtr detached;
+    ASSERT_TRUE(reader._materialize_mapping_column(mapping, &block, 1, &detached,
+                                                   /*take_projection_result=*/true)
+                        .ok());
+    EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+    const auto& detached_nullable = assert_cast<const ColumnNullable&>(*detached);
+    const auto& detached_map = assert_cast<const ColumnMap&>(detached_nullable.get_nested_column());
+    const auto& detached_values = assert_cast<const ColumnString&>(detached_map.get_values());
+    EXPECT_EQ(detached_values.get_chars().data(), original_value_bytes);
+}
 
 VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                int right_column_id) {
