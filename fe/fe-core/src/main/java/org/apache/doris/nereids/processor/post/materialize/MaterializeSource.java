@@ -20,18 +20,46 @@ package org.apache.doris.nereids.processor.post.materialize;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 
-/**
-    the table and slot used to do lazy materialize
- */
-public class MaterializeSource {
-    public final Relation relation;
-    public final SlotReference baseSlot;
+import java.util.Objects;
 
-    /*
-        constructor
-     */
+/** Resolved physical source for one lazy output. */
+public final class MaterializeSource {
+    private final Relation relation;
+    private final SlotReference baseSlot;
+    private final SourceColumnKey sourceColumnKey;
+
     public MaterializeSource(Relation relation, SlotReference baseSlot) {
-        this.relation = relation;
-        this.baseSlot = baseSlot;
+        this.relation = Objects.requireNonNull(relation, "relation must not be null");
+        this.baseSlot = Objects.requireNonNull(baseSlot, "baseSlot must not be null");
+        this.sourceColumnKey = SourceColumnKey.from(relation, baseSlot);
+    }
+
+    public Relation getRelation() {
+        return relation;
+    }
+
+    public SlotReference getBaseSlot() {
+        return baseSlot;
+    }
+
+    public SourceColumnKey getSourceColumnKey() {
+        return sourceColumnKey;
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (this == object) {
+            return true;
+        }
+        if (!(object instanceof MaterializeSource)) {
+            return false;
+        }
+        MaterializeSource other = (MaterializeSource) object;
+        return sourceColumnKey.equals(other.sourceColumnKey) && baseSlot.equals(other.baseSlot);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(sourceColumnKey, baseSlot);
     }
 }

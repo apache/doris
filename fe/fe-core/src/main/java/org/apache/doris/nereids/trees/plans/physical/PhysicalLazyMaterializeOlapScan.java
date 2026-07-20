@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.Statistics;
@@ -28,22 +31,24 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
-/**
- * PhysicalLazyMaterializeOlapScan
- */
+/** Olap scan wrapper that replaces deferred columns with a row-id used by the materialize node. */
 public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
 
     private final PhysicalOlapScan scan;
     private final SlotReference rowId;
     private final List<Slot> lazySlots;
 
-    /**
-     * constr
-     */
-
     public PhysicalLazyMaterializeOlapScan(PhysicalOlapScan physicalOlapScan,
             SlotReference rowId, List<Slot> lazySlots) {
+        this(physicalOlapScan, rowId, lazySlots, physicalOlapScan.getGroupExpression(), null,
+                physicalOlapScan.getPhysicalProperties(), physicalOlapScan.getStats());
+    }
+
+    private PhysicalLazyMaterializeOlapScan(PhysicalOlapScan physicalOlapScan,
+            SlotReference rowId, List<Slot> lazySlots, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
         super(physicalOlapScan.getRelationId(), physicalOlapScan.getTable(), physicalOlapScan.getQualifier(),
                 physicalOlapScan.getSelectedIndexId(),
                 physicalOlapScan.getSelectedTabletIds(),
@@ -51,10 +56,10 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
                 physicalOlapScan.getDistributionSpec(),
                 physicalOlapScan.getPreAggStatus(),
                 physicalOlapScan.getBaseOutputs(),
-                physicalOlapScan.getGroupExpression(),
-                null,
-                physicalOlapScan.getPhysicalProperties(),
-                physicalOlapScan.getStats(),
+                groupExpression,
+                logicalProperties,
+                physicalProperties,
+                statistics,
                 physicalOlapScan.getTableSample(),
                 physicalOlapScan.getOperativeSlots(),
                 physicalOlapScan.getVirtualColumns(),
@@ -116,13 +121,38 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
         return shapeBuilder.toString();
     }
 
-    @Override
-    public PhysicalLazyMaterializeOlapScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            Statistics statistics) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterializeOlapScan(scan, rowId, lazySlots));
-    }
-
     public SlotReference getRowId() {
         return rowId;
+    }
+
+    public List<Slot> getLazySlots() {
+        return lazySlots;
+    }
+
+    @Override
+    public PhysicalLazyMaterializeOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        PhysicalOlapScan copiedScan = scan.withGroupExpression(groupExpression);
+        return AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalLazyMaterializeOlapScan(copiedScan, rowId, lazySlots,
+                        groupExpression, getLogicalProperties(), physicalProperties, statistics));
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        PhysicalOlapScan copiedScan = (PhysicalOlapScan) scan.withGroupExprLogicalPropChildren(
+                groupExpression, logicalProperties, children);
+        return AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalLazyMaterializeOlapScan(copiedScan, rowId, lazySlots,
+                        groupExpression, logicalProperties.orElse(null), physicalProperties, statistics));
+    }
+
+    @Override
+    public PhysicalLazyMaterializeOlapScan withPhysicalPropertiesAndStats(
+            PhysicalProperties physicalProperties, Statistics statistics) {
+        PhysicalOlapScan copiedScan = scan.withPhysicalPropertiesAndStats(physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalLazyMaterializeOlapScan(copiedScan, rowId, lazySlots,
+                        groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 }

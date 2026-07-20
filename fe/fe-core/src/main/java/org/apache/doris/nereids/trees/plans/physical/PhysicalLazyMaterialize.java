@@ -18,176 +18,55 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.materialize.MaterializeSource;
+import org.apache.doris.nereids.processor.post.materialize.DeferredColumnSpec;
+import org.apache.doris.nereids.processor.post.materialize.LazySourceSpec;
+import org.apache.doris.nereids.processor.post.materialize.TopNLazyMaterializationSpec;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.Statistics;
 
-import com.google.common.collect.BiMap;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/**
-    lazy materialize node
- */
+/** Physical node that executes an immutable TopN lazy-materialization specification. */
 public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+    private final TopNLazyMaterializationSpec spec;
 
-    private final Map<Relation, List<Slot>> relationToLazySlotMap;
-
-    private final BiMap<Relation, SlotReference> relationToRowId;
-
-    private final Map<Slot, MaterializeSource> materializeMap;
-
-    private final List<Slot> materializedSlots;
-
-    private final List<Slot> materializeInput;
-    private final List<Slot> materializeOutput;
-    /**
-     * The following four fields are used by BE to perform the actual lazy fetch.
-     * They are indexed by relation: index i corresponds to relations.get(i).
-     *
-     * Example:
-     *   SQL: SELECT t1.a, t1.b, t2.c, t2.d FROM t1 JOIN t2 ON ... WHERE t1.a > 5
-     *   Assume t1.b and t2.d are lazily materialized (fetched after filtering).
-     *
-     *   materializedSlots (non-lazy, computed eagerly) = [t1.a, t2.c]
-     *   Output slot order = [t1.a(0), t2.c(1), t1.b(2), t2.d(3)]
-     *
-     *   rowIdList         = [row_id_t1, row_id_t2]
-     *                       The row-id slots passed to BE to locate the original rows.
-     *
-     *   relations         = [t1, t2]
-     *
-     *   lazyColumns       = [[Column(b)],          [Column(d)]]
-     *                       For each relation, the Column objects to be lazily fetched.
-     *
-     *   lazyBaseColumnIndices = [[colIdxOf(b) in t1],  [colIdxOf(d) in t2]]
-     *                       For each relation, the physical column index inside the table
-     *                       for each lazy column (used by BE to locate the column on disk).
-     *
-     *   lazySlotLocations = [[2],                  [3]]
-     *                       A two-level array: the outer level is indexed by relation
-     *                       (same as relations / rowIdList), and the inner level lists the
-     *                       output-tuple position for each lazy column of that relation.
-     *                       Two levels are needed because a single relation can have
-     *                       multiple lazy columns.  For example, if both t1.b and t1.e
-     *                       were lazy, the entry for t1 would be [2, 4] (positions of b
-     *                       and e in the output tuple), while t2 remains [3].
-     *                       BE uses each position to know which output slot to fill in
-     *                       after fetching the column value from disk.
-     */
-    private final List<Slot> rowIdList;
-    private List<List<Column>> lazyColumns = new ArrayList<>();
-    private List<List<Integer>> lazySlotLocations = new ArrayList<>();
-    private List<List<Integer>> lazyBaseColumnIndices = new ArrayList<>();
-
-    private final List<Relation> relations;
-
-    /**
-     * constructor
-     */
-    public PhysicalLazyMaterialize(CHILD_TYPE child,
-            List<Slot> materializeInput,
-            List<Slot> materializedSlots,
-            Map<Relation, List<Slot>> relationToLazySlotMap,
-            BiMap<Relation, SlotReference> relationToRowId,
-            Map<Slot, MaterializeSource> materializeMap) {
-        this(child, materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, null, null);
+    public PhysicalLazyMaterialize(CHILD_TYPE child, TopNLazyMaterializationSpec spec) {
+        this(child, spec, Optional.empty(), null, null, null);
     }
 
-    /**
-     * constructor
-     */
-    public PhysicalLazyMaterialize(CHILD_TYPE child,
-            List<Slot> materializeInput,
-            List<Slot> materializedSlots,
-            Map<Relation, List<Slot>> relationToLazySlotMap,
-            BiMap<Relation, SlotReference> relationToRowId,
-            Map<Slot, MaterializeSource> materializeMap,
+    public PhysicalLazyMaterialize(CHILD_TYPE child, TopNLazyMaterializationSpec spec,
             PhysicalProperties physicalProperties, Statistics statistics) {
-        super(PlanType.PHYSICAL_MATERIALIZE, Optional.empty(),
-                null, physicalProperties, statistics, child);
-        this.materializeInput = materializeInput;
-        this.relationToLazySlotMap = relationToLazySlotMap;
-        this.relationToRowId = relationToRowId;
-        this.materializedSlots = ImmutableList.copyOf(materializedSlots);
-        this.materializeMap = materializeMap;
-        lazySlotLocations = new ArrayList<>();
-        lazyBaseColumnIndices = new ArrayList<>();
-        lazyColumns = new ArrayList<>();
+        this(child, spec, Optional.empty(), null, physicalProperties, statistics);
+    }
 
-        ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
-        outputBuilder.addAll(materializedSlots);
-        int idx = materializedSlots.size();
-        int loc = idx;
-        ImmutableList.Builder<Slot> rowIdListBuilder = ImmutableList.builder();
-        ImmutableList.Builder<Relation> relationListBuilder = ImmutableList.builder();
-        for (; idx < materializeInput.size(); idx++) {
-            Slot rowId = materializeInput.get(idx);
-            rowIdListBuilder.add(rowId);
-            Relation rel = relationToRowId.inverse().get(rowId);
-            relationListBuilder.add(rel);
-            TableIf relationTable;
-            if (rel instanceof CatalogRelation) {
-                relationTable = ((CatalogRelation) rel).getTable();
-            } else if (rel instanceof PhysicalTVFRelation) {
-                relationTable = ((PhysicalTVFRelation) rel).getFunction().getTable();
-            } else {
-                throw new AnalysisException("Unsupported relation type: " + rel);
-            }
+    private PhysicalLazyMaterialize(CHILD_TYPE child, TopNLazyMaterializationSpec spec,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, Statistics statistics) {
+        super(PlanType.PHYSICAL_MATERIALIZE, groupExpression,
+                logicalProperties, physicalProperties, statistics, child);
+        this.spec = Preconditions.checkNotNull(spec, "spec must not be null");
+    }
 
-            List<Column> lazyColumnForRel = new ArrayList<>();
-            lazyColumns.add(lazyColumnForRel);
-            List<Integer> lazyBaseColumnIdxForRel = new ArrayList<>();
-            lazyBaseColumnIndices.add(lazyBaseColumnIdxForRel);
-
-            List<Integer> lazySlotLocationForRel = new ArrayList<>();
-            lazySlotLocations.add(lazySlotLocationForRel);
-            for (Slot lazySlot : relationToLazySlotMap.get(rel)) {
-                // Set originalColumn on the lazy slot so that createSlotDesc can write
-                // colUniqueId into the thrift SlotDescriptor — BE needs it to resolve
-                // the column during remote fetch.
-                SlotReference baseSlot = materializeMap.get(lazySlot).baseSlot;
-                Column originalColumn = baseSlot.getOriginalColumn().get();
-                SlotReference outputSlot = ((SlotReference) lazySlot).withColumn(originalColumn);
-                if (baseSlot.getAllAccessPaths().isPresent()) {
-                    outputSlot = outputSlot.withAccessPaths(
-                            baseSlot.getAllAccessPaths().get(),
-                            baseSlot.getPredicateAccessPaths().orElse(ImmutableList.of()),
-                            baseSlot.getDisplayAllAccessPaths().orElse(ImmutableList.of()),
-                            baseSlot.getDisplayPredicateAccessPaths().orElse(ImmutableList.of()));
-                }
-                outputBuilder.add(outputSlot);
-                lazyColumnForRel.add(originalColumn);
-                lazyBaseColumnIdxForRel.add(relationTable.getBaseColumnIdxByName(lazySlot.getName()));
-                lazySlotLocationForRel.add(loc);
-                loc++;
-            }
-        }
-        relations = relationListBuilder.build();
-        rowIdList = rowIdListBuilder.build();
-        this.materializeOutput = outputBuilder.build();
+    public TopNLazyMaterializationSpec getSpec() {
+        return spec;
     }
 
     @Override
@@ -197,114 +76,143 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return materializedSlots;
+        return spec.getMaterializedSlots();
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return materializeOutput;
+        return spec.getMaterializeOutput();
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return null;
+    public PhysicalLazyMaterialize<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize<>(child(), spec,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 
     @Override
-    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+    public PhysicalLazyMaterialize<Plan> withGroupExprLogicalPropChildren(
+            Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return null;
+        Preconditions.checkArgument(children.size() == 1, "PhysicalLazyMaterialize must have one child");
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize<>(children.get(0), spec,
+                groupExpression, logicalProperties.orElse(null), physicalProperties, statistics));
     }
 
     @Override
-    public void computeUnique(Builder builder) {
-
+    public PhysicalLazyMaterialize<Plan> withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1, "PhysicalLazyMaterialize must have one child");
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize<>(children.get(0), spec,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 
     @Override
-    public void computeUniform(Builder builder) {
-
-    }
-
-    @Override
-    public void computeEqualSet(Builder builder) {
-
-    }
-
-    @Override
-    public void computeFd(Builder builder) {
-
-    }
-
-    @Override
-    public Plan withChildren(List<Plan> children) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize<>(children.get(0),
-                materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, null, null));
+    public PhysicalLazyMaterialize<CHILD_TYPE> withPhysicalPropertiesAndStats(
+            PhysicalProperties physicalProperties, Statistics statistics) {
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize<>(child(), spec,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("PhysicalLazyMaterialize [Output= (")
-                .append(getOutput()).append("), lazySlots= (");
-        for (Map.Entry<Relation, List<Slot>> entry : relationToLazySlotMap.entrySet()) {
-            builder.append(entry.getValue());
-        }
-        builder.append(")]");
-        return builder.toString();
-    }
-
-    @Override
-    public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize(children.get(0),
-                materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, physicalProperties, statistics));
+        return "PhysicalLazyMaterialize [Output= (" + getOutput() + "), lazySlots= ("
+                + getAllLazySlots() + ")]";
     }
 
     @Override
     public String shapeInfo() {
-        StringBuilder shapeBuilder = new StringBuilder();
-        List<Slot> lazySlots = new ArrayList<>();
-        for (List<Slot> slots : relationToLazySlotMap.values()) {
-            lazySlots.addAll(slots);
-        }
-        lazySlots = lazySlots.stream().sorted(new Comparator<Slot>() {
-            @Override
-            public int compare(Slot slot, Slot t1) {
-                return slot.shapeInfo().compareTo(t1.shapeInfo());
-            }
-        }).collect(Collectors.toList());
-        shapeBuilder.append(this.getClass().getSimpleName())
-                .append("[").append("materializedSlots:")
-                .append(ExpressionUtils.slotListShapeInfo(materializedSlots))
-                .append(" lazySlots:")
-                .append(ExpressionUtils.slotListShapeInfo(lazySlots));
-        shapeBuilder.append("]");
-        return shapeBuilder.toString();
+        List<Slot> lazySlots = getAllLazySlots().stream()
+                .sorted(Comparator.comparing(Slot::shapeInfo))
+                .collect(Collectors.toList());
+        return getClass().getSimpleName() + "[materializedSlots:"
+                + ExpressionUtils.slotListShapeInfo(spec.getMaterializedSlots())
+                + " lazySlots:" + ExpressionUtils.slotListShapeInfo(lazySlots) + "]";
     }
 
     public List<Relation> getRelations() {
-        return relations;
+        ImmutableList.Builder<Relation> relations = ImmutableList.builder();
+        spec.getSources().forEach(source -> relations.add(source.getRelation()));
+        return relations.build();
     }
 
+    /** Existing FE-BE protocol view, deterministically derived from the immutable source specs. */
     public List<List<Column>> getLazyColumns() {
-        return lazyColumns;
+        ImmutableList.Builder<List<Column>> result = ImmutableList.builder();
+        for (LazySourceSpec source : spec.getSources()) {
+            ImmutableList.Builder<Column> columns = ImmutableList.builder();
+            for (DeferredColumnSpec deferred : source.getDeferredColumns()) {
+                for (int i = 0; i < deferred.getOutputSlots().size(); i++) {
+                    columns.add(deferred.getOriginalColumn());
+                }
+            }
+            result.add(columns.build());
+        }
+        return result.build();
     }
 
+    /** Existing FE-BE protocol view, deterministically derived from the immutable source specs. */
     public List<List<Integer>> getLazySlotLocations() {
-        return lazySlotLocations;
+        ImmutableList.Builder<List<Integer>> result = ImmutableList.builder();
+        int location = spec.getMaterializedSlots().size();
+        for (LazySourceSpec source : spec.getSources()) {
+            ImmutableList.Builder<Integer> locations = ImmutableList.builder();
+            for (DeferredColumnSpec deferred : source.getDeferredColumns()) {
+                for (int i = 0; i < deferred.getOutputSlots().size(); i++) {
+                    locations.add(location++);
+                }
+            }
+            result.add(locations.build());
+        }
+        return result.build();
     }
 
+    /** Existing FE-BE protocol view, deterministically derived from the immutable source specs. */
     public List<List<Integer>> getLazyBaseColumnIndices() {
-        return lazyBaseColumnIndices;
+        ImmutableList.Builder<List<Integer>> result = ImmutableList.builder();
+        for (LazySourceSpec source : spec.getSources()) {
+            ImmutableList.Builder<Integer> indices = ImmutableList.builder();
+            for (DeferredColumnSpec deferred : source.getDeferredColumns()) {
+                for (int i = 0; i < deferred.getOutputSlots().size(); i++) {
+                    indices.add(deferred.getBaseColumnIndex());
+                }
+            }
+            result.add(indices.build());
+        }
+        return result.build();
     }
 
     public List<Slot> getRowIds() {
-        return rowIdList;
+        ImmutableList.Builder<Slot> rowIds = ImmutableList.builder();
+        spec.getSources().forEach(source -> rowIds.add(source.getRowIdSlot()));
+        return rowIds.build();
     }
 
     public List<Slot> getLazySlots(Relation relation) {
-        return relationToLazySlotMap.getOrDefault(relation, ImmutableList.of());
+        LazySourceSpec source = spec.getSourceByRelationId().get(relation.getRelationId());
+        return source == null ? ImmutableList.of() : source.getLazyOutputSlots();
+    }
+
+    private List<Slot> getAllLazySlots() {
+        List<Slot> lazySlots = new ArrayList<>();
+        for (LazySourceSpec source : spec.getSources()) {
+            lazySlots.addAll(source.getLazyOutputSlots());
+        }
+        return lazySlots;
+    }
+
+    @Override
+    public void computeUnique(Builder builder) {
+    }
+
+    @Override
+    public void computeUniform(Builder builder) {
+    }
+
+    @Override
+    public void computeEqualSet(Builder builder) {
+    }
+
+    @Override
+    public void computeFd(Builder builder) {
     }
 }

@@ -15,11 +15,11 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->s_nationkey
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=()
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->ps_suppkey
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF0 p_partkey->ps_partkey
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
+--------------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0 RF1
 ------------------------------------PhysicalProject
 --------------------------------------filter((part.p_size = 15) and (part.p_type like '%BRASS'))
 ----------------------------------------PhysicalLazyMaterializeOlapScan[part lazySlots:(part.p_mfgr)]

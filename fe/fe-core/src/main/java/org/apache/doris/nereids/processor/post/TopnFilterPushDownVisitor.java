@@ -263,7 +263,6 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
         return relation instanceof PhysicalOlapScan
                 || relation instanceof PhysicalOdbcScan
-                || relation instanceof PhysicalFileScan
-                || relation instanceof PhysicalLazyMaterializeOlapScan;
+                || relation instanceof PhysicalFileScan;
     }
 }

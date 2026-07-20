@@ -145,10 +145,9 @@ suite("test_tvf_topn_lazy_mat", "p0,external") {
             sql """ verbose select * from ${tvf_parquet_1} order by id limit 5; """ 
             contains("VMaterializeNode")
             contains("projectList:[id, name, value, active, score]")
-
-            contains("column_descs_lists[[`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL]]")
+            contains("column_descs_lists[[`active` boolean NULL, `name` text NULL, `score` double NULL, `value` double NULL]]")
             contains("locations: [[1, 2, 3, 4]]")
-            contains("column_idxs_lists: [[1, 2, 3, 4]]")
+            contains("column_idxs_lists: [[3, 1, 4, 2]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__hdfs]")
             contains("isTopMaterializeNode: true")
             contains("col=id, colUniqueId=-1, type=bigint, nullable=true")

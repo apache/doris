@@ -32,41 +32,42 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-/**
- wrapper for PhysicalTVFRelation used for lazy materialization
- */
+/** TVF scan wrapper that replaces deferred columns with a row-id used by the materialize node. */
 public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
-    private PhysicalTVFRelation scan;
-    private SlotReference rowId;
+    private final PhysicalTVFRelation scan;
+    private final SlotReference rowId;
     private final List<Slot> lazySlots;
-    private List<Slot> output;
 
-    /**
-     * PhysicalLazyMaterializeTVFScan
-     */
     public PhysicalLazyMaterializeTVFScan(PhysicalTVFRelation scan, SlotReference rowId, List<Slot> lazySlots) {
-        super(scan.getRelationId(), scan.getFunction(), scan.getOperativeSlots(), scan.getLogicalProperties());
+        this(scan, rowId, lazySlots, scan.getGroupExpression(), null,
+                scan.getPhysicalProperties(), scan.getStats());
+    }
+
+    private PhysicalLazyMaterializeTVFScan(PhysicalTVFRelation scan, SlotReference rowId, List<Slot> lazySlots,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, Statistics statistics) {
+        super(scan.getRelationId(), scan.getFunction(), scan.getOperativeSlots(),
+                groupExpression, logicalProperties, physicalProperties, statistics);
         this.scan = scan;
         this.rowId = rowId;
-        this.lazySlots = lazySlots;
+        this.lazySlots = ImmutableList.copyOf(lazySlots);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        if (output == null) {
-            ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
-            for (Slot slot : scan.getOutput()) {
-                if (!lazySlots.contains(slot)) {
-                    outputBuilder.add(slot);
-                }
+        ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
+        for (Slot slot : scan.getOutput()) {
+            if (!lazySlots.contains(slot)) {
+                outputBuilder.add(slot);
             }
-            output = outputBuilder.add(rowId).build();
         }
-        return output;
+        return outputBuilder.add(rowId).build();
     }
 
     @Override
     public List<Slot> getOutput() {
+        // PhysicalTVFRelation generates its output from the function schema. Use the wrapped scan's
+        // stable slots so repeated output access does not generate new ExprIds for this decorated relation.
         return computeOutput();
     }
 
@@ -85,16 +86,29 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalTVFRelation(this, context);
+        return visitor.visitPhysicalLazyMaterializeTVFScan(this, context);
+    }
+
+    public PhysicalTVFRelation getScan() {
+        return scan;
+    }
+
+    public SlotReference getRowId() {
+        return rowId;
+    }
+
+    public List<Slot> getLazySlots() {
+        return lazySlots;
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         PhysicalTVFRelation tvfRelation = new PhysicalTVFRelation(relationId, function, operativeSlots,
-                Optional.empty(), getLogicalProperties(), physicalProperties, statistics);
+                groupExpression, getLogicalProperties(), physicalProperties, statistics);
         return AbstractPlan.copyWithSameId(this, () ->
-                new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots));
+                new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots,
+                        groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 
     @Override
@@ -102,15 +116,17 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
         PhysicalTVFRelation tvfRelation = new PhysicalTVFRelation(relationId, function, operativeSlots,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics);
         return AbstractPlan.copyWithSameId(this, () ->
-                new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots));
+                new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots,
+                        groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         PhysicalTVFRelation tvfRelation = new PhysicalTVFRelation(relationId, function, operativeSlots,
-                groupExpression, logicalProperties.get(), physicalProperties, statistics);
+                groupExpression, logicalProperties.orElse(null), physicalProperties, statistics);
         return AbstractPlan.copyWithSameId(this, () ->
-                new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots));
+                new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots,
+                        groupExpression, logicalProperties.orElse(null), physicalProperties, statistics));
     }
 }
