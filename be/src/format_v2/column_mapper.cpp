@@ -101,7 +101,9 @@ Status build_initial_default_literal(const ColumnDefinition& column, VExprContex
 }
 
 bool has_shared_descendant_field_id(const ColumnDefinition& table, const ColumnDefinition& file) {
-    for (const auto& table_child : table.children) {
+    const auto& table_children =
+            table.identity_children.empty() ? table.children : table.identity_children;
+    for (const auto& table_child : table_children) {
         if (!table_child.has_identifier_field_id()) {
             continue;
         }
@@ -405,6 +407,9 @@ std::string ColumnDefinition::debug_string() const {
         << ", has_name_mapping=" << has_name_mapping << ", local_id=" << local_id
         << ", type=" << data_type_debug_string(type) << ", children="
         << join_debug_strings(children,
+                              [](const ColumnDefinition& child) { return child.debug_string(); })
+        << ", identity_children="
+        << join_debug_strings(identity_children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", has_default_expr=" << (default_expr != nullptr)
         << ", is_partition_key=" << is_partition_key << "}";

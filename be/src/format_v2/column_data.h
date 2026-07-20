@@ -258,6 +258,9 @@ struct ColumnDefinition {
     // FileReader::get_schema() also expose semantic children, not physical reader wrappers. For
     // example, MAP children are key/value and ARRAY children contain only the element field.
     std::vector<ColumnDefinition> children {};
+    // Full table-schema identity subtree before access-path pruning. ID-less physical complex
+    // wrappers must be discovered from this view without adding unrequested children to output.
+    std::vector<ColumnDefinition> identity_children {};
     // Expression used to materialize missing/default/generated values when the column is not read
     // directly from the file.
     VExprContextSPtr default_expr = nullptr;
