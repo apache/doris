@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -734,6 +735,15 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                 )
                         )
                 );
+    }
+
+    @Test
+    public void testAggregateOrderByExpressionCannotContainAggregateFunction() {
+        String sql = "select group_concat(k order by sum(k)) as s "
+                + "from (select 1 as k union all select 2) t";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertEquals("aggregate function cannot contain aggregate parameters", exception.getMessage());
     }
 
     @Test
