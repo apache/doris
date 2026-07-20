@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <map>
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <string>
@@ -106,11 +107,18 @@ private:
     // so we need to resize the subtype of a complex type
     Status _resize_row_batch(const DataTypePtr& type, const IColumn& column,
                              orc::ColumnVectorBatch* orc_col_batch);
-    bool _collect_column_bounds(const orc::ColumnStatistics* col_stats, int32_t field_id,
-                                const DataTypePtr& data_type,
-                                std::map<int32_t, std::string>* lower_bounds,
-                                std::map<int32_t, std::string>* upper_bounds);
-    std::string _decimal_to_bytes(const orc::Decimal& decimal);
+    const iceberg::NestedField* _iceberg_field_for_column(const std::string& column_name) const;
+    Status _collect_iceberg_metrics(const orc::Reader* reader, const orc::Statistics* file_stats,
+                                    std::map<int32_t, int64_t>* column_sizes,
+                                    std::map<int32_t, int64_t>* value_counts,
+                                    std::map<int32_t, int64_t>* null_value_counts,
+                                    std::map<int32_t, std::string>* lower_bounds,
+                                    std::map<int32_t, std::string>* upper_bounds) const;
+    void _collect_primitive_column_bounds(const orc::ColumnStatistics* col_stats, int32_t field_id,
+                                          const iceberg::Type* field_type,
+                                          std::map<int32_t, std::string>* lower_bounds,
+                                          std::map<int32_t, std::string>* upper_bounds) const;
+    std::string _decimal_to_bytes(const orc::Decimal& decimal, int target_scale) const;
     std::shared_ptr<io::FileSystem> _fs = nullptr;
     doris::io::FileWriter* _file_writer = nullptr;
     std::vector<std::string> _column_names;

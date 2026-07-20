@@ -1,0 +1,106 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_iceberg_complex_type_metrics", "p0,external") {
+    String enabled = context.config.otherConfigs.get("enableIcebergTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable iceberg test.")
+        return
+    }
+
+    String catalogName = "test_iceberg_complex_type_metrics"
+    String dbName = "test_iceberg_complex_type_metrics_db"
+    String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
+    String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
+    sql """drop catalog if exists ${catalogName}"""
+    sql """
+        CREATE CATALOG ${catalogName} PROPERTIES (
+            'type'='iceberg',
+            'iceberg.catalog.type'='rest',
+            'uri'='http://${externalEnvIp}:${restPort}',
+            's3.access_key'='admin',
+            's3.secret_key'='password',
+            's3.endpoint'='http://${externalEnvIp}:${minioPort}',
+            's3.region'='us-east-1',
+            'enable.mapping.varbinary'='true'
+        )
+    """
+
+    sql """switch ${catalogName}"""
+    sql """create database if not exists ${dbName}"""
+    sql """use ${dbName}"""
+
+    def assertNoBoundsForComplexField = { String tableName, String complexFieldId ->
+        List<List<Object>> rows = sql """
+            SELECT lower_bounds, upper_bounds
+            FROM ${tableName}\$files
+        """
+        assertTrue(rows.size() > 0, "${tableName} should have data file metrics")
+        rows.each { row ->
+            assertTrue(!String.valueOf(row[0]).contains("${complexFieldId}:"),
+                    "${tableName} lower_bounds should not contain complex field ${complexFieldId}: ${row[0]}")
+            assertTrue(!String.valueOf(row[1]).contains("${complexFieldId}:"),
+                    "${tableName} upper_bounds should not contain complex field ${complexFieldId}: ${row[1]}")
+        }
+    }
+
+    sql """DROP TABLE IF EXISTS repro_iceberg_orc_map_bool_metrics"""
+    sql """
+        CREATE TABLE repro_iceberg_orc_map_bool_metrics (
+            id int,
+            t_map_boolean map<boolean, boolean>,
+            dt int
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt) ()
+        PROPERTIES (
+            "write-format" = "orc",
+            "compression-codec" = "zlib"
+        )
+    """
+
+    sql """
+        INSERT INTO repro_iceberg_orc_map_bool_metrics
+        VALUES (1, MAP(true, false), 20260702)
+    """
+
+    sql """SELECT * FROM repro_iceberg_orc_map_bool_metrics\$data_files"""
+    assertNoBoundsForComplexField("repro_iceberg_orc_map_bool_metrics", "2")
+
+    sql """DROP TABLE IF EXISTS repro_iceberg_parquet_map_bool_metrics"""
+    sql """
+        CREATE TABLE repro_iceberg_parquet_map_bool_metrics (
+            id int,
+            t_map_boolean map<boolean, boolean>,
+            dt int
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt) ()
+        PROPERTIES (
+            "write-format" = "parquet",
+            "compression-codec" = "zstd"
+        )
+    """
+
+    sql """
+        INSERT INTO repro_iceberg_parquet_map_bool_metrics
+        VALUES (1, MAP(true, false), 20260702)
+    """
+
+    sql """SELECT * FROM repro_iceberg_parquet_map_bool_metrics\$data_files"""
+    assertNoBoundsForComplexField("repro_iceberg_parquet_map_bool_metrics", "2")
+}

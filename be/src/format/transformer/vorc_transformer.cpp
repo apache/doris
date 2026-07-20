@@ -21,11 +21,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <exception>
 #include <ostream>
 #include <sstream>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
@@ -61,6 +63,15 @@
 #include "util/debug_util.h"
 
 namespace doris {
+namespace {
+
+bool is_orc_index_stream(orc::StreamKind kind) {
+    return kind == orc::StreamKind_ROW_INDEX || kind == orc::StreamKind_DICTIONARY_COUNT ||
+           kind == orc::StreamKind_BLOOM_FILTER || kind == orc::StreamKind_BLOOM_FILTER_UTF8;
+}
+
+} // namespace
+
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
@@ -128,6 +139,19 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
 }
 
 Status VOrcTransformer::open() {
+    std::vector<const iceberg::NestedField*> iceberg_output_fields;
+    if (_iceberg_schema != nullptr) {
+        iceberg_output_fields.reserve(_column_names.size());
+        for (const auto& column_name : _column_names) {
+            const iceberg::NestedField* field = _iceberg_field_for_column(column_name);
+            if (field == nullptr) {
+                return Status::InternalError("Can not find Iceberg field for ORC output column {}",
+                                             column_name);
+            }
+            iceberg_output_fields.push_back(field);
+        }
+    }
+
     if (!_schema_str.empty()) {
         try {
             _schema = orc::Type::buildTypeFromString(_schema_str);
@@ -137,16 +161,12 @@ Status VOrcTransformer::open() {
         }
     } else {
         _schema = orc::createStructType();
-        const std::vector<iceberg::NestedField>* nested_fields = nullptr;
-        if (_iceberg_schema != nullptr) {
-            const iceberg::StructType& iceberg_root_struct_type = _iceberg_schema->root_struct();
-            nested_fields = &iceberg_root_struct_type.fields();
-        }
         for (int i = 0; i < _output_vexpr_ctxs.size(); i++) {
             VExprSPtr column_expr = _output_vexpr_ctxs[i]->root();
             try {
                 std::unique_ptr<orc::Type> orc_type = _build_orc_type(
-                        column_expr->data_type(), nested_fields ? &(*nested_fields)[i] : nullptr);
+                        column_expr->data_type(),
+                        _iceberg_schema != nullptr ? iceberg_output_fields[i] : nullptr);
                 _schema->addStructField(_column_names[i], std::move(orc_type));
             } catch (doris::Exception& e) {
                 return e.to_status();
@@ -163,6 +183,18 @@ Status VOrcTransformer::open() {
     }
     _writer->addUserMetadata("CreatedBy", doris::get_short_version());
     return Status::OK();
+}
+
+const iceberg::NestedField* VOrcTransformer::_iceberg_field_for_column(
+        const std::string& column_name) const {
+    if (_iceberg_schema == nullptr) {
+        return nullptr;
+    }
+    const auto& fields = _iceberg_schema->root_struct().fields();
+    auto it = std::find_if(fields.begin(), fields.end(), [&](const iceberg::NestedField& field) {
+        return field.field_name() == column_name;
+    });
+    return it == fields.end() ? nullptr : &(*it);
 }
 
 void VOrcTransformer::set_compression_type(const TFileCompressType::type& compress_type) {
@@ -376,48 +408,20 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
             return Status::OK();
         }
 
+        std::map<int32_t, int64_t> column_sizes;
         std::map<int32_t, int64_t> value_counts;
         std::map<int32_t, int64_t> null_value_counts;
         std::map<int32_t, std::string> lower_bounds;
         std::map<int32_t, std::string> upper_bounds;
-        bool has_any_null_count = false;
-        bool has_any_min_max = false;
 
-        const iceberg::StructType& root_struct = _iceberg_schema->root_struct();
-        const auto& nested_fields = root_struct.fields();
-        for (uint32_t i = 0; i < nested_fields.size(); i++) {
-            uint32_t orc_col_id = i + 1; // skip root struct
-            if (orc_col_id >= file_stats->getNumberOfColumns()) {
-                continue;
-            }
+        RETURN_IF_ERROR(_collect_iceberg_metrics(reader.get(), file_stats.get(), &column_sizes,
+                                                 &value_counts, &null_value_counts, &lower_bounds,
+                                                 &upper_bounds));
 
-            const orc::ColumnStatistics* col_stats = file_stats->getColumnStatistics(orc_col_id);
-            if (col_stats == nullptr) {
-                continue;
-            }
-
-            int32_t field_id = nested_fields[i].field_id();
-            int64_t non_null_count = col_stats->getNumberOfValues();
-            value_counts[field_id] = non_null_count;
-            if (col_stats->hasNull()) {
-                has_any_null_count = true;
-                int64_t null_count = _cur_written_rows - non_null_count;
-                null_value_counts[field_id] = null_count;
-                value_counts[field_id] += null_count;
-            }
-
-            if (_collect_column_bounds(col_stats, field_id,
-                                       _output_vexpr_ctxs[i]->root()->data_type(), &lower_bounds,
-                                       &upper_bounds)) {
-                has_any_min_max = true;
-            }
-        }
-
+        stats->__set_column_sizes(column_sizes);
         stats->__set_value_counts(value_counts);
-        if (has_any_null_count) {
-            stats->__set_null_value_counts(null_value_counts);
-        }
-        if (has_any_min_max) {
+        stats->__set_null_value_counts(null_value_counts);
+        if (!lower_bounds.empty()) {
             stats->__set_lower_bounds(lower_bounds);
             stats->__set_upper_bounds(upper_bounds);
         }
@@ -428,18 +432,71 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
     }
 }
 
-bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_stats,
-                                             int32_t field_id, const DataTypePtr& data_type,
-                                             std::map<int32_t, std::string>* lower_bounds,
-                                             std::map<int32_t, std::string>* upper_bounds) {
-    bool has_bounds = false;
-    auto primitive_type = remove_nullable(data_type)->get_primitive_type();
+Status VOrcTransformer::_collect_iceberg_metrics(
+        const orc::Reader* reader, const orc::Statistics* file_stats,
+        std::map<int32_t, int64_t>* column_sizes, std::map<int32_t, int64_t>* value_counts,
+        std::map<int32_t, int64_t>* null_value_counts, std::map<int32_t, std::string>* lower_bounds,
+        std::map<int32_t, std::string>* upper_bounds) const {
+    std::map<uint64_t, int32_t> orc_to_iceberg_field_ids;
+    for (uint32_t orc_col_id = 1; orc_col_id < file_stats->getNumberOfColumns(); ++orc_col_id) {
+        const orc::Type* orc_type = _schema->getTypeByColumnId(orc_col_id);
+        if (!orc_type->hasAttributeKey(ORC_ICEBERG_ID_KEY)) {
+            continue;
+        }
+
+        int32_t field_id = std::stoi(orc_type->getAttributeValue(ORC_ICEBERG_ID_KEY));
+        iceberg::Type* field_type = _iceberg_schema->find_type(field_id);
+        if (field_type == nullptr) {
+            return Status::InternalError("Can not find Iceberg field for ORC metrics: {}",
+                                         field_id);
+        }
+        if (_iceberg_schema->is_nested_in_list_or_map(field_id)) {
+            continue;
+        }
+
+        orc_to_iceberg_field_ids.emplace(orc_col_id, field_id);
+        (*column_sizes)[field_id] = 0;
+        const orc::ColumnStatistics* col_stats = file_stats->getColumnStatistics(orc_col_id);
+        if (col_stats != nullptr) {
+            int64_t non_null_count = cast_set<int64_t>(col_stats->getNumberOfValues());
+            DORIS_CHECK_GE(_cur_written_rows, non_null_count);
+            int64_t null_count = col_stats->hasNull() ? _cur_written_rows - non_null_count : 0;
+            (*null_value_counts)[field_id] = null_count;
+            (*value_counts)[field_id] = non_null_count + null_count;
+            if (field_type->is_primitive_type()) {
+                _collect_primitive_column_bounds(col_stats, field_id, field_type, lower_bounds,
+                                                 upper_bounds);
+            }
+        }
+    }
+
+    for (uint64_t stripe_id = 0; stripe_id < reader->getNumberOfStripes(); ++stripe_id) {
+        std::unique_ptr<orc::StripeInformation> stripe = reader->getStripe(stripe_id);
+        for (uint64_t stream_id = 0; stream_id < stripe->getNumberOfStreams(); ++stream_id) {
+            std::unique_ptr<orc::StreamInformation> stream =
+                    stripe->getStreamInformation(stream_id);
+            if (is_orc_index_stream(stream->getKind())) {
+                continue;
+            }
+            auto field_id = orc_to_iceberg_field_ids.find(stream->getColumnId());
+            if (field_id != orc_to_iceberg_field_ids.end()) {
+                (*column_sizes)[field_id->second] += cast_set<int64_t>(stream->getLength());
+            }
+        }
+    }
+    return Status::OK();
+}
+
+void VOrcTransformer::_collect_primitive_column_bounds(
+        const orc::ColumnStatistics* col_stats, int32_t field_id, const iceberg::Type* field_type,
+        std::map<int32_t, std::string>* lower_bounds,
+        std::map<int32_t, std::string>* upper_bounds) const {
+    auto primitive_type = field_type->type_id();
     if (const auto* bool_stats = dynamic_cast<const orc::BooleanColumnStatistics*>(col_stats)) {
         if (bool_stats->hasCount()) {
             uint64_t true_count = bool_stats->getTrueCount();
             uint64_t false_count = bool_stats->getFalseCount();
             if (true_count > 0 || false_count > 0) {
-                has_bounds = true;
                 bool min_val = (false_count == 0);
                 bool max_val = (true_count > 0);
                 (*lower_bounds)[field_id] =
@@ -451,19 +508,26 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
     } else if (const auto* int_stats =
                        dynamic_cast<const orc::IntegerColumnStatistics*>(col_stats)) {
         if (int_stats->hasMinimum() && int_stats->hasMaximum()) {
-            has_bounds = true;
-            int64_t min_val = int_stats->getMinimum();
-            int64_t max_val = int_stats->getMaximum();
-            (*lower_bounds)[field_id] =
-                    std::string(reinterpret_cast<const char*>(&min_val), sizeof(int64_t));
-            (*upper_bounds)[field_id] =
-                    std::string(reinterpret_cast<const char*>(&max_val), sizeof(int64_t));
+            if (primitive_type == iceberg::TypeID::LONG) {
+                int64_t min_val = int_stats->getMinimum();
+                int64_t max_val = int_stats->getMaximum();
+                (*lower_bounds)[field_id] =
+                        std::string(reinterpret_cast<const char*>(&min_val), sizeof(int64_t));
+                (*upper_bounds)[field_id] =
+                        std::string(reinterpret_cast<const char*>(&max_val), sizeof(int64_t));
+            } else {
+                int32_t min_val = static_cast<int32_t>(int_stats->getMinimum());
+                int32_t max_val = static_cast<int32_t>(int_stats->getMaximum());
+                (*lower_bounds)[field_id] =
+                        std::string(reinterpret_cast<const char*>(&min_val), sizeof(int32_t));
+                (*upper_bounds)[field_id] =
+                        std::string(reinterpret_cast<const char*>(&max_val), sizeof(int32_t));
+            }
         }
     } else if (const auto* double_stats =
                        dynamic_cast<const orc::DoubleColumnStatistics*>(col_stats)) {
         if (double_stats->hasMinimum() && double_stats->hasMaximum()) {
-            has_bounds = true;
-            if (primitive_type == TYPE_FLOAT) {
+            if (primitive_type == iceberg::TypeID::FLOAT) {
                 auto min_val = static_cast<float>(double_stats->getMinimum());
                 auto max_val = static_cast<float>(double_stats->getMaximum());
                 (*lower_bounds)[field_id] =
@@ -482,13 +546,11 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
     } else if (const auto* string_stats =
                        dynamic_cast<const orc::StringColumnStatistics*>(col_stats)) {
         if (string_stats->hasMinimum() && string_stats->hasMaximum()) {
-            has_bounds = true;
             (*lower_bounds)[field_id] = string_stats->getMinimum();
             (*upper_bounds)[field_id] = string_stats->getMaximum();
         }
     } else if (const auto* date_stats = dynamic_cast<const orc::DateColumnStatistics*>(col_stats)) {
         if (date_stats->hasMinimum() && date_stats->hasMaximum()) {
-            has_bounds = true;
             int32_t min_val = date_stats->getMinimum();
             int32_t max_val = date_stats->getMaximum();
             (*lower_bounds)[field_id] =
@@ -499,7 +561,6 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
     } else if (const auto* ts_stats =
                        dynamic_cast<const orc::TimestampColumnStatistics*>(col_stats)) {
         if (ts_stats->hasMinimum() && ts_stats->hasMaximum()) {
-            has_bounds = true;
             int64_t min_val = ts_stats->getMinimum() * 1000;
             int64_t max_val = ts_stats->getMaximum() * 1000;
             (*lower_bounds)[field_id] =
@@ -510,42 +571,33 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
     } else if (const auto* decimal_stats =
                        dynamic_cast<const orc::DecimalColumnStatistics*>(col_stats)) {
         if (decimal_stats->hasMinimum() && decimal_stats->hasMaximum()) {
-            has_bounds = true;
-            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum());
-            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum());
+            const auto* decimal_type = assert_cast<const iceberg::DecimalType*>(field_type);
+            (*lower_bounds)[field_id] =
+                    _decimal_to_bytes(decimal_stats->getMinimum(), decimal_type->get_scale());
+            (*upper_bounds)[field_id] =
+                    _decimal_to_bytes(decimal_stats->getMaximum(), decimal_type->get_scale());
         }
     }
-
-    return has_bounds;
 }
 
-std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
+std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal,
+                                               int target_scale) const {
+    DORIS_CHECK_GE(target_scale, decimal.scale);
     orc::Int128 val = decimal.value;
-    if (val == 0) {
-        char zero = 0;
-        return std::string(&zero, 1);
+    for (int scale = decimal.scale; scale < target_scale; ++scale) {
+        val *= orc::Int128(10);
     }
 
-    // Convert Int128 -> signed big-endian minimal bytes
     bool negative = val < 0;
     auto high = static_cast<uint64_t>(val.getHighBits());
     auto low = val.getLowBits();
 
-    // If negative, convert to two's complement explicitly
-    if (negative) {
-        // two's complement for 128-bit
-        low = ~low + 1;
-        high = ~high + (low == 0 ? 1 : 0);
-    }
-
-    // Serialize to big-endian bytes
     uint8_t buf[16];
     for (int i = 0; i < 8; ++i) {
         buf[i] = static_cast<uint8_t>(high >> (56 - i * 8));
         buf[i + 8] = static_cast<uint8_t>(low >> (56 - i * 8));
     }
 
-    // Strip leading sign-extension bytes (Iceberg minimal encoding)
     int start = 0;
     uint8_t sign_byte = negative ? 0xFF : 0x00;
     while (start < 15 && buf[start] == sign_byte &&
