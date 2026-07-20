@@ -55,6 +55,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 
@@ -643,6 +644,29 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // No insert-frequency signal for external tables; 0 = always allow sorting (the manager's
         // "skip sort if loaded within cacheSortedPartitionIntervalSecond" heuristic never trips).
         return 0L;
+    }
+
+    @Override
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        // Cache B (NereidsSortedPartitionsCacheManager) is keyed by getPartitionMetaVersion(scan), i.e.
+        // "<snapshotId>@<schemaId>". That token only detects a partition-set change when snapshotId is a
+        // REAL, monotonically-changing value (iceberg/paimon). Hive's beginQuerySnapshot always pins the
+        // sentinel snapshotId == -1 (hive has no MVCC snapshot), so the token would be the CONSTANT
+        // "-1@<schemaId>" across queries -- a cache hit could then serve ranges built from an OLDER
+        // partition set than the current pin's nameToPartitionItem (e.g. after a CachingHmsClient TTL
+        // refresh with no invalidate event), silently pruning against a stale range set. Skip the cache
+        // for a -1 (non-MVCC / sentinel) snapshot: return empty so the caller (PruneFileScanPartition)
+        // builds ranges fresh from THIS query's pin every time, which is always consistent with it -- the
+        // pre-cache behavior. A real snapshot id (iceberg/paimon) keeps the cache via super's delegation
+        // to the cache manager. An EMPTY iceberg table also pins snapshotId == -1, but its
+        // nameToPartitionItem is then empty too, and PruneFileScanPartition's
+        // "!nameToPartitionItem.isEmpty()" guard already skips ranges entirely -- so gating on -1 here is
+        // safe for that case as well.
+        ConnectorMvccSnapshot cs = getOrMaterialize(pinnedSnapshot(scan)).getConnectorSnapshot();
+        if (cs.getSnapshotId() == -1L) {
+            return Optional.empty();
+        }
+        return super.getSortedPartitionRanges(scan);
     }
 
     private Optional<MvccSnapshot> pinnedSnapshot(CatalogRelation scan) {

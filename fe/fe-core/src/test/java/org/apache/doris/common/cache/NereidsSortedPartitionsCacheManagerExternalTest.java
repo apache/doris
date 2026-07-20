@@ -297,6 +297,58 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         }
     }
 
+    // ──────────────────── Hive sentinel snapshot (-1) must skip Cache B ────────────────────
+    //
+    // getPartitionMetaVersion's token is "<snapshotId>@<schemaId>". Hive's beginQuerySnapshot always pins
+    // snapshotId == -1 (no real MVCC snapshot), so that token is a CONSTANT across queries and cannot
+    // detect a partition-set change. PluginDrivenMvccExternalTable#getSortedPartitionRanges must therefore
+    // gate on the pinned connector snapshot's snapshotId and return empty (skip Cache B, build fresh every
+    // query) rather than delegating to the cache manager.
+
+    @Test
+    public void testGetSortedPartitionRangesEmptyForSentinelSnapshotId() throws Exception {
+        Map<String, PartitionItem> pinnedParts = Maps.newHashMap();
+        pinnedParts.put("id=1", listItem(1));
+        // Hive's sentinel: no real MVCC snapshot id.
+        ConnectorMvccSnapshot sentinelSnapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(-1L).schemaId(0L).build();
+        PluginDrivenMvccSnapshot pin = new PluginDrivenMvccSnapshot(
+                sentinelSnapshot, pinnedParts, Maps.newHashMap());
+
+        PluginDrivenMvccExternalTable table =
+                Mockito.mock(PluginDrivenMvccExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.doReturn(TBL).when(table).getName();
+        Mockito.doReturn(database).when(table).getDatabase();
+        Mockito.when(database.getFullName()).thenReturn(DB);
+        Mockito.when(database.getCatalog()).thenReturn((CatalogIf) catalog);
+        Mockito.when(catalog.getName()).thenReturn(CTL);
+        Mockito.doReturn(SelectedPartitions.NOT_PRUNED).when(table).initSelectedPartitions(Mockito.any());
+
+        ConnectContext ctx = new ConnectContext();
+        StatementContext stmtCtx = new StatementContext(ctx, null);
+        ctx.setStatementContext(stmtCtx);
+        ctx.setThreadLocalInfo();
+        try {
+            // B5a implicit query-begin (latest) pin -- mirrors a plain (no @tag/@branch/time-travel) hive scan.
+            Mockito.doReturn(pin).when(table).loadSnapshot(Optional.empty(), Optional.empty());
+            stmtCtx.loadSnapshots(table, Optional.empty(), Optional.empty());
+
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
+                    Collections.singletonList(DB), Collections.emptyList(),
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+
+            Optional<SortedPartitionRanges<String>> ranges = table.getSortedPartitionRanges(scan);
+
+            Assertions.assertFalse(ranges.isPresent(),
+                    "snapshotId == -1 (hive sentinel) must skip Cache B and yield empty, so the caller "
+                            + "(PruneFileScanPartition) builds ranges fresh from this query's pin");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     // ──────────────────── Real production wiring: ExternalMetaCacheMgr.invalidateTable ────────────────────
 
     @Test
