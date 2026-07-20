@@ -74,16 +74,6 @@ bvar::LatencyRecorder g_cached_remote_reader_async_read_plan_latency(
 bvar::LatencyRecorder g_cached_remote_reader_async_write_submission_latency(
         "cached_remote_file_reader_async_write_submission_latency_us");
 
-// Verify the one-to-one mapping between a logical read-plan block and its probed cache block.
-// `file_size` identifies the only logical block whose cached right boundary may be larger: a short
-// EOF block that a concurrent file writer preallocated at the normal full block size.
-void check_probe_block_range(const FileBlock::Range& cached_range,
-                             const FileBlock::Range& logical_range, size_t file_size) {
-    DORIS_CHECK(cached_range.left == logical_range.left);
-    DORIS_CHECK(cached_range.right >= logical_range.right);
-    DORIS_CHECK(cached_range.right == logical_range.right || logical_range.right == file_size - 1);
-}
-
 } // namespace
 
 // One aligned cache block in the simplified read plan. REMOTE blocks delimit the single remote
@@ -202,6 +192,9 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
     const auto& probe_result = *plan.probe_result;
     DORIS_CHECK(probe_result.file_blocks.size() == plan.blocks.size());
 
+    // probe() validates slot coverage while holding the cache mutex. Use the immutable logical
+    // plan ranges after it returns: a concurrent file writer may shrink a preallocated EOF block
+    // during finalize().
     for (size_t index = 0; index < plan.blocks.size(); ++index) {
         auto& read_block = plan.blocks[index];
         if (read_block.source == AsyncReadBlock::Source::INFLIGHT) {
@@ -212,7 +205,6 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
         bool is_miss = file_block == nullptr;
         bool is_downloading = false;
         if (file_block != nullptr) {
-            check_probe_block_range(file_block->range(), read_block.range, size());
             if (_cache->is_block_deleting(file_block)) {
                 is_miss = true;
             } else {
@@ -291,7 +283,6 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
     DORIS_CHECK(block_index < plan.probe_result->file_blocks.size());
     const auto& file_block = plan.probe_result->file_blocks[block_index];
     DORIS_CHECK(file_block != nullptr);
-    check_probe_block_range(file_block->range(), read_block.range, size());
     if (_cache->is_block_deleting(file_block)) {
         return false;
     }
@@ -299,6 +290,7 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
     FileBlock::State state = file_block->state();
     if (state == FileBlock::State::DOWNLOADING) {
         DORIS_CHECK(read_block.source == AsyncReadBlock::Source::DOWNLOADING);
+        TEST_SYNC_POINT("CachedRemoteFileReader::_materialize_async_block:before_wait");
         {
             SCOPED_RAW_TIMER(&stats.remote_wait_timer);
             state = file_block->wait();
@@ -319,7 +311,7 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
     {
         SCOPED_RAW_TIMER(&stats.local_read_timer);
         status = file_block->read(Slice(result.data + (copy_left - user_offset), copy_size),
-                                  copy_left - file_block->range().left);
+                                  copy_left - read_block.range.left);
     }
     if (!status.ok()) {
         if (status.is<ErrorCode::NOT_FOUND>()) {
@@ -329,7 +321,7 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
         LOG_EVERY_N(WARNING, 100)
                 << "Read probed file cache block failed, falling back to remote. path="
                 << path().native() << ", hash=" << _cache_hash.to_string()
-                << ", offset=" << file_block->offset() << ", status=" << status;
+                << ", offset=" << read_block.range.left << ", status=" << status;
         return false;
     }
 

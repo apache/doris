@@ -94,7 +94,8 @@ struct FileBlocksProbeResult {
 
     /// One entry per cache-block-sized input slot, in offset order. A null entry is a cache miss;
     /// a non-null entry covers the whole slot. Its right boundary can exceed the final short slot
-    /// while a file writer still owns a full-size preallocated tail block.
+    /// while a file writer still owns a full-size preallocated tail block. Retaining and releasing
+    /// a probe result never acquires or completes downloader ownership.
     std::vector<FileBlockSPtr> file_blocks;
 };
 
