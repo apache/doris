@@ -220,14 +220,13 @@ suite("null_column_pruning") {
     order_qt_12 "select struct_col from ncp_tbl where struct_col is null";
 
     // ─── Nested struct field IS NULL ────────────────────────────────────────────
-    // element_at(struct_col, 'city') IS NULL should produce a null-flag-only
-    // predicate path [struct_col.city.NULL] while the projection reads city data.
-    // [struct_col.city.NULL] remains in predicateAccessPaths beside the projected city data path.
+    // element_at(struct_col, 'city') IS NULL needs both the parent Struct null map and the
+    // selected field null map, while the projection reads city data.
     explain {
         sql "select element_at(struct_col, 'city') from ncp_tbl where element_at(struct_col, 'city') is null"
         contains "nested columns"
         contains "struct_col.city"
-        contains "predicate access paths: [struct_col.city.NULL]"
+        contains "predicate access paths: [struct_col.NULL, struct_col.city.NULL]"
     }
 
     order_qt_13 "select element_at(struct_col, 'city') from ncp_tbl where element_at(struct_col, 'city') is null";
@@ -385,6 +384,7 @@ suite("null_column_pruning") {
         sql "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null"
         contains "nested columns"
         contains "struct_col.city.NULL"
+        contains "struct_col.NULL"
     }
 
     order_qt_24 "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null";
