@@ -67,6 +67,7 @@ void BetaRowsetReader::reset_read_options() {
     _read_options.enable_multi_stage_predicate_lazy_materialization = false;
     _read_options.predicate_lm_stage1_column_ids.clear();
     _read_options.predicate_lm_stage1_survival_ratio_threshold = 0.1;
+    _read_options.predicate_lm_min_scan_rows = 65536;
 }
 
 RowsetReaderSharedPtr BetaRowsetReader::clone() {
@@ -124,6 +125,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.predicate_lm_stage1_column_ids = _read_context->predicate_lm_stage1_column_ids;
     _read_options.predicate_lm_stage1_survival_ratio_threshold =
             _read_context->predicate_lm_stage1_survival_ratio_threshold;
+    _read_options.predicate_lm_min_scan_rows = _read_context->predicate_lm_min_scan_rows;
 
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {

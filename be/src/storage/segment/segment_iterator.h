@@ -393,6 +393,7 @@ private:
     // Multi-stage predicate lazy materialization (experimental)
     bool _enable_multi_stage_predicate_lazy_materialization = false;
     double _predicate_lm_stage1_survival_ratio_threshold = 0.1;
+    int64_t _predicate_lm_min_scan_rows = 65536;
 
     // fields for vectorization execution
     std::vector<ColumnId>

@@ -1318,6 +1318,31 @@ public class OlapScanNode extends ScanNode {
         }
         msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setDbName(olapTable.getQualifiedDbName());
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            PredicateLmStage1Selector.SelectionResult selection =
+                    new PredicateLmStage1Selector(this, connectContext.getSessionVariable()).select();
+            String queryId = connectContext.queryId() == null ? "" : DebugUtil.printId(connectContext.queryId());
+            if (!selection.isEmpty()) {
+                msg.olap_scan_node.setPredicateLmStage1ColumnIds(selection.getStage1ColumnIds());
+                LOG.info("auto selected predicate LM stage1 columns for {}.{}: queryId={}, "
+                                + "columns={}, columnIds={}, "
+                                + "estimatedStage1Selectivity={}, estimatedSavedBytes={}, "
+                                + "minEstimatedSavedBytes={}",
+                        olapTable.getQualifiedDbName(), tableName, queryId,
+                        selection.getStage1ColumnNames(), selection.getStage1ColumnIds(),
+                        selection.getEstimatedStage1Selectivity(), selection.getEstimatedSavedBytes(),
+                        selection.getMinEstimatedSavedBytes());
+            } else if (connectContext.getSessionVariable().enableMultiStagePredicateLm) {
+                LOG.debug("skip auto selecting predicate LM stage1 columns for {}.{}: queryId={}, "
+                                + "reason={}, "
+                                + "estimatedStage1Selectivity={}, estimatedSavedBytes={}, "
+                                + "minEstimatedSavedBytes={}",
+                        olapTable.getQualifiedDbName(), tableName, queryId, selection.getReason(),
+                        selection.getEstimatedStage1Selectivity(), selection.getEstimatedSavedBytes(),
+                        selection.getMinEstimatedSavedBytes());
+            }
+        }
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
         // Set MOR value predicate pushdown flag based on session variable

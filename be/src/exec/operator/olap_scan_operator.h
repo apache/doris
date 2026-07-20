@@ -164,6 +164,12 @@ private:
     RuntimeProfile::Counter* _predicate_lm_stage2_by_rowids_batches_counter = nullptr;
     RuntimeProfile::Counter* _predicate_lm_stage2_by_all_rows_batches_counter = nullptr;
     RuntimeProfile::Counter* _predicate_lm_stage2_rows_read_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_lm_candidate_segments_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_lm_candidate_rows_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_lm_executed_segments_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_lm_min_scan_rows_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_lm_min_scan_rows_skipped_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_lm_min_scan_rows_skipped_rows_counter = nullptr;
 
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
     RuntimeProfile::Counter* _short_cond_timer = nullptr;

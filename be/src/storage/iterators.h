@@ -176,6 +176,9 @@ public:
     // If stage1 survival ratio is greater than this threshold, stage2 rowid reads may be
     // less beneficial. SegmentIterator may choose a conservative evaluation path.
     double predicate_lm_stage1_survival_ratio_threshold = 0.1;
+    // If positive, multi-stage predicate LM is enabled only when the estimated scan rows for the
+    // current segment are greater than or equal to this threshold. 0 disables this guard.
+    int64_t predicate_lm_min_scan_rows = 65536;
 
     // Cache for sparse column data to avoid redundant reads
     // col_unique_id -> cached column_ptr

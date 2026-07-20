@@ -41,7 +41,6 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
-#include "exec/scan/predicate_lm_utils.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/function_filter.h"
 #include "exprs/vexpr.h"
@@ -234,16 +233,23 @@ Status OlapScanner::_prepare_impl() {
                     qopts.predicate_lm_stage1_survival_ratio_threshold;
         }
 
-        // Map FE session variable predicate_lm_stage1_cols -> ColumnId list
+        // Map FE session variable predicate_lm_min_scan_rows -> scan-level multi-stage guard.
+        if (qopts.__isset.predicate_lm_min_scan_rows) {
+            _tablet_reader_params.predicate_lm_min_scan_rows = qopts.predicate_lm_min_scan_rows;
+        }
+
+        // Use per-scan stage1 column ids selected by FE.
         // NOTE: only meaningful when multi-stage predicate LM is enabled.
         if (_tablet_reader_params.enable_multi_stage_predicate_lazy_materialization) {
-            if (qopts.__isset.predicate_lm_stage1_cols && !qopts.predicate_lm_stage1_cols.empty()) {
+            if (olap_scan_node.__isset.predicate_lm_stage1_column_ids &&
+                !olap_scan_node.predicate_lm_stage1_column_ids.empty()) {
                 std::vector<ColumnId> stage1_column_ids;
-                RETURN_IF_ERROR(parse_predicate_lm_stage1_cols_to_column_ids(
-                        qopts.predicate_lm_stage1_cols, tablet_schema,
-                        olap_scan_node.__isset.db_name ? std::string_view(olap_scan_node.db_name)
-                                                       : std::string_view(),
-                        olap_scan_node.table_name, &stage1_column_ids));
+                stage1_column_ids.reserve(olap_scan_node.predicate_lm_stage1_column_ids.size());
+                for (const auto column_id : olap_scan_node.predicate_lm_stage1_column_ids) {
+                    DCHECK_GE(column_id, 0);
+                    DCHECK_LT(static_cast<size_t>(column_id), tablet_schema->num_columns());
+                    stage1_column_ids.emplace_back(static_cast<ColumnId>(column_id));
+                }
                 _tablet_reader_params.predicate_lm_stage1_column_ids = std::move(stage1_column_ids);
             }
         }
@@ -985,6 +991,18 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.predicate_lm_stage2_by_all_rows_batches);
     COUNTER_UPDATE(local_state->_predicate_lm_stage2_rows_read_counter,
                    stats.predicate_lm_stage2_rows_read);
+    COUNTER_UPDATE(local_state->_predicate_lm_candidate_segments_counter,
+                   stats.predicate_lm_candidate_segments);
+    COUNTER_UPDATE(local_state->_predicate_lm_candidate_rows_counter,
+                   stats.predicate_lm_candidate_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_executed_segments_counter,
+                   stats.predicate_lm_executed_segments);
+    COUNTER_UPDATE(local_state->_predicate_lm_min_scan_rows_counter,
+                   stats.predicate_lm_min_scan_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_min_scan_rows_skipped_counter,
+                   stats.predicate_lm_min_scan_rows_skipped);
+    COUNTER_UPDATE(local_state->_predicate_lm_min_scan_rows_skipped_rows_counter,
+                   stats.predicate_lm_min_scan_rows_skipped_rows);
 
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);

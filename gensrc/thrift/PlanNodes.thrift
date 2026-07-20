@@ -1019,6 +1019,8 @@ struct TOlapScanNode {
   // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
   28: optional set<i32> extra_key_column_slot_ids
   29: optional string db_name
+  // Per-scan stage1 column ids selected by FE for multi-stage predicate lazy materialization.
+  30: optional list<i32> predicate_lm_stage1_column_ids
 }
 
 struct TEqJoinCondition {

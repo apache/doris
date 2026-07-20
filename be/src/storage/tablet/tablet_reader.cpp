@@ -234,6 +234,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.predicate_lm_stage1_column_ids = read_params.predicate_lm_stage1_column_ids;
     _reader_context.predicate_lm_stage1_survival_ratio_threshold =
             read_params.predicate_lm_stage1_survival_ratio_threshold;
+    _reader_context.predicate_lm_min_scan_rows = read_params.predicate_lm_min_scan_rows;
 
     return Status::OK();
 }

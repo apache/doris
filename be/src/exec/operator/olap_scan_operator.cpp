@@ -222,6 +222,18 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "PredicateLMStage2ByAllRowsBatches", TUnit::UNIT);
     _predicate_lm_stage2_rows_read_counter =
             ADD_COUNTER(_segment_profile, "PredicateLMStage2RowsRead", TUnit::UNIT);
+    _predicate_lm_candidate_segments_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMCandidateSegments", TUnit::UNIT);
+    _predicate_lm_candidate_rows_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMCandidateRows", TUnit::UNIT);
+    _predicate_lm_executed_segments_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMExecutedSegments", TUnit::UNIT);
+    _predicate_lm_min_scan_rows_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMMinScanRows", TUnit::UNIT);
+    _predicate_lm_min_scan_rows_skipped_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMMinScanRowsSkipped", TUnit::UNIT);
+    _predicate_lm_min_scan_rows_skipped_rows_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMMinScanRowsSkippedRows", TUnit::UNIT);
 
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");

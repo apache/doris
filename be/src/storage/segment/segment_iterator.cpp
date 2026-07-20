@@ -1963,6 +1963,21 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             _opts.enable_multi_stage_predicate_lazy_materialization;
     _predicate_lm_stage1_survival_ratio_threshold =
             _opts.predicate_lm_stage1_survival_ratio_threshold;
+    _predicate_lm_min_scan_rows = _opts.predicate_lm_min_scan_rows;
+
+    if (_enable_multi_stage_predicate_lazy_materialization &&
+        !_opts.predicate_lm_stage1_column_ids.empty()) {
+        const int64_t estimated_scan_rows = static_cast<int64_t>(_row_bitmap.cardinality());
+        _opts.stats->predicate_lm_candidate_segments += 1;
+        _opts.stats->predicate_lm_candidate_rows += estimated_scan_rows;
+        _opts.stats->predicate_lm_min_scan_rows =
+                std::max(_opts.stats->predicate_lm_min_scan_rows, _predicate_lm_min_scan_rows);
+        if (_predicate_lm_min_scan_rows > 0 && estimated_scan_rows < _predicate_lm_min_scan_rows) {
+            _enable_multi_stage_predicate_lazy_materialization = false;
+            _opts.stats->predicate_lm_min_scan_rows_skipped += 1;
+            _opts.stats->predicate_lm_min_scan_rows_skipped_rows += estimated_scan_rows;
+        }
+    }
 
     _pre_eval_block_predicate.clear();
     _short_cir_eval_predicate.clear();
@@ -1988,14 +2003,10 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         std::set<ColumnId> stage2_short_cir_pred_col_id_set;
         std::set<ColumnId> stage2_vec_pred_col_id_set;
 
-        std::set<ColumnId> runtime_filter_cids;
         for (auto predicate : _col_predicates) {
             auto cid = predicate->column_id();
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
-            if (predicate->is_runtime_filter()) {
-                runtime_filter_cids.insert(cid);
-            }
         }
 
         // handle delete_condition (always stage1)
@@ -2007,12 +2018,12 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             }
         }
 
-        // If stage1 columns are NOT explicitly configured and there is no runtime filter column,
-        // fall back to the single-stage behavior (equivalent to disabling multi-stage predicate LM).
-        // Rationale: choosing an arbitrary predicate column as stage1 is hard to reason about and
-        // may cause performance regressions.
+        // Multi-stage predicate LM relies on FE-selected stage1 columns. Runtime filter columns
+        // alone are not enough to make this path safe because FE cannot cost the resulting
+        // stage1 survival here, and high survival easily falls into the expensive read-all-rows
+        // stage2 path.
         if (_enable_multi_stage_predicate_lazy_materialization &&
-            _opts.predicate_lm_stage1_column_ids.empty() && runtime_filter_cids.empty()) {
+            _opts.predicate_lm_stage1_column_ids.empty()) {
             _enable_multi_stage_predicate_lazy_materialization = false;
         }
 
@@ -2028,9 +2039,6 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                         break;
                     }
                 }
-            } else {
-                stage1_pred_col_id_set.insert(runtime_filter_cids.begin(),
-                                              runtime_filter_cids.end());
             }
 
             for (auto it = stage1_pred_col_id_set.begin(); it != stage1_pred_col_id_set.end();) {
@@ -2106,6 +2114,10 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                                        stage2_short_cir_pred_col_id_set.end());
             _late_predicate_column_ids.assign(stage2_read_columns.begin(),
                                               stage2_read_columns.end());
+            if (!_late_predicate_column_ids.empty() &&
+                (_is_need_vec_eval_late || _is_need_short_eval_late)) {
+                _opts.stats->predicate_lm_executed_segments += 1;
+            }
         }
     }
 

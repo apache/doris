@@ -901,9 +901,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHUFFLE_KEY_PRUNE = "enable_shuffle_key_prune";
 
     public static final String ENABLE_MULTI_STAGE_PREDICATE_LM = "enable_multi_stage_predicate_lm";
-    public static final String PREDICATE_LM_STAGE1_COLS = "predicate_lm_stage1_cols";
     public static final String PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD =
             "predicate_lm_stage1_survival_ratio_threshold";
+    public static final String PREDICATE_LM_MIN_SCAN_ROWS = "predicate_lm_min_scan_rows";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -3042,20 +3042,11 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(
             name = ENABLE_MULTI_STAGE_PREDICATE_LM,
             fuzzy = true,
-            description = {"控制 SegmentIterator 是否启用多阶段谓词延迟物化(实验特性)。默认为 false。",
-                    "Controls whether to enable multi-stage predicate lazy materialization in SegmentIterator "
-                        + "(experimental). The default value is false."},
+            description = {"是否允许 FE 自动选择 stage1 列并启用多阶段谓词延迟物化(实验特性)。默认为 false。",
+                    "Whether to allow FE to automatically select stage1 columns and enable multi-stage "
+                        + "predicate lazy materialization (experimental). The default value is false."},
             needForward = true)
     public boolean enableMultiStagePredicateLm = false;
-
-    @VarAttrDef.VarAttr(
-            name = PREDICATE_LM_STAGE1_COLS,
-            fuzzy = true,
-            description = {"人工指定的多阶段谓词延迟物化中 stage1 参与过滤的列名列表，逗号分隔，例如 'a,b,c'。默认为空。",
-                    "Stage1 predicate columns for multi-stage predicate LM, comma-separated, e.g. 'a,b,c'. "
-                        + "Default is empty."},
-            needForward = true)
-    public String predicateLmStage1Cols = "";
 
     @VarAttrDef.VarAttr(
             name = PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD,
@@ -3069,6 +3060,21 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             checker = "checkPredicateLmStage1SurvivalRatioThreshold")
     public double predicateLmStage1SurvivalRatioThreshold = 0.1;
+
+    @VarAttrDef.VarAttr(
+            name = PREDICATE_LM_MIN_SCAN_ROWS,
+            fuzzy = true,
+            description = {"启用多阶段谓词延迟物化所需的单个 SegmentIterator 最小预计扫描行数。"
+                    + "当当前 segment 预计扫描行数小于该值时，BE 会自动回退到普通谓词延迟物化以避免小扫描性能回退。"
+                    + "默认 65536，设置为 0 表示不启用该保护。",
+                    "Minimum per-SegmentIterator estimated scan rows required to enable multi-stage "
+                        + "predicate LM. If the current segment's estimated scan rows are smaller "
+                        + "than this value, BE falls back to regular predicate lazy materialization "
+                        + "to avoid regressions on small scans. "
+                        + "Default 65536, and 0 disables this guard."},
+            needForward = true,
+            checker = "checkPredicateLmMinScanRows")
+    public long predicateLmMinScanRows = 65536;
 
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
@@ -5797,8 +5803,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
 
         tResult.setEnableMultiStagePredicateLm(enableMultiStagePredicateLm);
-        tResult.setPredicateLmStage1Cols(predicateLmStage1Cols);
         tResult.setPredicateLmStage1SurvivalRatioThreshold(predicateLmStage1SurvivalRatioThreshold);
+        tResult.setPredicateLmMinScanRows(predicateLmMinScanRows);
 
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {
@@ -6358,6 +6364,20 @@ public class SessionVariable implements Serializable, Writable {
         if (Double.isNaN(v) || v < 0.0 || v > 1.0) {
             throw new InvalidParameterException(
                 PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD + " should be in range [0, 1], got " + v);
+        }
+    }
+
+    public void checkPredicateLmMinScanRows(String value) {
+        final long v;
+        try {
+            v = Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                PREDICATE_LM_MIN_SCAN_ROWS + " must be a valid non-negative integer");
+        }
+        if (v < 0) {
+            throw new InvalidParameterException(
+                PREDICATE_LM_MIN_SCAN_ROWS + " should be non-negative, got " + v);
         }
     }
 

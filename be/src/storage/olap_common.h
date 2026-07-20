@@ -349,6 +349,12 @@ struct OlapReaderStatistics {
     int64_t predicate_lm_stage2_by_rowids_batches = 0;
     int64_t predicate_lm_stage2_by_all_rows_batches = 0;
     int64_t predicate_lm_stage2_rows_read = 0;
+    int64_t predicate_lm_candidate_segments = 0;
+    int64_t predicate_lm_candidate_rows = 0;
+    int64_t predicate_lm_executed_segments = 0;
+    int64_t predicate_lm_min_scan_rows = 0;
+    int64_t predicate_lm_min_scan_rows_skipped = 0;
+    int64_t predicate_lm_min_scan_rows_skipped_rows = 0;
 
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
