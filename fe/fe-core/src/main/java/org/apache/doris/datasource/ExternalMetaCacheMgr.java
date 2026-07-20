@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
@@ -184,6 +185,10 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateCatalog",
                 () -> cache.invalidateCatalogEntries(catalogId)));
+        // Cache B (Nereids sorted-partition-ranges) has no db/catalog-scoped eviction, so a catalog-level
+        // REFRESH must drop ALL of its entries -- else binary-search pruning could serve ranges older than
+        // the refreshed metadata. Coarse but correct (a rebuild is cheap and lazy). Mirrors invalidateTable.
+        invalidateSortedPartitionsCache();
     }
 
     public void invalidateCatalogByEngine(long catalogId, String engine) {
@@ -196,6 +201,9 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "removeCatalog",
                 () -> cache.invalidateCatalog(catalogId)));
+        // Drop ALL Cache B entries: the catalog is going away and Cache B has no catalog-scoped eviction.
+        // (invalidateAll needs no catalog name, so this is safe even after the catalog was already removed.)
+        invalidateSortedPartitionsCache();
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
@@ -207,6 +215,9 @@ public class ExternalMetaCacheMgr {
     public void invalidateDb(long catalogId, String dbName) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
+        // Cache B has no db-scoped eviction key, so a db-level REFRESH drops ALL entries (coarse but
+        // correct -- a rebuild is cheap and lazy). Mirrors invalidateTable's Cache B wiring.
+        invalidateSortedPartitionsCache();
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
@@ -218,6 +229,22 @@ public class ExternalMetaCacheMgr {
         CatalogIf<?> ctl = getCatalog(catalogId);
         if (ctl != null) {
             Env.getCurrentEnv().getSortedPartitionsCacheManager().invalidateTable(ctl.getName(), dbName, tableName);
+        }
+    }
+
+    /**
+     * Drops ALL entries of the Nereids sorted-partition-ranges cache (Cache B). Used by the db/catalog-level
+     * invalidations, which have no finer-grained (db/catalog-scoped) eviction key on that cache. Null-safe:
+     * during early startup / checkpoint replay {@code Env.getCurrentEnv()} or its cache manager may be unset.
+     */
+    private void invalidateSortedPartitionsCache() {
+        Env env = Env.getCurrentEnv();
+        if (env == null) {
+            return;
+        }
+        NereidsSortedPartitionsCacheManager mgr = env.getSortedPartitionsCacheManager();
+        if (mgr != null) {
+            mgr.invalidateAll();
         }
     }
 

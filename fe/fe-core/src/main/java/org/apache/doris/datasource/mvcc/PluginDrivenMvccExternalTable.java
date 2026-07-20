@@ -634,17 +634,23 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public Object getPartitionMetaVersion(CatalogRelation scan) {
-        ConnectorMvccSnapshot cs = getOrMaterialize(pinnedSnapshot(scan)).getConnectorSnapshot();
-        if (cs.getSnapshotId() != -1L) {
-            // Opaque version token: iceberg/paimon expose an immutable (snapshotId, schemaId) pair.
-            return cs.getSnapshotId() + "@" + cs.getSchemaId();
-        }
-        // Snapshot-less connector (e.g. hive): no real MVCC snapshot id to version against. Derive the
-        // token from the frozen partition NAME SET instead -- getOriginPartitions(scan) reads the SAME
-        // pin, so version == exact content the ranges are built from: the cache rebuilds precisely when
-        // the partition set changes, never on a stale set. A compact copy of just the name strings (NOT
-        // the live keySet view), so the cross-query cache entry does not retain the whole pin's
-        // partition-item map.
+        // The version token MUST equal the EXACT partition content the ranges are built from
+        // (getOriginPartitions reads the SAME pin), so Cache B can never disagree with the pin's own
+        // nameToPartitionItem regardless of how/when a connector's listPartitions cache (Cache A)
+        // refreshes: the cache rebuilds precisely when the partition set changes, never on a stale set.
+        // A compact copy of just the name strings (NOT the live keySet view), so the cross-query cache
+        // entry does not retain the whole pin's partition-item map.
+        //
+        // The former "<snapshotId>@<schemaId>" O(1) token was REMOVED: it is only sound where a
+        // connector's listPartitions content is a pure function of the snapshot id, which is NOT true for
+        // iceberg NON-RANGE tables (identity / bucket / truncate / multi-field partitioning). There the
+        // pin's nameToPartitionItem is served by listPartitions (Cache A, keyed (-1,-1), enumerated at
+        // currentSnapshot with its own TTL, ignoring the pin) while the snapshot-id token comes from a
+        // DIFFERENT cache (IcebergLatestSnapshotCache) with its own TTL; the two expire independently, so
+        // a snapshot-id token could serve SortedPartitionRanges STALER than the pin's own partitions ->
+        // within-query disagreement -> silent under-inclusive pruning. Deriving the version from the
+        // frozen name set makes it uniform across ALL engines -- the same rigorous scheme snapshot-less
+        // hive already relied on -- at the cost of an O(partitions) set copy per lookup.
         return new HashSet<>(getOriginPartitions(scan).keySet());
     }
 
@@ -657,8 +663,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     // getSortedPartitionRanges is now a pure pass-through to ExternalTable's cache-manager delegation
     // (5c17b748880's snapshotId==-1 short-circuit was removed: getPartitionMetaVersion above derives a
-    // content-comparable version for snapshot-less connectors, so Cache B is now correct for them too) --
-    // no override needed here.
+    // content-comparable version from the frozen partition name set for ALL engines, so Cache B is
+    // correct uniformly -- snapshot-less hive and real-snapshot iceberg/paimon alike) -- no override
+    // needed here.
 
     private Optional<MvccSnapshot> pinnedSnapshot(CatalogRelation scan) {
         if (scan instanceof LogicalFileScan) {

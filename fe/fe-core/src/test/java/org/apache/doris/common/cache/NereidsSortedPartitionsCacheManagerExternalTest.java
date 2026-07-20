@@ -86,6 +86,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
     private static final String CTL = "ctl";
     private static final String DB = "db";
     private static final String TBL = "t";
+    private static final long CATALOG_ID = 7L;
 
     @AfterEach
     public void tearDown() {
@@ -289,24 +290,28 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
             Assertions.assertEquals(pinnedPartsT1, origin,
                     "getOriginPartitions must dispatch through the LogicalFileScan branch of pinnedSnapshot "
                             + "and return exactly the t1 pin's partition map (not t2's, not latest's)");
-            Assertions.assertEquals("42@7", version,
-                    "getPartitionMetaVersion must return <snapshotId>@<schemaId> from the t1 pin's connector "
-                            + "snapshot, dispatched via the same LogicalFileScan branch");
+            Assertions.assertEquals(new java.util.HashSet<>(pinnedPartsT1.keySet()), version,
+                    "getPartitionMetaVersion must return the FROZEN partition NAME-SET of the t1 pin "
+                            + "(a real snapshotId=42 no longer yields the <snapshotId>@<schemaId> token) -- "
+                            + "resolved via the same LogicalFileScan branch, so it is t1's name set, not t2's "
+                            + "(empty) or latest's");
         } finally {
             ConnectContext.remove();
         }
     }
 
-    // ──────────────────── Hive sentinel snapshot (-1) now uses Cache B via a NAME-SET version ─────
+    // ──────────────────── Cache B version is the frozen partition NAME-SET for ALL engines ─────
     //
-    // getPartitionMetaVersion's token is "<snapshotId>@<schemaId>" for a REAL snapshot id, but hive's
-    // beginQuerySnapshot always pins the sentinel snapshotId == -1 (hive has no MVCC snapshot), so that
-    // token would be a CONSTANT across queries. Instead, for a snapshot-less pin the version is derived
-    // from the frozen partition NAME SET (getOriginPartitions(scan).keySet(), copied) -- the SAME map the
-    // ranges are built from, so version == exact content and the cache rebuilds precisely when the
-    // partition set changes. PluginDrivenMvccExternalTable no longer overrides getSortedPartitionRanges
-    // (the -1 short-circuit added in 5c17b748880 was removed): a snapshot-less pin now goes through the
-    // inherited ExternalTable#getSortedPartitionRanges -> the cache manager, exactly like iceberg/paimon.
+    // getPartitionMetaVersion always returns the frozen partition NAME SET
+    // (getOriginPartitions(scan).keySet(), copied) -- the SAME map the ranges are built from, so
+    // version == exact content and Cache B rebuilds precisely when the partition set changes, never on a
+    // stale set. This is uniform across hive (snapshotId == -1 sentinel), paimon and iceberg: the old
+    // "<snapshotId>@<schemaId>" O(1) token was removed because it is unsafe wherever a connector's
+    // listPartitions content is not a pure function of the snapshot id (iceberg non-RANGE: identity /
+    // bucket / truncate / multi-field partitioning), whose nameToPartitionItem (Cache A) and snapshot-id
+    // token (a DIFFERENT cache) expire independently. PluginDrivenMvccExternalTable no longer overrides
+    // getSortedPartitionRanges (the -1 short-circuit added in 5c17b748880 was removed): every pin goes
+    // through the inherited ExternalTable#getSortedPartitionRanges -> the cache manager.
 
     /**
      * Builds a live Env whose {@code getSortedPartitionsCacheManager()} returns {@code rangesCacheMgr},
@@ -354,6 +359,18 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         ConnectorMvccSnapshot sentinelSnapshot = ConnectorMvccSnapshot.builder()
                 .snapshotId(-1L).schemaId(0L).build();
         return new PluginDrivenMvccSnapshot(sentinelSnapshot, parts, Maps.newHashMap());
+    }
+
+    /**
+     * A pin carrying a REAL (non-sentinel) connector snapshot id -- e.g. iceberg. Used to prove Cache B's
+     * version token is the frozen partition NAME-SET even for {@code snapshotId != -1}: the snapshot id is
+     * held CONSTANT across queries while the partition set changes, exactly the iceberg non-RANGE hazard
+     * where Cache A (listPartitions) and the snapshot-id token expire independently.
+     */
+    private static PluginDrivenMvccSnapshot realSnapshotPin(Map<String, PartitionItem> parts) {
+        ConnectorMvccSnapshot realSnapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(42L).schemaId(7L).build();
+        return new PluginDrivenMvccSnapshot(realSnapshot, parts, Maps.newHashMap());
     }
 
     @Test
@@ -411,6 +428,49 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
     }
 
     @Test
+    public void testGetSortedPartitionRangesRebuildsWhenRealSnapshotNameSetChanges() throws Exception {
+        // Real-snapshot (snapshotId != -1) coherence: the version token is the frozen partition NAME-SET
+        // for ALL engines, not just hive. This is the iceberg non-RANGE hazard -- the pin's
+        // nameToPartitionItem (served by listPartitions / Cache A) can advance while the connector snapshot
+        // id stays CONSTANT, because the two are backed by INDEPENDENTLY-expiring caches. Under the removed
+        // "<snapshotId>@<schemaId>" token both queries would key "42@7" and serve a STALE HIT (silent
+        // under-inclusive pruning); under the name-set token the grown partition set forces a rebuild.
+        PluginDrivenMvccExternalTable table = newRealWiringTable();
+        NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
+        try (MockedStatic<Env> envStatic = mockEnvWithRangesCacheManager(rangesCacheMgr)) {
+            Map<String, PartitionItem> partsAtQuery1 = Maps.newHashMap();
+            partsAtQuery1.put("id=1", listItem(1));
+            partsAtQuery1.put("id=2", listItem(2));
+            LogicalFileScan scan1 = pinLatestAndBuildScan(table, realSnapshotPin(partsAtQuery1));
+            SortedPartitionRanges<String> first = table.getSortedPartitionRanges(scan1).orElse(null);
+            Assertions.assertNotNull(first, "ranges built and cached at the first (2-partition) name set");
+            Assertions.assertEquals(2, first.sortedPartitions.size());
+
+            // Same query again: IDENTICAL name set at the SAME real snapshot id => cache HIT (same instance).
+            LogicalFileScan scanHit = pinLatestAndBuildScan(table, realSnapshotPin(partsAtQuery1));
+            SortedPartitionRanges<String> hit = table.getSortedPartitionRanges(scanHit).orElse(null);
+            Assertions.assertSame(first, hit,
+                    "unchanged name set at a real snapshotId=42 => cache HIT returns the SAME instance");
+
+            // A later query whose Cache A refreshed to include a new partition while the connector snapshot
+            // id is STILL 42: the name set grew, so Cache B must rebuild even though "42@7" is unchanged.
+            Map<String, PartitionItem> partsAtQuery2 = Maps.newHashMap();
+            partsAtQuery2.put("id=1", listItem(1));
+            partsAtQuery2.put("id=2", listItem(2));
+            partsAtQuery2.put("id=3", listItem(3));
+            LogicalFileScan scan2 = pinLatestAndBuildScan(table, realSnapshotPin(partsAtQuery2));
+            SortedPartitionRanges<String> rebuilt = table.getSortedPartitionRanges(scan2).orElse(null);
+            Assertions.assertNotNull(rebuilt, "ranges rebuilt at the second (3-partition) name set");
+            Assertions.assertNotSame(first, rebuilt,
+                    "name-set change at a CONSTANT real snapshotId=42 must still trigger a rebuild "
+                            + "(the removed <snapshotId>@<schemaId> token would have served a stale hit)");
+            Assertions.assertEquals(3, rebuilt.sortedPartitions.size(), "rebuilt from the new partition set");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testGetSortedPartitionRangesEmptyForSnapshotLessEmptyPartitions() throws Exception {
         PluginDrivenMvccExternalTable table = newRealWiringTable();
         NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
@@ -461,5 +521,61 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         Assertions.assertEquals(0, rangesCacheMgr.getPartitionCaches().estimatedSize(),
                 "ExternalMetaCacheMgr.invalidateTable must also drop the "
                         + "NereidsSortedPartitionsCacheManager entry (ExternalMetaCacheMgr.java:217-220)");
+    }
+
+    // ── db/catalog-level invalidation also drops Cache B (§10 completeness) ──
+    //
+    // invalidateTable (above) already drops the ranges cache; invalidateDb / invalidateCatalog /
+    // removeCatalog previously did NOT, so a db- or catalog-level REFRESH left STALE Cache B entries.
+    // Cache B has no db/catalog-scoped eviction key, so those coarse invalidations drop ALL entries
+    // (invalidateAll). Each test drives the REAL ExternalMetaCacheMgr method end-to-end.
+
+    /**
+     * Populates a live {@link NereidsSortedPartitionsCacheManager} with one entry, then runs {@code
+     * invalidation} against a REAL {@link ExternalMetaCacheMgr} (with a mocked {@code Env} wiring
+     * {@code getCatalogMgr}/{@code getSortedPartitionsCacheManager}) and asserts Cache B is emptied.
+     */
+    private void assertDropsAllRangesCache(java.util.function.Consumer<ExternalMetaCacheMgr> invalidation)
+            throws Exception {
+        newLiveConnectContext();
+        NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
+        FakeExternalTable t = new FakeExternalTable(true);
+        t.parts.put("id=1", listItem(1));
+        Assertions.assertTrue(rangesCacheMgr.get(t.table, (CatalogRelation) null).isPresent(),
+                "ranges built and cached before invalidation");
+        Assertions.assertEquals(1, rangesCacheMgr.getPartitionCaches().estimatedSize(),
+                "one entry cached before invalidation");
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn(CTL);
+        Mockito.when(catalogMgr.getCatalog(CATALOG_ID)).thenReturn(catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            invalidation.accept(metaCacheMgr);
+        }
+
+        Assertions.assertEquals(0, rangesCacheMgr.getPartitionCaches().estimatedSize(),
+                "db/catalog-level invalidation must also drop the NereidsSortedPartitionsCacheManager entries");
+    }
+
+    @Test
+    public void testInvalidateDbDropsRangesCache() throws Exception {
+        assertDropsAllRangesCache(m -> m.invalidateDb(CATALOG_ID, DB));
+    }
+
+    @Test
+    public void testInvalidateCatalogDropsRangesCache() throws Exception {
+        assertDropsAllRangesCache(m -> m.invalidateCatalog(CATALOG_ID));
+    }
+
+    @Test
+    public void testRemoveCatalogDropsRangesCache() throws Exception {
+        assertDropsAllRangesCache(m -> m.removeCatalog(CATALOG_ID));
     }
 }
