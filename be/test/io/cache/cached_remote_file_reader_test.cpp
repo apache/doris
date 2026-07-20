@@ -165,6 +165,39 @@ private:
 
 } // namespace
 
+TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_short_file_tail) {
+    create_cache("cached_remote_reader_async_preallocated_file_tail");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+    ASSERT_EQ(reader->size(), 10_mb + 1);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    const size_t file_tail_offset = reader->size() - 1;
+    auto holder = cache()->get_or_set(reader->_cache_hash, file_tail_offset, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& preallocated_tail = holder.file_blocks.front();
+    ASSERT_EQ(preallocated_tail->range().left, file_tail_offset);
+    ASSERT_EQ(preallocated_tail->range().right, file_tail_offset + 1_mb - 1);
+
+    std::string result(1, '\0');
+    FileCacheStatistics stats;
+    IOContext context;
+    context.file_cache_stats = &stats;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(file_tail_offset, Slice(result.data(), result.size()), &bytes_read,
+                                &context)
+                        .ok());
+    EXPECT_EQ(bytes_read, result.size());
+    EXPECT_EQ(result, "0");
+    EXPECT_EQ(counting_reader->read_count(), 1);
+    EXPECT_EQ(counting_reader->last_offset(), 9_mb);
+    EXPECT_EQ(counting_reader->last_size(), 1_mb + 1);
+    EXPECT_EQ(stats.probe_miss, 2);
+    wait_for_async_writes();
+}
+
 TEST_F(AsyncCachedRemoteFileReaderTest,
        missing_cache_file_falls_back_and_removes_the_complete_cache_hash) {
     create_cache("cached_remote_reader_async_self_heal");

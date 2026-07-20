@@ -74,6 +74,16 @@ bvar::LatencyRecorder g_cached_remote_reader_async_read_plan_latency(
 bvar::LatencyRecorder g_cached_remote_reader_async_write_submission_latency(
         "cached_remote_file_reader_async_write_submission_latency_us");
 
+// Verify the one-to-one mapping between a logical read-plan block and its probed cache block.
+// `file_size` identifies the only logical block whose cached right boundary may be larger: a short
+// EOF block that a concurrent file writer preallocated at the normal full block size.
+void check_probe_block_range(const FileBlock::Range& cached_range,
+                             const FileBlock::Range& logical_range, size_t file_size) {
+    DORIS_CHECK(cached_range.left == logical_range.left);
+    DORIS_CHECK(cached_range.right >= logical_range.right);
+    DORIS_CHECK(cached_range.right == logical_range.right || logical_range.right == file_size - 1);
+}
+
 } // namespace
 
 // One aligned cache block in the simplified read plan. REMOTE blocks delimit the single remote
@@ -202,8 +212,7 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
         bool is_miss = file_block == nullptr;
         bool is_downloading = false;
         if (file_block != nullptr) {
-            DORIS_CHECK(file_block->range().left == read_block.range.left);
-            DORIS_CHECK(file_block->range().right == read_block.range.right);
+            check_probe_block_range(file_block->range(), read_block.range, size());
             if (_cache->is_block_deleting(file_block)) {
                 is_miss = true;
             } else {
@@ -282,8 +291,7 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
     DORIS_CHECK(block_index < plan.probe_result->file_blocks.size());
     const auto& file_block = plan.probe_result->file_blocks[block_index];
     DORIS_CHECK(file_block != nullptr);
-    DORIS_CHECK(file_block->range().left == read_block.range.left);
-    DORIS_CHECK(file_block->range().right == read_block.range.right);
+    check_probe_block_range(file_block->range(), read_block.range, size());
     if (_cache->is_block_deleting(file_block)) {
         return false;
     }
