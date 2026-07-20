@@ -81,6 +81,7 @@ jobs:
             'maven'
             'node'
             'llvm@16'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
 
@@ -100,4 +101,17 @@ jobs:
           # JAVA_HOME_17_arm64. Fall back to the x64 variable for Intel runners.
           JAVA_HOME="${JAVA_HOME_17_arm64:-${JAVA_HOME_17_X64}}"
           export JAVA_HOME="${JAVA_HOME%\/}"
+
+          # AppleClang ships no OpenMP runtime, so CMake's find_package(OpenMP)
+          # (e.g. in contrib/openblas) fails with "Could NOT find OpenMP_C" and
+          # "'omp.h' file not found". Point the compiler/linker at Homebrew's
+          # libomp. be/CMakeLists.txt resets CMAKE_C_FLAGS/CMAKE_CXX_FLAGS, so
+          # EXTRA_CXX_FLAGS is also needed to pass the include path to the BE build.
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
+          export CFLAGS="-I${LIBOMP_PREFIX}/include ${CFLAGS:-}"
+          export CXXFLAGS="-I${LIBOMP_PREFIX}/include ${CXXFLAGS:-}"
+          export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
+          export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean
