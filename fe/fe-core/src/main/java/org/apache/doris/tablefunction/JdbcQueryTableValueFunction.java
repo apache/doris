@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
 import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -49,7 +50,7 @@ public class JdbcQueryTableValueFunction extends QueryTableValueFunction {
     public List<Column> getTableColumns() throws AnalysisException {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalogIf;
         ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginCatalog.getConnector());
         ConnectorTableSchema schema = metadata.getColumnsFromQuery(session, query);
         return ConnectorColumnConverter.convertColumns(schema.getColumns());
     }

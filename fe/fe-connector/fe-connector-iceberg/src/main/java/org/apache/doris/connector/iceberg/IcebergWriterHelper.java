@@ -37,9 +37,11 @@ import org.apache.iceberg.MetricsUtil;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Conversions;
@@ -51,6 +53,8 @@ import org.apache.iceberg.util.UnicodeUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -374,8 +378,21 @@ final class IcebergWriterHelper {
      * from the current snapshot's data files (defaulting to parquet). Throws on a non-orc/parquet format.
      */
     static FileFormat getFileFormat(Table table) {
-        Map<String, String> properties = table.properties();
-        String fileFormatName = resolveFileFormatName(table, properties);
+        return toFileFormat(resolveFileFormatName(table, table.properties()));
+    }
+
+    /**
+     * PERF-03 cache-aware overload used by the scan path ({@code IcebergScanPlanProvider.getScanNodeProperties}).
+     * Identical resolution to {@link #getFileFormat(Table)}, except the whole-table {@code planFiles()} inference
+     * fallback (fired only when the table sets neither {@code write-format} nor {@code write.format.default}) is
+     * memoized per {@code (id, currentSnapshotId)} through {@code cache}. The two cheap property probes stay
+     * uncached. A {@code null} cache/id (offline tests) or an empty table (no current snapshot) resolves live.
+     */
+    static FileFormat getFileFormat(Table table, TableIdentifier id, IcebergFormatCache cache) {
+        return toFileFormat(resolveFileFormatName(table, table.properties(), id, cache));
+    }
+
+    private static FileFormat toFileFormat(String fileFormatName) {
         if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             return FileFormat.ORC;
         } else if (fileFormatName.toLowerCase().contains(PARQUET_NAME)) {
@@ -395,20 +412,70 @@ final class IcebergWriterHelper {
         return inferFileFormatFromDataFiles(table);
     }
 
+    /**
+     * PERF-03: like {@link #resolveFileFormatName(Table, Map)} but routes the inference fallback (the heavy
+     * unfiltered {@code planFiles()}) through the cross-query {@code (id, snapshotId)} cache. Only the inference is
+     * cached; the property probes are cheap. A failed inference (the loader throws) is NOT cached, so the next
+     * query retries — for this query it degrades to the parquet default, mirroring the swallow of the live path.
+     */
+    private static String resolveFileFormatName(Table table, Map<String, String> properties,
+            TableIdentifier id, IcebergFormatCache cache) {
+        if (properties.containsKey(WRITE_FORMAT)) {
+            return properties.get(WRITE_FORMAT);
+        }
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        Snapshot snapshot = table.currentSnapshot();
+        if (cache == null || id == null || snapshot == null) {
+            return inferFileFormatFromDataFiles(table);
+        }
+        try {
+            return cache.getOrLoad(new IcebergFormatCache.Key(id, snapshot.snapshotId()),
+                    () -> inferFirstDataFileFormat(table));
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to infer file format from data files for table {}, defaulting to {}",
+                    table.name(), PARQUET_NAME, e);
+            return PARQUET_NAME;
+        }
+    }
+
+    /**
+     * The whole-table format inference (the #64134 heavy op): reads the FIRST data file's format from the current
+     * snapshot via an unfiltered {@code planFiles()}. The swallowing wrapper used by the write path and the direct
+     * live path (a failure degrades to parquet). The cache loader instead calls {@link #inferFirstDataFileFormat}
+     * so a transient failure is not memoized.
+     */
     private static String inferFileFormatFromDataFiles(Table table) {
         if (table.currentSnapshot() == null) {
             return PARQUET_NAME;
         }
+        try {
+            return inferFirstDataFileFormat(table);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to infer file format from data files for table {}, defaulting to {}",
+                    table.name(), PARQUET_NAME, e);
+            return PARQUET_NAME;
+        }
+    }
+
+    /**
+     * Raw first-data-file format inference that PROPAGATES failures (unchecked) so the cache loader does not
+     * memoize a transient remote-IO error. The caller guarantees a non-null current snapshot; an empty snapshot
+     * (no data files) yields the deterministic parquet default (cacheable). The try-with-resources
+     * {@code CloseableIterable.close()} checked {@link IOException} is wrapped as {@link UncheckedIOException} so
+     * the method stays unchecked (a {@code Supplier} loader cannot declare checked throws).
+     */
+    private static String inferFirstDataFileFormat(Table table) {
         try (CloseableIterable<FileScanTask> files = table.newScan().planFiles()) {
             Iterator<FileScanTask> it = files.iterator();
             if (it.hasNext()) {
                 return it.next().file().format().name().toLowerCase();
             }
-        } catch (Exception e) {
-            LOG.warn("Failed to infer file format from data files for table {}, defaulting to {}",
-                    table.name(), PARQUET_NAME, e);
+            return PARQUET_NAME;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
-        return PARQUET_NAME;
     }
 
     /**

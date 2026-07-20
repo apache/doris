@@ -27,14 +27,20 @@ import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
+import org.apache.iceberg.FileContent;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Pins {@code expire_snapshots}: the validation pass and the six-counter result.
@@ -115,6 +121,52 @@ public class IcebergExpireSnapshotsActionTest {
             Assertions.assertEquals(names[i], schema.get(i).getName(), "column " + i + " name");
             Assertions.assertEquals("BIGINT", schema.get(i).getType().getTypeName(), "column " + i + " type");
         }
+    }
+
+    @Test
+    public void buildDeleteFileContentMapDedupsManifestsSharedAcrossSnapshots() {
+        // WHY: expire_snapshots builds the delete-file -> content classification map by scanning every snapshot's
+        // delete manifests. Iceberg carries immutable delete manifests forward across snapshots, so the naive
+        // per-snapshot scan re-reads the same manifest once per referencing snapshot. Deduping by manifest path
+        // must (a) read each DISTINCT delete manifest exactly once — strictly fewer than the per-snapshot total —
+        // and (b) leave the resulting map byte-identical (every delete path still classified correctly). A
+        // regression that reset the visited set per snapshot (no dedup) or skipped a distinct manifest (dropping
+        // its delete files) is killed here.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        ActionTestTables.appendSnapshot(catalog, "t", "f1.parquet", 1L);
+        // A position-delete snapshot creates delete manifest DM1...
+        ActionTestTables.addPositionDeleteSnapshot(catalog, "t", "pos-del.parquet", "f1.parquet");
+        // ...an equality-delete snapshot creates DM2 and carries DM1 forward...
+        ActionTestTables.addEqualityDeleteSnapshot(catalog, "t", "eq-del.parquet");
+        // ...and two more appends carry both delete manifests forward unchanged (the redundant re-read source).
+        ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 1L);
+        ActionTestTables.appendSnapshot(catalog, "t", "f3.parquet", 1L);
+
+        Table table = catalog.loadTable(id);
+        Set<String> distinctDeleteManifests = new HashSet<>();
+        int perSnapshotReads = 0;
+        for (Snapshot snapshot : table.snapshots()) {
+            for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+                distinctDeleteManifests.add(manifest.path());
+                perSnapshotReads++;
+            }
+        }
+        // Sanity: the fixture must actually reuse a delete manifest across snapshots, else the test proves nothing.
+        Assertions.assertTrue(perSnapshotReads > distinctDeleteManifests.size(),
+                "fixture must share a delete manifest across snapshots: perSnapshot=" + perSnapshotReads
+                        + " distinct=" + distinctDeleteManifests.size());
+
+        IcebergExpireSnapshotsAction action = action(ImmutableMap.of("retain_last", "1"));
+        Map<String, FileContent> contentByPath = action.buildDeleteFileContentMap(table);
+
+        Assertions.assertEquals(distinctDeleteManifests.size(), action.lastDeleteManifestReadCount,
+                "each distinct delete manifest must be read exactly once (dedup), not once per referencing snapshot");
+        Assertions.assertEquals(FileContent.POSITION_DELETES, contentByPath.get("s3://b/db1/pos-del.parquet"),
+                "the position-delete file must stay classified as POSITION_DELETES");
+        Assertions.assertEquals(FileContent.EQUALITY_DELETES, contentByPath.get("s3://b/db1/eq-del.parquet"),
+                "the equality-delete file must stay classified as EQUALITY_DELETES");
     }
 
     @Test

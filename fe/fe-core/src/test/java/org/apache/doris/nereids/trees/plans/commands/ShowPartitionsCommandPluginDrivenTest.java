@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
@@ -66,6 +67,7 @@ public class ShowPartitionsCommandPluginDrivenTest {
         ShowPartitionsCommand command = new ShowPartitionsCommand(tableName, null, null, -1L, -1L, false);
 
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
@@ -81,6 +83,7 @@ public class ShowPartitionsCommandPluginDrivenTest {
         Mockito.doReturn(db).when(catalog).getDbOrAnalysisException("db");
         Mockito.doReturn(table).when(db).getTableOrAnalysisException("t");
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
         Mockito.when(metadata.getTableHandle(session, "remote_db", "remote_tbl"))
@@ -111,6 +114,7 @@ public class ShowPartitionsCommandPluginDrivenTest {
         ShowPartitionsCommand command = new ShowPartitionsCommand(tableName, null, null, -1L, -1L, false);
 
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
@@ -128,6 +132,7 @@ public class ShowPartitionsCommandPluginDrivenTest {
         Mockito.doReturn(db).when(catalog).getDbOrAnalysisException("db");
         Mockito.doReturn(table).when(db).getTableOrAnalysisException("t");
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
         // The capability that flips SHOW PARTITIONS to the 5-column rich result (D-045).
