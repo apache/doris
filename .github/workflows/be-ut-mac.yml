@@ -114,4 +114,12 @@ jobs:
           export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
           export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
 
+          # Disable PCH on macOS. be/CMakeLists.txt only injects OpenMP flags
+          # globally when PCH is enabled, and it applies AppleClang's multi-token
+          # "-Xclang -fopenmp" as a single argument, which clang rejects with
+          # "unknown argument: '-Xclang -fopenmp'". Targets that actually need
+          # OpenMP (faiss, openblas, ann_index) already link OpenMP::OpenMP_CXX
+          # via their own usage requirements, so turning PCH off is safe here.
+          export ENABLE_PCH=OFF
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean
