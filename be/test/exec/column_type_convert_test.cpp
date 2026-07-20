@@ -373,8 +373,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto& src_data = src_col->get_data();
 
         // Add test values
-        src_data.push_back(Decimal64(12345678901234));  // Normal value: 1234567890.1234
-        src_data.push_back(Decimal64(-98765432109876)); // Negative value: -9876543210.9876
+        src_data.push_back(Decimal64(int64_t(12345678901234)));  // Normal value: 1234567890.1234
+        src_data.push_back(Decimal64(int64_t(-98765432109876))); // Negative value: -9876543210.9876
 
         auto mutable_dst = dst_type->create_column();
 
