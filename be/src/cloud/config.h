@@ -99,6 +99,26 @@ DECLARE_mInt32(query_cache_decision_sync_timeout_ms);
 DECLARE_Int32(query_cache_delta_sync_thread);
 DECLARE_Int32(query_cache_delta_sync_max_pending_tasks);
 
+// Upper bound on how many query-cache incremental decisions may block in the
+// decision-sync wait at the same time. That wait runs on brpc's light work pool
+// (query admission; "must be light, not locked"), and single-flight coalesces only
+// IDENTICAL cache keys, so under a meta-service brownout a wave of DISTINCT stale
+// keys could otherwise park every light-pool worker for the full decision-sync
+// timeout and starve unrelated fragment admission (the paired scan and cache-source
+// operators can each park one on a first-call race, so the pressure is per operator,
+// not just per query). The effective bound is the smaller of this value and half the
+// ACTUAL light-pool width (the configured brpc_light_work_pool_threads, or
+// max(128, 4*cores) when left at -1), so even a shrunk pool keeps spare workers for
+// that admission -- this value only tightens below that floor. A query arriving over
+// the bound skips incremental merge this round and recomputes in full (always correct,
+// the right posture for an optimization under load). A non-positive value does not
+// disable the guard; it falls back to the width-derived half. The fully non-blocking
+// alternative is to drive the decision
+// off a pipeline dependency, mirroring OlapScanLocalState::_cloud_tablet_dependency;
+// that is a larger cross-operator change left as a follow-up. Mutable so it can be
+// retuned online. Cloud only.
+DECLARE_mInt32(query_cache_max_concurrent_decision_sync);
+
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);

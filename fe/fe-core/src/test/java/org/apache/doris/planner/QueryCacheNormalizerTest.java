@@ -124,6 +124,19 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true')";
 
+        // Merge-on-write with a COMPOSITE key so the distribution column k1 is not
+        // unique: grouping the inner agg by k1 (the distribution column) stays a
+        // real, colocate (single-phase, no shuffle) aggregation, so the outer agg
+        // nests above it inside the scan fragment. That produces a genuinely nested
+        // cache point over a MOW scan, which the nested-MOW test below needs.
+        String uniqueMowMultiTable = "create table db1.uniq_mow_multi("
+                + "  k1 int,\n"
+                + "  k2 int,\n"
+                + "  v1 int)\n"
+                + "UNIQUE KEY(k1, k2)\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true')";
+
         String uniqueMorTable = "create table db1.uniq_mor("
                 + "  k1 int,\n"
                 + "  v1 int)\n"
@@ -139,7 +152,7 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                 + "properties('replication_num' = '1')";
 
         createTables(nonPart, part1, part2, multiLeveParts, variantTable, uniqueMowTable,
-                uniqueMorTable, aggTable);
+                uniqueMowMultiTable, uniqueMorTable, aggTable);
 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableQueryCache(true);
@@ -474,44 +487,51 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                             + " group by cnt");
             Assertions.assertFalse(nestedAgg.allow_incremental);
 
-            // Query freshness tolerance trades exactness for speed; an
-            // incremental merge would force the wait for un-warmed data the
-            // query chose to skip (the BE separately suppresses such a query's
-            // cache write-back on cloud, which is where correctness lives). The
-            // gate is mode-agnostic (it forgoes incremental in any mode for a
-            // query that set the knob), so it must reject incremental for an
-            // otherwise-eligible DUP_KEYS query here in the local harness too.
+            // A genuinely nested cache point over a MOW scan. The inner agg groups by
+            // the distribution column k1 (non-unique here, since the key is (k1, k2)),
+            // so it is a local single-phase aggregation with no shuffle, and the outer
+            // agg's partial nests above it inside the scan fragment. The cache point is
+            // therefore the OUTER agg, whose direct child is the inner agg rather than
+            // the scan, so incremental is off (nested). But the write-back gate must
+            // still resolve the scan's table type through the unary chain, so
+            // is_merge_on_write is true -- letting a nested-agg-over-MOW query populate
+            // the cache under prefer instead of being over-suppressed just because the
+            // scan is not the direct child. (Pre-fix, the direct-child-only check
+            // reported false here.) The direct (non-nested) MOW case, where the cache
+            // point sits right on the scan and incremental IS allowed, is covered by
+            // uniqueMow above.
+            TQueryCacheParam nestedMow = getQueryCacheParam(
+                    "select cnt, count(*) from"
+                            + " (select k1, count(*) cnt from db1.uniq_mow_multi group by k1) x"
+                            + " group by cnt");
+            Assertions.assertFalse(nestedMow.allow_incremental);
+            Assertions.assertTrue(nestedMow.is_merge_on_write);
+
+            // Query freshness tolerance and prefer-cached-rowset are cloud-only knobs;
+            // in the local (shared-nothing) harness they are inert, so the mode-gated
+            // suppression no longer forgoes incremental for an otherwise-eligible query
+            // (the local read is version-exact regardless). The cloud-mode suppression
+            // itself is verified directly on the pure helper in
+            // testCloudKnobsSuppressIncremental below, since this planning harness cannot
+            // flip to cloud mode (the cast to CloudSystemInfoService fails).
             connectContext.getSessionVariable().queryFreshnessToleranceMs = 5000;
             try {
                 TQueryCacheParam withFreshness = getQueryCacheParam(
                         "select k2, sum(v1) as v from db1.part1 group by k2");
-                Assertions.assertFalse(withFreshness.allow_incremental);
-                // Freshness has no merge-on-write carve-out (cloud honors it for
-                // every table type), so it blocks incremental for MOW as well.
-                TQueryCacheParam mowWithFreshness = getQueryCacheParam(
-                        "select v1, count(*) as v from db1.uniq_mow group by v1");
-                Assertions.assertFalse(mowWithFreshness.allow_incremental);
+                Assertions.assertTrue(withFreshness.allow_incremental);
             } finally {
                 connectContext.getSessionVariable().queryFreshnessToleranceMs = -1;
             }
 
-            // Prefer-cached-rowset may overshoot the queried version (its walk
-            // never clips an edge spanning it), and the incremental delta
-            // capture always targets the exact queried version anyway (the BE
-            // separately suppresses such a query's cache write-back on cloud);
-            // the same mode-agnostic gate rejects incremental for the same
-            // otherwise-eligible query.
             connectContext.getSessionVariable().enablePreferCachedRowset = true;
             try {
                 TQueryCacheParam withPreferCached = getQueryCacheParam(
                         "select k2, sum(v1) as v from db1.part1 group by k2");
-                Assertions.assertFalse(withPreferCached.allow_incremental);
-                // Cloud ignores prefer-cached-rowset for a merge-on-write table
-                // (its read stays version-exact), so incremental remains allowed
-                // for MOW under prefer -- the carve-out keys on table type, and
-                // being mode-agnostic it holds in the local harness too. The
-                // is_merge_on_write flag is what BE also uses to keep the fill's
-                // write-back for such a query.
+                Assertions.assertTrue(withPreferCached.allow_incremental);
+                // The MOW carve-out is mode-independent (a MOW read is version-exact
+                // whether the knob is inert locally or explicitly ignored on cloud), and
+                // its is_merge_on_write flag -- BE's write-back gate -- is reported
+                // regardless of mode.
                 TQueryCacheParam mowWithPreferCached = getQueryCacheParam(
                         "select v1, count(*) as v from db1.uniq_mow group by v1");
                 Assertions.assertTrue(mowWithPreferCached.allow_incremental);
@@ -522,6 +542,38 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         } finally {
             connectContext.getSessionVariable().setEnableQueryCacheIncremental(false);
         }
+    }
+
+    @Test
+    public void testCloudKnobsSuppressIncremental() {
+        // Local (shared-nothing) mode: the cloud warmed-read knobs are inert and never
+        // suppress incremental, whatever their values -- so a local query that happens
+        // to set them keeps incremental. This is the mode the planning harness above
+        // runs in; here the mode-gate itself is pinned directly.
+        Assertions.assertFalse(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(false, 5000, false, false));
+        Assertions.assertFalse(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(false, 0, true, false));
+        Assertions.assertFalse(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(false, 5000, true, true));
+        // Cloud mode, freshness tolerance active: suppresses for every table type.
+        Assertions.assertTrue(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(true, 5000, false, false));
+        Assertions.assertTrue(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(true, 5000, false, true));
+        Assertions.assertTrue(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(true, 5000, true, true));
+        // Cloud mode, prefer-cached-rowset active: suppresses only non-MOW (a MOW read
+        // stays version-exact, cloud ignores the knob for it).
+        Assertions.assertTrue(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(true, 0, true, false));
+        Assertions.assertFalse(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(true, 0, true, true));
+        // Cloud mode, no knob active: never suppresses.
+        Assertions.assertFalse(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(true, 0, false, false));
+        Assertions.assertFalse(
+                QueryCacheNormalizer.cloudKnobsSuppressIncremental(true, 0, false, true));
     }
 
     private String getDigest(String sql) throws Exception {
