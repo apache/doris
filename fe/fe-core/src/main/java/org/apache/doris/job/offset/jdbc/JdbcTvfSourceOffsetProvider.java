@@ -288,12 +288,17 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                 }
             }
         } else {
-            // Mirror binlog offset into bop so it survives FE checkpoint
-            BinlogSplit bs = (BinlogSplit) newOffset.getSplits().get(0);
-            if (MapUtils.isNotEmpty(bs.getStartingOffset())) {
-                binlogOffsetPersist = new HashMap<>(bs.getStartingOffset());
-                binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            synchronized (splitsLock) {
+                // Mirror binlog offset into bop so it survives FE checkpoint
+                BinlogSplit bs = (BinlogSplit) newOffset.getSplits().get(0);
+                if (MapUtils.isNotEmpty(bs.getStartingOffset())) {
+                    binlogOffsetPersist = new HashMap<>(bs.getStartingOffset());
+                    binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                }
+                currentOffset = newOffset;
+                hasMoreData = true;
             }
+            return;
         }
         this.currentOffset = newOffset;
     }
