@@ -213,6 +213,12 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTable",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
+        // Also drop the Nereids sorted-partition-ranges cache for this external table so binary-search
+        // pruning does not serve ranges older than the refreshed metadata.
+        CatalogIf<?> ctl = getCatalog(catalogId);
+        if (ctl != null) {
+            Env.getCurrentEnv().getSortedPartitionsCacheManager().invalidateTable(ctl.getName(), dbName, tableName);
+        }
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {

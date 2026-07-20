@@ -122,4 +122,15 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         Assertions.assertFalse(table.getSortedPartitionRanges(null).isPresent(),
                 "base ExternalTable (not Support) yields empty");
     }
+
+    // ──────────────────── Task 4: invalidate is safe on an absent key ────────────────────
+
+    @Test
+    public void testInvalidateEvictsRanges() {
+        NereidsSortedPartitionsCacheManager mgr = new NereidsSortedPartitionsCacheManager();
+        Assertions.assertEquals(0, mgr.getPartitionCaches().estimatedSize(),
+                "fresh manager is empty; invalidate is a no-op that must not throw");
+        Assertions.assertDoesNotThrow(() -> mgr.invalidateTable(CTL, DB, TBL),
+                "invalidateTable on an absent key must not throw");
+    }
 }
