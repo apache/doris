@@ -60,6 +60,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_write_back_total, MetricUnit::R
 DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_decision_sync_time_ms, MetricUnit::MILLISECONDS,
                                      "Cumulative wall time the cloud incremental-merge decision "
                                      "spent blocking on its pre-sync rowset fan-out.");
+DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_presync_inflight, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_success_total, MetricUnit::REQUESTS, "",
                                      push_requests_total, Labels({{"status", "SUCCESS"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_fail_total, MetricUnit::REQUESTS, "",
@@ -307,6 +308,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_incremental_fallback_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_write_back_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_decision_sync_time_ms);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_presync_inflight);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_success_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_fail_total);

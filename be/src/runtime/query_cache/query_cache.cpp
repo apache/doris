@@ -271,7 +271,8 @@ bool QueryCacheRuntime::_try_prepare_incremental(const std::vector<TScanRangePar
     // Empty (and untouched) in shared-nothing mode, where no sync is needed.
     std::unordered_map<int64_t, std::string> presync_reasons;
     if (config::is_cloud_mode()) {
-        presync_reasons = _presync_cloud_delta_tablets(scan_ranges, decision->current_version);
+        presync_reasons = _presync_cloud_delta_tablets(_cache, decision->cache_key, scan_ranges,
+                                                       decision->current_version);
     }
 
     for (const auto& scan_range : scan_ranges) {
@@ -298,6 +299,7 @@ bool QueryCacheRuntime::_try_prepare_incremental(const std::vector<TScanRangePar
 }
 
 std::unordered_map<int64_t, std::string> QueryCacheRuntime::_presync_cloud_delta_tablets(
+        QueryCache* cache, const std::string& cache_key,
         const std::vector<TScanRangeParams>& scan_ranges, int64_t current_version) {
     std::unordered_map<int64_t, std::string> fallback_reasons;
 
@@ -339,44 +341,284 @@ std::unordered_map<int64_t, std::string> QueryCacheRuntime::_presync_cloud_delta
         return fallback_reasons;
     }
 
-    // Index-aligned so the fan-out tasks write disjoint slots without a lock; an
-    // empty slot means synced (or skipped as non-append-only), a non-empty slot
-    // is the fallback reason. Held (with the latch and per-slot count guard)
-    // behind a shared_ptr because the fan-out is waited on with a fast-fail
-    // deadline: on a timeout this frame returns while still-running tasks keep
-    // writing their slots, so the storage must outlive the frame -- the shared_ptr
-    // each task captured keeps it alive until the last one finishes. Only read on
-    // the completed path.
-    auto per_range_reason = std::make_shared<std::vector<std::string>>(scan_ranges.size());
-    auto fanout_done = std::make_shared<CountDownLatch>(static_cast<int>(scan_ranges.size()));
-    // Single-owner claim per slot. Two parties can target the same slot: the task,
-    // and -- on the narrow ThreadPool path where do_submit enqueues the task and
-    // THEN returns an error (thread creation failed with zero live workers) -- the
-    // inline submit-failure path, which then runs concurrently with the very task it
-    // failed to schedule. Each party claims the slot with an atomic exchange BEFORE
-    // touching it: the winner runs the sync (or the inline fallback), writes
-    // per_range_reason[idx] via publish_slot, and counts the latch down; the loser
-    // returns having touched neither. Claiming before the RPC (an exchange, not a
-    // check-then-act load) is what stops the enqueue-then-fail task from firing a
-    // sync for an already-settled query, and it keeps the caller, once the latch
-    // settles, the sole reader of a slot no task is still writing. (Value-initialized
-    // to false.)
-    auto slot_counted = std::make_shared<std::vector<std::atomic<bool>>>(scan_ranges.size());
-    // Set true when the caller abandons the wait (its deadline passed): a not-yet-
-    // started task then skips its sync RPC instead of spending the full retry
-    // budget, so a meta-service brownout drains the bounded queue fast rather than
-    // running abandoned work to completion and starving the pool.
-    auto abandoned = std::make_shared<std::atomic<bool>>(false);
+    // Coalesce identical concurrent fan-outs through the cache's single-flight
+    // registry. Runtimes are private per fragment context, so without this, N
+    // concurrent identical queries hitting the same stale key would each submit
+    // the full per-tablet fan-out: the duplicates waste the bounded queue's
+    // capacity (rejecting tablets that would have fit as one fan-out) and,
+    // during a meta-service brownout, park pool workers on the same per-tablet
+    // _sync_meta_lock, denying admission to unrelated keys. The first arrival
+    // (the flight owner) submits the fan-out; later identical arrivals join as
+    // waiters on the SAME completion latch, each under its own deadline. The
+    // flight's shared pieces are exactly what a private fan-out uses; a null
+    // cache (test-only) skips the registry and keeps the fan-out private.
+    bool flight_owner = true;
+    std::shared_ptr<QueryCache::PresyncFlight> flight;
+    std::string flight_key;
+    auto make_flight = [&] {
+        // Attribute the flight's DOMINANT O(tablets) buffers to the STABLE query-cache
+        // MemTracker rather than to the transient per-query tracker of whichever
+        // admission thread happened to create the flight (the flight outlives that
+        // query: coalesced waiters and still-running fan-out tasks keep its shared
+        // pieces alive past the query's teardown).
+        //
+        // IMPORTANT -- how memory is charged in Doris BE: a MemTrackerLimiter is
+        // charged either by an allocator-aware container (CustomStdAllocator ->
+        // Allocator::consume_memory, which is what DorisVector does) or by an explicit
+        // manual consume()/release() side-channel (what the LRU layer does with its
+        // tracking_bytes, see QueryCache::insert above). There is NO global new/malloc
+        // hook (be/src/runtime/memory/jemalloc_hook.cpp aliases malloc/free straight to
+        // jemalloc with zero tracker interaction, and there is no global ::operator new
+        // override), so a plain `new` / std::vector / std::string that does neither is
+        // invisible to every MemTrackerLimiter and appears only in process RSS. Hence
+        // the two hot buffers
+        // below are DorisVector, whose CustomStdAllocator explicitly consumes/releases
+        // the CURRENT thread's limiter. The SCOPED_SWITCH makes that current limiter the
+        // query-cache one at allocation; the custom deleter re-enters the SAME limiter
+        // at free (on whichever pool/waiter thread drops the last ref), so the
+        // DorisVector buffer is charged and released on the same stable limiter --
+        // balanced. Pinning BOTH sides is required: a switch at construction alone would
+        // credit the cross-thread free elsewhere and drift this limiter. The deleter
+        // captures the limiter by shared_ptr so it stays alive until the last buffer is
+        // gone.
+        //
+        // Everything else the flight owns -- the PresyncFlight object, the six shared_ptr
+        // CONTROL BLOCKS, `slot_counted`, the `key` string, and the registry map node --
+        // is plain `new`, so it is NOT charged to ANY MemTrackerLimiter (not this one and
+        // not the per-query one): RSS-only on both alloc and free. It therefore cannot
+        // strand as an orphan on a destroyed query tracker, nor drift this limiter -- the
+        // switch is irrelevant to it since a plain `new` never reaches consume_memory.
+        // These bytes are bounded per flight and the live-flight COUNT is observable via
+        // the query_cache_presync_inflight gauge; the same untracked O(tablets)
+        // metadata shape already ships on the sibling warmup path, whose pool closure
+        // captures a plain std::vector of tablet ids by value
+        // (CloudBackendService::sync_load_for_tablets). The two DorisVectors carry 16
+        // of the roughly 33 bytes per tablet a live flight holds (the rest: the two
+        // 8-byte-per-tablet key copies, a claim flag, plus each waiter's transient
+        // flight_key), so the charged and uncharged halves are comparable -- charging
+        // the DorisVectors buys stable attribution of the data-path buffers, not full
+        // byte coverage. If full metadata attribution is ever wanted, the LRU layer's
+        // manual tracking_bytes consume()/release() idiom (QueryCache::insert above)
+        // is the cheap in-tree way to add it.
+        auto qc_limiter = ExecEnv::GetInstance()->query_cache_mem_tracker();
+        auto tracked_delete = [qc_limiter](auto* p) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(qc_limiter);
+            delete p;
+        };
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(qc_limiter);
+        std::shared_ptr<QueryCache::PresyncFlight> f(new QueryCache::PresyncFlight(),
+                                                     tracked_delete);
+        // Index-aligned so the fan-out tasks write disjoint slots without a
+        // lock; an empty (nullptr) slot means synced (or skipped as
+        // non-append-only), a non-empty slot is the fallback reason (a static
+        // literal). Each piece sits behind its own shared_ptr because the fan-out
+        // is waited on with a fast-fail deadline: on a timeout a waiter returns
+        // while still-running tasks keep writing their slots, so the storage must
+        // outlive every frame -- the shared_ptr each task captured keeps it alive
+        // until the last one finishes. Only read on the completed path.
+        f->per_range_reason = std::shared_ptr<DorisVector<const char*>>(
+                new DorisVector<const char*>(scan_ranges.size()), tracked_delete);
+        f->fanout_done = std::shared_ptr<CountDownLatch>(
+                new CountDownLatch(static_cast<int>(scan_ranges.size())), tracked_delete);
+        // Per-slot single-owner claim flags; see the claim comments at the
+        // submit loop below. (Value-initialized to false.)
+        f->slot_counted = std::shared_ptr<std::vector<std::atomic<bool>>>(
+                new std::vector<std::atomic<bool>>(scan_ranges.size()), tracked_delete);
+        // Set true when the LAST interested waiter abandons the flight (its
+        // deadline passed): a not-yet-started task then skips its sync RPC
+        // instead of spending the full retry budget, so a meta-service brownout
+        // drains the bounded queue fast rather than running abandoned work to
+        // completion and starving the pool.
+        f->abandoned =
+                std::shared_ptr<std::atomic<bool>>(new std::atomic<bool>(false), tracked_delete);
+        // Snapshot the owner's tablet ids in slot order. Every waiter (this
+        // owner and any that coalesce onto the flight) builds its fallback map
+        // from THESE ids, not from its own scan-range order: build_cache_key
+        // sorts tablet ids into the key, so two runtimes whose scan ranges hold
+        // the same tablets in a different order share this flight, and keying
+        // the shared index-aligned slots off a joiner's own order would pin the
+        // owner's per-slot reason to the wrong tablet.
+        std::shared_ptr<DorisVector<int64_t>> ids(new DorisVector<int64_t>(), tracked_delete);
+        ids->reserve(scan_ranges.size());
+        for (const auto& scan_range : scan_ranges) {
+            ids->push_back(scan_range.scan_range.palo_scan_range.tablet_id);
+        }
+        f->tablet_ids = std::move(ids);
+        // The flight's own registry key. A plain std::string, so its buffer is
+        // RSS-only like the other non-DorisVector pieces (see the header comment
+        // above); on the null-cache test path flight_key is empty, so this is a
+        // harmless no-op there.
+        f->key = flight_key;
+        f->slots = scan_ranges.size();
+        f->waiters = 1;
+        return f;
+    };
+    if (cache != nullptr) {
+        // flight_key embeds the digest and the SORTED tablet set + version, and
+        // is injective: build_cache_key appends the version as decimal digits, so
+        // this '@' is the LAST one in the string (no digit is '@') and splitting
+        // at the final '@' recovers exactly (cache_key, version) even though the
+        // binary cache_key may itself contain '@' bytes. Equal flight_key
+        // therefore means the identical tablet set at the identical version --
+        // correct to coalesce, never a cross-key alias.
+        flight_key = cache_key;
+        flight_key += '@';
+        flight_key += std::to_string(current_version);
+        // Double-checked registration. Check under the lock FIRST (the common
+        // coalescing case joins without allocating anything); only on a miss do we
+        // build the O(tablets) candidate -- OUTSIDE the lock, because holding the
+        // BE-global registry lock across that allocation would serialize every
+        // cloud incremental query, and a stampeding follower must not build a
+        // candidate it immediately discards -- then re-lock and re-check, since a
+        // concurrent owner may have inserted in the gap (we then join theirs and
+        // free the candidate). A found flight always covers the identical tablet
+        // set and slot count (the key invariant above), so assert rather than
+        // branch; joining a flight whose original waiters all already timed out is
+        // intentional -- it rides the draining fan-out instead of submitting a
+        // DUPLICATE one, which is what keeps a sustained brownout from recreating
+        // wave after wave of identical syncs. The entry is reaped only once the
+        // latch drains -- by the last waiter (leave_flight) or, if none is left,
+        // by the final task (publish_slot) -- so it never lingers.
+        {
+            std::lock_guard<std::mutex> reg_lock(cache->_presync_flights_lock);
+            auto it = cache->_presync_flights.find(flight_key);
+            if (it != cache->_presync_flights.end()) {
+                DCHECK_EQ(it->second->slots, scan_ranges.size());
+                flight = it->second;
+                ++flight->waiters;
+                flight_owner = false;
+            }
+        }
+        if (flight_owner) {
+            auto candidate = make_flight();
+            std::lock_guard<std::mutex> reg_lock(cache->_presync_flights_lock);
+            // try_emplace does the re-check and the insert in ONE hash of this long
+            // key (digest + sorted tablet set + version): it inserts `candidate`
+            // only when no concurrent owner beat us to the key in the unlocked gap,
+            // otherwise it leaves the map untouched and hands back the existing
+            // flight to join (and `candidate` is dropped). This replaces a find()
+            // plus a second operator[] that would hash the key twice under the
+            // BE-global registry lock.
+            auto [it, inserted] = cache->_presync_flights.try_emplace(flight_key, candidate);
+            if (inserted) {
+                flight = candidate;
+                DorisMetrics::instance()->query_cache_presync_inflight->increment(1);
+            } else {
+                DCHECK_EQ(it->second->slots, scan_ranges.size());
+                flight = it->second;
+                ++flight->waiters;
+                flight_owner = false;
+            }
+        }
+    } else {
+        flight = make_flight();
+    }
+    auto per_range_reason = flight->per_range_reason;
+    auto fanout_done = flight->fanout_done;
+    auto slot_counted = flight->slot_counted;
+    auto abandoned = flight->abandoned;
+    // The owner's tablet ids in slot order; every waiter (owner and coalesced
+    // joiners) keys the merged reasons off THESE, never off its own scan-range
+    // order (build_cache_key sorts, so a joiner's order may differ). Shared for
+    // read only, so a plain copy of the shared_ptr is enough.
+    auto flight_tablet_ids = flight->tablet_ids;
+    // Leave the flight on EVERY exit path -- normal return AND an exception
+    // unwinding out of the submit loop or the merge below -- via RAII, so a
+    // decrement can never be skipped and strand the registry entry. Two rules:
+    //   (1) Reap the entry only once the fan-out has actually DRAINED (latch at
+    //       0), NOT merely when the last waiter's deadline expired. Erasing while
+    //       tasks are still mid-RPC would let the next identical query find no
+    //       entry, become a fresh owner, and submit a DUPLICATE fan-out; under a
+    //       sustained meta-service brownout that recreates wave after wave of
+    //       duplicate syncs -- the exact bounded-pool pressure single-flight
+    //       exists to prevent. So while tasks remain, KEEP the entry: post-timeout
+    //       arrivals then join this draining flight (see the join above) instead
+    //       of piling on. If a waiter is present when the latch drains it reaps
+    //       here; if every waiter already left (a timed-out tombstone), the FINAL
+    //       task reaps in publish_slot when it drives the latch to 0 and sees zero
+    //       waiters -- so a drained tombstone is never stranded, even with no
+    //       future identical query. Every slot is published exactly once (run,
+    //       skip, inline-reject, or submit-throw fallback), so the latch always
+    //       reaches 0 in bounded time (except at pool shutdown, which discards
+    //       queued-but-unstarted tasks; that strand is a process-teardown residual
+    //       reclaimed when the cache is destroyed, not runtime growth), and a
+    //       drained flight makes wait_for return immediately for a joiner.
+    //   (2) A last leaver that leaves while tasks still run -- its deadline
+    //       expired, OR an exception (bad_alloc) unwound the owner mid-submit --
+    //       sets `abandoned` UNDER the registry lock (so a joiner cannot observe
+    //       the entry pre-abandon), telling not-yet-started tasks to skip so the
+    //       pool drains fast instead of running work no one will read. NOT
+    //       per-waiter: a timed-out waiter must not cancel work a still-waiting
+    //       sibling needs. A private (null-cache) flight has exactly one waiter,
+    //       so this degenerates to plain abandon-if-tasks-remain.
+    bool timed_out = false;
+    Defer leave_flight([&] {
+        if (cache != nullptr) {
+            std::lock_guard<std::mutex> reg_lock(cache->_presync_flights_lock);
+            bool last = (--flight->waiters == 0);
+            bool drained = (fanout_done->count() == 0);
+            if (last && drained) {
+                // Guard `it->second == flight`: a prior tombstone for this key may
+                // already have been reaped and a fresh flight inserted; erase only
+                // our own.
+                auto it = cache->_presync_flights.find(flight_key);
+                if (it != cache->_presync_flights.end() && it->second == flight) {
+                    cache->_presync_flights.erase(it);
+                    DorisMetrics::instance()->query_cache_presync_inflight->increment(-1);
+                }
+            } else if (last) {
+                // Last waiter leaving with the fan-out still running (timeout or an
+                // owner exception): keep the tombstone and abandon so queued tasks
+                // skip; the final task reaps it in publish_slot once it drains.
+                abandoned->store(true, std::memory_order_release);
+            }
+        } else if (fanout_done->count() != 0) {
+            // Private (null-cache) flight, tasks still running: abandon so they
+            // skip. There is no registry entry to reap.
+            abandoned->store(true, std::memory_order_release);
+        }
+    });
     // Called ONLY by whoever already won the exclusive slot claim (the slot_counted
-    // exchange below), so it is the sole writer of the slot: publish its reason (an
-    // empty reason means synced OK / skipped, leaving the default-empty slot) and
-    // release the latch exactly once. The claim winner counting down is what lets the
-    // caller move the slot out the instant the latch settles.
-    auto publish_slot = [fanout_done, per_range_reason](size_t idx, std::string reason) {
-        if (!reason.empty()) {
-            (*per_range_reason)[idx] = std::move(reason);
+    // exchange below), so it is the sole writer of the slot: publish its reason (a
+    // null/empty reason means synced OK / skipped, leaving the default-empty slot)
+    // and release the latch exactly once. The claim winner counting down is what
+    // lets the caller move the slot out the instant the latch settles.
+    //
+    // `reason` is a `const char*` (a static literal), NOT a std::string, and the
+    // slot is a `const char*` too, so storing it is a plain pointer write that
+    // CANNOT allocate or throw. This matters because this also runs on the
+    // bad_alloc unwind (publish_unsubmitted below): a throwing store inside that
+    // Defer would std::terminate. A null/empty reason means synced OK / skipped and
+    // leaves the default-null slot. The latch count_down and the reap always run,
+    // so a slot never strands the flight; the tablet-id map materializes the
+    // reason strings once, after the latch settles.
+    auto publish_slot = [fanout_done, per_range_reason, cache, flight](size_t idx,
+                                                                       const char* reason) {
+        if (reason != nullptr && reason[0] != '\0') {
+            (*per_range_reason)[idx] = reason;
         }
         fanout_done->count_down();
+        // Reap-on-drain by the FINAL publisher when no waiter is left. If this
+        // count_down drained the latch and every interested waiter has already
+        // left (a timed-out tombstone, or an owner that unwound on bad_alloc), no
+        // leave_flight will run to reap it -- so reap here. The count()==0
+        // pre-check takes only the latch's own lock, NOT the BE-global registry
+        // lock (the latch saturates at 0, so once true it stays true, and every
+        // slot publishes exactly once); only the settling publisher takes the
+        // registry lock, where it re-reads waiters and erases only its own entry.
+        // A joiner that raced in (++waiters under the same lock) makes waiters != 0,
+        // so this skips and that joiner reaps on its own leave. `cache` is null on
+        // the test-only private path (no registry).
+        if (cache != nullptr && fanout_done->count() == 0) {
+            std::lock_guard<std::mutex> reg_lock(cache->_presync_flights_lock);
+            if (flight->waiters == 0) {
+                auto it = cache->_presync_flights.find(flight->key);
+                if (it != cache->_presync_flights.end() && it->second == flight) {
+                    cache->_presync_flights.erase(it);
+                    DorisMetrics::instance()->query_cache_presync_inflight->increment(-1);
+                }
+            }
+        }
     };
 
     // Run the per-tablet syncs on the engine-owned, bounded query-cache delta
@@ -415,109 +657,153 @@ std::unordered_map<int64_t, std::string> QueryCacheRuntime::_presync_cloud_delta
     // sync_rowsets caller, CloudBackendService::sync_load_for_tablets (the FE
     // warmup path), which likewise does not attach.
     auto sync_fanout_start = std::chrono::steady_clock::now();
-    auto& pool = engine->query_cache_delta_sync_pool();
-    // Safe to capture the engine by raw pointer: stop() drains this pool before
-    // the engine (and _meta_mgr/_tablet_mgr) is destroyed, so a running task
-    // always sees a live engine.
-    CloudStorageEngine* engine_ptr = engine;
-    for (size_t i = 0; i < scan_ranges.size(); ++i) {
-        int64_t tablet_id = scan_ranges[i].scan_range.palo_scan_range.tablet_id;
-        Status submit_st = pool.submit_func([tablet_id, current_version, abandoned, i, engine_ptr,
-                                             publish_slot, slot_counted]() {
-            // Claim this slot atomically BEFORE any external work. If the inline
-            // submit-failure path already claimed it -- the narrow enqueue-then-fail
-            // case where do_submit queued this task but then returned an error at zero
-            // live workers, and the caller finished the slot inline -- bail before the
-            // sync RPC: the caller owns the slot and the count-down, and this task's
-            // result would be discarded. Claiming before the RPC (an exchange, not a
-            // plain load that a concurrent inline claim could race between the read
-            // and the RPC) is what keeps an enqueue-then-fail task that a later worker
-            // picks up from firing a meta-service call for an already-settled query.
-            if ((*slot_counted)[i].exchange(true, std::memory_order_acq_rel)) {
-                return;
-            }
-            // This task now exclusively owns the slot and MUST publish it exactly once
-            // on every exit path so the caller's bounded wait can settle. Empty reason
-            // means synced OK (or skipped as non-append-only); a non-empty reason
-            // falls this tablet back.
-            std::string reason;
-            Defer done([&] { publish_slot(i, std::move(reason)); });
-            // (a) Shutdown began, or the caller already abandoned the wait (its
-            // deadline passed): bail before a fresh sync RPC so the pool drains
-            // quickly instead of spending the full RPC retry budget on work whose
-            // result no one will read. (An abandoned task's reason is never read --
-            // the caller took the timeout path -- but recording it is harmless.)
-            if (engine_ptr->stopped() || abandoned->load(std::memory_order_acquire)) {
-                reason = "be is stopping, sync skipped";
-                return;
-            }
-            auto tablet_res = ExecEnv::get_tablet(tablet_id);
-            if (!tablet_res) {
-                // Publish the failure instead of leaving the slot empty: an
-                // empty reason tells _capture_tablet_delta the view is synced,
-                // so its own get_tablet would RETRY this very cache-miss
-                // meta-service load synchronously on the admission thread,
-                // outside the fast-fail deadline -- during a brownout (the one
-                // situation where this load fails slowly) that repeats the
-                // slow RPC on the pool this budget exists to protect. Falling
-                // back is also never wrong here: this worker-side load is
-                // strictly conservative (a transient failure only costs the
-                // incremental merge, never correctness).
-                reason = "cloud tablet load failed";
-                return;
-            }
-            BaseTabletSPtr tablet = std::move(tablet_res.value());
-            const bool append_only = tablet->keys_type() == KeysType::DUP_KEYS ||
-                                     (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                      tablet->enable_unique_key_merge_on_write());
-            if (!append_only) {
-                // Skip the RPC entirely: _capture_tablet_delta rejects this
-                // tablet at its keys-type check before it would consume a sync.
-                return;
-            }
-            auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(std::move(tablet));
-            if (cloud_tablet == nullptr) {
-                // is_cloud_mode() flipped on a live local deployment
-                // (cloud_unique_id is a mutable config): degrade to a full
-                // recompute rather than dereference the failed cast downstream.
-                reason = "tablet is not a cloud tablet";
-                return;
-            }
-            SyncOptions options;
-            options.query_version = current_version;
-            options.merge_schema = true;
-            // The history-rewrite check reads the delete bitmap this sync merges,
-            // so pin the dependency explicitly rather than inherit the struct
-            // default (which a refactor could flip with no compile error): a
-            // merge-on-write delta cannot be classified on a bitmap the sync did
-            // not bring up to the queried version.
-            options.sync_delete_bitmap = true;
-            Status st = cloud_tablet->sync_rowsets(options);
-            if (!st.ok()) {
-                // Unlike the other fallback reasons (expected data shapes), a
-                // failed sync is an infrastructure error: log the status so the
-                // profile reason correlates to a cause. Throttled with
-                // LOG_EVERY_N because a meta-service brownout fails this for
-                // every stale tablet of every query at once; the underlying RPC
-                // errors are already logged per retry inside retry_rpc, so a
-                // sampled line here is enough to correlate without a storm, and
-                // the exact reason still reaches the user via the query profile.
-                LOG_EVERY_N(WARNING, 100)
-                        << "query cache incremental merge falls back, cloud rowset sync failed"
-                        << ", tablet_id=" << tablet_id << ", status=" << st.to_string();
-                reason = "cloud rowset sync failed";
+    if (!flight_owner) {
+        // Joined an in-flight fan-out for the same (cache_key, version): the
+        // owner's tasks fill the shared slots; just wait on the shared latch
+        // below under this waiter's own deadline.
+        TEST_SYNC_POINT("QueryCacheRuntime::_presync_cloud_delta_tablets.follower_joined");
+    } else {
+        auto& pool = engine->query_cache_delta_sync_pool();
+        // Safe to capture the engine by raw pointer: stop() drains this pool
+        // before the engine (and _meta_mgr/_tablet_mgr) is destroyed, so a
+        // running task always sees a live engine.
+        CloudStorageEngine* engine_ptr = engine;
+        // Guarantee the latch always settles even if the submit loop unwinds
+        // partway (submit_func can throw bad_alloc heap-allocating a task closure
+        // under memory pressure). `submitted` counts the slots the loop has fully
+        // handled (a task was enqueued, or the inline-reject path published it);
+        // on an unwind this Defer publishes exactly the slots NOT yet reached, so
+        // the CountDownLatch still reaches 0. It must publish only [submitted, N):
+        // slots already submitted are owned by their (possibly still-queued) tasks
+        // and stealing their claim would falsely report a scheduled sync as
+        // unscheduled -- so on the normal path (submitted == N) this publishes
+        // nothing. A settling latch is what lets the leave Defer's reap-on-drain
+        // rule eventually remove the registry entry instead of stranding it.
+        size_t submitted = 0;
+        Defer publish_unsubmitted([&] {
+            for (size_t j = submitted; j < scan_ranges.size(); ++j) {
+                if (!(*slot_counted)[j].exchange(true, std::memory_order_acq_rel)) {
+                    publish_slot(j, "cloud rowset sync not scheduled");
+                }
             }
         });
-        if (!submit_st.ok()) {
-            // Pool shutting down or queue at capacity: do not block. Claim the slot
-            // for the inline fallback. do_submit rejects shutdown and capacity before
-            // enqueue, so the closure will not run; on the narrow path where it did
-            // enqueue before failing (thread creation at zero live workers), the
-            // exchange makes exactly one of this path and the queued task own the slot
-            // -- if the task claimed it first it will publish, so do nothing here.
-            if (!(*slot_counted)[i].exchange(true, std::memory_order_acq_rel)) {
-                publish_slot(i, "cloud rowset sync not scheduled");
+        for (size_t i = 0; i < scan_ranges.size(); ++i) {
+            int64_t tablet_id = scan_ranges[i].scan_range.palo_scan_range.tablet_id;
+            Status submit_st = pool.submit_func([tablet_id, current_version, abandoned, i,
+                                                 engine_ptr, publish_slot, slot_counted]() {
+                // Claim this slot atomically BEFORE any external work. If the inline
+                // submit-failure path already claimed it -- the narrow enqueue-then-fail
+                // case where do_submit queued this task but then returned an error at zero
+                // live workers, and the caller finished the slot inline -- bail before the
+                // sync RPC: the caller owns the slot and the count-down, and this task's
+                // result would be discarded. Claiming before the RPC (an exchange, not a
+                // plain load that a concurrent inline claim could race between the read
+                // and the RPC) is what keeps an enqueue-then-fail task that a later worker
+                // picks up from firing a meta-service call for an already-settled query.
+                if ((*slot_counted)[i].exchange(true, std::memory_order_acq_rel)) {
+                    return;
+                }
+                // This task now exclusively owns the slot and MUST publish it exactly once
+                // on every exit path so the caller's bounded wait can settle. Empty reason
+                // means synced OK (or skipped as non-append-only); a non-empty reason
+                // falls this tablet back.
+                // A static literal (const char*), never an owning std::string, so
+                // publishing it in `done` cannot allocate on the bad_alloc unwind
+                // path (see publish_slot's contract above).
+                const char* reason = nullptr;
+                Defer done([&] { publish_slot(i, reason); });
+                // (a) Shutdown began, or the interested waiters all abandoned the
+                // wait (their deadlines passed, or an owner unwound on bad_alloc):
+                // bail before a fresh sync RPC so the pool drains quickly instead of
+                // spending the full RPC retry budget on work the timed-out waiters
+                // will not read. A coalesced joiner MAY later reuse this slot (it
+                // rides the draining tombstone), so the reason must be accurate:
+                // keep "be is stopping" for a genuine teardown, but give the
+                // abandonment case a distinct reason (covering BOTH the timeout and
+                // the owner-unwind causes) so a joiner on a HEALTHY BE never sees a
+                // false shutdown diagnosis in its profile.
+                if (engine_ptr->stopped()) {
+                    reason = "be is stopping, sync skipped";
+                    return;
+                }
+                if (abandoned->load(std::memory_order_acquire)) {
+                    reason = "cloud rowset sync abandoned (all waiters left)";
+                    return;
+                }
+                auto tablet_res = ExecEnv::get_tablet(tablet_id);
+                if (!tablet_res) {
+                    // Publish the failure instead of leaving the slot empty: an
+                    // empty reason tells _capture_tablet_delta the view is synced,
+                    // so its own get_tablet would RETRY this very cache-miss
+                    // meta-service load synchronously on the admission thread,
+                    // outside the fast-fail deadline -- during a brownout (the one
+                    // situation where this load fails slowly) that repeats the
+                    // slow RPC on the pool this budget exists to protect. Falling
+                    // back is also never wrong here: this worker-side load is
+                    // strictly conservative (a transient failure only costs the
+                    // incremental merge, never correctness).
+                    reason = "cloud tablet load failed";
+                    return;
+                }
+                BaseTabletSPtr tablet = std::move(tablet_res.value());
+                const bool append_only = tablet->keys_type() == KeysType::DUP_KEYS ||
+                                         (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                          tablet->enable_unique_key_merge_on_write());
+                if (!append_only) {
+                    // Skip the RPC entirely: _capture_tablet_delta rejects this
+                    // tablet at its keys-type check before it would consume a sync.
+                    return;
+                }
+                auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(std::move(tablet));
+                if (cloud_tablet == nullptr) {
+                    // is_cloud_mode() flipped on a live local deployment
+                    // (cloud_unique_id is a mutable config): degrade to a full
+                    // recompute rather than dereference the failed cast downstream.
+                    reason = "tablet is not a cloud tablet";
+                    return;
+                }
+                SyncOptions options;
+                options.query_version = current_version;
+                options.merge_schema = true;
+                // The history-rewrite check reads the delete bitmap this sync merges,
+                // so pin the dependency explicitly rather than inherit the struct
+                // default (which a refactor could flip with no compile error): a
+                // merge-on-write delta cannot be classified on a bitmap the sync did
+                // not bring up to the queried version.
+                options.sync_delete_bitmap = true;
+                Status st = cloud_tablet->sync_rowsets(options);
+                if (!st.ok()) {
+                    // Unlike the other fallback reasons (expected data shapes), a
+                    // failed sync is an infrastructure error: log the status so the
+                    // profile reason correlates to a cause. Throttled with
+                    // LOG_EVERY_N because a meta-service brownout fails this for
+                    // every stale tablet of every query at once; the underlying RPC
+                    // errors are already logged per retry inside retry_rpc, so a
+                    // sampled line here is enough to correlate without a storm, and
+                    // the exact reason still reaches the user via the query profile.
+                    LOG_EVERY_N(WARNING, 100)
+                            << "query cache incremental merge falls back, cloud rowset sync failed"
+                            << ", tablet_id=" << tablet_id << ", status=" << st.to_string();
+                    reason = "cloud rowset sync failed";
+                }
+            });
+            if (!submit_st.ok()) {
+                // Pool shutting down or queue at capacity: do not block. Claim the
+                // slot for the inline fallback. do_submit rejects shutdown and
+                // capacity before enqueue, so the closure will not run; on the
+                // narrow path where it did enqueue before failing (thread creation
+                // at zero live workers), the exchange makes exactly one of this
+                // path and the queued task own the slot -- if the task claimed it
+                // first it will publish, so do nothing here.
+                if (!(*slot_counted)[i].exchange(true, std::memory_order_acq_rel)) {
+                    publish_slot(i, "cloud rowset sync not scheduled");
+                }
             }
+            // Slot i is now fully handled (a task was enqueued above, or the
+            // inline-reject path published it); advance the safety-net floor so
+            // the unwind Defer never re-touches it. Reached only when submit_func
+            // did NOT throw -- a throw skips this and leaves slot i to the Defer.
+            submitted = i + 1;
         }
     }
 
@@ -528,8 +814,19 @@ std::unordered_map<int64_t, std::string> QueryCacheRuntime::_presync_cloud_delta
     // query_cache_decision_sync_timeout_ms even if a degraded pool ever made
     // submission slow, instead of granting the full timeout again after submission
     // already consumed part of it.
-    auto sync_deadline = sync_fanout_start +
-                         std::chrono::milliseconds(config::query_cache_decision_sync_timeout_ms);
+    int64_t decision_sync_timeout_ms = config::query_cache_decision_sync_timeout_ms;
+    // Test seam: lets a test pin a deterministic deadline per coalescing role. When
+    // two runtimes share one flight, a test that wants to observe the intermediate
+    // "first waiter left, second still waiting" state needs the leave order fixed by
+    // construction (give the owner a shorter timeout than the joining follower)
+    // rather than by wall-clock start staggering, which a descheduled CI runner could
+    // invert. `flight_owner` is the role discriminator (true for the runtime that
+    // created the flight, false for one that joined it). A no-op in production (no
+    // callback registered); this function is static, so the role, not `this`, is what
+    // a test can key on.
+    TEST_SYNC_POINT_CALLBACK("QueryCacheRuntime::_presync_cloud_delta_tablets.deadline_ms",
+                             flight_owner, &decision_sync_timeout_ms);
+    auto sync_deadline = sync_fanout_start + std::chrono::milliseconds(decision_sync_timeout_ms);
     auto sync_now = std::chrono::steady_clock::now();
     // Keep full clock precision here -- do NOT truncate to whole milliseconds.
     // Truncating would shave the sub-millisecond submit time off the budget and let
@@ -538,12 +835,14 @@ std::unordered_map<int64_t, std::string> QueryCacheRuntime::_presync_cloud_delta
     // the total time from sync_fanout_start stays >= the budget.
     auto remaining = sync_deadline > sync_now ? (sync_deadline - sync_now)
                                               : std::chrono::steady_clock::duration::zero();
-    bool timed_out = !fanout_done->wait_for(remaining);
-    if (timed_out) {
-        // Tell not-yet-started tasks to skip their sync RPC so the pool drains
-        // fast instead of running abandoned work to completion.
-        abandoned->store(true, std::memory_order_release);
-    }
+    // The leave-the-flight bookkeeping (decrement waiters, reap on drain, mark
+    // abandoned) runs in the `leave_flight` Defer established above, so it fires
+    // on every exit including an unwind. That Defer keys its reap/abandon decision
+    // off the latch count (`drained`), NOT off `timed_out` -- a last leaver can
+    // exit with `timed_out==false` (an owner unwinding on bad_alloc mid-submit)
+    // yet with tasks still running, and only the latch count captures that. Record
+    // the timeout result here; `timed_out` is read only by the fallback below.
+    timed_out = !fanout_done->wait_for(remaining);
     DorisMetrics::instance()->query_cache_decision_sync_time_ms->increment(
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
                                                                   sync_fanout_start)
@@ -570,17 +869,30 @@ std::unordered_map<int64_t, std::string> QueryCacheRuntime::_presync_cloud_delta
         return fallback_reasons;
     }
     // Merge the index-aligned slots into a tablet-id map for the capture loop.
-    // Safe to read now: the fan-out completed, so no task is still writing.
-    // Scan ranges carry distinct tablet ids in practice (each tablet is scanned
-    // once per query), but were one to appear twice the fan-out would only
-    // issue an idempotent redundant sync (serialized inside sync_rowsets by
-    // _sync_meta_lock) and this map, keyed by tablet id, would still resolve to
-    // one consistent reason for it -- so a duplicate is harmless, not something
-    // to guard against with an unreachable de-dup branch.
+    // Safe to read now: the fan-out completed, so no task is still writing. COPY
+    // rather than move: the slots are shared with every other runtime coalesced
+    // onto this flight, and each builds its own map from them. Key each slot off
+    // the OWNER's tablet id (flight_tablet_ids), NOT this waiter's scan_ranges:
+    // build_cache_key sorts tablet ids, so a joiner whose scan ranges differ
+    // from the owner's only in order still shares this flight, and reading a
+    // slot through the joiner's own position would misassign the owner's
+    // per-slot reason to the wrong tablet (a failed tablet's reason lands on a
+    // sibling, and the truly failed tablet, left with no reason, is treated as
+    // synced -- so _capture_tablet_delta reissues a synchronous get_tablet on
+    // the admission thread outside the fast-fail budget, exactly the brownout
+    // stall the presync exists to avoid). Scan ranges carry distinct tablet ids
+    // in practice (each tablet is scanned once per query), but were one to
+    // appear twice the fan-out would only issue an idempotent redundant sync
+    // (serialized inside sync_rowsets by _sync_meta_lock) and this map, keyed by
+    // tablet id, would still resolve to one consistent reason for it -- so a
+    // duplicate is harmless, not something to guard against with an unreachable
+    // de-dup branch.
     for (size_t i = 0; i < per_range_reason->size(); ++i) {
-        if (!(*per_range_reason)[i].empty()) {
-            fallback_reasons[scan_ranges[i].scan_range.palo_scan_range.tablet_id] =
-                    std::move((*per_range_reason)[i]);
+        // A null slot is a synced-OK / skipped tablet; a non-null slot is a static
+        // reason literal (publish_slot only stores non-empty ones). Materialize the
+        // literal into the tablet-id map here, once, now that the fan-out has drained.
+        if ((*per_range_reason)[i] != nullptr) {
+            fallback_reasons[(*flight_tablet_ids)[i]] = (*per_range_reason)[i];
         }
     }
     return fallback_reasons;

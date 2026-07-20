@@ -1605,8 +1605,32 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             auto cache_node_id = _params.local_params[0].per_node_scan_ranges.begin()->first;
             auto cache_source_id = next_operator_id();
             if (_query_cache_runtime == nullptr) {
+                TQueryCacheParam runtime_param = _params.fragment.query_cache_param;
+                // BE-side mirror of the FE incremental knob gates: a same-version
+                // FE already cleared allow_incremental under an active freshness/
+                // prefer-cached knob, making this a no-op; it closes the rolling-
+                // upgrade window where an older FE without those gates still
+                // requests incremental while a knob is active, which would defeat
+                // the knob's warmed-read intent (never correctness: the delta
+                // capture is version-exact either way). Applied here, the single
+                // point where the fragment-wide runtime is born, so the cache
+                // source and the scan can never disagree on it; cloud-only since
+                // both knobs are inert on local storage. The whole decision is a
+                // pure function (unit-tested) so this stays trivial wiring;
+                // deliberately NOT part of the cache key (key identity must not
+                // depend on who asks).
+                runtime_param.allow_incremental =
+                        QueryCacheRuntime::gate_allow_incremental_for_cloud_knobs(
+                                runtime_param.allow_incremental, runtime_param.is_merge_on_write,
+                                config::is_cloud_mode(),
+                                _runtime_state->enable_query_freshness_tolerance(),
+                                _runtime_state->enable_prefer_cached_rowset());
+                // `runtime_param` is a throwaway built solely to carry the gated
+                // flag into the runtime, so move it in: the by-value constructor
+                // then move-constructs `_param` and no second O(tablets) deep copy
+                // of TQueryCacheParam happens on this admission path.
                 _query_cache_runtime =
-                        std::make_shared<QueryCacheRuntime>(_params.fragment.query_cache_param);
+                        std::make_shared<QueryCacheRuntime>(std::move(runtime_param));
             }
             op = std::make_shared<CacheSourceOperatorX>(pool, cache_node_id, cache_source_id,
                                                         _params.fragment.query_cache_param,

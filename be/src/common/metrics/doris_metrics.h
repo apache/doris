@@ -69,6 +69,11 @@ public:
     // inside a profiled scan node, so without this counter its (potentially
     // meta-service-bound) latency is invisible.
     IntCounter* query_cache_decision_sync_time_ms = nullptr;
+    // Live count of cloud pre-sync single-flight entries currently registered
+    // (owned or draining). Steady state is near zero; a persistently rising value
+    // would flag a registry leak or a stuck fan-out. Also makes the coalescing
+    // mechanism observable (how many concurrent identical fan-outs are in flight).
+    IntGauge* query_cache_presync_inflight = nullptr;
 
     IntCounter* push_requests_success_total = nullptr;
     IntCounter* push_requests_fail_total = nullptr;
