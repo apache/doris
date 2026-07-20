@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccess
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
@@ -54,13 +56,16 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -158,6 +163,16 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         createTable("create table not_null_struct_tbl(\n"
                 + "  id int,\n"
                 + "  s struct<f: int> not null\n"
+                + ") properties ('replication_num'='1')");
+
+        // Table for verifying that NOT NULL struct FIELD is preserved in pruned type
+        // when a sibling field is also accessed.
+        // Doris DDL does not support NOT NULL on individual struct fields, so the
+        // NOT NULL branch is tested via testNotNullFieldPreservedInAccessPaths
+        // which constructs the StructType programmatically.
+        createTable("create table nullable_struct_tbl_two_fields(\n"
+                + "  id int,\n"
+                + "  s struct<f: int, g: int>\n"
                 + ") properties ('replication_num'='1')");
 
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
@@ -1926,5 +1941,126 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("s", "f")),
                 // expect-NOT-contain: struct-level NULL path must be suppressed
                 ImmutableList.of(metaPath("s", "NULL")));
+    }
+
+    /**
+     * Verifies that a NOT NULL struct field is preserved in the pruned type when a
+     * sibling field is accessed via SELECT and the IS NULL check emits struct-level
+     * META NULL. Before the fix, the early return at visitElementAt dropped the NOT NULL
+     * field's path, causing pruneDataType to remove it from the struct type. The filter
+     * expression still referenced element_at(s, 'f') IS NULL and could not be rebuilt.
+     */
+    @Test
+    public void testNullableFieldPreservedWithSiblingProjection() throws Exception {
+        // s STRUCT<f:INT, g:INT> NULL  (both fields nullable by default)
+        // SELECT element_at(s, 'g')       → [s, g] DATA
+        // WHERE  element_at(s, 'f') IS NULL → [s, NULL] META + [s, f, NULL] META
+        // Both fields preserved in pruned type.
+        assertColumn(
+                "select element_at(s, 'g') from nullable_struct_tbl_two_fields"
+                        + " where element_at(s, 'f') is null",
+                "struct<f:int,g:int>",
+                ImmutableList.of(
+                        path("s", "g"),
+                        metaPath("s", "NULL"),
+                        metaPath("s", "f", "NULL")),
+                ImmutableList.of(
+                        metaPath("s", "NULL"),
+                        metaPath("s", "f", "NULL")));
+    }
+
+    /**
+     * Tests the NOT NULL struct field branch in visitElementAt line 375-384,
+     * complementing {@link #testNotNullStructOnOuterJoinNullableSide()} and
+     * {@link #testNullableFieldPreservedWithSiblingProjection()}.
+     *
+     * <h3>Relationship with other tests</h3>
+     * <ul>
+     *   <li>{@code testNotNullStructOnOuterJoinNullableSide}: the struct itself is
+     *       NOT NULL → no struct null map → [s, NULL] META must be suppressed.</li>
+     *   <li>{@code testNullableFieldPreservedWithSiblingProjection}: the struct IS
+     *       nullable AND the field IS nullable → [s, NULL] META + [s, f, NULL] META
+     *       both emitted, field preserved via the META path.</li>
+     *   <li><b>This test</b>: the struct IS nullable BUT the field is NOT NULL →
+     *       [s, NULL] META is emitted for the struct null map, but [s, f, NULL]
+     *       META is NOT emitted (no field-level null map). The fix must still emit
+     *       [s, f] DATA so pruneDataType preserves the field in the struct type —
+     *       the filter expression {@code element_at(s, 'f') IS NULL} still
+     *       references 'f' and won't be rewritten to {@code s IS NULL}.</li>
+     * </ul>
+     *
+     * <h3>Why manual construction instead of SQL</h3>
+     * Doris DDL does not support {@code NOT NULL} on individual struct fields
+     * ({@code struct<f:int not null, g:int>} triggers a syntax error). This test
+     * therefore constructs the {@link StructType} with a nullable=false field
+     * programmatically and calls {@link AccessPathExpressionCollector} directly.
+     * Because the {@link SlotReference} lacks an {@code originalColumn},
+     * {@code hasPhysicalNullMap} returns false, so [s, NULL] META is suppressed
+     * by the slot-level guard — that path is covered by the SQL-based
+     * {@code testNullableFieldPreservedWithSiblingProjection}.
+     */
+    @Test
+    public void testNotNullFieldPreservedInAccessPaths() {
+        // Scenario from Review 2:
+        //   Project(element_at(s, 'g'))
+        //     Filter(element_at(s, 'f') IS NULL)
+        //       Scan(s STRUCT<f:INT NOT NULL, g:INT> NULL)
+        //
+        // Before fix: visitElementAt emitted [s, NULL] META then returned null,
+        // dropping field 'f'. pruneDataType removed 'f' from the struct type
+        // because no path referenced it. The filter still referenced
+        // element_at(s, 'f') IS NULL → rebuild failed.
+        //
+        // After fix: visitElementAt emits [s, NULL] META, then falls through
+        // with a fresh DATA context to emit [s, f] DATA, preserving 'f'.
+
+        // s STRUCT<f:INT NOT NULL, g:INT>
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("f", IntegerType.INSTANCE, false, ""),  // NOT NULL
+                new StructField("g", IntegerType.INSTANCE, true, ""))); // nullable
+        SlotReference slot = new SlotReference("s", structType, true);  // struct is nullable
+
+        // SELECT element_at(s, 'g') → collector emits [s, g] DATA
+        ElementAt selectG = new ElementAt(slot, new org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral("g"));
+        Multimap<Integer, CollectAccessPathResult> paths1 = ArrayListMultimap.create();
+        new AccessPathExpressionCollector(
+                connectContext.getStatementContext(), paths1, false, false)
+                .collect(selectG);
+
+        // WHERE element_at(s, 'f') IS NULL → should emit [s, NULL] META + [s, f] DATA
+        ElementAt whereF = new ElementAt(slot, new org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral("f"));
+        IsNull isNull = new IsNull(whereF);
+        Multimap<Integer, CollectAccessPathResult> paths2 = ArrayListMultimap.create();
+        new AccessPathExpressionCollector(
+                connectContext.getStatementContext(), paths2, true, false)
+                .collect(isNull);
+
+        // Merge results
+        TreeSet<CollectAccessPathResult> allPaths = new TreeSet<>(
+                Comparator.comparing(CollectAccessPathResult::toString));
+        allPaths.addAll(paths1.get(slot.getExprId().asInt()));
+        allPaths.addAll(paths2.get(slot.getExprId().asInt()));
+
+        // [s, g] DATA must exist (from SELECT)
+        Assertions.assertTrue(allPaths.contains(
+                new CollectAccessPathResult(
+                        ImmutableList.of("s", "g"), false, ColumnAccessPathType.DATA)),
+                "expected [s,g] DATA in: " + allPaths);
+        // [s, f] DATA must exist (NOT NULL field preserved — the fix)
+        // isPredicate=true because it comes from the WHERE clause.
+        Assertions.assertTrue(allPaths.contains(
+                new CollectAccessPathResult(
+                        ImmutableList.of("s", "f"), true, ColumnAccessPathType.DATA)),
+                "expected [s,f] DATA (NOT NULL field preserved) in: " + allPaths);
+        // NOTE: [s, NULL] META is not asserted here because the manually constructed
+        // SlotReference has no originalColumn, so hasPhysicalNullMap returns false and
+        // the META NULL path is suppressed at visitSlotReference. The [s, NULL] META
+        // behavior is covered by testNullableFieldPreservedWithSiblingProjection.
+        //
+        // [s, f, NULL] META must NOT exist (f is NOT NULL, no field-level null map)
+        Assertions.assertFalse(allPaths.contains(
+                new CollectAccessPathResult(
+                        ImmutableList.of("s", "f", "NULL"), true, ColumnAccessPathType.META)),
+                "f is NOT NULL, expected NO [s,f,NULL] META in: " + allPaths);
     }
 }

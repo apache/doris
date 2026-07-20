@@ -373,8 +373,14 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                     // Path 1: struct-level null check — bypass field prefix
                     continueCollectAccessPath(first, copyContext(context));
                     if (field != null && !field.isNullable()) {
-                        // Non-nullable leaf: struct-level NULL is sufficient
-                        return null;
+                        // Non-nullable leaf: struct-level NULL is sufficient for the
+                        // IS NULL check, so no META NULL path for the field is needed.
+                        // However the field must still appear in the type so pruneDataType
+                        // preserves it — the filter expression still references
+                        // element_at(s, 'f') IS NULL and won't be rewritten to s IS NULL.
+                        // Fall through with a fresh DATA context to emit [s, f] DATA.
+                        context = new CollectorContext(
+                                context.statementContext, context.bottomFilter);
                     }
                     // Nullable leaf: fall through to add field prefix → META [s, field, NULL]
                 }
