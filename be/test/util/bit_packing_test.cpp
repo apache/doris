@@ -56,8 +56,7 @@ void pack_values(const std::vector<T>& values, int bit_width, faststring* packed
 }
 
 template <typename T>
-void test_all_bit_widths() {
-    constexpr int num_values = 65;
+void test_all_bit_widths(int num_values) {
     for (int bit_width = 1; bit_width <= std::numeric_limits<T>::digits; ++bit_width) {
         std::vector<T> expected = make_values<T>(bit_width, num_values);
         faststring packed;
@@ -101,9 +100,11 @@ void test_truncated_input() {
 }
 
 TEST(BitPackingTest, PdepUnpackAllBitWidths) {
-    test_all_bit_widths<uint8_t>();
-    test_all_bit_widths<uint16_t>();
-    test_all_bit_widths<uint32_t>();
+    for (int num_values : {127, 128, 129}) {
+        test_all_bit_widths<uint8_t>(num_values);
+        test_all_bit_widths<uint16_t>(num_values);
+        test_all_bit_widths<uint32_t>(num_values);
+    }
 }
 
 TEST(BitPackingTest, PdepUnpackTruncatedInput) {

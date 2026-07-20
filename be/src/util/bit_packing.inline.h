@@ -87,9 +87,10 @@ std::pair<const uint8_t*, int64_t> BitPacking::UnpackValues(const uint8_t* __res
     OutType* out_pos = out;
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+    constexpr int MIN_PDEP_BATCHES = 4;
     int64_t batches_read = 0;
     if constexpr (PdepUnpack::should_use<OutType, BIT_WIDTH>()) {
-        if (batches_to_read > 0 && PdepUnpack::is_supported()) {
+        if (batches_to_read >= MIN_PDEP_BATCHES && PdepUnpack::is_supported()) {
             for (; batches_read < batches_to_read; ++batches_read) {
                 PdepUnpack::unpack32<OutType, BIT_WIDTH>(in_pos, out_pos);
                 in_pos += (BATCH_SIZE * BIT_WIDTH) / CHAR_BIT;

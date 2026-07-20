@@ -35,6 +35,8 @@ constexpr int kPdepUnpackBatchSize = 32;
 constexpr int kPdepUnpackL1NumValues = 1 << 12;
 constexpr int kPdepUnpackL2NumValues = 1 << 18;
 constexpr int kPdepUnpackLargeNumValues = 1 << 20;
+const std::vector<int64_t> kPdepUnpackNumValues = {
+        32, 64, 128, kPdepUnpackL1NumValues, kPdepUnpackL2NumValues, kPdepUnpackLargeNumValues};
 
 template <typename T, int BIT_WIDTH>
 void scalar_unpack(const uint8_t* input, int num_values, T* output) {
@@ -182,19 +184,16 @@ void BM_ActualUnpack(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations() * num_values);
 }
 
-#define REGISTER_PDEP_UNPACK_BENCHMARK(type, max_bit_width)                  \
-    BENCHMARK_TEMPLATE(BM_ScalarUnpack, type)                                \
-            ->ArgsProduct({benchmark::CreateDenseRange(1, max_bit_width, 1), \
-                           {kPdepUnpackL1NumValues, kPdepUnpackL2NumValues,  \
-                            kPdepUnpackLargeNumValues}});                    \
-    BENCHMARK_TEMPLATE(BM_PdepUnpack, type)                                  \
-            ->ArgsProduct({benchmark::CreateDenseRange(1, max_bit_width, 1), \
-                           {kPdepUnpackL1NumValues, kPdepUnpackL2NumValues,  \
-                            kPdepUnpackLargeNumValues}});                    \
-    BENCHMARK_TEMPLATE(BM_ActualUnpack, type)                                \
-            ->ArgsProduct(                                                   \
-                    {benchmark::CreateDenseRange(1, max_bit_width, 1),       \
-                     {kPdepUnpackL1NumValues, kPdepUnpackL2NumValues, kPdepUnpackLargeNumValues}})
+#define REGISTER_PDEP_UNPACK_BENCHMARK(type, max_bit_width)                                    \
+    BENCHMARK_TEMPLATE(BM_ScalarUnpack, type)                                                  \
+            ->ArgsProduct(                                                                     \
+                    {benchmark::CreateDenseRange(1, max_bit_width, 1), kPdepUnpackNumValues}); \
+    BENCHMARK_TEMPLATE(BM_PdepUnpack, type)                                                    \
+            ->ArgsProduct(                                                                     \
+                    {benchmark::CreateDenseRange(1, max_bit_width, 1), kPdepUnpackNumValues}); \
+    BENCHMARK_TEMPLATE(BM_ActualUnpack, type)                                                  \
+            ->ArgsProduct(                                                                     \
+                    {benchmark::CreateDenseRange(1, max_bit_width, 1), kPdepUnpackNumValues})
 
 REGISTER_PDEP_UNPACK_BENCHMARK(uint8_t, 8);
 REGISTER_PDEP_UNPACK_BENCHMARK(uint16_t, 16);
