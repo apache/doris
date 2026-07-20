@@ -1335,6 +1335,42 @@ TEST_F(ColumnReaderTest, SplitAccessPathsClassifiesCurrentAndDescendantPaths) {
     EXPECT_EQ(iterator._read_requirement, ColumnIterator::ReadRequirement::NORMAL);
 }
 
+TEST_F(ColumnReaderTest, MapRejectsUnrecognizedDescendantSelectors) {
+    auto make_map_iterator = []() {
+        auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(create_test_reader()));
+        auto map_iterator = std::make_unique<MapFileColumnIterator>(
+                create_test_reader(), nullptr, std::move(offsets_iterator),
+                std::make_unique<TrackingColumnIterator>(),
+                std::make_unique<TrackingColumnIterator>());
+        map_iterator->set_column_name("m");
+        return map_iterator;
+    };
+
+    std::vector<TColumnAccessPath> invalid_paths;
+    invalid_paths.emplace_back(create_data_access_path({"m", "UNKNOWN"}));
+    invalid_paths.emplace_back(
+            create_meta_access_path({"m", "UNKNOWN", ColumnIterator::ACCESS_NULL}));
+    invalid_paths.emplace_back(create_legacy_data_access_path({"m", "UNKNOWN"}));
+
+    for (const auto& path : invalid_paths) {
+        auto map_iterator = make_map_iterator();
+        auto st = map_iterator->set_access_paths({path}, {});
+        EXPECT_FALSE(st.ok());
+        EXPECT_THAT(st.to_string(), ::testing::HasSubstr("Invalid map access path selector"));
+        EXPECT_THAT(st.to_string(), ::testing::HasSubstr("UNKNOWN"));
+    }
+
+    auto path = create_meta_access_path(
+            {"m", ColumnIterator::ACCESS_MAP_VALUES, ColumnIterator::ACCESS_OFFSET});
+    TDataAccessPath unselected_data_payload;
+    unselected_data_payload.__set_path({"m", "UNKNOWN"});
+    path.__set_data_access_path(std::move(unselected_data_payload));
+    auto map_iterator = make_map_iterator();
+    auto st = map_iterator->set_access_paths({path}, {});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+}
+
 TEST_F(ColumnReaderTest, MapChildPathRoutingUsesLogicalSelectorsAndPreservesVersion) {
     auto key_iterator = std::make_unique<TrackingColumnIterator>();
     key_iterator->set_column_name("physical_key");

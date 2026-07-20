@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <set>
 #include <string>
@@ -225,7 +226,7 @@ public:
 
 private:
     enum class PathHeadMatchMode { EXACT, CASE_INSENSITIVE };
-    enum class MapSelector { UNRECOGNIZED, WILDCARD, KEYS, VALUES };
+    enum class MapSelector { WILDCARD, KEYS, VALUES };
 
     // TColumnAccessPath may carry both payload fields after compatibility forwarding. Selected
     // means data_access_path for DATA and meta_access_path for META. Visit only that payload and
@@ -294,7 +295,7 @@ private:
     }
 
     static Result<MapSelector> classify_map_selector(const TColumnAccessPath& access_path) {
-        MapSelector selector = MapSelector::UNRECOGNIZED;
+        std::optional<MapSelector> selector;
         auto status = visit_selected_payload(access_path, [&](const auto& payload) {
             DORIS_CHECK(!payload.path.empty());
             const auto& head = payload.path.front();
@@ -304,13 +305,18 @@ private:
                 selector = MapSelector::KEYS;
             } else if (head == ColumnIterator::ACCESS_MAP_VALUES) {
                 selector = MapSelector::VALUES;
+            } else {
+                return Status::InternalError(
+                        "Invalid map access path selector '{}': expected '*', 'KEYS', or 'VALUES'",
+                        head);
             }
             return Status::OK();
         });
         if (!status.ok()) {
             return ResultError(std::move(status));
         }
-        return selector;
+        DORIS_CHECK(selector.has_value());
+        return *selector;
     }
 
     static Status distribute_map_paths(TColumnAccessPaths source_paths,
@@ -332,8 +338,6 @@ private:
                 break;
             case MapSelector::VALUES:
                 value_paths.emplace_back(std::move(path));
-                break;
-            case MapSelector::UNRECOGNIZED:
                 break;
             }
         }
