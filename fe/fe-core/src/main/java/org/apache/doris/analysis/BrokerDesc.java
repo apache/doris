@@ -22,7 +22,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -117,19 +116,6 @@ public class BrokerDesc extends StorageDesc implements Writable {
             this.storageProperties = StorageProperties.createPrimary(properties);
         }
 
-    }
-
-    /** Creates the trusted S3 descriptor used only by S3 TVF import and Broker Load. */
-    public static BrokerDesc createForS3ExpressImport(String name, Map<String, String> properties) {
-        BrokerDesc brokerDesc = new BrokerDesc();
-        brokerDesc.name = name;
-        brokerDesc.storageType = StorageType.S3;
-        brokerDesc.properties = Maps.newHashMap();
-        if (properties != null) {
-            brokerDesc.properties.putAll(properties);
-        }
-        brokerDesc.storageProperties = S3Properties.createForS3ExpressImport(brokerDesc.properties);
-        return brokerDesc;
     }
 
     public String getFileLocation(String location) throws UserException {

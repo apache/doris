@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumn;
 import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumnFormats;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
@@ -45,10 +44,7 @@ public class S3 extends TableValuedFunction implements SupportPruneNestedColumn 
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            ConnectContext context = ConnectContext.get();
-            boolean s3ExpressImportRead = context != null && context.getStatementContext() != null
-                    && context.getStatementContext().isS3ExpressImportRead();
-            return new S3TableValuedFunction(arguments, s3ExpressImportRead);
+            return new S3TableValuedFunction(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build s3(): " + t.getMessage(), t);
         }

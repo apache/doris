@@ -125,19 +125,6 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
     }
 
-    protected BrokerDesc brokerDescForS3ExpressImport() {
-        if (jobType != EtlJobType.BROKER || brokerDesc == null
-                || brokerDesc.getStorageType() != StorageBackend.StorageType.S3
-                || !S3Properties.isAwsProvider(brokerDesc.getProperties())
-                || fileGroupAggInfo.getAggKeyToFileGroups().values().stream()
-                        .flatMap(List::stream)
-                        .flatMap(fileGroup -> fileGroup.getFilePaths().stream())
-                        .noneMatch(S3Properties::isS3ExpressUri)) {
-            return brokerDesc;
-        }
-        return BrokerDesc.createForS3ExpressImport(brokerDesc.getName(), brokerDesc.getProperties());
-    }
-
     @Override
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
@@ -159,8 +146,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     protected LoadTask createPendingTask() {
-        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
-                brokerDescForS3ExpressImport(), getPriority());
+        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority());
     }
 
     /**
@@ -273,7 +259,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
             BrokerPendingTaskAttachment attachment) throws UserException {
-        LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDescForS3ExpressImport(),
+        LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
                 transactionId, this, getTimeZone(), getTimeout(),

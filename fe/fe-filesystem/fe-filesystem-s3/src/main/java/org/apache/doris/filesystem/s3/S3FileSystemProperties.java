@@ -65,8 +65,6 @@ public final class S3FileSystemProperties
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
     private static final String S3_PROVIDER = "s3.provider";
     private static final String PROVIDER = "provider";
-    // Must match AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ and the BE property key.
-    static final String S3_EXPRESS_IMPORT_READ = "__DORIS_S3_EXPRESS_IMPORT_READ__";
 
     public static final String DEFAULT_MAX_CONNECTIONS = "50";
     public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
@@ -190,9 +188,7 @@ public final class S3FileSystemProperties
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
         this.matchedProperties = Collections.unmodifiableMap(collectMatchedProperties(rawProperties));
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
-        if (!isScopedAwsS3ExpressImport()) {
-            normalizeForLegacyS3Compatibility();
-        }
+        normalizeForLegacyS3Compatibility();
     }
 
     /** Binds and validates raw properties. */
@@ -213,10 +209,7 @@ public final class S3FileSystemProperties
                         "s3.external_id must be used together with s3.role_arn")
                 .check(this::hasUnsupportedCredentialsProviderType,
                         "Unsupported s3.credentials_provider_type: " + credentialsProviderType)
-                .check(() -> isScopedAwsS3ExpressImport() && StringUtils.isBlank(region),
-                        "s3.region must be set for S3 Express import")
-                .check(() -> !isScopedAwsS3ExpressImport()
-                                && StringUtils.isBlank(endpoint) && StringUtils.isBlank(region),
+                .check(() -> StringUtils.isBlank(endpoint) && StringUtils.isBlank(region),
                         "Either s3.endpoint or s3.region must be set")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
@@ -273,6 +266,11 @@ public final class S3FileSystemProperties
         kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         kv.put(USE_PATH_STYLE, usePathStyle);
         kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", getCredentialsProviderType().getMode());
+        rawProperties.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(S3_PROVIDER)
+                        || entry.getKey().equalsIgnoreCase(PROVIDER))
+                .findFirst()
+                .ifPresent(entry -> kv.put(PROVIDER, entry.getValue()));
         return Collections.unmodifiableMap(kv);
     }
 
@@ -347,16 +345,8 @@ public final class S3FileSystemProperties
                 || StringUtils.containsIgnoreCase(endpoint, "s3express-");
     }
 
-    boolean isS3ExpressImportReadEnabled() {
-        return Boolean.parseBoolean(rawProperties.get(S3_EXPRESS_IMPORT_READ));
-    }
-
     boolean isAwsProvider() {
         return isAwsProvider(rawProperties);
-    }
-
-    boolean isScopedAwsS3ExpressImport() {
-        return isS3ExpressImportReadEnabled() && isAwsProvider();
     }
 
     static boolean isAwsProvider(Map<String, String> properties) {

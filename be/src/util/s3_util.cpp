@@ -96,6 +96,18 @@ std::optional<std::string_view> get_s3_express_zone_id(std::string_view bucket) 
         zone_separator + 2 == bucket.size()) {
         return std::nullopt;
     }
+    const auto bucket_base = bucket.substr(0, zone_separator);
+    if (!((bucket_base.front() >= 'a' && bucket_base.front() <= 'z') ||
+          (bucket_base.front() >= '0' && bucket_base.front() <= '9')) ||
+        !((bucket_base.back() >= 'a' && bucket_base.back() <= 'z') ||
+          (bucket_base.back() >= '0' && bucket_base.back() <= '9'))) {
+        return std::nullopt;
+    }
+    for (const char c : bucket_base) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) {
+            return std::nullopt;
+        }
+    }
     const auto zone_id = bucket.substr(zone_separator + 2);
     const auto az_separator = zone_id.rfind("-az");
     if (az_separator == std::string_view::npos || az_separator == 0 ||
@@ -116,17 +128,8 @@ std::optional<std::string_view> get_s3_express_zone_id(std::string_view bucket) 
 }
 
 bool use_s3_express_client(const S3ClientConf& conf) {
-    return conf.enable_s3_express_read && conf.provider == io::ObjStorageType::AWS &&
+    return conf.provider == io::ObjStorageType::AWS &&
            get_s3_express_zone_id(conf.bucket).has_value();
-}
-
-void configure_s3_express_import_read(const StringCaseMap<std::string>& properties,
-                                      S3ClientConf* conf) {
-    const auto express_import = properties.find(S3_EXPRESS_IMPORT_READ);
-    const auto express_zone_id = get_s3_express_zone_id(conf->bucket);
-    conf->enable_s3_express_read =
-            express_import != properties.end() && express_import->second == "true" &&
-            conf->provider == io::ObjStorageType::AWS && express_zone_id.has_value();
 }
 
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
@@ -541,7 +544,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
             std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     // Let the SDK derive the zonal endpoint from the complete directory bucket name. A user
-    // endpoint is intentionally ignored for this scoped Express import client.
+    // endpoint is intentionally ignored for S3 Express.
     if (!s3_express && s3_conf.need_override_endpoint) {
         aws_config.endpointOverride = s3_conf.endpoint;
     }
@@ -644,6 +647,18 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         // S3 Provider properties should be case insensitive.
         if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
+        } else if (0 == strcasecmp(it->second.c_str(), "BOS")) {
+            s3_conf->client_conf.provider = io::ObjStorageType::BOS;
+        } else if (0 == strcasecmp(it->second.c_str(), "COS")) {
+            s3_conf->client_conf.provider = io::ObjStorageType::COS;
+        } else if (0 == strcasecmp(it->second.c_str(), "OSS")) {
+            s3_conf->client_conf.provider = io::ObjStorageType::OSS;
+        } else if (0 == strcasecmp(it->second.c_str(), "OBS")) {
+            s3_conf->client_conf.provider = io::ObjStorageType::OBS;
+        } else if (0 == strcasecmp(it->second.c_str(), "GCP")) {
+            s3_conf->client_conf.provider = io::ObjStorageType::GCP;
+        } else if (0 == strcasecmp(it->second.c_str(), "TOS")) {
+            s3_conf->client_conf.provider = io::ObjStorageType::TOS;
         }
     }
 
@@ -654,7 +669,6 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     s3_conf->bucket = s3_uri.get_bucket();
     // For azure's compatibility
     s3_conf->client_conf.bucket = s3_uri.get_bucket();
-    configure_s3_express_import_read(properties, &s3_conf->client_conf);
     s3_conf->prefix = "";
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html

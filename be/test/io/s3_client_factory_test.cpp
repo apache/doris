@@ -237,24 +237,17 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfCredentialValidation) {
     }
 }
 
-TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressReadConf) {
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressConf) {
     S3URI s3_uri("s3://analytics--usw2-az1--x-s3/path/to/data.parquet");
     ASSERT_TRUE(s3_uri.parse().ok());
 
     std::map<std::string, std::string> properties {
-            {"AWS_ENDPOINT", "https://s3.us-west-2.amazonaws.com"},
             {"AWS_REGION", "us-west-2"},
     };
-    S3Conf non_read_conf;
-    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &non_read_conf)
-                        .ok());
-    ASSERT_FALSE(non_read_conf.client_conf.enable_s3_express_read);
-
-    properties[S3_EXPRESS_IMPORT_READ] = "true";
     S3Conf s3_conf;
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
-    ASSERT_TRUE(s3_conf.client_conf.enable_s3_express_read);
-    ASSERT_EQ(s3_conf.client_conf.region, "us-west-2");
+    EXPECT_TRUE(s3_conf.client_conf.endpoint.empty());
+    EXPECT_EQ(s3_conf.client_conf.region, "us-west-2");
 
     properties["AWS_ENDPOINT"] = "http://endpoint-is-ignored.example.com";
     properties["AWS_REGION"] = "us-east-1";
@@ -268,16 +261,6 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressReadConf) {
     EXPECT_EQ(ignored_properties_conf.client_conf.region, "us-east-1");
     EXPECT_FALSE(ignored_properties_conf.client_conf.use_virtual_addressing);
 
-    properties.clear();
-    properties[S3_EXPRESS_IMPORT_READ] = "true";
-    properties["AWS_REGION"] = "us-west-2";
-    S3Conf region_only_conf;
-    ASSERT_TRUE(
-            S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &region_only_conf)
-                    .ok());
-    EXPECT_TRUE(region_only_conf.client_conf.endpoint.empty());
-    EXPECT_EQ(region_only_conf.client_conf.region, "us-west-2");
-
     properties.erase("AWS_REGION");
     S3Conf missing_region_conf;
     ASSERT_FALSE(
@@ -286,13 +269,18 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressReadConf) {
 
     S3URI ordinary_uri("s3://ordinary-bucket/path/to/data.parquet");
     ASSERT_TRUE(ordinary_uri.parse().ok());
-    properties["AWS_ENDPOINT"] = "https://s3.us-west-2.amazonaws.com";
+    properties.clear();
     properties["AWS_REGION"] = "us-west-2";
+    S3Conf ordinary_without_endpoint;
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(
+                         properties, ordinary_uri, &ordinary_without_endpoint)
+                         .ok());
+
+    properties["AWS_ENDPOINT"] = "https://s3.us-west-2.amazonaws.com";
     S3Conf ordinary_conf;
     ASSERT_TRUE(
             S3ClientFactory::convert_properties_to_s3_conf(properties, ordinary_uri, &ordinary_conf)
                     .ok());
-    ASSERT_FALSE(ordinary_conf.client_conf.enable_s3_express_read);
 
     S3URI malformed_uri("s3://analytics--x-s3/path/to/data.parquet");
     ASSERT_TRUE(malformed_uri.parse().ok());
@@ -300,7 +288,6 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressReadConf) {
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, malformed_uri,
                                                                &malformed_conf)
                         .ok());
-    ASSERT_FALSE(malformed_conf.client_conf.enable_s3_express_read);
 
     S3URI malformed_zone_uri("s3://analytics--usw2-azx--x-s3/path/to/data.parquet");
     ASSERT_TRUE(malformed_zone_uri.parse().ok());
@@ -308,25 +295,12 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressReadConf) {
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, malformed_zone_uri,
                                                                &malformed_zone_conf)
                         .ok());
-    ASSERT_FALSE(malformed_zone_conf.client_conf.enable_s3_express_read);
 
-    properties["provider"] = "AZURE";
+    properties["provider"] = "GCP";
     S3Conf non_aws_conf;
     ASSERT_TRUE(
             S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &non_aws_conf).ok());
-    ASSERT_FALSE(non_aws_conf.client_conf.enable_s3_express_read);
-}
-
-TEST_F(S3ClientFactoryTest, S3ExpressReadIsPartOfClientCacheKey) {
-    S3ClientConf regular_conf;
-    regular_conf.bucket = "analytics--usw2-az1--x-s3";
-    regular_conf.endpoint = "s3.us-west-2.amazonaws.com";
-    regular_conf.region = "us-west-2";
-
-    S3ClientConf express_read_conf = regular_conf;
-    express_read_conf.enable_s3_express_read = true;
-
-    ASSERT_NE(regular_conf.get_hash(), express_read_conf.get_hash());
+    EXPECT_EQ(non_aws_conf.client_conf.provider, io::ObjStorageType::GCP);
 }
 
 TEST_F(S3ClientFactoryTest, S3ExpressClientIgnoresOverrideAndResolvesZonalEndpoint) {
@@ -338,8 +312,6 @@ TEST_F(S3ClientFactoryTest, S3ExpressClientIgnoresOverrideAndResolvesZonalEndpoi
     express_conf.region = "us-west-2";
     express_conf.need_override_endpoint = true;
     express_conf.use_virtual_addressing = false;
-    express_conf.enable_s3_express_read = true;
-
     auto obj_client = S3ClientFactory::instance().create(express_conf);
     ASSERT_NE(obj_client, nullptr);
     const auto presigned_url = obj_client->generate_presigned_url(

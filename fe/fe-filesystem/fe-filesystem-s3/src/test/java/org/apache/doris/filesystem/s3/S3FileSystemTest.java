@@ -707,10 +707,11 @@ class S3FileSystemTest {
     @Test
     void globListWithLimit_regionalDirectoryBucketUsesSlashTerminatedPrefix() throws IOException {
         S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                "s3.provider", "AWS",
                 "s3.endpoint", "https://s3.us-west-2.amazonaws.com",
                 "s3.region", "us-west-2"));
         S3FileSystem directoryBucketFs = new S3FileSystem(properties, mockStorage);
-        Mockito.when(mockStorage.usesS3ExpressRead(DIRECTORY_BUCKET)).thenReturn(true);
+        Mockito.when(mockStorage.usesS3Express(DIRECTORY_BUCKET)).thenReturn(true);
         Mockito.when(mockStorage.listObjects(
                         ArgumentMatchers.eq("s3://" + DIRECTORY_BUCKET + "/data/"),
                         ArgumentMatchers.isNull()))
@@ -733,10 +734,11 @@ class S3FileSystemTest {
     @Test
     void globListWithLimit_regionalDirectoryBucketExactPathFiltersSibling() throws IOException {
         S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                "s3.provider", "AWS",
                 "s3.endpoint", "https://s3.us-west-2.amazonaws.com",
                 "s3.region", "us-west-2"));
         S3FileSystem directoryBucketFs = new S3FileSystem(properties, mockStorage);
-        Mockito.when(mockStorage.usesS3ExpressRead(DIRECTORY_BUCKET)).thenReturn(true);
+        Mockito.when(mockStorage.usesS3Express(DIRECTORY_BUCKET)).thenReturn(true);
         Mockito.when(mockStorage.listObjects(
                         ArgumentMatchers.eq("s3://" + DIRECTORY_BUCKET + "/data/"),
                         ArgumentMatchers.isNull()))
@@ -758,11 +760,12 @@ class S3FileSystemTest {
     @Test
     void globListWithLimit_regionalDirectoryBucketPaginatesWithOpaqueToken() throws IOException {
         S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                "s3.provider", "AWS",
                 "s3.endpoint", "https://s3.us-west-2.amazonaws.com",
                 "s3.region", "us-west-2"));
         S3FileSystem directoryBucketFs = new S3FileSystem(properties, mockStorage);
         String listUri = "s3://" + DIRECTORY_BUCKET + "/data/";
-        Mockito.when(mockStorage.usesS3ExpressRead(DIRECTORY_BUCKET)).thenReturn(true);
+        Mockito.when(mockStorage.usesS3Express(DIRECTORY_BUCKET)).thenReturn(true);
         Mockito.doAnswer(invocation -> {
             ObjectListOptions options = invocation.getArgument(1);
             if (options.continuationToken() == null) {

@@ -34,8 +34,8 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -459,8 +459,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             etlJobType = EtlJobType.BROKER;
             if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
                     && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties
-                    && !AbstractS3CompatibleProperties.isS3ExpressImportRead(
-                            brokerDesc.getStorageProperties())) {
+                    && !usesOnlyS3Express()) {
                 //@zykkk todo We should use a unified connectivity check — it doesn’t really belong here.
                 ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
                 String endpoint = storageProperties.getEndpoint();
@@ -482,6 +481,13 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         }
 
         handleLoadCommand(ctx, executor);
+    }
+
+    private boolean usesOnlyS3Express() {
+        return S3Properties.isAwsProvider(brokerDesc.getProperties())
+                && dataDescriptions.stream()
+                        .flatMap(dataDescription -> dataDescription.getFilePaths().stream())
+                        .allMatch(S3Properties::isS3ExpressUri);
     }
 
     /**

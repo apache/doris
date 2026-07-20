@@ -26,17 +26,13 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.S3Util;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -134,73 +130,36 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
-    public void testS3ExpressMarkerIsScopedToOneShotInsertStatement() throws AnalysisException {
+    public void testS3ExpressIsAvailableToDirectAndNereidsTvf() throws AnalysisException {
         boolean previousRunningUnitTest = FeConstants.runningUnitTest;
-        ConnectContext previousContext = ConnectContext.get();
         FeConstants.runningUnitTest = true;
         try {
             Map<String, String> properties = Maps.newHashMap();
             properties.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.csv");
             properties.put("s3.provider", "AWS");
-            properties.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
             properties.put("s3.region", "us-west-2");
             properties.put("format", "csv");
 
             S3TableValuedFunction directTvf = new S3TableValuedFunction(properties);
-            Assert.assertFalse(directTvf.getBackendConnectProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertFalse(directTvf.getBrokerDesc().getBackendConfigProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-
-            ConnectContext context = new ConnectContext();
-            StatementContext statementContext = new StatementContext(
-                    context, new OriginStatement("insert into t select * from s3(...)", 0));
-            context.setStatementContext(statementContext);
-            context.setThreadLocalInfo();
-
             S3TableValuedFunction queryTvf = (S3TableValuedFunction) new S3(new Properties(properties))
                     .getCatalogFunction();
-            Assert.assertFalse(queryTvf.getBackendConnectProperties()
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-
-            statementContext.setS3ExpressImportRead(true);
-            Map<String, String> recommendedProperties = Maps.newHashMap(properties);
-            recommendedProperties.remove("s3.endpoint");
-            S3TableValuedFunction insertTvf = (S3TableValuedFunction) new S3(
-                    new Properties(recommendedProperties))
-                    .getCatalogFunction();
-            Assert.assertEquals("true", insertTvf.getBackendConnectProperties()
-                    .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertEquals("true", insertTvf.getBrokerDesc().getBackendConfigProperties()
-                    .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertFalse(insertTvf.processedParams
-                    .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-            Assert.assertEquals("", insertTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
-            Assert.assertEquals("us-west-2", insertTvf.getBackendConnectProperties().get("AWS_REGION"));
-
+            Assert.assertEquals("AWS", directTvf.getBackendConnectProperties().get("provider"));
+            Assert.assertEquals("AWS", queryTvf.getBackendConnectProperties().get("provider"));
+            Assert.assertEquals("https://s3.us-west-2.amazonaws.com",
+                    directTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
+            Assert.assertEquals(directTvf.getBackendConnectProperties(),
+                    queryTvf.getBackendConnectProperties());
         } finally {
             FeConstants.runningUnitTest = previousRunningUnitTest;
-            ConnectContext.remove();
-            if (previousContext != null) {
-                previousContext.setThreadLocalInfo();
-            }
         }
     }
 
     @Test
-    public void testS3ExpressParseFileUsesScopedFileSystemWithoutEndpointPreflight() throws Exception {
+    public void testS3ExpressParseFileSkipsEndpointPreflight() throws Exception {
         boolean previousRunningUnitTest = FeConstants.runningUnitTest;
-        ConnectContext previousContext = ConnectContext.get();
         FeConstants.runningUnitTest = false;
         String uri = "s3://analytics--usw2-az1--x-s3/data/file.csv";
         try {
-            ConnectContext context = new ConnectContext();
-            StatementContext statementContext = new StatementContext(
-                    context, new OriginStatement("insert into t select * from s3(...)", 0));
-            statementContext.setS3ExpressImportRead(true);
-            context.setStatementContext(statementContext);
-            context.setThreadLocalInfo();
-
             FileSystem fileSystem = Mockito.mock(FileSystem.class);
             Mockito.when(fileSystem.globListWithLimit(
                             Mockito.any(Location.class), Mockito.eq(""), Mockito.eq(0L), Mockito.eq(0L)))
@@ -217,20 +176,14 @@ public class ExternalFileTableValuedFunctionTest {
                 properties.put("s3.provider", "AWS");
                 properties.put("s3.region", "us-west-2");
                 properties.put("format", "csv");
-                S3TableValuedFunction tvf = (S3TableValuedFunction) new S3(new Properties(properties))
-                        .getCatalogFunction();
+                S3TableValuedFunction tvf = new S3TableValuedFunction(properties);
 
                 Assert.assertEquals(1, tvf.getFileStatuses().size());
-                Assert.assertEquals("true", tvf.getBackendConnectProperties()
-                        .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+                Assert.assertEquals("AWS", tvf.getBackendConnectProperties().get("provider"));
                 mockedS3Util.verifyNoInteractions();
             }
         } finally {
             FeConstants.runningUnitTest = previousRunningUnitTest;
-            ConnectContext.remove();
-            if (previousContext != null) {
-                previousContext.setThreadLocalInfo();
-            }
         }
     }
 }

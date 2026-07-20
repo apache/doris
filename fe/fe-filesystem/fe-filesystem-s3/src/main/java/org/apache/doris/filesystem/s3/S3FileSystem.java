@@ -67,7 +67,7 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     private boolean usesDirectoryBucketListing(String bucket) {
-        return s3ObjStorage.usesS3ExpressRead(bucket)
+        return s3ObjStorage.usesS3Express(bucket)
                 || (properties != null && properties.isDirectoryBucketEndpoint());
     }
 

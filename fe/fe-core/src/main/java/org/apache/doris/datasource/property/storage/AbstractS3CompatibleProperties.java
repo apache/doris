@@ -54,9 +54,6 @@ import java.util.regex.Pattern;
  */
 public abstract class AbstractS3CompatibleProperties extends StorageProperties implements ObjectStorageProperties {
     private static final Logger LOG = LogManager.getLogger(AbstractS3CompatibleProperties.class);
-    // Internal FE-to-BE scope marker; raw user properties never bind this flag.
-    public static final String S3_EXPRESS_IMPORT_READ = "__DORIS_S3_EXPRESS_IMPORT_READ__";
-    private boolean s3ExpressImportRead;
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
@@ -121,20 +118,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(credentialsProviderType)) {
             s3Props.put("AWS_CREDENTIALS_PROVIDER_TYPE", credentialsProviderType);
         }
-        if (s3ExpressImportRead) {
-            s3Props.put(S3_EXPRESS_IMPORT_READ, Boolean.TRUE.toString());
-        }
         return s3Props;
-    }
-
-    void enableS3ExpressImportRead() {
-        s3ExpressImportRead = true;
-    }
-
-    /** Returns whether the typed properties carry the trusted S3 Express import marker. */
-    public static boolean isS3ExpressImportRead(StorageProperties properties) {
-        return properties instanceof AbstractS3CompatibleProperties
-                && ((AbstractS3CompatibleProperties) properties).s3ExpressImportRead;
     }
 
     protected String getAwsCredentialsProviderTypeForBackend() {
@@ -164,12 +148,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        // S3 Express imports use SDK endpoint rules. Keep the configured region unchanged and
-        // do not synthesize an endpoint that the Express client would have to ignore.
-        if (!s3ExpressImportRead) {
-            setEndpointIfPossible();
-            setRegionIfPossible();
-        }
+        setEndpointIfPossible();
+        setRegionIfPossible();
         //Allow anonymous access if both access_key and secret_key are empty
         //But not recommended for production use.
         if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
@@ -180,7 +160,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
                     + "will be detected automatically. Otherwise, please specify it explicitly."
             );
         }
-        if (!s3ExpressImportRead && StringUtils.isBlank(getEndpoint())) {
+        if (StringUtils.isBlank(getEndpoint())) {
             throw new IllegalArgumentException("Endpoint is not set. Please specify it explicitly."
             );
         }

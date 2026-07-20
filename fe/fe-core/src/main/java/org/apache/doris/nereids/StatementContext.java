@@ -314,8 +314,6 @@ public class StatementContext implements Closeable {
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
-    // Trusted statement-scope marker for one-shot INSERT SELECT from the internal S3 TVF.
-    private boolean s3ExpressImportRead = false;
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
     // For Iceberg rewrite operations: store file scan tasks to be used by
@@ -1244,14 +1242,6 @@ public class StatementContext implements Closeable {
 
     public boolean isInsert() {
         return isInsert;
-    }
-
-    public void setS3ExpressImportRead(boolean s3ExpressImportRead) {
-        this.s3ExpressImportRead = s3ExpressImportRead;
-    }
-
-    public boolean isS3ExpressImportRead() {
-        return s3ExpressImportRead;
     }
 
     public boolean isQueryStatsRecorded() {

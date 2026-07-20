@@ -202,8 +202,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return S3CredentialsProviderFactory.createClientProvider(s3Properties, this::buildStsClient);
     }
 
-    boolean usesS3ExpressRead(String requestBucket) {
-        return s3Properties.isScopedAwsS3ExpressImport()
+    boolean usesS3Express(String requestBucket) {
+        return s3Properties.isAwsProvider()
                 && requestBucket != null
                 && DIRECTORY_BUCKET_PATTERN.matcher(requestBucket).matches();
     }
@@ -223,6 +223,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
         }
         return expressClient;
+    }
+
+    private S3Client getClientForBucket(String requestBucket) throws IOException {
+        return usesS3Express(requestBucket) ? getExpressClient() : getClient();
     }
 
     private AwsCredentialsProvider buildStsSourceCredentialsProvider() {
@@ -246,18 +250,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
-        boolean expressRead = usesS3ExpressRead(uri.bucket());
-        String requestPrefix = expressRead ? slashTerminatedPrefix(uri.key()) : uri.key();
+        boolean s3Express = usesS3Express(uri.bucket());
+        String requestPrefix = s3Express ? slashTerminatedPrefix(uri.key()) : uri.key();
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
                 .bucket(uri.bucket());
-        if (!expressRead || !requestPrefix.isEmpty()) {
+        if (!s3Express || !requestPrefix.isEmpty()) {
             builder.prefix(requestPrefix);
         }
         if (options != null) {
             if (StringUtils.isNotBlank(options.continuationToken())) {
                 builder.continuationToken(options.continuationToken());
             } else if (StringUtils.isNotBlank(options.startAfter())) {
-                if (expressRead) {
+                if (s3Express) {
                     throw new IOException("StartAfter is not supported for AWS Directory Bucket listings");
                 }
                 builder.startAfter(options.startAfter());
@@ -270,8 +274,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
         }
         try {
-            S3Client listClient = expressRead ? getExpressClient() : getClient();
-            ListObjectsV2Response response = listClient.listObjectsV2(builder.build());
+            ListObjectsV2Response response = getClientForBucket(uri.bucket()).listObjectsV2(builder.build());
             List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
                     .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
                             s3Obj.key(),
@@ -336,7 +339,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public org.apache.doris.filesystem.spi.RemoteObject headObject(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
-            HeadObjectResponse response = getClient().headObject(
+            HeadObjectResponse response = getClientForBucket(uri.bucket()).headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return new org.apache.doris.filesystem.spi.RemoteObject(
                     uri.key(), uri.key(), response.eTag(), response.contentLength(),
@@ -475,7 +478,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     InputStream openInputStream(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
-            return getClient().getObject(
+            return getClientForBucket(uri.bucket()).getObject(
                     GetObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
@@ -496,7 +499,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             if (fromByte > 0) {
                 req.range("bytes=" + fromByte + "-");
             }
-            return getClient().getObject(req.build());
+            return getClientForBucket(uri.bucket()).getObject(req.build());
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
         } catch (SdkException e) {
@@ -511,7 +514,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public long headObjectLastModified(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
-            HeadObjectResponse resp = getClient().headObject(
+            HeadObjectResponse resp = getClientForBucket(uri.bucket()).headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return resp.lastModified() != null ? resp.lastModified().toEpochMilli() : 0L;
         } catch (NoSuchKeyException e) {

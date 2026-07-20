@@ -64,7 +64,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.FileCacheAdmissionManager;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
@@ -2169,19 +2168,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx) {
-        return visitWithRemoteStorageSystem(ctx, false);
-    }
-
-    private BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx,
-            boolean s3ExpressImportRead) {
         BrokerDesc brokerDesc = null;
 
         Map<String, String> brokerPropertiesMap = visitPropertyItemList(ctx.brokerProperties);
 
         if (ctx.S3() != null) {
-            brokerDesc = s3ExpressImportRead && S3Properties.isAwsProvider(brokerPropertiesMap)
-                    ? BrokerDesc.createForS3ExpressImport("S3", brokerPropertiesMap)
-                    : new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
+            brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
         } else if (ctx.HDFS() != null) {
             brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
         } else if (ctx.LOCAL() != null) {
@@ -2233,13 +2225,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitLoad(DorisParser.LoadContext ctx) {
         BrokerDesc brokerDesc = null;
         if (ctx.withRemoteStorageSystem() != null) {
-            boolean s3ExpressImportRead = ctx.dataDescs.stream()
-                    .flatMap(dataDesc -> dataDesc.filePaths.stream())
-                    .map(Token::getText)
-                    .map(path -> path.substring(1, path.length() - 1))
-                    .anyMatch(S3Properties::isS3ExpressUri);
-            brokerDesc = visitWithRemoteStorageSystem(
-                    ctx.withRemoteStorageSystem(), s3ExpressImportRead);
+            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
         }
 
         ResourceDesc resourceDesc = null;

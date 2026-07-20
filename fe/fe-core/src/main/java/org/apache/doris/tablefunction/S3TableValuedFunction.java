@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
@@ -40,23 +39,12 @@ import java.util.Map;
  */
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "s3";
-    private final boolean s3ExpressImportRead;
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
-        this(properties, false);
-    }
-
-    public S3TableValuedFunction(Map<String, String> properties, boolean s3ExpressImportRead)
-            throws AnalysisException {
-        this.s3ExpressImportRead = s3ExpressImportRead;
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
         try {
-            if (s3ExpressImportRead && S3Properties.isS3ExpressImport(props)) {
-                this.storageProperties = S3Properties.createForS3ExpressImport(props);
-            } else {
-                this.storageProperties = StorageProperties.createPrimary(props);
-            }
+            this.storageProperties = StorageProperties.createPrimary(props);
             this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
             String uri = storageProperties.validateAndGetUri(props);
             filePath = storageProperties.validateAndNormalizeUri(uri);
@@ -88,9 +76,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        if (s3ExpressImportRead && S3Properties.isS3ExpressImport(processedParams)) {
-            return BrokerDesc.createForS3ExpressImport("S3TvfBroker", processedParams);
-        }
         return new BrokerDesc("S3TvfBroker", processedParams);
     }
 

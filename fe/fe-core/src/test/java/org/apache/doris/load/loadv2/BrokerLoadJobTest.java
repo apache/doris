@@ -27,11 +27,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
@@ -56,10 +54,6 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -71,60 +65,6 @@ public class BrokerLoadJobTest {
     @BeforeClass
     public static void start() {
         MetricRepo.init();
-    }
-
-    @Test
-    public void testS3ExpressImportPropertyIsRebuiltAfterReplay() throws Exception {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put("s3.provider", "AWS");
-        properties.put("s3.endpoint", "https://endpoint-is-ignored.example.com");
-        properties.put("s3.region", "us-west-2");
-        BrokerDesc original = BrokerDesc.createForS3ExpressImport("S3", properties);
-        Assert.assertEquals("true", original.getBackendConfigProperties()
-                .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
-        Deencapsulation.setField(brokerLoadJob, "brokerDesc", original);
-
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        try (DataOutputStream dataOutput = new DataOutputStream(output)) {
-            brokerLoadJob.write(dataOutput);
-        }
-        BrokerLoadJob replayedJob;
-        try (DataInputStream dataInput = new DataInputStream(new ByteArrayInputStream(output.toByteArray()))) {
-            replayedJob = (BrokerLoadJob) LoadJob.read(dataInput);
-        }
-
-        BrokerDesc replayedOriginal = Deencapsulation.getField(replayedJob, "brokerDesc");
-        Assert.assertEquals(properties, replayedOriginal.getProperties());
-        Assert.assertFalse(replayedOriginal.getBackendConfigProperties()
-                .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-
-        // fileGroupAggInfo is rebuilt from the origin statement after replay.
-        BrokerFileGroup expressFileGroup = Deencapsulation.newInstance(BrokerFileGroup.class);
-        Deencapsulation.setField(expressFileGroup, "filePaths",
-                Collections.singletonList("s3://analytics--usw2-az1--x-s3/data.parquet"));
-        BrokerFileGroupAggInfo replayedFileGroupAggInfo = new BrokerFileGroupAggInfo();
-        Deencapsulation.setField(replayedFileGroupAggInfo, "aggKeyToFileGroups",
-                Collections.singletonMap(new FileGroupAggKey(1L, null),
-                        Collections.singletonList(expressFileGroup)));
-        Deencapsulation.setField(replayedJob, "fileGroupAggInfo", replayedFileGroupAggInfo);
-
-        BrokerDesc taskBrokerDesc = replayedJob.brokerDescForS3ExpressImport();
-
-        Assert.assertNotSame(replayedOriginal, taskBrokerDesc);
-        Assert.assertEquals("true", taskBrokerDesc.getBackendConfigProperties()
-                .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-
-        BrokerFileGroup replayedFileGroup = replayedFileGroupAggInfo.getAggKeyToFileGroups()
-                .values().iterator().next().get(0);
-        Deencapsulation.setField(replayedFileGroup, "filePaths",
-                Collections.singletonList("s3://ordinary-bucket/data.parquet"));
-        Assert.assertSame(replayedOriginal, replayedJob.brokerDescForS3ExpressImport());
-
-        Deencapsulation.setField(replayedFileGroup, "filePaths",
-                Collections.singletonList("s3://analytics--usw2-az1--x-s3/data.parquet"));
-        Deencapsulation.setField(replayedJob, "jobType", EtlJobType.COPY);
-        Assert.assertSame(replayedOriginal, replayedJob.brokerDescForS3ExpressImport());
     }
 
     @Test

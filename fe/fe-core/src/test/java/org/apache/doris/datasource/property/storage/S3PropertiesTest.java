@@ -556,50 +556,42 @@ public class S3PropertiesTest {
     }
 
     @Test
-    public void testS3ExpressImportMarkerRequiresInternalOptIn() {
+    public void testAwsProviderIsPropagatedToBackend() {
         origProps.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
         origProps.put("s3.region", "us-west-2");
         origProps.put("s3.provider", "AWS");
-        origProps.put(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ, "true");
         S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
 
-        Assertions.assertFalse(s3Properties.getBackendConfigProperties()
-                .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
-        Assertions.assertFalse(s3Properties.getBackendConfigProperties().containsKey("provider"));
-
-        s3Properties.enableS3ExpressImportRead();
-        Assertions.assertEquals("true", s3Properties.getBackendConfigProperties()
-                .get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
         Assertions.assertEquals("AWS", s3Properties.getBackendConfigProperties().get("provider"));
     }
 
     @Test
-    public void testS3ExpressImportAllowsSdkEndpointResolution() {
+    public void testS3ExpressUsesStandardS3Properties() {
         origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
         origProps.put("s3.access_key", "myS3AccessKey");
         origProps.put("s3.secret_key", "myS3SecretKey");
 
-        Assertions.assertFalse(S3Properties.isS3ExpressImport(origProps));
+        Assertions.assertFalse(S3Properties.isS3Express(origProps));
         origProps.put("s3.provider", "GCS");
-        Assertions.assertFalse(S3Properties.isS3ExpressImport(origProps));
+        Assertions.assertFalse(S3Properties.isS3Express(origProps));
         origProps.remove("s3.provider");
         origProps.put("provider", "AWS");
-        Assertions.assertFalse(S3Properties.isS3ExpressImport(origProps));
+        Assertions.assertTrue(S3Properties.isS3Express(origProps));
         origProps.remove("provider");
         origProps.put("s3.provider", "AWS");
-        Assertions.assertTrue(S3Properties.isS3ExpressImport(origProps));
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3Properties.createForS3ExpressImport(origProps));
+        Assertions.assertTrue(S3Properties.isS3Express(origProps));
+        origProps.put("uri", "s3://analytics--usw2-azx--x-s3/data/file.parquet");
+        Assertions.assertFalse(S3Properties.isS3Express(origProps));
+        origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
         origProps.put("s3.region", "us-west-2");
-        S3Properties s3Properties = S3Properties.createForS3ExpressImport(origProps);
-        Assertions.assertTrue(AbstractS3CompatibleProperties.isS3ExpressImportRead(s3Properties));
+        S3Properties s3Properties = S3Properties.of(origProps);
+        Assertions.assertTrue(s3Properties.isS3Express());
         Map<String, String> backendProperties = s3Properties.getBackendConfigProperties();
-        Assertions.assertEquals("true",
-                backendProperties.get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
         Assertions.assertEquals("AWS", backendProperties.get("provider"));
         Assertions.assertEquals("myS3AccessKey", backendProperties.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("myS3SecretKey", backendProperties.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("", backendProperties.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com",
+                backendProperties.get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
     }
 }

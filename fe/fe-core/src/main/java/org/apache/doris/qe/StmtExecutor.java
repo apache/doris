@@ -774,8 +774,6 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        configureS3ExpressImportRead(
-                context.getStatementContext(), logicalPlan, context.getState().isInternal());
         checkSqlBlocked(logicalPlan.getClass());
         if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (isForwardToMaster()) {
@@ -976,12 +974,6 @@ public class StmtExecutor {
             }
             handleQueryWithRetry(queryId);
         }
-    }
-
-    static void configureS3ExpressImportRead(
-            StatementContext statementContext, LogicalPlan logicalPlan, boolean internal) {
-        statementContext.setS3ExpressImportRead(
-                !internal && logicalPlan.getClass() == InsertIntoTableCommand.class);
     }
 
     public static void initBlockSqlAstNames() {

@@ -22,7 +22,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -160,25 +160,20 @@ public class LoadCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testS3ExpressLoadWithExplicitRegion() {
+    public void testS3ExpressLoadUsesStandardS3Properties() {
         List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser()
                 .parseMultiple(S3_EXPRESS_LOAD_SQL);
         Assertions.assertFalse(statements.isEmpty());
 
         LoadCommand command = (LoadCommand) statements.get(0).first;
         Map<String, String> backendProperties = command.getBrokerDesc().getBackendConfigProperties();
-        Assertions.assertEquals("true",
-                backendProperties.get(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
         Assertions.assertEquals("AWS", backendProperties.get("provider"));
-        Assertions.assertEquals("", backendProperties.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com",
+                backendProperties.get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
-
-        String ordinaryBucketSql = S3_EXPRESS_LOAD_SQL.replace(
-                "analytics--usw2-az1--x-s3", "ordinary-bucket");
-        LoadCommand ordinaryCommand = (LoadCommand) new NereidsParser()
-                .parseMultiple(ordinaryBucketSql).get(0).first;
-        Assertions.assertFalse(ordinaryCommand.getBrokerDesc().getBackendConfigProperties()
-                .containsKey(AbstractS3CompatibleProperties.S3_EXPRESS_IMPORT_READ));
+        Assertions.assertTrue(S3Properties.isS3Express(
+                command.getDataDescriptions().get(0).getFilePaths().get(0),
+                command.getBrokerDesc().getProperties()));
     }
 
     @Test
