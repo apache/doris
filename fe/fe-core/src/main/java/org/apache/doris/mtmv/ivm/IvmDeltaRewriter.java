@@ -18,9 +18,7 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Pair;
@@ -116,7 +114,6 @@ public class IvmDeltaRewriter {
 
     private IvmDeltaRewriteState createDeltaRewriteState(Plan plan, IvmRefreshContext ctx, long refreshVersion) {
         Map<OlapTable, OlapTableStream> streams = new HashMap<>();
-        long mvId = ctx.getMtmv().getId();
         Set<TableNameInfo> excludedTriggerTables = ctx.getMtmv().getExcludedTriggerTables();
         plan.foreach(node -> {
             if (!(node instanceof LogicalOlapScan)) {
@@ -126,27 +123,10 @@ public class IvmDeltaRewriter {
             if (isExcludedTriggerTable(scan, excludedTriggerTables)) {
                 return;
             }
-            OlapTableStream stream = getStream((OlapTable) scan.getTable(), mvId);
+            OlapTableStream stream = IvmUtil.getIvmStream(ctx.getMtmv(), (OlapTable) scan.getTable());
             streams.put((OlapTable) scan.getTable(), stream);
         });
         return new IvmDeltaRewriteState(streams, ctx.isIncludeUpToDateStreams(), refreshVersion);
-    }
-
-    private OlapTableStream getStream(OlapTable originTable, long mvId) {
-        String streamName = IvmUtil.streamName(mvId, originTable.getName());
-        String dbName = originTable.getQualifiedDbName();
-        try {
-            TableIf streamTable = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName)
-                    .getTableOrAnalysisException(streamName);
-            if (!(streamTable instanceof OlapTableStream)) {
-                throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
-                        "IVM: stream " + streamName + " is not an OlapTableStream");
-            }
-            return (OlapTableStream) streamTable;
-        } catch (Exception e) {
-            throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
-                    "IVM: stream not found for base table " + originTable.getName(), e);
-        }
     }
 
     boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
