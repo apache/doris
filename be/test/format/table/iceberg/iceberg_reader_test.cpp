@@ -138,6 +138,46 @@ void write_iceberg_three_int_orc_file(
     output.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
+void write_iceberg_orc_containers_with_idless_struct_children(const std::string& file_path) {
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+            "struct<items:array<struct<a:int>>,attrs:map<int,struct<a:int>>>"));
+    type->getSubtype(0)->setAttribute("iceberg.id", "10");
+    type->getSubtype(1)->setAttribute("iceberg.id", "20");
+
+    MemoryOutputStream memory_stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    auto batch = writer->createRowBatch(1);
+    auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+
+    auto& items = dynamic_cast<::orc::ListVectorBatch&>(*root.fields[0]);
+    auto& item = dynamic_cast<::orc::StructVectorBatch&>(*items.elements);
+    auto& item_a = dynamic_cast<::orc::LongVectorBatch&>(*item.fields[0]);
+    items.offsets[0] = 0;
+    items.offsets[1] = 1;
+    item_a.data[0] = 42;
+    items.numElements = item.numElements = item_a.numElements = 1;
+
+    auto& attrs = dynamic_cast<::orc::MapVectorBatch&>(*root.fields[1]);
+    auto& attr_key = dynamic_cast<::orc::LongVectorBatch&>(*attrs.keys);
+    auto& attr_value = dynamic_cast<::orc::StructVectorBatch&>(*attrs.elements);
+    auto& attr_a = dynamic_cast<::orc::LongVectorBatch&>(*attr_value.fields[0]);
+    attrs.offsets[0] = 0;
+    attrs.offsets[1] = 1;
+    attr_key.data[0] = 1;
+    attr_a.data[0] = 43;
+    attrs.numElements = attr_key.numElements = attr_value.numElements = attr_a.numElements = 1;
+
+    root.numElements = 1;
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream output(file_path, std::ios::binary);
+    output.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
 std::shared_ptr<arrow::Array> build_iceberg_int32_array(const std::vector<int32_t>& values) {
     arrow::Int32Builder builder;
     for (const auto value : values) {
@@ -333,6 +373,78 @@ Status create_single_struct_tuple_descriptor(ObjectPool* object_pool,
     TTupleDescriptor thrift_tuple;
     thrift_tuple.__set_id(0);
     thrift_tuple.__set_byteSize(16);
+    thrift_tuple.__set_numNullBytes(0);
+    thrift_tuple.__set_tableId(0);
+    thrift_table.__set_tupleDescriptors({thrift_tuple});
+    RETURN_IF_ERROR(DescriptorTbl::create(object_pool, thrift_table, descriptor_table));
+    *tuple_descriptor = (*descriptor_table)->get_tuple_descriptor(0);
+    return Status::OK();
+}
+
+Status create_array_map_struct_tuple_descriptor(ObjectPool* object_pool,
+                                                DescriptorTbl** descriptor_table,
+                                                const TupleDescriptor** tuple_descriptor) {
+    TDescriptorTable thrift_table;
+    TTableDescriptor table_descriptor;
+    table_descriptor.__set_id(0);
+    table_descriptor.__set_tableType(TTableType::OLAP_TABLE);
+    table_descriptor.__set_numCols(2);
+    table_descriptor.__set_numClusteringCols(0);
+    thrift_table.__set_tableDescriptors({table_descriptor});
+
+    auto scalar_int_node = [] {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar;
+        scalar.__set_type(TPrimitiveType::INT);
+        node.__set_scalar_type(scalar);
+        return node;
+    };
+    auto struct_a_node = [] {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::STRUCT);
+        TStructField child;
+        child.__set_name("a");
+        child.__set_contains_null(true);
+        node.__set_struct_fields({child});
+        return node;
+    };
+
+    TTypeNode array_node;
+    array_node.__set_type(TTypeNodeType::ARRAY);
+    array_node.__set_contains_nulls({true});
+    TTypeDesc items_type;
+    items_type.__set_types({array_node, struct_a_node(), scalar_int_node()});
+
+    TTypeNode map_node;
+    map_node.__set_type(TTypeNodeType::MAP);
+    map_node.__set_contains_nulls({false, true});
+    TTypeDesc attrs_type;
+    attrs_type.__set_types({map_node, scalar_int_node(), struct_a_node(), scalar_int_node()});
+
+    std::vector<TSlotDescriptor> slots;
+    auto add_slot = [&slots](int id, const std::string& name, int field_id, const TTypeDesc& type) {
+        TSlotDescriptor slot;
+        slot.__set_id(id);
+        slot.__set_parent(0);
+        slot.__set_col_unique_id(field_id);
+        slot.__set_slotType(type);
+        slot.__set_columnPos(id);
+        slot.__set_byteOffset(0);
+        slot.__set_nullIndicatorByte(0);
+        slot.__set_nullIndicatorBit(-1);
+        slot.__set_colName(name);
+        slot.__set_slotIdx(id);
+        slot.__set_isMaterialized(true);
+        slots.emplace_back(std::move(slot));
+    };
+    add_slot(0, "items", 10, items_type);
+    add_slot(1, "attrs", 20, attrs_type);
+    thrift_table.__set_slotDescriptors(std::move(slots));
+
+    TTupleDescriptor thrift_tuple;
+    thrift_tuple.__set_id(0);
+    thrift_tuple.__set_byteSize(32);
     thrift_tuple.__set_numNullBytes(0);
     thrift_tuple.__set_tableId(0);
     thrift_table.__set_tupleDescriptors({thrift_tuple});
@@ -1628,6 +1740,124 @@ TEST_F(IcebergReaderTest, v1_parquet_keeps_file_id_mode_inside_nested_struct) {
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(read_rows, 1);
     EXPECT_EQ(result_type->to_string(*block.get_by_position(0).column, 0), "{\"a\":7}");
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, v1_orc_keeps_file_id_mode_inside_array_and_map) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_v1_orc_whole_file_id_mode_containers_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.orc").string();
+    write_iceberg_orc_containers_with_idless_struct_children(data_file);
+
+    TColumnType struct_type;
+    struct_type.__set_type(TPrimitiveType::STRUCT);
+    auto make_struct_field = [&struct_type](const std::string& name, int32_t id, int32_t child_id,
+                                            const std::string& default_value) {
+        schema::external::TStructField children;
+        children.__set_fields({make_external_int_field("a", child_id, default_value)});
+        auto field = std::make_shared<schema::external::TField>();
+        field->__set_name(name);
+        field->__set_id(id);
+        field->__set_type(struct_type);
+        field->nestedField.__set_struct_field(std::move(children));
+        field->__isset.nestedField = true;
+        schema::external::TFieldPtr ptr;
+        ptr.__set_field_ptr(std::move(field));
+        return ptr;
+    };
+
+    TColumnType array_type;
+    array_type.__set_type(TPrimitiveType::ARRAY);
+    auto items = std::make_shared<schema::external::TField>();
+    items->__set_name("items");
+    items->__set_id(10);
+    items->__set_type(array_type);
+    schema::external::TArrayField array_field;
+    array_field.__set_item_field(make_struct_field("element", 11, 12, "7"));
+    items->nestedField.__set_array_field(std::move(array_field));
+    items->__isset.nestedField = true;
+    schema::external::TFieldPtr items_ptr;
+    items_ptr.__set_field_ptr(std::move(items));
+
+    TColumnType map_type;
+    map_type.__set_type(TPrimitiveType::MAP);
+    auto attrs = std::make_shared<schema::external::TField>();
+    attrs->__set_name("attrs");
+    attrs->__set_id(20);
+    attrs->__set_type(map_type);
+    schema::external::TMapField map_field;
+    map_field.__set_key_field(make_external_int_field("key", 21, std::nullopt));
+    map_field.__set_value_field(make_struct_field("value", 22, 23, "8"));
+    attrs->nestedField.__set_map_field(std::move(map_field));
+    attrs->__isset.nestedField = true;
+    schema::external::TFieldPtr attrs_ptr;
+    attrs_ptr.__set_field_ptr(std::move(attrs));
+
+    schema::external::TStructField root_field;
+    root_field.__set_fields({std::move(items_ptr), std::move(attrs_ptr)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(std::move(root_field));
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({current_schema});
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_array_map_struct_tuple_descriptor(&object_pool, &descriptor_table,
+                                                         &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergOrcReader reader(&kv_cache, &profile, &runtime_state, scan_params, scan_range, 1024,
+                            "UTC", &io_ctx, cache.get());
+
+    std::vector<ColumnDescriptor> column_descriptors(2);
+    column_descriptors[0].name = "items";
+    column_descriptors[1].name = "attrs";
+    std::unordered_map<std::string, uint32_t> block_positions = {{"items", 0}, {"attrs", 1}};
+    OrcInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+    const auto init_status = reader.init_reader(&context);
+    ASSERT_TRUE(init_status.ok()) << init_status;
+
+    Block block;
+    for (const auto* slot : tuple_descriptor->slots()) {
+        const auto& type = slot->get_data_type_ptr();
+        block.insert({type->create_column(), type, slot->col_name()});
+    }
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader.get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(read_rows, 1);
+    EXPECT_EQ(tuple_descriptor->slots()[0]->get_data_type_ptr()->to_string(
+                      *block.get_by_position(0).column, 0),
+              "[{\"a\":7}]");
+    EXPECT_EQ(tuple_descriptor->slots()[1]->get_data_type_ptr()->to_string(
+                      *block.get_by_position(1).column, 0),
+              "{1:{\"a\":8}}");
 
     std::filesystem::remove_all(test_dir);
 }

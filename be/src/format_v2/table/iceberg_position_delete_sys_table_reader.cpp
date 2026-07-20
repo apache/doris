@@ -142,6 +142,12 @@ protected:
         }
         return format::TableColumnMappingMode::BY_NAME;
     }
+
+    void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
+        // Parquet may preserve a selected complex wrapper without its own ID; position-delete row
+        // projection must use the same descendant-ID fallback as ordinary Iceberg data scans.
+        options->allow_idless_complex_wrapper_projection = _format == format::FileFormat::PARQUET;
+    }
 };
 
 } // namespace

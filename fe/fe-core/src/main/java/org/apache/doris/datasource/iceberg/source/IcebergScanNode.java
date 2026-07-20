@@ -525,28 +525,21 @@ public class IcebergScanNode extends FileQueryScanNode {
             return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
         }
         IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
-        if (selectedSnapshot == null) {
-            Optional<MvccSnapshot> mvccSnapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
-            Schema scanSchema = icebergTable.schema();
-            if (mvccSnapshot.isPresent() && mvccSnapshot.get() instanceof IcebergMvccSnapshot) {
-                long schemaId = ((IcebergMvccSnapshot) mvccSnapshot.get())
-                        .getSnapshotCacheValue().getSnapshot().getSchemaId();
-                scanSchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
-            }
-            // The statement snapshot produced the target columns; cache invalidation must not
-            // let initial-default metadata advance to a different schema during the same scan.
-            return IcebergUtils.getBase64EncodedInitialDefaults(
-                    Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan is null"));
+        Optional<MvccSnapshot> mvccSnapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+        Schema scanSchema = null;
+        if (mvccSnapshot.isPresent() && mvccSnapshot.get() instanceof IcebergMvccSnapshot) {
+            long schemaId = ((IcebergMvccSnapshot) mvccSnapshot.get())
+                    .getSnapshotCacheValue().getSnapshot().getSchemaId();
+            scanSchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
+        } else {
+            scanSchema = selectedSnapshot == null
+                    ? icebergTable.schema()
+                    : icebergTable.schemas().get(selectedSnapshot.getSchemaId());
         }
-        TableScan tableScan = createTableScan();
-        Snapshot snapshot = tableScan.snapshot();
-        // Explicit time travel and ref scans expose the selected snapshot schema rather than the
-        // current table schema, so resolve its schema id instead of using TableScan.schema().
-        Schema scanSchema = snapshot == null
-                ? tableScan.schema()
-                : tableScan.table().schemas().get(snapshot.schemaId());
+        // A branch can expose a schema newer than its data snapshot. The statement-pinned schema
+        // produced the target columns, so default markers must not be recomputed from that snapshot.
         return IcebergUtils.getBase64EncodedInitialDefaults(
-                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan snapshot is null"));
+                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan is null"));
     }
 
     @Override

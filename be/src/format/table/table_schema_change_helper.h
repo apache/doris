@@ -377,11 +377,21 @@ public:
                 const std::string& field_id_attribute_key,
                 std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
+        static Status by_orc_field_id_with_name_mapping(
+                const schema::external::TStructField& table_schema, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id);
+
         // for iceberg orc
         static Status by_orc_field_id_with_name_mapping(
                 const schema::external::TField& table_schema, const orc::Type* orc_root,
                 const std::string& field_id_attribute_key,
                 std::shared_ptr<TableSchemaChangeHelper::Node>& node);
+
+        static Status by_orc_field_id_with_name_mapping(
+                const schema::external::TField& table_schema, const orc::Type* orc_root,
+                const std::string& field_id_attribute_key,
+                std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id);
     };
 };
 

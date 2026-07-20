@@ -955,12 +955,18 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         const schema::external::TStructField& table_schema, const orc::Type* orc_root,
         const std::string& field_id_attribute_key,
         std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+    return by_orc_field_id_with_name_mapping(
+            table_schema, orc_root, field_id_attribute_key, node,
+            orc_subtree_has_field_id(orc_root, field_id_attribute_key));
+}
+
+Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+        const schema::external::TStructField& table_schema, const orc::Type* orc_root,
+        const std::string& field_id_attribute_key,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id) {
     auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
     std::map<int32_t, size_t> file_column_id_idx_map;
-    // Iceberg ORC builds projection by ID for the entire subtree. An ID-less wrapper containing
-    // an ID-bearing child is therefore absent rather than rebound by its physical name.
-    bool has_field_id = orc_subtree_has_field_id(orc_root, field_id_attribute_key);
     for (size_t idx = 0; idx < orc_root->getSubtypeCount(); idx++) {
         if (orc_root->getSubtype(idx)->hasAttributeKey(field_id_attribute_key)) {
             auto field_id =
@@ -970,7 +976,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
     }
 
     std::map<std::string, size_t> file_column_name_idx_map;
-    if (!has_field_id) {
+    if (!use_field_id) {
         file_column_name_idx_map = build_lowercase_orc_field_name_idx_map(orc_root);
     }
 
@@ -978,7 +984,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         const auto& table_column_name = table_field.field_ptr->name;
         size_t file_field_idx = 0;
         bool matched = false;
-        if (has_field_id) {
+        if (use_field_id) {
             auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
             if (id_it != file_column_id_idx_map.end()) {
                 file_field_idx = id_it->second;
@@ -998,7 +1004,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         const auto& file_field = orc_root->getSubtype(file_field_idx);
         std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
         RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(*table_field.field_ptr, file_field,
-                                                          field_id_attribute_key, field_node));
+                                                          field_id_attribute_key, field_node,
+                                                          use_field_id));
         struct_node->add_children(table_column_name, orc_root->getFieldName(file_field_idx),
                                   field_node);
     }
@@ -1010,6 +1017,15 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         const schema::external::TField& table_schema, const orc::Type* orc_root,
         const std::string& field_id_attribute_key,
         std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+    return by_orc_field_id_with_name_mapping(
+            table_schema, orc_root, field_id_attribute_key, node,
+            orc_subtree_has_field_id(orc_root, field_id_attribute_key));
+}
+
+Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+        const schema::external::TField& table_schema, const orc::Type* orc_root,
+        const std::string& field_id_attribute_key,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool use_field_id) {
     switch (table_schema.type.type) {
     case TPrimitiveType::MAP: {
         if (orc_root->getKind() != orc::TypeKind::MAP) [[unlikely]] {
@@ -1029,10 +1045,10 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
 
         RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(
                 *table_schema.nestedField.map_field.key_field.field_ptr, orc_root->getSubtype(0),
-                field_id_attribute_key, key_node));
+                field_id_attribute_key, key_node, use_field_id));
         RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(
                 *table_schema.nestedField.map_field.value_field.field_ptr, orc_root->getSubtype(1),
-                field_id_attribute_key, value_node));
+                field_id_attribute_key, value_node, use_field_id));
 
         node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
         break;
@@ -1051,7 +1067,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
         RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(
                 *table_schema.nestedField.array_field.item_field.field_ptr, orc_root->getSubtype(0),
-                field_id_attribute_key, element_node));
+                field_id_attribute_key, element_node, use_field_id));
 
         node = std::make_shared<TableSchemaChangeHelper::ArrayNode>(element_node);
         break;
@@ -1062,8 +1078,11 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         }
         MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
         MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.struct_field));
+        // Iceberg chooses ID projection once for the complete ORC file; container recursion must
+        // not re-enable name matching merely because a nested struct has no local IDs.
         RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(table_schema.nestedField.struct_field,
-                                                          orc_root, field_id_attribute_key, node));
+                                                          orc_root, field_id_attribute_key, node,
+                                                          use_field_id));
         break;
     }
     default: {

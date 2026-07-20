@@ -347,13 +347,76 @@ public class IcebergScanNodeTest {
         Mockito.when(snapshotScan.snapshot()).thenReturn(snapshot);
         Mockito.when(snapshotScan.table()).thenReturn(table);
 
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+        IcebergTableQueryInfo selectedSnapshot = Mockito.mock(IcebergTableQueryInfo.class);
+        Mockito.when(selectedSnapshot.getSchemaId()).thenReturn(11);
+
         TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
         node.setTableScan(snapshotScan);
-        Mockito.doReturn(Mockito.mock(IcebergTableQueryInfo.class)).when(node).getSpecifiedSnapshot();
+        setIcebergTable(node, table);
+        setIcebergSource(node, source);
+        Mockito.doReturn(selectedSnapshot).when(node).getSpecifiedSnapshot();
 
         Map<Integer, String> defaults = node.getBase64EncodedInitialDefaultsForScan();
 
         Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="), defaults);
+    }
+
+    @Test
+    public void testInitialDefaultMetadataUsesStatementPinnedBranchSchema() throws Exception {
+        Schema dataSnapshotSchema = new Schema(11, List.of(Types.NestedField.optional("string_default")
+                .withId(7)
+                .ofType(Types.StringType.get())
+                .withInitialDefault("not-base64")
+                .build()));
+        Schema branchSchema = new Schema(12, List.of(Types.NestedField.optional("binary_default")
+                .withId(7)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                .build()));
+        Snapshot dataSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(dataSnapshot.schemaId()).thenReturn(dataSnapshotSchema.schemaId());
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(Map.of(
+                dataSnapshotSchema.schemaId(), dataSnapshotSchema,
+                branchSchema.schemaId(), branchSchema));
+        TableScan branchScan = Mockito.mock(TableScan.class);
+        Mockito.when(branchScan.snapshot()).thenReturn(dataSnapshot);
+        Mockito.when(branchScan.table()).thenReturn(table);
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(targetTable.getName()).thenReturn("tbl");
+        Mockito.when(targetTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
+        node.setTableScan(branchScan);
+        setIcebergTable(node, table);
+        setIcebergSource(node, source);
+        Mockito.doReturn(new IcebergTableQueryInfo(1L, "branch", branchSchema.schemaId()))
+                .when(node).getSpecifiedSnapshot();
+
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        statementContext.setSnapshot(new MvccTableInfo(targetTable), new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(1L, branchSchema.schemaId()))));
+        try {
+            Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="),
+                    node.getBase64EncodedInitialDefaultsForScan());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
