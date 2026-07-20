@@ -23,9 +23,11 @@
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
+#include <parquet/encoding.h>
 
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -61,6 +63,8 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/utils.h"
+#include "util/coding.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 namespace {
@@ -74,6 +78,13 @@ const ColumnInt32& int32_data_column(const IColumn& column) {
         return assert_cast<const ColumnInt32&>(nullable_column->get_nested_column());
     }
     return assert_cast<const ColumnInt32&>(column);
+}
+
+const ColumnInt64& int64_data_column(const IColumn& column) {
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(&column)) {
+        return assert_cast<const ColumnInt64&>(nullable_column->get_nested_column());
+    }
+    return assert_cast<const ColumnInt64&>(column);
 }
 
 const ColumnString& string_data_column(const IColumn& column) {
@@ -302,6 +313,54 @@ private:
     const std::string _expr_name = "Int32DirectGreaterExpr";
 };
 
+class Int64DirectGreaterExpr final : public VExpr {
+public:
+    Int64DirectGreaterExpr(int column_id, int64_t lower_bound)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _lower_bound(lower_bound) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        const auto& input = int64_data_column(*block->get_by_position(_column_id).column);
+        auto result = ColumnUInt8::create(count, 0);
+        for (size_t row = 0; row < count; ++row) {
+            result->get_data()[row] = input.get_element(row) > _lower_bound;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override {
+        return column_id == _column_id &&
+               remove_nullable(data_type)->get_primitive_type() == TYPE_BIGINT;
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr&, int, uint8_t* matches) const override {
+        if (value_width != sizeof(int64_t)) {
+            return Status::Corruption("BIGINT raw predicate received {}-byte values", value_width);
+        }
+        for (size_t row = 0; row < num_values; ++row) {
+            matches[row] &= unaligned_load<int64_t>(values + row * sizeof(int64_t)) > _lower_bound;
+        }
+        return Status::OK();
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    int _column_id;
+    int64_t _lower_bound;
+    const std::string _expr_name = "Int64DirectGreaterExpr";
+};
+
 VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::Op op,
                                                int32_t value) {
     return VExprContext::create_shared(std::make_shared<Int32ZoneMapExpr>(column_id, op, value));
@@ -350,6 +409,11 @@ VExprContextSPtr create_int32_direct_greater_conjunct(int column_id, int32_t low
             std::make_shared<Int32DirectGreaterExpr>(column_id, lower_bound));
 }
 
+VExprContextSPtr create_int64_direct_greater_conjunct(int column_id, int64_t lower_bound) {
+    return VExprContext::create_shared(
+            std::make_shared<Int64DirectGreaterExpr>(column_id, lower_bound));
+}
+
 int64_t counter_value(RuntimeProfile& profile, const std::string& name) {
     auto* counter = profile.get_counter(name);
     DORIS_CHECK(counter != nullptr);
@@ -364,6 +428,14 @@ std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
 
 std::shared_ptr<arrow::Array> build_int32_array(const std::vector<int32_t>& values) {
     arrow::Int32Builder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_uint32_array(const std::vector<uint32_t>& values) {
+    arrow::UInt32Builder builder;
     for (const auto value : values) {
         EXPECT_TRUE(builder.Append(value).ok());
     }
@@ -486,6 +558,103 @@ void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group
     auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
                                              build_int32_array({10, 20, 30, 40, 50, 60})});
     write_table(file_path, table, row_group_size, false, false, enable_statistics);
+}
+
+void write_uint32_pair_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({arrow::field("id", arrow::uint32(), false),
+                                 arrow::field("score", arrow::int32(), false)});
+    auto table = arrow::Table::Make(schema, {build_uint32_array({1, 2147483648U, 4294957294U}),
+                                             build_int32_array({10, 20, 30})});
+    write_table(file_path, table, 3, false, false, false);
+}
+
+std::vector<uint8_t> serialize_test_page(tparquet::PageHeader header,
+                                         const std::vector<uint8_t>& payload) {
+    std::vector<uint8_t> bytes;
+    ThriftSerializer serializer(/*compact=*/true, 128);
+    DORIS_CHECK(serializer.serialize(&header, &bytes).ok());
+    bytes.insert(bytes.end(), payload.begin(), payload.end());
+    return bytes;
+}
+
+void write_misdeclared_two_page_parquet_file(const std::string& file_path) {
+    const std::array<int32_t, 2> first_values {1, 2};
+    std::vector<uint8_t> first_payload(sizeof(first_values));
+    memcpy(first_payload.data(), first_values.data(), first_payload.size());
+    tparquet::PageHeader first_header;
+    first_header.type = tparquet::PageType::DATA_PAGE_V2;
+    first_header.__set_compressed_page_size(first_payload.size());
+    first_header.__set_uncompressed_page_size(first_payload.size());
+    first_header.__isset.data_page_header_v2 = true;
+    first_header.data_page_header_v2.__set_num_values(first_values.size());
+    first_header.data_page_header_v2.__set_num_nulls(0);
+    first_header.data_page_header_v2.__set_num_rows(first_values.size());
+    first_header.data_page_header_v2.__set_encoding(tparquet::Encoding::PLAIN);
+    first_header.data_page_header_v2.__set_definition_levels_byte_length(0);
+    first_header.data_page_header_v2.__set_repetition_levels_byte_length(0);
+    first_header.data_page_header_v2.__set_is_compressed(false);
+    auto column_bytes = serialize_test_page(first_header, first_payload);
+
+    auto node = ::parquet::schema::PrimitiveNode::Make("id", ::parquet::Repetition::REQUIRED,
+                                                       ::parquet::Type::INT32);
+    ::parquet::ColumnDescriptor descriptor(node, 0, 0);
+    auto encoder = ::parquet::MakeTypedEncoder<::parquet::Int32Type>(
+            ::parquet::Encoding::DELTA_BINARY_PACKED, false, &descriptor);
+    const int32_t second_values[] = {3, 4};
+    encoder->Put(second_values, std::size(second_values));
+    auto second_buffer = encoder->FlushValues();
+    std::vector<uint8_t> second_payload(second_buffer->data(),
+                                        second_buffer->data() + second_buffer->size());
+    tparquet::PageHeader second_header = first_header;
+    second_header.__set_compressed_page_size(second_payload.size());
+    second_header.__set_uncompressed_page_size(second_payload.size());
+    second_header.data_page_header_v2.__set_encoding(tparquet::Encoding::DELTA_BINARY_PACKED);
+    auto second_page = serialize_test_page(second_header, second_payload);
+    column_bytes.insert(column_bytes.end(), second_page.begin(), second_page.end());
+
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement leaf;
+    leaf.__set_name("id");
+    leaf.__set_type(tparquet::Type::INT32);
+    leaf.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    tparquet::ColumnMetaData column;
+    column.__set_type(tparquet::Type::INT32);
+    // Deliberately omit DELTA_BINARY_PACKED to emulate untrusted/incomplete footer metadata.
+    column.__set_encodings({tparquet::Encoding::PLAIN, tparquet::Encoding::RLE});
+    column.__set_path_in_schema({"id"});
+    column.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    column.__set_num_values(4);
+    column.__set_total_uncompressed_size(column_bytes.size());
+    column.__set_total_compressed_size(column_bytes.size());
+    column.__set_data_page_offset(4);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_file_offset(4);
+    chunk.__set_meta_data(column);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_total_byte_size(column_bytes.size());
+    row_group.__set_num_rows(4);
+    tparquet::FileMetaData metadata;
+    metadata.__set_version(2);
+    metadata.__set_schema({root, leaf});
+    metadata.__set_num_rows(4);
+    metadata.__set_row_groups({row_group});
+
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    DORIS_CHECK(serializer.serialize(&metadata, &footer).ok());
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write("PAR1", 4);
+    output.write(reinterpret_cast<const char*>(column_bytes.data()), column_bytes.size());
+    output.write(reinterpret_cast<const char*>(footer.data()), footer.size());
+    std::array<uint8_t, sizeof(uint32_t)> footer_size {};
+    encode_fixed32_le(footer_size.data(), cast_set<uint32_t>(footer.size()));
+    output.write(reinterpret_cast<const char*>(footer_size.data()), footer_size.size());
+    output.write("PAR1", 4);
+    output.close();
+    DORIS_CHECK(output.good());
 }
 
 void write_long_prefix_parquet_file(const std::string& file_path, size_t rows) {
@@ -1245,6 +1414,61 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainComparisonUsesPhysicalDirectPath) {
     EXPECT_EQ(counter_value(profile, "PlainPredicateDirectRows"), 6);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
+TEST_F(ParquetScanTest, PredicateOnlyUint32FallsBackBeforeRawPlainDecode) {
+    write_uint32_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_BIGINT);
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(
+            create_int64_direct_greater_conjunct(0, std::numeric_limits<int32_t>::max()));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {20, 30}));
+    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectBatches"), 0);
+}
+
+TEST_F(ParquetScanTest, PlainPredicateReportsFooterEncodingMismatchAfterProgress) {
+    write_misdeclared_two_page_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("encoding"), std::string::npos) << status;
 }
 
 TEST_F(ParquetScanTest, PlainDirectPathKeepsPayloadForMultiColumnResidual) {

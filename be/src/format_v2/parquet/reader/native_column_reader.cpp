@@ -365,9 +365,14 @@ Status NativeColumnReader::read_with_plain_filter(int64_t rows, const uint8_t* f
                 conjuncts, column_id, filter, static_cast<size_t>(rows - *rows_read), &loop_filter,
                 &loop_rows, &eof, &loop_used));
         if (!loop_used) {
-            // A fallback is safe only before this call has consumed a logical row. Plain-only
-            // chunk validation makes the decision stable for all later page fragments.
-            DORIS_CHECK_EQ(*rows_read, 0);
+            if (UNLIKELY(*rows_read != 0)) {
+                // Footer encoding lists are untrusted. Once a prior page advanced the cursor, a
+                // typed fallback would restart the request at the wrong row, so reject the file
+                // instead of terminating the BE or returning shifted results.
+                return Status::Corruption(
+                        "Parquet PLAIN predicate encoding changed after {} rows for column {}",
+                        *rows_read, _name);
+            }
             row_filter->clear();
             return Status::OK();
         }

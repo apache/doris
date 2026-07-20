@@ -163,6 +163,18 @@ bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunk
 
 namespace {
 
+class EmptyValueSectionDecoder final : public Decoder {
+public:
+    Status skip_values(size_t num_values) override {
+        if (UNLIKELY(num_values != 0)) {
+            return Status::Corruption(
+                    "Parquet definition levels require {} values from an empty value section",
+                    num_values);
+        }
+        return Status::OK();
+    }
+};
+
 Status append_v2_int96_datetime(ColumnDateTimeV2::Container& data,
                                 const ParquetInt96Timestamp& value,
                                 const cctz::time_zone& timezone) {
@@ -1054,20 +1066,33 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
     _current_encoding = encoding;
 
     // Reuse page decoder
+    Decoder* encoding_decoder = nullptr;
     if (_decoders.find(static_cast<int>(encoding)) != _decoders.end()) {
-        _page_decoder = _decoders[static_cast<int>(encoding)].get();
+        encoding_decoder = _decoders[static_cast<int>(encoding)].get();
     } else {
         std::unique_ptr<Decoder> page_decoder;
         RETURN_IF_ERROR(Decoder::get_decoder(_metadata.type, encoding, page_decoder));
         // Set type length
         page_decoder->set_type_length(_get_type_length());
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
-        _page_decoder = _decoders[static_cast<int>(encoding)].get();
+        encoding_decoder = _decoders[static_cast<int>(encoding)].get();
     }
-    // Encoding headers cannot legitimately advertise more physical values than the data page's
-    // logical value count; establish the bound before decoders inspect external counts.
-    _page_decoder->set_expected_values(_remaining_num_values);
-    RETURN_IF_ERROR(_page_decoder->set_data(&_page_data));
+    _empty_value_section = _page_data.empty() && _max_def_level > 0;
+    if (_empty_value_section) {
+        // Nullable all-NULL pages legally contain only definition levels. Keep them decodable for
+        // every advertised encoding, but make a non-NULL definition level fail before stale decoder
+        // state from the preceding page can be consumed.
+        if (_empty_value_decoder == nullptr) {
+            _empty_value_decoder = std::make_unique<EmptyValueSectionDecoder>();
+        }
+        _page_decoder = _empty_value_decoder.get();
+    } else {
+        _page_decoder = encoding_decoder;
+        // Encoding headers cannot legitimately advertise more physical values than the data page's
+        // logical value count; establish the bound before decoders inspect external counts.
+        _page_decoder->set_expected_values(_remaining_num_values);
+        RETURN_IF_ERROR(_page_decoder->set_data(&_page_data));
+    }
 
     _state = DATA_LOADED;
     return Status::OK();
@@ -1275,6 +1300,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_values(size_t num_va
                                _remaining_num_values, num_values);
     }
     if (skip_data) {
+        if (UNLIKELY(_empty_value_section && num_values != 0)) {
+            return Status::Corruption(
+                    "Parquet definition levels require {} values from an empty value section",
+                    num_values);
+        }
         SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
         RETURN_IF_ERROR(_page_decoder->skip_values(num_values));
     }
@@ -1291,8 +1321,14 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
         return Status::OK();
     }
     SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
+    const size_t physical_values = select_vector.num_values() - select_vector.num_nulls();
+    if (UNLIKELY(_empty_value_section && physical_values != 0)) {
+        return Status::Corruption(
+                "Parquet definition levels require {} values from an empty value section",
+                physical_values);
+    }
     if (UNLIKELY((doris_column->is_column_dictionary() || context.dictionary_index_only) &&
-                 !_has_dict)) {
+                 !_has_dict && physical_values != 0)) {
         return Status::IOError("Not dictionary coded");
     }
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
@@ -1349,6 +1385,17 @@ bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_plain_values(
     if (conjuncts.empty() || _current_encoding != tparquet::Encoding::PLAIN ||
         (_metadata.type != tparquet::Type::INT32 && _metadata.type != tparquet::Type::INT64 &&
          _metadata.type != tparquet::Type::FLOAT && _metadata.type != tparquet::Type::DOUBLE)) {
+        return false;
+    }
+    const auto primitive_type = remove_nullable(_field_schema->data_type)->get_primitive_type();
+    const bool has_identity_width =
+            (_metadata.type == tparquet::Type::INT32 && primitive_type == TYPE_INT) ||
+            (_metadata.type == tparquet::Type::INT64 && primitive_type == TYPE_BIGINT) ||
+            (_metadata.type == tparquet::Type::FLOAT && primitive_type == TYPE_FLOAT) ||
+            (_metadata.type == tparquet::Type::DOUBLE && primitive_type == TYPE_DOUBLE);
+    if (!has_identity_width) {
+        // Raw predicates consume the physical Parquet width. Logical conversions such as UINT32
+        // to BIGINT must stay on the typed path or a four-byte value is interpreted as eight bytes.
         return false;
     }
     return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
@@ -1415,6 +1462,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
     DORIS_CHECK_EQ(selection.total_values, select_vector.num_values() - select_vector.num_nulls());
     DORIS_CHECK_EQ(selected_nulls->size(),
                    select_vector.num_values() - select_vector.num_filtered());
+    if (UNLIKELY(_empty_value_section && selection.total_values != 0)) {
+        return Status::Corruption(
+                "Parquet definition levels require {} values from an empty value section",
+                selection.total_values);
+    }
 
     physical_matches->clear();
     if (selection.selected_values == 0) {

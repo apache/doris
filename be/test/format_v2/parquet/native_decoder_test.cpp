@@ -404,6 +404,89 @@ std::vector<uint8_t> serialize_page(tparquet::PageHeader header,
     return bytes;
 }
 
+Status materialize_level_only_page(bool data_page_v2, tparquet::Type::type physical_type,
+                                   tparquet::Encoding::type encoding, bool all_null) {
+    constexpr size_t VALUE_COUNT = 3;
+    const std::vector<uint8_t> encoded_levels {static_cast<uint8_t>(VALUE_COUNT << 1),
+                                               static_cast<uint8_t>(all_null ? 0 : 1)};
+    std::vector<uint8_t> payload;
+    tparquet::PageHeader header;
+    if (data_page_v2) {
+        payload = encoded_levels;
+        header.type = tparquet::PageType::DATA_PAGE_V2;
+        header.__isset.data_page_header_v2 = true;
+        header.data_page_header_v2.__set_num_values(VALUE_COUNT);
+        header.data_page_header_v2.__set_num_nulls(all_null ? VALUE_COUNT : 0);
+        header.data_page_header_v2.__set_num_rows(VALUE_COUNT);
+        header.data_page_header_v2.__set_encoding(encoding);
+        header.data_page_header_v2.__set_definition_levels_byte_length(encoded_levels.size());
+        header.data_page_header_v2.__set_repetition_levels_byte_length(0);
+        header.data_page_header_v2.__set_is_compressed(false);
+    } else {
+        payload.resize(sizeof(uint32_t));
+        encode_fixed32_le(payload.data(), encoded_levels.size());
+        payload.insert(payload.end(), encoded_levels.begin(), encoded_levels.end());
+        header.type = tparquet::PageType::DATA_PAGE;
+        header.__isset.data_page_header = true;
+        header.data_page_header.__set_num_values(VALUE_COUNT);
+        header.data_page_header.__set_encoding(encoding);
+        header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+        header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    }
+    header.__set_compressed_page_size(payload.size());
+    header.__set_uncompressed_page_size(payload.size());
+
+    auto bytes = serialize_page(header, payload);
+    MemoryBufferedReader reader(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(physical_type);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(VALUE_COUNT);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = physical_type;
+    if (physical_type == tparquet::Type::BOOLEAN) {
+        field.data_type = std::make_shared<DataTypeUInt8>();
+    } else {
+        field.data_type = std::make_shared<DataTypeInt32>();
+    }
+    field.definition_level = 1;
+    field.parquet_schema.__set_type(physical_type);
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    ParquetPageReadContext page_context(false, "");
+    ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, VALUE_COUNT,
+                                                 nullptr, page_context);
+    RETURN_IF_ERROR(chunk_reader.init());
+    const auto load_status = chunk_reader.load_page_data();
+    EXPECT_TRUE(load_status.ok()) << load_status;
+    RETURN_IF_ERROR(load_status);
+
+    level_t level = -1;
+    EXPECT_EQ(chunk_reader.def_level_decoder().get_next_run(&level, VALUE_COUNT), VALUE_COUNT);
+    EXPECT_EQ(level, all_null ? 0 : 1);
+    FilterMap filter;
+    RETURN_IF_ERROR(filter.init(nullptr, VALUE_COUNT, false));
+    NullMap null_map;
+    ColumnSelectVector select_vector;
+    const std::vector<uint16_t> null_runs {static_cast<uint16_t>(all_null ? 0 : VALUE_COUNT),
+                                           static_cast<uint16_t>(all_null ? VALUE_COUNT : 0)};
+    RETURN_IF_ERROR(select_vector.init(null_runs, VALUE_COUNT, &null_map, &filter, 0));
+    auto column = field.data_type->create_column();
+    ParquetDecodeContext decode_context;
+    static const auto utc = cctz::utc_time_zone();
+    RETURN_IF_ERROR(init_decode_context_for_test(field, &utc, &decode_context));
+    ParquetMaterializationState state;
+    state.enable_strict_mode = true;
+    const auto status = chunk_reader.materialize_values(column, *field.data_type->get_serde(),
+                                                        decode_context, state, select_vector);
+    if (status.ok()) {
+        EXPECT_EQ(column->size(), VALUE_COUNT);
+        EXPECT_EQ(null_map, NullMap(VALUE_COUNT, all_null ? 1 : 0));
+    }
+    return status;
+}
+
 Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t>& payload,
                           tparquet::CompressionCodec::type codec, bool preload_page_cache = false) {
     std::vector<uint8_t> bytes;
@@ -2586,6 +2669,40 @@ TEST(ParquetV2NativeDecoderTest, FlatPagesRejectLogicalAndPhysicalCardinalityMis
     v1.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
     status = init_chunk(v1, true);
     EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+}
+
+TEST(ParquetV2NativeDecoderTest, LevelOnlyAllNullPagesInitializeZeroValueDecoders) {
+    const std::array<std::pair<tparquet::Type::type, tparquet::Encoding::type>, 3> encodings {{
+            {tparquet::Type::INT32, tparquet::Encoding::RLE_DICTIONARY},
+            {tparquet::Type::INT32, tparquet::Encoding::DELTA_BINARY_PACKED},
+            {tparquet::Type::BOOLEAN, tparquet::Encoding::RLE},
+    }};
+    for (const bool data_page_v2 : {false, true}) {
+        for (const auto& [physical_type, encoding] : encodings) {
+            const auto status =
+                    materialize_level_only_page(data_page_v2, physical_type, encoding, true);
+            EXPECT_TRUE(status.ok())
+                    << "v2=" << data_page_v2 << ", encoding=" << tparquet::to_string(encoding)
+                    << ": " << status;
+        }
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, LevelOnlyPagesRejectDefinitionLevelsThatRequireValues) {
+    const std::array<std::pair<tparquet::Type::type, tparquet::Encoding::type>, 3> encodings {{
+            {tparquet::Type::INT32, tparquet::Encoding::RLE_DICTIONARY},
+            {tparquet::Type::INT32, tparquet::Encoding::DELTA_BINARY_PACKED},
+            {tparquet::Type::BOOLEAN, tparquet::Encoding::RLE},
+    }};
+    for (const bool data_page_v2 : {false, true}) {
+        for (const auto& [physical_type, encoding] : encodings) {
+            const auto status =
+                    materialize_level_only_page(data_page_v2, physical_type, encoding, false);
+            EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>())
+                    << "v2=" << data_page_v2 << ", encoding=" << tparquet::to_string(encoding)
+                    << ": " << status;
+        }
+    }
 }
 
 TEST(ParquetV2NativeDecoderTest, NestedV2PageRejectsMissingAdvertisedRowStarts) {

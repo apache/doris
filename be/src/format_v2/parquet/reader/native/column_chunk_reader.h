@@ -349,6 +349,8 @@ private:
     bool _has_dict = false;
     bool _nested_row_started = false;
     Decoder* _page_decoder = nullptr;
+    std::unique_ptr<Decoder> _empty_value_decoder;
+    bool _empty_value_section = false;
     tparquet::Encoding::type _current_encoding = tparquet::Encoding::PLAIN;
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
