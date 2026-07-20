@@ -20,14 +20,17 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -76,6 +79,7 @@ import java.net.URLClassLoader;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -181,6 +185,19 @@ public class IcebergConnector implements Connector {
     // the comment path, and session=user must stay live because the loadTable itself carries per-user
     // authorization a shared cache would bypass. null for every other flavor.
     private final IcebergCommentCache commentCache; // authz-cache-session-user-disabled
+    // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorPartitionViewCache from
+    // fe-connector-cache), layered ABOVE the raw partitionCache (PERF-02): it memoizes the BUILT derived view
+    // (transform-to-range math + overlap merge for the MTMV view; the value-map construction for listPartitions)
+    // keyed by (db, table, snapshotId, schemaId), so a repeated query on a partitioned table skips the derived
+    // rebuild, not just the remote scan. Two typed fields because the two SPI hooks return structurally different
+    // derived types and neither derives from the other; the shared raw PARTITIONS scan underneath is already
+    // deduped by partitionCache, so two derived caches never double-scan remotely. Authorization-sensitive
+    // projection like partitionCache/formatCache: disabled (null) under iceberg.rest.session=user so a shared
+    // (no user dimension) hit cannot disclose one user's partition view; kept for every other flavor.
+    private final ConnectorPartitionViewCache<ConnectorMvccPartitionView> // authz-cache-session-user-disabled
+            mvccPartitionViewCache;
+    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> // authz-cache-session-user-disabled
+            listPartitionsViewCache;
     // Manifest content cache — pure metadata, default-off (meta.cache.iceberg.manifest.enable), and consumed
     // ONLY after a per-user resolveTable(ForRead). authz-cache-exempt (no read path without a per-user load).
     private final IcebergManifestCache manifestCache = new IcebergManifestCache();
@@ -254,6 +271,17 @@ public class IcebergConnector implements Connector {
                 ? new IcebergCommentCache(
                         resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY)
                 : null;
+        // PERF-06: derived partition-view cache A (generic ConnectorPartitionViewCache). Same
+        // authorization-sensitive treatment as partitionCache -- disabled (null) under iceberg.rest.session=user so
+        // a shared (no user dimension) hit cannot disclose one user's partition view; kept otherwise. Reads its
+        // own meta.cache.iceberg.partition_view.(enable|ttl-second|capacity) from the catalog properties via the
+        // framework's CacheSpec (default ON / 24h / 1000). Two typed instances (MVCC view + partition-info list).
+        this.mvccPartitionViewCache = isUserSessionEnabled()
+                ? null
+                : new ConnectorPartitionViewCache<>("iceberg", this.properties);
+        this.listPartitionsViewCache = isUserSessionEnabled()
+                ? null
+                : new ConnectorPartitionViewCache<>("iceberg", this.properties);
     }
 
     /**
@@ -278,7 +306,8 @@ public class IcebergConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new IcebergConnectorMetadata(newCatalogBackedOps(session), properties, context,
-                latestSnapshotCache, tableCache, partitionCache, commentCache);
+                latestSnapshotCache, tableCache, partitionCache, commentCache,
+                mvccPartitionViewCache, listPartitionsViewCache);
     }
 
     /**
@@ -603,6 +632,12 @@ public class IcebergConnector implements Connector {
         if (commentCache != null) {
             commentCache.invalidate(TableIdentifier.of(dbName, tableName));
         }
+        if (mvccPartitionViewCache != null) {
+            mvccPartitionViewCache.invalidateTable(dbName, tableName);
+        }
+        if (listPartitionsViewCache != null) {
+            listPartitionsViewCache.invalidateTable(dbName, tableName);
+        }
     }
 
     /**
@@ -633,6 +668,12 @@ public class IcebergConnector implements Connector {
         if (commentCache != null) {
             commentCache.invalidateDb(dbName);
         }
+        if (mvccPartitionViewCache != null) {
+            mvccPartitionViewCache.invalidateDb(dbName);
+        }
+        if (listPartitionsViewCache != null) {
+            listPartitionsViewCache.invalidateDb(dbName);
+        }
     }
 
     /**
@@ -658,6 +699,12 @@ public class IcebergConnector implements Connector {
         }
         if (commentCache != null) {
             commentCache.invalidateAll();
+        }
+        if (mvccPartitionViewCache != null) {
+            mvccPartitionViewCache.invalidateAll();
+        }
+        if (listPartitionsViewCache != null) {
+            listPartitionsViewCache.invalidateAll();
         }
         manifestCache.invalidateAll();
     }
@@ -711,6 +758,16 @@ public class IcebergConnector implements Connector {
     /** Test-only: the table-comment cache (PERF-05), or {@code null} unless vended-credentials and non-session. */
     IcebergCommentCache commentCacheForTest() {
         return commentCache;
+    }
+
+    /** Test-only: the derived MVCC partition-view cache (PERF-06), or {@code null} for a session=user catalog. */
+    ConnectorPartitionViewCache<ConnectorMvccPartitionView> mvccPartitionViewCacheForTest() {
+        return mvccPartitionViewCache;
+    }
+
+    /** Test-only: the derived listPartitions view cache (PERF-06), or {@code null} for a session=user catalog. */
+    ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> listPartitionsViewCacheForTest() {
+        return listPartitionsViewCache;
     }
 
     @Override
