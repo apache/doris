@@ -564,7 +564,18 @@ public class HyperGraph {
             // (the same reason PlanUtils.tryMergeProjections keeps layers).
             if (addToReplaceMap && mustStayInCurrentAliasLayer) {
                 if (currentProjectedAliasLayer != null) {
-                    currentProjectedAliasLayer.add(alias);
+                    // Resolve forwarding aliases (e.g., x → A.v) through
+                    // aliasReplaceMap before storing the layer body.  A
+                    // join-separated chain may first resolve a lower Slot
+                    // alias into aliasReplaceMap and then build a later
+                    // expression alias that references it.  Without this
+                    // substitution the stored layer references a slot (x)
+                    // that no child outputs, and CheckAfterRewrite fails.
+                    // replaceNameExpression is safe here — it only replaces
+                    // Alias slots whose source is already fully built in
+                    // the same nullable subtree.
+                    Alias resolved = (Alias) ExpressionUtils.replaceNameExpression(alias, aliasReplaceMap);
+                    currentProjectedAliasLayer.add(resolved);
                 }
                 return true;
             }

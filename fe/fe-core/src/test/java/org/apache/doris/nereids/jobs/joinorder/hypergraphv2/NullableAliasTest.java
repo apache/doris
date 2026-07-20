@@ -273,4 +273,32 @@ public class NullableAliasTest extends SqlTestBase {
         Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
         Assertions.assertNotNull(plan);
     }
+
+    @Test
+    void testJoinSeparatedChainForwardingAlias() {
+        // A join-separated chain on the nullable side:
+        //   Lower: Project(T2.id, T2.score AS x) on leaf T2
+        //          x = T2.score, child is Slot → enters aliasReplaceMap (x→T2.score)
+        //          No layer emitted — x is a simple forwarding alias.
+        //   Upper: Project(InnerA.id, InnerA.x + 1 AS y) on (T2 ⋈ T3)
+        //          y = x + 1, child is expression → mustStayInCurrentAliasLayer
+        //          Without the fix: y stored as "y = x + 1" without resolving x.
+        //          Child join outputs T2.id, T2.score, T3.id, T3.score, but NOT x.
+        //          PlanReceiver asks for x → CheckAfterRewrite fails.
+        //          With the fix: replaceNameExpression resolves x → T2.score
+        //          before storing, so y = T2.score + 1 references a real column.
+        CascadesContext c1 = createCascadesContext(
+                "select OuterT1.id, Sub.y "
+                        + "from T1 OuterT1 left join ("
+                        + "  select InnerA.id, (InnerA.x + 1) as y "
+                        + "  from ("
+                        + "    select T2.id, T2.score as x "
+                        + "    from T2"
+                        + "  ) InnerA inner join T3 on InnerA.id = T3.id"
+                        + ") Sub on OuterT1.id = Sub.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+    }
 }
