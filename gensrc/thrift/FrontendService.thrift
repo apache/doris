@@ -936,6 +936,7 @@ struct TMetadataTableRequestParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   15: optional set<string> reserved_field_15
+  16: optional PlanNodes.TBrokersMetadataParams brokers_metadata_params
 }
 
 struct TSchemaTableRequestParams {

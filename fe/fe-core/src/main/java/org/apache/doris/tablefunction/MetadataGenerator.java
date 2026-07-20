@@ -122,6 +122,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.logging.log4j.LogManager;
@@ -326,6 +327,9 @@ public class MetadataGenerator {
                 break;
             case PARTITION_VALUES:
                 result = partitionValuesMetadataResult(params);
+                break;
+            case BROKERS:
+                result = brokersMetadataResult(params);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -2194,4 +2198,29 @@ public class MetadataGenerator {
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
+
+    private static TFetchSchemaTableDataResult brokersMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetBrokersMetadataParams()) {
+            return errorResult("brokers metadata param is not set.");
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        String clusterName = params.getBrokersMetadataParams().getClusterName();
+        boolean needFilter = StringUtils.isNotBlank(clusterName);
+        List<List<String>> infos = Env.getCurrentEnv().getBrokerMgr().getBrokersInfo();
+        for (List<String> info : infos) {
+            if (needFilter && !clusterName.equalsIgnoreCase(info.get(0))) {
+                continue;
+            }
+            TRow trow = new TRow();
+            for (String item : info) {
+                trow.addToColumnValue(new TCell().setStringVal(item));
+            }
+            dataBatch.add(trow);
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
 }

@@ -104,6 +104,8 @@ public abstract class TableValuedFunctionIf {
                 return new HttpTableValuedFunction(params);
             case TableBinlogFunction.NAME:
                 return new TableBinlogFunction(params);
+            case BrokersTableValuedFunction.NAME:
+                return new BrokersTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }
