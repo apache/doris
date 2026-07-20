@@ -249,6 +249,11 @@ public class RuntimeFilterTranslator {
                             RuntimeFilterPartitionPruneClassifier.classify(
                                     head.getType(), targetExpr, nereidsTargetExprList.get(i), scanNode);
                     setPartitionPruningMetadata(origFilter, scanNode, classification);
+                    RuntimeFilterBucketPruneClassifier.Classification bucketClassification =
+                            RuntimeFilterBucketPruneClassifier.classify(head.getType(), targetExpr, scanNode);
+                    if (bucketClassification.canPruneBuckets()) {
+                        origFilter.markTargetCanPruneBuckets(scanNode.getId());
+                    }
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
                 setWaitTimeMs(origFilter, head.isNonBlocking(), isLocalTarget);
@@ -352,6 +357,11 @@ public class RuntimeFilterTranslator {
                             RuntimeFilterPartitionPruneClassifier.classify(
                                     filter.getType(), targetExpr, filter.getTargetExpressions().get(i), scanNode);
                     setPartitionPruningMetadata(origFilter, scanNode, classification);
+                    RuntimeFilterBucketPruneClassifier.Classification bucketClassification =
+                            RuntimeFilterBucketPruneClassifier.classify(filter.getType(), targetExpr, scanNode);
+                    if (bucketClassification.canPruneBuckets()) {
+                        origFilter.markTargetCanPruneBuckets(scanNode.getId());
+                    }
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
                 setWaitTimeMs(origFilter, filter.isNonBlocking(), isLocalTarget);
