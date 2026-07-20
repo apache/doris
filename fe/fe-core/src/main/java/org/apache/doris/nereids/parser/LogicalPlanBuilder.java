@@ -6679,11 +6679,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowTrash(ShowTrashContext ctx) {
         if (ctx.ON() != null) {
             String backend = stripQuotes(ctx.STRING_LITERAL().getText());
-            new ShowTrashCommand(backend);
+            return new ShowTrashCommand(backend);
         } else {
             return new ShowTrashCommand();
         }
-        return new ShowTrashCommand();
     }
 
     @Override

@@ -138,6 +138,9 @@ struct TDiskTrashInfo {
     1: required string root_path
     2: required string state
     3: required i64 trash_used_capacity
+    4: optional i64 trash_file_num
+    5: optional i64 disk_capacity
+    6: optional i64 available_capacity
 }
 
 struct TCheckStorageFormatResult {

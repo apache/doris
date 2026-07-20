@@ -25,11 +25,13 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,7 +47,8 @@ public class TrashProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(TrashProcNode.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
-            .add("Backend").add("TrashUsedCapacity").build();
+            .add("Backend").add("RootPath").add("State").add("TrashUsedCapacity")
+            .add("TrashFileNum").add("DiskCapacity").add("AvailableCapacity").build();
 
     private List<Backend> backends = Lists.newArrayList();
 
@@ -82,12 +85,12 @@ public class TrashProcDir implements ProcDirInterface {
         for (Backend backend : backends) {
             BackendService.Client client = null;
             TNetworkAddress address = null;
-            Long trashUsedCapacityB = null;
+            List<TDiskTrashInfo> diskTrashInfos = null;
             boolean ok = false;
             try {
                 address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
-                trashUsedCapacityB = client.getTrashUsedCapacity();
+                diskTrashInfos = client.getDiskTrashUsedCapacity();
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backend.getId(), e);
@@ -99,18 +102,59 @@ public class TrashProcDir implements ProcDirInterface {
                 }
             }
 
-            List<String> backendInfo = new ArrayList<>();
-            backendInfo.add(String.valueOf(backend.getId()));
-            backendInfo.add(NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort()));
-            if (trashUsedCapacityB != null) {
-                Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
-                backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " "
-                        + trashUsedCapacity.second);
-            } else {
-                backendInfo.add("");
+            if (CollectionUtils.isEmpty(diskTrashInfos)) {
+                addFallbackRow(backend, infos);
+                continue;
             }
-            infos.add(backendInfo);
+            for (TDiskTrashInfo diskTrashInfo : diskTrashInfos) {
+                List<String> rowInfo = new ArrayList<>();
+                rowInfo.add(String.valueOf(backend.getId()));
+                rowInfo.add(NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort()));
+                rowInfo.add(diskTrashInfo.getRootPath());
+                rowInfo.add(diskTrashInfo.getState());
+
+                long trashUsedCapacityB = diskTrashInfo.getTrashUsedCapacity();
+                Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
+                rowInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " "
+                        + trashUsedCapacity.second);
+
+                rowInfo.add(diskTrashInfo.isSetTrashFileNum()
+                        ? String.valueOf(diskTrashInfo.getTrashFileNum()) : "");
+
+                if (diskTrashInfo.isSetDiskCapacity()) {
+                    Pair<Double, String> diskCapacity = DebugUtil.getByteUint(diskTrashInfo.getDiskCapacity());
+                    rowInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(diskCapacity.first) + " "
+                            + diskCapacity.second);
+                } else {
+                    rowInfo.add("");
+                }
+
+                if (diskTrashInfo.isSetAvailableCapacity()) {
+                    Pair<Double, String> availableCapacity =
+                            DebugUtil.getByteUint(diskTrashInfo.getAvailableCapacity());
+                    rowInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availableCapacity.first) + " "
+                            + availableCapacity.second);
+                } else {
+                    rowInfo.add("");
+                }
+
+                infos.add(rowInfo);
+            }
         }
+    }
+
+    private static void addFallbackRow(Backend backend, List<List<String>> infos) {
+        List<String> rowInfo = new ArrayList<>();
+        rowInfo.add(String.valueOf(backend.getId()));
+        rowInfo.add(NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort()));
+        rowInfo.add("N/A");
+        rowInfo.add("UNKNOWN");
+        rowInfo.add("N/A");
+        rowInfo.add("");
+        rowInfo.add("N/A");
+        rowInfo.add("N/A");
+        infos.add(rowInfo);
+        LOG.debug("Added fallback row for backend {} due to unavailable trash info", backend.getId());
     }
 
     @Override

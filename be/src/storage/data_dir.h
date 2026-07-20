@@ -70,6 +70,7 @@ public:
         info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
         info.trash_used_capacity = _trash_used_bytes;
+        info.trash_file_num = _trash_file_num;
         info.is_used = _is_used;
         info.storage_medium = _storage_medium;
         return info;
@@ -176,6 +177,7 @@ private:
     // the actual capacity of the disk of this data dir
     size_t _disk_capacity_bytes;
     size_t _trash_used_bytes;
+    size_t _trash_file_num;
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
