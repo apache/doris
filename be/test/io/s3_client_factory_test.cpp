@@ -272,8 +272,8 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressConf) {
     properties.clear();
     properties["AWS_REGION"] = "us-west-2";
     S3Conf ordinary_without_endpoint;
-    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(
-                         properties, ordinary_uri, &ordinary_without_endpoint)
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, ordinary_uri,
+                                                                &ordinary_without_endpoint)
                          .ok());
 
     properties["AWS_ENDPOINT"] = "https://s3.us-west-2.amazonaws.com";
