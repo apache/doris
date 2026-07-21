@@ -586,6 +586,10 @@ start_hive3() {
 start_iceberg() {
     # iceberg
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
+    LANCE_SPARK_VERSION=0.4.0
+    LANCE_SPARK_JAR="lance-spark-bundle-4.0_2.13-${LANCE_SPARK_VERSION}.jar"
+    LANCE_SPARK_JAR_PATH="${ICEBERG_DIR}/data/input/jars/${LANCE_SPARK_JAR}"
+    LANCE_SPARK_JAR_URL="${MAVEN_REPOSITORY_URL}/org/lance/lance-spark-bundle-4.0_2.13/${LANCE_SPARK_VERSION}/${LANCE_SPARK_JAR}"
     cp "${ROOT}"/docker-compose/iceberg/iceberg.yaml.tpl "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     cp "${ROOT}"/docker-compose/iceberg/entrypoint.sh.tpl "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/iceberg.yaml
@@ -603,7 +607,14 @@ start_iceberg() {
             && sudo rm -rf iceberg_data_spark40.zip
             cd -
         else
-            echo "${ICEBERG_DIR}/data exist, continue !"
+            echo "${ICEBERG_DIR}/data exists, continue !"
+        fi
+
+        if [[ ! -s "${LANCE_SPARK_JAR_PATH}" ]]; then
+            echo "Downloading ${LANCE_SPARK_JAR}"
+            sudo mkdir -p "$(dirname "${LANCE_SPARK_JAR_PATH}")"
+            sudo wget -O "${LANCE_SPARK_JAR_PATH}.tmp" "${LANCE_SPARK_JAR_URL}"
+            sudo mv "${LANCE_SPARK_JAR_PATH}.tmp" "${LANCE_SPARK_JAR_PATH}"
         fi
 
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait

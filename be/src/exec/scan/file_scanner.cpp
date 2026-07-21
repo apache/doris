@@ -62,6 +62,7 @@
 #include "format/avro/avro_jni_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/json/new_json_reader.h"
+#include "format/lance/lance_reader.h"
 #include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -1246,6 +1247,13 @@ Status FileScanner::_get_next_reader() {
             init_status = reader->init_reader();
             _cur_reader = std::move(reader);
             need_to_get_parsed_schema = false;
+            break;
+        }
+        case TFileFormatType::FORMAT_LANCE: {
+            auto reader =
+                    LanceReader::create_unique(_file_slot_descs, _state, _profile, range, _params);
+            init_status = reader->init_reader();
+            _cur_reader = std::move(reader);
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {

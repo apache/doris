@@ -522,16 +522,23 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             int64_t date_value = 0;
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             memcpy(&date_value, raw_byte_ptr, element_size);
-            auto utc_epoch = static_cast<UInt64>(date_value);
-
             DateV2Value<DateTimeV2ValueType> v;
-            // convert second
-            v.from_unixtime(utc_epoch / divisor, ctz);
-            // get rest time
+            // C++ integer division truncates toward zero. Normalize the remainder so a negative
+            // timestamp still has a non-negative fractional part, e.g. -876544us becomes
+            // -1 second and 123456us.
+            int64_t seconds = date_value / divisor;
+            int64_t remainder = date_value % divisor;
+            if (remainder < 0) {
+                --seconds;
+                remainder += divisor;
+            }
+            v.from_unixtime(seconds, ctz);
+            // Get the fractional part.
             // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
             // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
-            // "2022-01-01 11:11:11.111", utc_epoch = 1641035471111, divisor = 1000, set_microsecond(111000)
-            v.set_microsecond((utc_epoch % divisor) * DIVISOR_FOR_MICRO / divisor);
+            // "2022-01-01 11:11:11.111", timestamp = 1641035471111, divisor = 1000,
+            // set_microsecond(111000)
+            v.set_microsecond(remainder * DIVISOR_FOR_MICRO / divisor);
             col_data.emplace_back(v);
         }
     } else {
