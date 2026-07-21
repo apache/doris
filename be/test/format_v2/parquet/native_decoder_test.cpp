@@ -46,6 +46,7 @@
 #include "format_v2/parquet/reader/native/column_reader.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/delta_bit_pack_decoder.h"
+#include "format_v2/parquet/reader/native/fix_length_plain_decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/level_reader.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
@@ -219,6 +220,7 @@ public:
 class CaptureFixedConsumer final : public ParquetFixedValueConsumer {
 public:
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        ++consume_calls;
         if (width == 0) {
             width = value_width;
         }
@@ -237,8 +239,33 @@ public:
     }
 
     size_t width = 0;
+    size_t consume_calls = 0;
     std::vector<uint8_t> bytes;
 };
+
+TEST(ParquetV2NativeDecoderTest, FragmentedPlainSelectionUsesOneConsumerBatch) {
+    std::array<int32_t, 32> input {};
+    std::iota(input.begin(), input.end(), 0);
+    Slice data(reinterpret_cast<char*>(input.data()), input.size() * sizeof(int32_t));
+    FixLengthPlainDecoder decoder;
+    decoder.set_type_length(sizeof(int32_t));
+    ASSERT_TRUE(decoder.set_data(&data).ok());
+
+    ParquetSelection selection {
+            .total_values = input.size(), .selected_values = input.size() / 2, .ranges = {}};
+    for (size_t row = 0; row < input.size(); row += 2) {
+        selection.ranges.push_back({.first = row, .count = 1});
+    }
+    CaptureFixedConsumer consumer;
+    ASSERT_TRUE(decoder.decode_selected_fixed_values(selection, consumer).ok());
+
+    EXPECT_EQ(consumer.consume_calls, 1);
+    std::vector<int32_t> expected;
+    for (int32_t value = 0; value < static_cast<int32_t>(input.size()); value += 2) {
+        expected.push_back(value);
+    }
+    EXPECT_EQ(consumer.values<int32_t>(), expected);
+}
 
 class ScriptedDictionaryMaterializationSource final : public ParquetDecodeSource {
 public:

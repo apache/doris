@@ -360,6 +360,21 @@ private:
     const std::string _expr_name = "NullableInt32GreaterThanExpr";
 };
 
+class FailingRowFilterExpr final : public VExpr {
+public:
+    FailingRowFilterExpr() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InvalidArgument("synthetic row filter failure");
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const std::string _expr_name = "FailingRowFilterExpr";
+};
+
 class NullableInt32LessThanExpr final : public VExpr {
 public:
     NullableInt32LessThanExpr(int column_id, int32_t value)
@@ -5662,6 +5677,29 @@ TEST_F(NewOrcReaderTest, ConjunctFiltersRows) {
     EXPECT_EQ(ids.get_element(2), 5);
     EXPECT_EQ(values.get_data_at(0).to_string(), "three");
     EXPECT_EQ(values.get_data_at(2).to_string(), "five");
+}
+
+TEST_F(NewOrcReaderTest, RowFilterFailureRetainsNextBatchContext) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<FailingRowFilterExpr>()));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_NE(status.to_string().find("nextBatch failed"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("synthetic row filter failure"), std::string::npos) << status;
 }
 
 TEST_F(NewOrcReaderTest, OrcLazyDecodesOnlySelectedNonPredicateRows) {

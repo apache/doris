@@ -749,6 +749,18 @@ TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
     EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
 }
 
+TEST(FileScannerV2Test, OrcScannerResidualFilterRetainsNextBatchContext) {
+    auto status = FileScannerV2::TEST_contextualize_output_filter_status(
+            Status::InvalidArgument("synthetic row filter failure"), TFileFormatType::FORMAT_ORC);
+    EXPECT_NE(status.to_string().find("nextBatch failed"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("synthetic row filter failure"), std::string::npos) << status;
+
+    status = FileScannerV2::TEST_contextualize_output_filter_status(
+            Status::InvalidArgument("synthetic row filter failure"),
+            TFileFormatType::FORMAT_PARQUET);
+    EXPECT_EQ(status.to_string().find("nextBatch failed"), std::string::npos) << status;
+}
+
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
 // from the legacy is_file_slot flag. Scanner-generated rowid columns must never be treated as
 // partition columns even if FE marks them as non-file slots.

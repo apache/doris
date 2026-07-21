@@ -449,6 +449,21 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
     }
 }
 
+Status FileScannerV2::_filter_output_block(Block* block) {
+    return _contextualize_output_filter_status(Scanner::_filter_output_block(block),
+                                               _get_current_format_type());
+}
+
+Status FileScannerV2::_contextualize_output_filter_status(Status status,
+                                                          TFileFormatType::type format_type) {
+    if (!status.ok() && format_type == TFileFormatType::FORMAT_ORC) {
+        // Error-preserving expressions cannot be reordered into the ORC reader and therefore run
+        // at the scanner boundary; keep their error context identical to ORC callback failures.
+        status.prepend("Orc row reader nextBatch failed. reason = ");
+    }
+    return status;
+}
+
 Status FileScannerV2::_prepare_next_split(bool* eos) {
     SCOPED_TIMER(_prepare_split_timer);
     while (true) {

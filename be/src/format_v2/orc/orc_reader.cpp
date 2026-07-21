@@ -2000,7 +2000,13 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         }
         _state->orc_lazy_selection_valid = false;
     } else {
-        RETURN_IF_ERROR(_filter_block(file_block, rows));
+        auto filter_status = _filter_block(file_block, rows);
+        if (!filter_status.ok()) {
+            // V2 evaluates residual predicates after ORC returns the batch, while callers retain
+            // the historical nextBatch error contract used to identify row-filter failures.
+            filter_status.prepend("Orc row reader nextBatch failed. reason = ");
+            return filter_status;
+        }
     }
     *eof = false;
     return Status::OK();

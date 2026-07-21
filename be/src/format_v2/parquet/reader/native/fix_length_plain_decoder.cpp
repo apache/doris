@@ -19,6 +19,8 @@
 
 #include <limits>
 
+#include "util/cpu_info.h"
+
 namespace doris::format::parquet::native {
 
 Status FixLengthPlainDecoder::decode_fixed_values(size_t num_values,
@@ -49,6 +51,29 @@ Status FixLengthPlainDecoder::decode_selected_fixed_values(const ParquetSelectio
     }
     const auto* values = reinterpret_cast<const uint8_t*>(_data->data) + _offset;
     _offset += input_bytes;
+    const size_t selected_bytes = selection.selected_values * value_width;
+    constexpr size_t MIN_FRAGMENTED_RANGES = 8;
+    constexpr size_t MAX_AVERAGE_RANGE_VALUES = 4;
+    const bool fragmented =
+            selection.ranges.size() >= MIN_FRAGMENTED_RANGES &&
+            selection.selected_values <= selection.ranges.size() * MAX_AVERAGE_RANGE_VALUES;
+    if (fragmented && selected_bytes <= static_cast<size_t>(CpuInfo::get_l2_cache_size())) {
+        _selected_values.resize(selected_bytes);
+        size_t output_offset = 0;
+        for (const auto& range : selection.ranges) {
+            DORIS_CHECK(range.first + range.count <= selection.total_values);
+            const size_t range_bytes = range.count * value_width;
+            memcpy(_selected_values.data() + output_offset, values + range.first * value_width,
+                   range_bytes);
+            output_offset += range_bytes;
+        }
+        DORIS_CHECK_EQ(output_offset, selected_bytes);
+        // Tiny alternating runs make every consumer re-enter conversion and grow its destination
+        // column per range. A cache-resident gather keeps the page access sequential and restores
+        // one atomic conversion batch without retaining page-sized scratch for dense selections.
+        return consumer.consume(_selected_values.data(), selection.selected_values, value_width);
+    }
+    _selected_values.clear();
     // PLAIN pages are random-access fixed-width spans. Keep those page bytes pinned while the
     // consumer gathers directly into the final column, otherwise sparse scans pay for a second
     // selected-width buffer and copy before materialization.
