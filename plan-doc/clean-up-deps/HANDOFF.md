@@ -4,7 +4,7 @@
 > **本文件是活文档**：每完成一轮就更新"进度日志" + commit（对齐 HANDOFF 纪律）。
 
 - 创建：2026-07-21 · 分支：`catalog-spi-review-17`
-- 当前状态：**Batch 1 + Batch 2 + Batch 3 全部完成**。fe-core 对 iceberg 的编译/依赖已彻底清零：死代码删净、5 个 iceberg 测试类迁入 `fe-connector-iceberg`、iceberg 依赖簇 + 随之孤立的 `aws-json-protocol`/`avro`/`parquet-avro` 均已删/换（每步经 resolved 依赖树验证运行期不缺类）。下一步：**Batch 4**（`aws-java-sdk-dynamodb`/`aws-java-sdk-logs`/`bce-java-sdk` 定性，先跑 dependency:tree）与 **Batch 5**（LIVE 源特有逻辑迁移，独立设计大工程）。
+- 当前状态：**Batch 1–4 全部完成**。fe-core 对 iceberg 的编译/依赖已彻底清零（Batch 1–3）；Batch 4 又删净三个待定依赖 `aws-java-sdk-dynamodb`/`aws-java-sdk-logs`/`bce-java-sdk`（均经 dependency:tree + 全仓库反射/config 扫 + jar 内容核验 + 4 个对抗 agent 反证=死依赖），连带清理其孤立的 mqtt/validation-api 父 pom 管理项，并删掉一处仅靠 bce 传递 `validation-api` 才能编译的装饰性 `@NotNull`。下一步：**Batch 5**（LIVE 源特有逻辑迁移，独立设计大工程；须走连接器 SPI 委派而非删除）。
 
 ---
 
@@ -31,7 +31,7 @@
 | **换/删（随 iceberg 批）** | `parquet-avro`→`parquet-hadoop(+parquet-column)`；删 `avro` 显式声明 | avro runtime 仍由 hive-exec 供给，可接受 |
 | **只改注释（保留）** | `kryo-shaded`（"for hudi catalog"→`WorkloadSchedPolicy`）；`avro`/`parquet-avro`（"For Iceberg"→parquet reader） | 注释错，依赖对 |
 | **保留（S3/凭证/UDF 需要）** | `s3-transfer-manager`、`sts`、`url-connection-client`、`protocol-core`、`sdk-core`、`hive-exec(runtime)`、`commons-lang(runtime)`、`mariadb`、`ranger-plugins-common`、`HikariCP`、`okhttp` | 非数据源用途，别当"数据源清理"删 |
-| **先调查再定** | `aws-java-sdk-dynamodb`、`aws-java-sdk-logs`、`bce-java-sdk`、`postgresql(provided)` | 见 Batch 4 |
+| ~~先调查再定~~ **已删** | `aws-java-sdk-dynamodb`、`aws-java-sdk-logs`、`bce-java-sdk`（`postgresql` 已随 Batch 1 删） | Batch 4 定性=三项全 REMOVE：dynamodb/logs 是零传递消费者的直接叶子（hadoop-aws 3.4.2 无 S3Guard、ranger CloudWatch destination 不在类路径）；bce 全仓库零引用、BOS 走 S3 兼容。连带删孤立的 mqtt/validation-api 管理项。 |
 
 ### 代码（fe-core 残留数据源特有类/逻辑）
 
@@ -84,3 +84,4 @@
 | 2026-07-21 | Batch 3b 删 iceberg 依赖簇 | ✅ 删 iceberg-core/aws/glue/s3tables/s3-tables-catalog，fe-core `-am` test-compile 绿（gates 过） | 379e4b07066 | fe-core 主+测对 iceberg/glue/s3tables **0 引用**（迁走测试后）。顺手删 s3-transfer-manager 注释里过期的 "iceberg-aws's S3FileIO" 字样（该 jar 留：hadoop-aws 需要）。**dependency:tree 坑**：单模块 `-pl fe-core` 离线/在线都因 `${revision}` 反应堆解析失败，须 `-am`。 |
 | 2026-07-21 | Batch 3c aws-json/avro/parquet | ✅ 三项删除均经 resolved 依赖树验证安全 | d0f6d3878d3 | **先删 direct 声明**再跑 `-am dependency:tree`（nearest-wins 不再掩盖传递供给）：① `aws-json-protocol` 删后整棵 fe-core 树 **0 命中**（唯一消费者 glue/s3tables/iceberg-aws 已随簇走；保留的 sts=query、s3=xml 用别的协议）→ 无人需要，干净删。② `avro` 显式声明删后仍经 `hadoop-client→hadoop-common→avro:1.12.1:compile` **留在类路径**（比原分析猜的 hive-exec 更稳）→ 不丢。③ `parquet-avro→parquet-hadoop+parquet-column`：真消费者是 HTTP 导入抽样 `ParquetReader`（用 `parquet.{hadoop,column,schema,example.data,io}`，从不用 `parquet.avro`）；parquet-avro 本就以同 1.17.0 传递带 parquet-hadoop+column，故装载的类**不变**，只是去掉没用的 avro 桥。顺带修了 "For Iceberg" 过期注释。test-compile 绿、gates 过。 |
 | 2026-07-21 | Batch 1+2 对抗复核 | ✅ 3 个目标全 `DEAD_CONFIRMED`（0 可达） | — | 3 个对抗 agent 逐通道反证：parser/工厂、反射、枚举 ordinal、GSON/thrift、visitor override、ServiceLoader 均无命中。关键旁证：删后 `rg org.apache.iceberg fe/fe-core/src/main` = **空**（fe-core 主源码对 iceberg 零编译引用，只剩 5 个测试类钉住依赖）；`PlanType.LOGICAL_UNBOUND_ICEBERG_TABLE_SINK` 经 JSON explain 按**名**用非 ordinal，留着惰性无害；live 写路径 `PluginDrivenInsertCommandContext` 覆盖已删 context 的全部字段。 |
+| 2026-07-21 | Batch 4 待定依赖定性+删除 | ✅ 三项全 REMOVE，`-am` test-compile 绿（gates 过） | 278d3f49a73 | 删 `aws-java-sdk-dynamodb`/`aws-java-sdk-logs`/`bce-java-sdk`。**定性**：dependency:tree 证 dynamodb/logs 为直接叶子零传递消费者（hadoop-aws 3.4.2 无 S3Guard、jar 零 dynamodb 类；父 pom "for ranger audit" 注释过时——CloudWatch destination 在不在类路径的 `ranger-plugins-audit`）；bce 全仓库零引用、BOS 走 S3 兼容、fe-filesystem 不声明→非迁移是删。**删除坑**：bce 是 fe-core 唯一传递 `validation-api` 的源→`ExternalMetaIdMgr` 装饰性 `@NotNull` 编译失败→删该注解（`Preconditions.checkNotNull` 保留真校验，全 fe 唯一一处 javax.validation），守铁律 A 不加依赖。**连带**：清理孤立的 mqtt(bce-only 传递)块+属性、validation-api 块+属性、dynamodb/logs 版本锁定。**验证**：4 个对抗 agent 独立反证全 `refuted=false`(high)——反射/config、ranger 审计、BOS 原生、跨 reactor+BE 均无运行期消费者；resolved tree 确认五 jar 消失、保留 aws-java-sdk-s3→kms/core/jmespath 完好。 |

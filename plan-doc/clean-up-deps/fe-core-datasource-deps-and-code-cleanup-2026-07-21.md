@@ -91,9 +91,9 @@
 | `com.dmetasoul:lakesoul-io-java` | 498 | provided | **REMOVE** | lakesoul 已废弃（`CatalogFactory.java:143` 抛"Lakesoul catalog is no longer supported"）。fe-core 0 个 `com.dmetasoul`/lakesoul 类引用，全是 Gson 兼容重映射字符串。 |
 | `org.scala-lang:scala-library` | 570 | provided | **REMOVE** | fe-core 0 个 `import scala.`（lakesoul 陪跑品）。 |
 | `org.postgresql:postgresql` | 564 | provided | **REMOVE（先查测试）** | lakesoul 陪跑品，但 `src/test/.../catalog/JdbcResourceTest.java` import 了 `org.postgresql`，provided 在测试类路径上→删前需处理该测试。 |
-| `com.baidubce:bce-java-sdk` | 656 | compile | **待核验（疑可删/该迁 fe-filesystem）** | **整个 `fe/**/src` 零引用**（主+测）。是百度 BOS 对象存储（文件系统族）SDK，疑似像 OBS 一样反射加载——但它**不是** `scope=runtime` 且无说明注释。需确认 BOS 文件系统（已在 fe-filesystem）是否仍需它、以及是否还该留在 fe-core。 |
-| `com.amazonaws:aws-java-sdk-dynamodb` | 371–374 | compile | **待核验** | fe-core 0 直接引用。v1 SDK，`aws-java-sdk-s3`（文件系统，保留）的兄弟。dynamodb 历史上可能是 hadoop-aws 的 S3Guard（文件系统）**或** iceberg DynamoDbCatalog——删前跑 `mvn dependency:tree` 看 hadoop-aws 是否需要，**别**假设 iceberg-only。 |
-| `com.amazonaws:aws-java-sdk-logs` | 375–378 | compile | **待核验** | fe-core 0 直接引用；CloudWatch logs，同上需查传递需求。 |
+| `com.baidubce:bce-java-sdk` | 556 | compile | **REMOVE（Batch 4 已删）** | 全 `fe/**/src` 零引用（主+测）、全仓库零 `com.baidubce`/反射/config 加载。BOS 走 S3 兼容路径（`cloud/storage/ObjectInfoAdapter.java` `case BOS`→`S3Properties`；`S3Properties.PROVIDERS` 含 BOS；`SchemaTypeMapper` BOS 已注释掉），原生 SDK 不在 BOS 路径上；fe-filesystem 亦不声明→非"迁移"而是"删"。**删除坑**：bce 是 fe-core 唯一传递带来 `javax.validation:validation-api` 的源，`ExternalMetaIdMgr` 一处装饰性 `@NotNull` 靠它编译（下一行 `Preconditions.checkNotNull(log)` 才是真校验，全 fe 唯一一处 javax.validation 用法）→删该注解而非加依赖（守 fe-core 只减不增）。连带清理孤立的 mqtt（仅 bce 传递）+ validation-api 依赖管理块/属性。 |
+| `com.amazonaws:aws-java-sdk-dynamodb` | 371–374 | compile | **REMOVE（Batch 4 已删）** | `dependency:tree` 证其为 fe-core **直接叶子**（零传递消费者）；hadoop-aws 3.4.2 已随 Hadoop 3.4.0 移除 S3Guard（jar 内零 dynamodb 类，仅剩 `S3Guard.class` 一句"不再需要"的警告字符串）；ranger 审计无 DynamoDB destination；全仓库零 `dynamodbv2` 引用/反射/config。（be-java-ext 的 dynamodb 是 v2 `software.amazon.awssdk`，无关。） |
+| `com.amazonaws:aws-java-sdk-logs` | 375–378 | compile | **REMOVE（Batch 4 已删）** | 同 dynamodb：直接叶子、零传递消费者。父 pom "only for apache ranger audit" 注释**已过时**——唯一引用 CloudWatch 的 `AmazonCloudWatchAuditDestination` 在 `ranger-plugins-audit`，而 fe-core 只有 `ranger-plugins-common:2.8.0→ranger-audit-core:2.8.0`（仅 File/base destination），`ranger-plugins-audit` 全不在 fe-core 546-jar 类路径上；全仓库零 `amazonaws.services.logs` 引用/config。 |
 | `org.apache.kafka:kafka-clients` | 647 | compile | **超范围** | fe main 0 个 `import org.apache.kafka`（routine-load 经 BE thrift，`load/routineload/kafka/*` 是 Doris 类）。非湖仓 catalog，可能独立清理但不在本次数据源计划内。 |
 
 ### A.7 看着像数据源、实为内部用途，**保留**
@@ -205,9 +205,10 @@ ES 连接器**已迁走**（fe-core 无 `datasource/es/`、pom 无 elasticsearch
 3. `parquet-avro`→`parquet-hadoop`(+`parquet-column`) 替换；删 `avro` 显式声明（此时 iceberg-core 已走，编译类路径干净；runtime avro 仍由 hive-exec 供给，可接受）。
 4. 全量构建（**含测试编译**，因 `-DskipTests` 仍编译测试）验证绿。
 
-### 批次 4 —— 需先跑 `mvn dependency:tree` 定性的依赖
-- `aws-java-sdk-dynamodb`、`aws-java-sdk-logs`（v1）：确认 hadoop-aws（S3Guard）是否需要，再决定删/留。
-- `bce-java-sdk`：确认 BOS 文件系统是否仍需，及是否该迁 fe-filesystem。
+### 批次 4 —— 需先跑 `mvn dependency:tree` 定性的依赖 ✅ 已完成（三项全 REMOVE，均已删）
+- `aws-java-sdk-dynamodb`、`aws-java-sdk-logs`（v1）：dependency:tree 证为 fe-core 直接叶子、零传递消费者；hadoop-aws 3.4.2 无 S3Guard（jar 零 dynamodb 类）；ranger CloudWatch destination（`AmazonCloudWatchAuditDestination`）不在 fe-core 类路径 → **删**。
+- `bce-java-sdk`：BOS 走 S3 兼容、全仓库零引用、fe-filesystem 不声明 → **删**（不是迁移）。连带清理孤立 mqtt/validation-api 管理块 + `ExternalMetaIdMgr` 装饰性 `@NotNull`（其真校验 `Preconditions.checkNotNull` 保留）。
+- 定性经 4 个对抗 agent 独立反证（反射/config、ranger 审计、BOS 原生、跨模块+BE），全部 `refuted=false`（high）。
 
 ### 批次 5 —— live 源特有逻辑的迁移（独立设计，非本次"删依赖"）
 按数据源分别设计 SPI 委派，把以下请出 fe-core（顺序与 catalog-SPI 迁移主线对齐）：

@@ -53,12 +53,13 @@
 
 ## Batch 4 — 待定依赖定性（先调查，再决定）
 
-**前置**：无。**风险**：低（只调查）。产出=每项一个"删/留/迁"结论，回填分析文档 + HANDOFF。
+**前置**：无。**风险**：低（只调查）。产出=每项一个"删/留/迁"结论，回填分析文档 + HANDOFF。**结论：三项全 REMOVE，已执行删除并验证。**
 
-- [ ] **T4.1** `mvn dependency:tree` 查 `hadoop-aws` 是否需要 `aws-java-sdk-dynamodb`（S3Guard?）/ `aws-java-sdk-logs`（CloudWatch?）。
-  - 命令：`mvn -f <repo>/fe/pom.xml -pl fe-core dependency:tree -Dincludes=com.amazonaws`。
-- [ ] **T4.2** `com.baidubce:bce-java-sdk`（全 `fe/**/src` 零引用、非 runtime、无注释）：确认 BOS 文件系统（fe-filesystem）是否仍需 / 是否该从 fe-core 迁走或删。
-- [ ] **T4.3** 汇总结论，若确认可删则并入相应批次执行。
+- [x] **T4.1** `mvn dependency:tree -Dincludes=com.amazonaws:*`（须 `-am`，`${revision}` 反应堆）证 `aws-java-sdk-dynamodb`/`aws-java-sdk-logs` 是 fe-core **直接叶子、零传递消费者**；hadoop-aws 3.4.2 已随 Hadoop 3.4.0 移除 S3Guard（jar 内零 dynamodb 类）；父 pom "only for apache ranger audit" 注释过时——CloudWatch destination 类在 `ranger-plugins-audit`，不在 fe-core 类路径（fe-core 只有 `ranger-audit-core:2.8.0`，仅 File/base destination）。→ **删**。
+- [x] **T4.2** `com.baidubce:bce-java-sdk`：全 `fe/**/src` + 全仓库零引用/反射/config；BOS 走 S3 兼容路径（`ObjectInfoAdapter` `case BOS`→`S3Properties`），原生 SDK 不在 BOS 路径；fe-filesystem 不声明 → 非"迁移"是"**删**"。**删除坑**：bce 是 fe-core 唯一传递带来 `validation-api` 的源，`ExternalMetaIdMgr` 装饰性 `@NotNull` 靠它编译 → 删该注解（真校验 `Preconditions.checkNotNull` 保留，全 fe 唯一一处 javax.validation 用法），守"fe-core 只减不增"，不加依赖。
+- [x] **T4.3** 执行删除：fe-core 删三个直接依赖 + 修 commons-lang 注释；父 pom 连带清理孤立的 mqtt 块+属性、validation-api 块+属性、dynamodb/logs 版本锁定。4 个对抗 agent 独立反证全 `refuted=false`(high)。
+- [x] **T4.V** 验证：`test-compile -pl fe-core -am` BUILD SUCCESS（gates 过）；`dependency:tree` 确认五个 jar（含孤立 mqtt/validation-api）全消失、保留的 aws-java-sdk-s3→kms/core/jmespath 完好；reactor-wide 无其他模块消费。
+- [x] **T4.C** commit（见 HANDOFF 进度日志）。
 
 ---
 
@@ -88,5 +89,5 @@
 | 1 | 零风险依赖删除 | 低 | — | ✅ `76e6d5fcf2d` |
 | 2 | 死代码 + 注释纠错 | 低 | — | ✅ `0102a022341`（avro 注释顺延 B3） |
 | 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | ✅ 迁测试 `24ddc8d615b` + 删 iceberg 簇 `379e4b07066` + aws-json/avro/parquet `d0f6d3878d3` |
-| 4 | 待定依赖定性 | 低 | — | ⬜ **下一步** |
-| 5 | LIVE 源特有逻辑迁移 | 高 | B1–3 | ⬜ |
+| 4 | 待定依赖定性 | 低 | — | ✅ 三项全删（dynamodb/logs/bce + 孤立 mqtt/validation-api） |
+| 5 | LIVE 源特有逻辑迁移 | 高 | B1–3 | ⬜ **下一步** |
