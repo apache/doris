@@ -41,6 +41,8 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.PartitionViewCacheKey;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
@@ -155,6 +157,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // connector is a REST vended-credentials, non-session catalog (see IcebergConnector); the convenience ctors
     // used by direct-construction tests pass null. Consumed only by getTableComment.
     private final IcebergCommentCache commentCache;
+    // PERF-06: cross-query DERIVED partition-view cache A (generic ConnectorPartitionViewCache), injected by the
+    // owning IcebergConnector; null = no cross-query derived layer (the convenience ctors used by
+    // direct-construction tests pass null; a session=user catalog also passes null). Layered ABOVE partitionCache
+    // (raw rows): a hit skips the derived-view BUILD, keyed by (db, table, snapshotId, schemaId). Two typed fields
+    // because getMvccPartitionView and listPartitions return different derived types. Consumed by
+    // getMvccPartitionView / listPartitions respectively.
+    private final ConnectorPartitionViewCache<ConnectorMvccPartitionView> mvccPartitionViewCache;
+    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> listPartitionsViewCache;
 
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
@@ -180,11 +190,28 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         this(catalogOps, properties, context, latestSnapshotCache, tableCache, partitionCache, null);
     }
 
-    /** Full ctor used by {@link IcebergConnector#getMetadata}, adding the PERF-05 table-comment cache. */
+    /** Convenience ctor without the PERF-06 derived partition-view caches (both null). */
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
             IcebergCommentCache commentCache) {
+        this(catalogOps, properties, context, latestSnapshotCache, tableCache, partitionCache, commentCache,
+                null, null);
+    }
+
+    /**
+     * Full ctor used by {@link IcebergConnector#getMetadata}, adding the PERF-06 derived partition-view caches
+     * (cache A): {@code mvccPartitionViewCache} memoizes {@link #getMvccPartitionView}'s built RANGE view and
+     * {@code listPartitionsViewCache} memoizes {@link #listPartitions}'s built partition-info list, each keyed by
+     * {@code (db, table, snapshotId, schemaId)}. Both {@code null} for a session=user catalog / the convenience
+     * ctors (no cross-query derived layer -> compute directly every call).
+     */
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+            ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
+            IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
+            IcebergCommentCache commentCache,
+            ConnectorPartitionViewCache<ConnectorMvccPartitionView> mvccPartitionViewCache,
+            ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> listPartitionsViewCache) {
         this.catalogOps = catalogOps;
         this.properties = properties;
         this.context = context;
@@ -192,6 +219,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         this.tableCache = tableCache;
         this.partitionCache = partitionCache;
         this.commentCache = commentCache;
+        this.mvccPartitionViewCache = mvccPartitionViewCache;
+        this.listPartitionsViewCache = listPartitionsViewCache;
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -1520,15 +1549,38 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
+            // PERF-06 cache A: memoize the BUILT derived view keyed by (db, table, snapshotId, schemaId) -- pure
+            // function of the pinned MVCC coordinate (a new snapshot/schema yields a new key, never a stale hit).
+            // The lookup sits INSIDE executeAuthenticated so a miss runs the loader (resolveTableForRead + the
+            // remote PARTITIONS build) under the FE-injected auth scope; a hit returns without any remote call. A
+            // null cache (session=user / no-cache catalog) computes directly every call. -1 (empty table / unpinned)
+            // enumerates the current snapshot and caches a trivially-empty view (harmless; REFRESH re-pins).
             return context.executeAuthenticated(() -> {
-                Table table = resolveTableForRead(session, iceHandle);
-                return Optional.of(IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId(),
-                        TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache));
+                if (mvccPartitionViewCache == null) {
+                    return Optional.of(buildMvccPartitionViewUncached(session, iceHandle));
+                }
+                PartitionViewCacheKey key = new PartitionViewCacheKey(iceHandle.getDbName(),
+                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId());
+                return Optional.of(mvccPartitionViewCache.get(key,
+                        () -> buildMvccPartitionViewUncached(session, iceHandle)));
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to build iceberg MVCC partition view, error message is:"
                     + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Builds the derived MVCC partition view live (no cache-A layer): the same resolveTableForRead + remote
+     * PARTITIONS build the pre-cache code ran. Extracted so it can serve as cache A's per-miss loader. MUST run
+     * inside {@code context.executeAuthenticated} (the caller wraps it). A {@code NoSuchTableException} propagates
+     * (fail-loud parity) and, running through the framework loader, is never cached.
+     */
+    private ConnectorMvccPartitionView buildMvccPartitionViewUncached(
+            ConnectorSession session, IcebergTableHandle iceHandle) {
+        Table table = resolveTableForRead(session, iceHandle);
+        return IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId(),
+                TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }
 
     /**
@@ -1574,22 +1626,43 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
+            // PERF-06 cache A: memoize the BUILT partition-info list keyed by (db, table, snapshotId, schemaId).
+            // The lookup sits INSIDE executeAuthenticated (a miss runs the remote build under the auth scope; a hit
+            // returns without a remote call). BYPASS the cache when the filter is present -- that is not the
+            // pruning path (which always passes Optional.empty()) and is not keyed by (snapshot, schema) alone -- or
+            // when the cache is null (session=user / no-cache catalog): compute directly every call.
             return context.executeAuthenticated(() -> {
-                Table table;
-                try {
-                    table = resolveTableForRead(session, iceHandle);
-                } catch (NoSuchTableException e) {
-                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
-                            iceHandle.getDbName(), iceHandle.getTableName(), e);
-                    return Collections.<ConnectorPartitionInfo>emptyList();
+                if (listPartitionsViewCache == null || filter.isPresent()) {
+                    return listPartitionsUncached(session, iceHandle);
                 }
-                return IcebergPartitionUtils.listPartitions(table,
-                        TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
+                PartitionViewCacheKey key = new PartitionViewCacheKey(iceHandle.getDbName(),
+                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId());
+                return listPartitionsViewCache.get(key, () -> listPartitionsUncached(session, iceHandle));
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to list iceberg partitions, error message is:"
                     + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Builds the derived partition-info list live (no cache-A layer): the same resolveTableForRead + remote
+     * PARTITIONS build the pre-cache code ran, including the concurrent-drop degrade (a {@code NoSuchTableException}
+     * yields an empty list). Extracted so it can serve as cache A's per-miss loader. MUST run inside
+     * {@code context.executeAuthenticated} (the caller wraps it).
+     */
+    private List<ConnectorPartitionInfo> listPartitionsUncached(
+            ConnectorSession session, IcebergTableHandle iceHandle) {
+        Table table;
+        try {
+            table = resolveTableForRead(session, iceHandle);
+        } catch (NoSuchTableException e) {
+            LOG.warn("Iceberg table not found while listing partitions: {}.{}",
+                    iceHandle.getDbName(), iceHandle.getTableName(), e);
+            return Collections.<ConnectorPartitionInfo>emptyList();
+        }
+        return IcebergPartitionUtils.listPartitions(table,
+                TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }
 
     // ========== E5: MVCC snapshots / time travel ==========

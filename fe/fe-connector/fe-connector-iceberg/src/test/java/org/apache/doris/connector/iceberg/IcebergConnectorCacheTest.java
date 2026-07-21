@@ -17,6 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
+import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.PartitionViewCacheKey;
+
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.PartitionSpec;
@@ -31,8 +35,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.function.Supplier;
 
 /**
  * Tests IcebergConnector's T08 cache knobs: the latest-snapshot cache TTL resolution
@@ -450,5 +456,98 @@ public class IcebergConnectorCacheTest {
 
         connector.invalidateAll();
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
+    }
+
+    // ============ PERF-06: derived partition-view cache A (session=user gated) + invalidation ============
+
+    @Test
+    public void partitionViewCacheBuiltUnlessSessionUser() {
+        // Cache A (the derived partition-view cache) stores pure metadata (a partition view carries no
+        // FileIO/credential), so like the partition cache it stays built for a REST vended-credentials catalog. But
+        // under iceberg.rest.session=user it is an AUTHORIZATION-sensitive projection -- a shared (no user
+        // dimension) hit would disclose one user's partition view -- so BOTH typed instances are disabled (null)
+        // there. MUTATION: dropping the session=user gate -> non-null for session -> red; gating on the vended flag
+        // -> null for vended -> red.
+        IcebergConnector plain = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertNotNull(plain.mvccPartitionViewCacheForTest(), "a plain catalog builds the MVCC view cache");
+        Assertions.assertNotNull(plain.listPartitionsViewCacheForTest(),
+                "a plain catalog builds the listPartitions view cache");
+        Map<String, String> vended = new HashMap<>();
+        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        IcebergConnector vendedConn = new IcebergConnector(vended, new RecordingConnectorContext());
+        Assertions.assertNotNull(vendedConn.mvccPartitionViewCacheForTest(),
+                "a vended-credentials catalog still builds the MVCC view cache (metadata carries no credentials)");
+        Assertions.assertNotNull(vendedConn.listPartitionsViewCacheForTest(),
+                "a vended-credentials catalog still builds the listPartitions view cache");
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        IcebergConnector sessionConn = new IcebergConnector(session, new RecordingConnectorContext());
+        Assertions.assertNull(sessionConn.mvccPartitionViewCacheForTest(),
+                "a session=user catalog must NOT build the MVCC view cache (per-user authz must not be bypassed)");
+        Assertions.assertNull(sessionConn.listPartitionsViewCacheForTest(),
+                "a session=user catalog must NOT build the listPartitions view cache");
+    }
+
+    @Test
+    public void refreshHooksInvalidatePartitionViewCache() {
+        // The REFRESH hooks must clear cache A too (else external DDL/writes stay invisible beyond the pin): REFRESH
+        // TABLE drops that table's snapshot entries, REFRESH DATABASE that db's, REFRESH CATALOG everything. Asserted
+        // via a counting loader (the framework's size() is package-private): after invalidation the loader must run
+        // again. MUTATION: an invalidate* hook not routed to the view cache -> the entry survives -> loader not
+        // re-run -> a loads assert below red.
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = connector.listPartitionsViewCacheForTest();
+        Assertions.assertNotNull(cache);
+        int[] loads = {0};
+        Supplier<List<ConnectorPartitionInfo>> loader = () -> {
+            loads[0]++;
+            return Collections.emptyList();
+        };
+        PartitionViewCacheKey db1t1 = new PartitionViewCacheKey("db1", "t1", 1L, 1L);
+        PartitionViewCacheKey db1t2 = new PartitionViewCacheKey("db1", "t2", 1L, 1L);
+        PartitionViewCacheKey db2t1 = new PartitionViewCacheKey("db2", "t1", 1L, 1L);
+
+        // REFRESH TABLE db1.t1 -> only db1.t1 re-loads.
+        cache.get(db1t1, loader);
+        cache.get(db1t1, loader);
+        Assertions.assertEquals(1, loads[0], "second get is a hit");
+        connector.invalidateTable("db1", "t1");
+        cache.get(db1t1, loader);
+        Assertions.assertEquals(2, loads[0], "REFRESH TABLE forces a reload of db1.t1");
+
+        // REFRESH DATABASE db1 -> db1.t2 re-loads; db2.t1 unaffected.
+        cache.get(db1t2, loader);   // loads=3 (miss)
+        cache.get(db2t1, loader);   // loads=4 (miss)
+        cache.get(db1t2, loader);   // hit
+        cache.get(db2t1, loader);   // hit
+        Assertions.assertEquals(4, loads[0]);
+        connector.invalidateDb("db1");
+        cache.get(db2t1, loader);   // db2 untouched -> hit
+        Assertions.assertEquals(4, loads[0], "REFRESH DATABASE db1 must NOT drop db2's entries");
+        cache.get(db1t2, loader);   // db1.t2 dropped -> miss
+        Assertions.assertEquals(5, loads[0], "REFRESH DATABASE db1 drops db1's entries");
+
+        // REFRESH CATALOG -> everything re-loads.
+        connector.invalidateAll();
+        cache.get(db2t1, loader);
+        Assertions.assertEquals(6, loads[0], "REFRESH CATALOG drops everything");
+    }
+
+    @Test
+    public void invalidateHooksNoThrowForSessionUserPartitionViewCaches() {
+        // Under session=user cache A's two instances are null; the invalidate hooks must null-guard them (no NPE).
+        // MUTATION: an unguarded view-cache invalidate on a nulled field -> NPE -> red.
+        Map<String, String> session = new HashMap<>();
+        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        IcebergConnector connector = new IcebergConnector(session, new RecordingConnectorContext());
+        Assertions.assertNull(connector.mvccPartitionViewCacheForTest());
+        Assertions.assertNull(connector.listPartitionsViewCacheForTest());
+        Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db1", "t1"));
+        Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db1"));
+        Assertions.assertDoesNotThrow(connector::invalidateAll);
     }
 }
