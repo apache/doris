@@ -326,7 +326,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             }
             PreAggStatus preAggStatus = PreAggStatus.on();
             for (AggregateFunction aggFunc : aggregateFuncs) {
-                if (aggFunc.children().isEmpty()) {
+                if (aggFunc.children().isEmpty() || aggFunc.children().size() > 1) {
                     preAggStatus = PreAggStatus.off(
                             String.format("can't turn preAgg on for aggregate function %s", aggFunc));
                 } else if (aggFunc.children().size() == 1 && aggFunc.child(0) instanceof Slot) {
