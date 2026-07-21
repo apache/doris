@@ -105,6 +105,34 @@ class RuntimeFilterPartitionPruneClassifierTest {
     }
 
     @Test
+    void testSyncMvAliasOfPartitionColumnSupported() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column mvColumn = createSyncMvColumn("mv_part_col", 0, partitionColumn);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, mvColumn);
+
+        assertSupportedIncreasingPartitions(classification);
+    }
+
+    @Test
+    void testSyncMvAliasUsesLineageInsteadOfIndexLocalUniqueId() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column nonPartitionColumn = new Column("other_col", PrimitiveType.INT);
+        Column mvColumn = createSyncMvColumn("mv_other_col", 1, nonPartitionColumn);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, mvColumn);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("not a partition column"));
+    }
+
+    @Test
     void testRejectNoneMovableListTargetExpression() {
         RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
                 TRuntimeFilterType.IN, PartitionType.LIST, ListPartitionItem.DUMMY_ITEM,
@@ -131,11 +159,27 @@ class RuntimeFilterPartitionPruneClassifierTest {
             Function<SlotRef, Expr> legacyTargetFactory,
             Function<SlotReference, Expression> nereidsTargetFactory) {
         Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        return classify(filterType, partitionType, partitionItem, partitionColumn, partitionColumn,
+                legacyTargetFactory, nereidsTargetFactory);
+    }
+
+    private RuntimeFilterPartitionPruneClassifier.Classification classify(
+            TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
+            Column partitionColumn, Column targetColumn) {
+        return classify(filterType, partitionType, partitionItem, partitionColumn, targetColumn,
+                targetSlot -> targetSlot, targetSlot -> targetSlot);
+    }
+
+    private RuntimeFilterPartitionPruneClassifier.Classification classify(
+            TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
+            Column partitionColumn, Column targetColumn,
+            Function<SlotRef, Expr> legacyTargetFactory,
+            Function<SlotReference, Expression> nereidsTargetFactory) {
         SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(1), new TupleId(1));
-        slotDescriptor.setColumn(partitionColumn);
-        slotDescriptor.setType(partitionColumn.getType());
+        slotDescriptor.setColumn(targetColumn);
+        slotDescriptor.setType(targetColumn.getType());
         SlotRef targetSlot = new SlotRef(slotDescriptor);
-        SlotReference nereidsTarget = new SlotReference("part_col", IntegerType.INSTANCE);
+        SlotReference nereidsTarget = new SlotReference(targetColumn.getName(), IntegerType.INSTANCE);
 
         OlapTable table = Mockito.mock(OlapTable.class);
         PartitionInfo partitionInfo = Mockito.mock(PartitionInfo.class);
@@ -150,6 +194,16 @@ class RuntimeFilterPartitionPruneClassifierTest {
 
         return RuntimeFilterPartitionPruneClassifier.classify(filterType,
                 legacyTargetFactory.apply(targetSlot), nereidsTargetFactory.apply(nereidsTarget), scanNode);
+    }
+
+    private Column createSyncMvColumn(String name, int uniqueId, Column baseColumn) {
+        SlotDescriptor baseSlotDescriptor = new SlotDescriptor(new SlotId(2), new TupleId(2));
+        baseSlotDescriptor.setColumn(baseColumn);
+        baseSlotDescriptor.setType(baseColumn.getType());
+        Column mvColumn = new Column(name, PrimitiveType.INT);
+        mvColumn.setUniqueId(uniqueId);
+        mvColumn.setDefineExpr(new SlotRef(baseSlotDescriptor));
+        return mvColumn;
     }
 
     private void assertSupportedIncreasingPartitions(

@@ -1385,14 +1385,16 @@ public class OlapScanNode extends ScanNode {
             return;
         }
 
-        // Build partition column name → slot ID mapping
+        // Build base partition column name → scan slot ID mapping. A synchronous
+        // MV scan uses the rollup's physical column (for example mv_k) in its tuple,
+        // so recover the base name (k) from the column's simple SlotRef definition.
         Map<String, Integer> partColToSlotId = Maps.newHashMap();
         for (SlotDescriptor slot : desc.getSlots()) {
             if (slot.getColumn() == null) {
                 continue;
             }
             for (Column partCol : partColumns) {
-                if (slot.getColumn().getName().equalsIgnoreCase(partCol.getName())) {
+                if (slot.getColumn().tryGetBaseColumnName().equalsIgnoreCase(partCol.getName())) {
                     partColToSlotId.put(partCol.getName(), slot.getId().asInt());
                     break;
                 }

@@ -176,6 +176,12 @@ final class RuntimeFilterPartitionPruneClassifier {
         if (targetColumn == partitionColumn) {
             return true;
         }
+        // A synchronous MV column has its own physical name and index-local unique ID.
+        // Use the simple SlotRef definition to recover its base-column lineage instead
+        // of comparing those rollup-local attributes with the base partition column.
+        if (targetColumn.isMaterializedViewColumn()) {
+            return targetColumn.tryGetBaseColumnName().equalsIgnoreCase(partitionColumn.getName());
+        }
         int targetUniqueId = targetColumn.getUniqueId();
         int partitionUniqueId = partitionColumn.getUniqueId();
         if (targetUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
