@@ -21,11 +21,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -517,15 +519,22 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
-     * Get sorted partition ranges for binary search filtering.
-     * Subclasses can override this method to provide sorted partition ranges
-     * for efficient partition pruning.
+     * Cross-query cache of the pre-built {@link SortedPartitionRanges} for binary-search partition
+     * pruning. Tables that implement {@link SupportBinarySearchFilteringPartitions} (external MVCC:
+     * iceberg/paimon) route through the shared {@link NereidsSortedPartitionsCacheManager}, keyed by the
+     * pinned connector snapshot; others return empty (the caller falls back to building ranges fresh).
      *
      * @param scan the catalog relation
      * @return sorted partition ranges, or empty if not supported
      */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
-        return Optional.empty();
+        if (!(this instanceof SupportBinarySearchFilteringPartitions)) {
+            return Optional.empty();
+        }
+        Optional<SortedPartitionRanges<?>> cached = Env.getCurrentEnv().getSortedPartitionsCacheManager()
+                .get((SupportBinarySearchFilteringPartitions) this, scan);
+        return (Optional) cached;
     }
 
     @Override
