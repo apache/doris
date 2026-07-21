@@ -78,7 +78,7 @@
   - [x] `AzureProperties.java` `isIcebergRestCatalog`——**保留**（活的、有意的临时门，native SDK OAuth2 未落地，删则放行后端不支持配置）。
   - [x] `DatasourcePrintableMap.java` maxcompute 遮蔽——**保留**（用户定；MCProperties 在 fe-common、依赖合法）。
   - [x] `InternalCatalog.java:1281` es 弃用 guard——**保留**（与 odbc/hive/jdbc 同组通用弃用守卫，删则报错退化）。
-- [ ] **T5.5** es 兼容桩 `catalog/EsTable.java` / `catalog/EsResource.java`——碰持久化镜像反序列化，长期保留候选（先评估能否安全去除）。
+- [x] **T5.5** es 兼容桩 `catalog/EsTable.java` / `catalog/EsResource.java`——**定性=已死但必须保留（不可安全删除）；原地保留 0 源码改动 + 补 Gson 守卫测试**。净室对抗复核（3 路侦察 + 3 证伪 agent 全 `refuted=false`/high）：① ES 新建入口已堵死（`InternalCatalog:1282` 建表抛、`Resource:196` 建资源抛）→ **已死**；两类已是极薄 `@Deprecated` Gson 空壳（56/79 行、无业务逻辑，本就是「薄空壳范式」的**参考实现**）。② 全 fe 树仅 4 处 fe-core 主源引用、**零测试/零连接器引用、零 `new`**——唯一运行期消费者=Gson 反序列化老镜像。③ **不可安全删除**（编译上删得掉，运行期挂）：注册在 `RuntimeTypeAdapterFactory`（`GsonUtils:315/508` + `Resource.getLegacyClazz` ES:324），未注册 `clazz` 硬抛 `JsonParseException`（默认兜底只救「标签整个缺失」非「标签存在但未注册」）→ 含 ES 对象的老镜像启动即挂 FE；无元数据版本逃生舱（`FeMetaVersion` 只管对象内字段级、`MINIMUM_VERSION_REQUIRED` 远早于 ES 废弃）；唯一退休机制 `registerCompatibleSubtype`（外部 catalog 类走它重映射到 `PluginDriven*`）仍**保留注册**、且老内部 `EsTable`（pi/tc + 内部 schema）无结构兼容接班人。④ 惯例佐证：同批 Hive/HMS/ODBC/Spark 死数据源类**无一真删**、全留空壳；外部 catalog 类删的是**类**、注册用 remap 保留——无「注册也删」先例；Trino 核心亦无内部表引擎类。**处置**：原地保留（0 源码改动），**补齐与 Hive 那批唯一不一致处**——ES 是范式参考实现却反而没守卫测试→新增 `LegacyEsMetaGsonCompatTest`（仿 `LegacyHiveMetaGsonCompatTest`，锁「注册存活 + `@SerializedName` 标签 pi/tc/properties 不变」双不变量；对 `pi` 结构字段用反射断言标签、对 `tc`/`properties` 用老镜像字节注入）。验证：`-am test` `LegacyEsMetaGsonCompatTest` 2/2 绿、gates 过。
 - [ ] **T5.6** iceberg 行级 DML 簇（~15 文件，**工作量最大，故排最后**）：`IcebergRowLevelDmlTransform` + `Iceberg{Delete,Merge,Update}Command` + `IcebergMetadataColumn`/`IcebergRowId` + `Logical/PhysicalIcebergDeleteSink`/`MergeSink` + 实现规则 + `PhysicalPlanTranslator` visitor + `DataPartition.IcebergPartitionField`/`DistributionSpecMerge.IcebergPartitionField` + `ExplainCommand` 分支。→ 设计 SPI 行级 DML 委派。
 
 ---
@@ -92,4 +92,4 @@
 | 2 | 死代码 + 注释纠错 | 低 | — | ✅ `0102a022341`（avro 注释顺延 B3） |
 | 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | ✅ 迁测试 `24ddc8d615b` + 删 iceberg 簇 `379e4b07066` + aws-json/avro/parquet `d0f6d3878d3` |
 | 4 | 待定依赖定性 | 低 | — | ✅ 三项全删（dynamodb/logs/bce + 孤立 mqtt/validation-api） |
-| 5 | LIVE 源特有逻辑迁移/废弃清理 | 高 | B1–3 | 🔄 **进行中**：T5.1 engine=hive✅（废弃→持久化空壳）；T5.2 ranger-hive✅（**误判→原地保留**）；T5.3 hudi TVF✅（整删）；T5.4 散点分支✅（建表校验→下沉连接器；其余 4 项复核保留）；T5.5 es 桩 / T5.6 iceberg 行级DML ⬜ |
+| 5 | LIVE 源特有逻辑迁移/废弃清理 | 高 | B1–3 | 🔄 **进行中**：T5.1 engine=hive✅（废弃→持久化空壳）；T5.2 ranger-hive✅（**误判→原地保留**）；T5.3 hudi TVF✅（整删）；T5.4 散点分支✅（建表校验→下沉连接器；其余 4 项复核保留）；T5.5 es 桩✅（**已死但必须保留→0 源码改动 + 补 Gson 守卫测试**）；T5.6 iceberg 行级DML ⬜ |
