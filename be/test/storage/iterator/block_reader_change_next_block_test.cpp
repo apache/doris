@@ -207,8 +207,7 @@ struct OutRow {
 
 // Drain the reader across as many next_block calls as needed and collect the
 // (key, val, op) triples in output order.
-std::vector<OutRow> drain(BlockReader& reader,
-                          Status (BlockReader::*fn)(Block*, bool*)) {
+std::vector<OutRow> drain(BlockReader& reader, Status (BlockReader::*fn)(Block*, bool*)) {
     std::vector<OutRow> result;
     bool eof = false;
     int guard = 0;
