@@ -18,7 +18,7 @@
 ---
 name: License Check
 on:
-  pull_request_target:
+  pull_request:
   push:
     branches:
       - master
@@ -26,12 +26,16 @@ on:
   issue_comment:
     types: [ created ]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   license-check:
     name: "License Check"
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'pull_request') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'issue_comment' &&
        github.event.comment.body == 'run buildall' &&
@@ -39,17 +43,12 @@ jobs:
        github.event.issue.user.login == 'github-actions[bot]')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        if: ${{ github.event_name != 'pull_request_target' }}
-        uses: actions/checkout@v3
-
-      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
-        if: ${{ github.event_name == 'pull_request_target' }}
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Get changed files
-        if: github.event_name == 'pull_request_target'
+        if: github.event_name == 'pull_request'
         id: changed-files
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,12 +83,15 @@ jobs:
 
       - name: Generate incremental licenserc
         if: >-
-          github.event_name == 'pull_request_target' &&
+          github.event_name == 'pull_request' &&
           steps.changed-files.outputs.added_modified != ''
         env:
           CHANGED_FILES: ${{ steps.changed-files.outputs.added_modified }}
         run: |
           python3 - <<'EOF'
+          import sys
+          # Prevent fork-supplied files from shadowing stdlib modules
+          sys.path = [p for p in sys.path if p not in ('', '.')]
           import yaml, os
 
           with open('.licenserc.yaml') as f:
@@ -105,6 +107,11 @@ jobs:
           EOF
 
       - name: Check License
-        uses: apache/skywalking-eyes@v0.2.0
+        if: >-
+          github.event_name != 'pull_request' ||
+          steps.changed-files.outputs.config_file != ''
+        uses: apache/skywalking-eyes@v0.8.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config: ${{ steps.changed-files.outputs.config_file || '.licenserc.yaml' }}
