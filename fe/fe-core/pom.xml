@@ -215,9 +215,9 @@ under the License.
             <artifactId>commons-lang3</artifactId>
         </dependency>
         <!-- Runtime-only: hadoop-huaweicloud's OBSFileSystem (reflection-loaded, so no compile-time
-             reference reveals this) and bce-java-sdk both call org.apache.commons.lang.StringUtils
-             while declaring no commons-lang of their own. This declaration is its only source on the
-             FE classpath; dropping it compiles green and then NoClassDefFoundErrors on OBS access.
+             reference reveals this) calls org.apache.commons.lang.StringUtils while declaring no
+             commons-lang of its own. This declaration is its only source on the FE classpath;
+             dropping it compiles green and then NoClassDefFoundErrors on OBS access.
              scope=runtime keeps it off the compile classpath, so fe source stays commons-lang(2.x)-free. -->
         <dependency>
             <groupId>commons-lang</groupId>
@@ -367,14 +367,6 @@ under the License.
         <dependency>
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-s3</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-dynamodb</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-logs</artifactId>
         </dependency>
         <!-- hadoop-huaweicloud provides OBSFileSystem; loaded via reflection in OBSProperties
              with graceful S3A fallback — runtime only, not needed at compile time -->
@@ -551,21 +543,6 @@ under the License.
             <artifactId>okhttp-jvm</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>com.baidubce</groupId>
-            <artifactId>bce-java-sdk</artifactId>
-            <version>0.10.212</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
         <dependency>
             <groupId>org.apache.ranger</groupId>
             <artifactId>ranger-plugins-common</artifactId>

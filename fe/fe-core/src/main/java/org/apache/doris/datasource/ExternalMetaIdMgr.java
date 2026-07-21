@@ -28,7 +28,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import javax.annotation.Nullable;
-import javax.validation.constraints.NotNull;
 
 /**
  * <pre>
@@ -107,7 +106,7 @@ public class ExternalMetaIdMgr {
         return tblMetaIdMgr.partitionNameToMgr.get(partitionName);
     }
 
-    public void replayMetaIdMappingsLog(@NotNull MetaIdMappingsLog log) {
+    public void replayMetaIdMappingsLog(MetaIdMappingsLog log) {
         Preconditions.checkNotNull(log);
         long catalogId = log.getCatalogId();
         CtlMetaIdMgr ctlMetaIdMgr = idToCtlMgr.computeIfAbsent(catalogId, CtlMetaIdMgr::new);
