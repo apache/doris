@@ -61,6 +61,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.GregorianCalendar;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -2255,7 +2256,13 @@ public class DynamicPartitionTableTest {
         String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
         try {
             // Session TZ different from UTC to verify the scheduler
-            // uses UTC for both naming and boundaries.
+            // uses UTC for both naming and boundaries.  Use Asia/Kathmandu
+            // (UTC+05:45) — a fractional-hour offset — so that a configured-
+            // timezone midnight floor would produce non-zero minutes (e.g.
+            // 2026-07-20 00:00:00+05:45 → 2026-07-19 18:15:00+00:00).
+            // Asserting that every bound has minute=second=00 proves the
+            // boundaries are generated at whole UTC hours, not merely
+            // integral-hour-shifted configured-timezone midnights.
             connectContext.getSessionVariable().setTimeZone("America/Chicago");
 
             String createOlapTblStmt = "CREATE TABLE test.`timestamptz_dynamic_hour` (\n"
@@ -2275,7 +2282,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.time_unit\" = \"hour\",\n"
                     + "\"dynamic_partition.prefix\" = \"p\",\n"
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
-                    + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
+                    + "\"dynamic_partition.time_zone\" = \"Asia/Kathmandu\"\n"
                     + ");";
             createTable(createOlapTblStmt);
 
@@ -2328,13 +2335,22 @@ public class DynamicPartitionTableTest {
                 Assert.assertTrue("Upper key must have +00:00 suffix: " + upperStr,
                         upperStr.contains("+00:00"));
 
-                // Partition boundaries must be at whole UTC hours (0-23).
-                int lowerHour = Integer.parseInt(lowerStr.substring(11, 13));
-                Assert.assertTrue("Lower bound hour must be 0-23: " + lowerStr,
-                        lowerHour >= 0 && lowerHour <= 23);
-                int upperHour = Integer.parseInt(upperStr.substring(11, 13));
-                Assert.assertTrue("Upper bound hour must be 0-23: " + upperStr,
-                        upperHour >= 0 && upperHour <= 23);
+                // Partition boundaries must be at whole UTC hours (minute=second=00).
+                // A configured timezone with a fractional offset (Asia/Kathmandu,
+                // UTC+05:45) would produce boundaries with non-zero minutes if the
+                // old configured-timezone flooring were used instead of UTC-first.
+                String lowerMinutes = lowerStr.substring(14, 16);
+                String lowerSeconds = lowerStr.substring(17, 19);
+                Assert.assertEquals("Lower bound minutes must be 00: " + lowerStr,
+                        "00", lowerMinutes);
+                Assert.assertEquals("Lower bound seconds must be 00: " + lowerStr,
+                        "00", lowerSeconds);
+                String upperMinutes = upperStr.substring(14, 16);
+                String upperSeconds = upperStr.substring(17, 19);
+                Assert.assertEquals("Upper bound minutes must be 00: " + upperStr,
+                        "00", upperMinutes);
+                Assert.assertEquals("Upper bound seconds must be 00: " + upperStr,
+                        "00", upperSeconds);
 
                 // Verify adjacency using full timestamps (handles midnight crossing)
                 if (prevLower != null) {
@@ -2367,9 +2383,12 @@ public class DynamicPartitionTableTest {
             String actualCurrentName = table.getPartition(sortedEntries.get(3).getKey()).getName();
             Assert.assertEquals("Current partition (idx=0) hour name must match its UTC lower bound",
                     expectedCurrentName, actualCurrentName);
-            Assert.assertTrue("Current partition lower bound hour must be 0-23: " + currentLowerStr,
-                    Integer.parseInt(currentLowerStr.substring(11, 13)) >= 0
-                    && Integer.parseInt(currentLowerStr.substring(11, 13)) <= 23);
+            // With a fractional-offset timezone, only the UTC-first approach
+            // guarantees minute=second=00 on every bound.
+            Assert.assertEquals("Current partition lower bound must end :00:00: " + currentLowerStr,
+                    "00", currentLowerStr.substring(14, 16)); // minutes
+            Assert.assertEquals("Current partition lower bound must end :00:00: " + currentLowerStr,
+                    "00", currentLowerStr.substring(17, 19)); // seconds
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -3368,6 +3387,209 @@ public class DynamicPartitionTableTest {
                     }
                 }
             }
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimeStampTzGetHistoricalPartitionsScaledColumn() throws Exception {
+        // TIMESTAMPTZ(6) stores lower keys with ".000000+00:00" suffix while
+        // currentUtcBorder uses "+00:00" (no fractional part).  The old string
+        // comparison failed on this scale difference.  Fix: compare by
+        // PartitionKey.compareTo instead.
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("America/Chicago");
+
+            String createSql = "CREATE TABLE test.`tstz_hist_scaled` (\n"
+                    + "  `k1` TIMESTAMPTZ(6) NULL COMMENT \"\",\n"
+                    + "  `k2` int NULL COMMENT \"\"\n"
+                    + ") ENGINE=OLAP\n"
+                    + "DUPLICATE KEY(`k1`, `k2`)\n"
+                    + "PARTITION BY RANGE(`k1`)\n"
+                    + "()\n"
+                    + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                    + "PROPERTIES (\n"
+                    + "\"replication_num\" = \"1\",\n"
+                    + "\"dynamic_partition.enable\" = \"true\",\n"
+                    + "\"dynamic_partition.start\" = \"-3\",\n"
+                    + "\"dynamic_partition.end\" = \"3\",\n"
+                    + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                    + "\"dynamic_partition.time_unit\" = \"day\",\n"
+                    + "\"dynamic_partition.prefix\" = \"p\",\n"
+                    + "\"dynamic_partition.buckets\" = \"1\",\n"
+                    + "\"dynamic_partition.time_zone\" = \"America/Chicago\"\n"
+                    + ");";
+            createTable(createSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+            OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_hist_scaled");
+
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+
+            int totalPartitions = table.getPartitionNames().size();
+            Assert.assertEquals(7, totalPartitions);
+
+            RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
+            // Verify that stored lower keys actually have .000000 fractional part.
+            for (PartitionItem item : info.getIdToItem(false).values()) {
+                RangePartitionItem rItem = (RangePartitionItem) item;
+                String lowerStr = rItem.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+                Assert.assertTrue("TIMESTAMPTZ(6) lower key must include .000000: " + lowerStr,
+                        lowerStr.contains(".000000"));
+            }
+
+            // Compute currentUtcBorder (no fractional seconds).
+            DynamicPartitionProperty prop = table.getTableProperty().getDynamicPartitionProperty();
+            String partitionFormat = DynamicPartitionUtil.getPartitionFormat(
+                    info.getPartitionColumns().get(0));
+            String currentUtcBorder = DynamicPartitionUtil.getPartitionRangeString(
+                    prop, ZonedDateTime.now(ZoneOffset.UTC), 0, partitionFormat);
+            Assert.assertFalse("currentUtcBorder should NOT contain fractional seconds: "
+                    + currentUtcBorder, currentUtcBorder.contains("."));
+
+            // Without currentUtcBorder: name-based cannot identify the current
+            // partition when nowPartitionName does not match.
+            String wrongNowPartitionName = "p_nonexistent";
+            List<Partition> historicalNoUtc = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, wrongNowPartitionName, null);
+            boolean currentFoundByName = false;
+            for (Partition p : historicalNoUtc) {
+                RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
+                String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+                if (lowerBound.contains(currentUtcBorder.replace("+00:00", ""))) {
+                    currentFoundByName = true;
+                    break;
+                }
+            }
+            Assert.assertTrue("Scaled TIMESTAMPTZ(6): name-based should fail to exclude current partition",
+                    currentFoundByName);
+
+            // With currentUtcBorder: range-based correctly excludes the current
+            // partition even though the string representations differ (.000000).
+            List<Partition> historicalWithUtc = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, wrongNowPartitionName, currentUtcBorder);
+            boolean currentFoundByRange = false;
+            for (Partition p : historicalWithUtc) {
+                RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
+                String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+                if (lowerBound.contains(currentUtcBorder.replace("+00:00", ""))) {
+                    currentFoundByRange = true;
+                    break;
+                }
+            }
+            Assert.assertFalse("Scaled TIMESTAMPTZ(6): range-based must exclude current partition",
+                    currentFoundByRange);
+            Assert.assertEquals("Scaled TIMESTAMPTZ(6): exclude exactly one partition",
+                    totalPartitions - 1, historicalWithUtc.size());
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimeStampTzGetHistoricalPartitionsOldPrefix() throws Exception {
+        // When dynamic_partition.prefix is changed after initial partition
+        // creation, existing partitions keep their old names (e.g. "p20260720")
+        // while the new nowPartitionName uses the new prefix ("q20260720").
+        // Name-based comparison fails to identify the current partition;
+        // range-based comparison (currentUtcBorder) must still work.
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
+
+            String createSql = "CREATE TABLE test.`tstz_old_prefix` (\n"
+                    + "  `k1` TIMESTAMPTZ NULL COMMENT \"\",\n"
+                    + "  `k2` int NULL COMMENT \"\"\n"
+                    + ") ENGINE=OLAP\n"
+                    + "DUPLICATE KEY(`k1`, `k2`)\n"
+                    + "PARTITION BY RANGE(`k1`)\n"
+                    + "()\n"
+                    + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                    + "PROPERTIES (\n"
+                    + "\"replication_num\" = \"1\",\n"
+                    + "\"dynamic_partition.enable\" = \"true\",\n"
+                    + "\"dynamic_partition.start\" = \"-3\",\n"
+                    + "\"dynamic_partition.end\" = \"3\",\n"
+                    + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                    + "\"dynamic_partition.time_unit\" = \"day\",\n"
+                    + "\"dynamic_partition.prefix\" = \"p\",\n"
+                    + "\"dynamic_partition.buckets\" = \"1\",\n"
+                    + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
+                    + ");";
+            createTable(createSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+            OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_old_prefix");
+
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+
+            int totalPartitions = table.getPartitionNames().size();
+            Assert.assertEquals("Initial partitions should be 7", 7, totalPartitions);
+
+            // Verify all existing partitions use the old prefix "p".
+            for (String name : table.getPartitionNames()) {
+                Assert.assertTrue("Existing partitions must use old prefix: " + name,
+                        name.startsWith("p"));
+            }
+
+            // Now change the prefix from "p" to "q" via table properties.
+            HashMap<String, String> newPrefixProps = new HashMap<>();
+            newPrefixProps.put("dynamic_partition.prefix", "q");
+            table.getTableProperty().modifyTableProperties(newPrefixProps);
+            table.getTableProperty().buildDynamicProperty();
+
+            // Re-read the dynamic property to get the updated prefix.
+            DynamicPartitionProperty updatedProp = table.getTableProperty().getDynamicPartitionProperty();
+            Assert.assertEquals("Prefix should now be 'q'", "q", updatedProp.getPrefix());
+
+            // Compute currentUtcBorder from the scheduler's logic.
+            RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
+            String partitionFormat = DynamicPartitionUtil.getPartitionFormat(
+                    info.getPartitionColumns().get(0));
+            String currentUtcBorder = DynamicPartitionUtil.getPartitionRangeString(
+                    updatedProp, ZonedDateTime.now(ZoneOffset.UTC), 0, partitionFormat);
+
+            // nowPartitionName uses the new prefix "q" — no existing partition
+            // matches it, so name-based comparison would not exclude anything.
+            String newPrefixNowName = "q_nonexistent";
+
+            // 1. Without currentUtcBorder: name-based fails to exclude the
+            //    current partition because the name "q_nonexistent" matches nothing.
+            List<Partition> historicalNoUtc = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, newPrefixNowName, null);
+            boolean currentFoundByName = false;
+            for (Partition p : historicalNoUtc) {
+                RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
+                String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+                if (lowerBound.contains(currentUtcBorder.replace("+00:00", ""))) {
+                    currentFoundByName = true;
+                    break;
+                }
+            }
+            Assert.assertTrue("Old prefix: name-based should fail to exclude current partition",
+                    currentFoundByName);
+
+            // 2. With currentUtcBorder: range-based correctly excludes the
+            //    current partition despite the name mismatch.
+            List<Partition> historicalWithUtc = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, newPrefixNowName, currentUtcBorder);
+            boolean currentFoundByRange = false;
+            for (Partition p : historicalWithUtc) {
+                RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
+                String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+                if (lowerBound.contains(currentUtcBorder.replace("+00:00", ""))) {
+                    currentFoundByRange = true;
+                    break;
+                }
+            }
+            Assert.assertFalse("Old prefix: range-based must exclude current partition",
+                    currentFoundByRange);
+            Assert.assertEquals("Old prefix: exclude exactly one partition",
+                    totalPartitions - 1, historicalWithUtc.size());
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }

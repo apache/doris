@@ -625,35 +625,38 @@ public class PropertyAnalyzerTest {
 
     @Test
     public void testStorageCooldownTimeDstFallbackDistinctInstants() throws AnalysisException {
-        // On 2026-11-01 at 2:00 AM CDT, America/Chicago falls back to
-        // 1:00 AM CST.  The wall-clock hour 01:00–02:00 occurs twice:
-        //   01:00 CDT = 06:00 UTC  (earlier)
-        //   01:00 CST = 07:00 UTC  (later)
-        // A bare DATETIME string like "2026-11-01 01:30:00" is ambiguous
-        // without an offset.  With an explicit +00:00 suffix the instant
-        // parser correctly distinguishes the two.
+        // Two different UTC instants that would map to the same wall-clock
+        // hour during America/Chicago DST fall-back (e.g. on 2026-11-01,
+        // 01:30 CDT = 06:30 UTC and 01:30 CST = 07:30 UTC) must produce
+        // different cooldown timestamps when expressed with explicit +00:00.
+        //
+        // Use dynamically-derived dates 5 years ahead so the test never
+        // ages past System.currentTimeMillis() and gets rejected by the
+        // future-time policy in analyzeDataProperty().
+        ZonedDateTime baseUtc = ZonedDateTime.now(ZoneOffset.UTC).plusYears(5)
+                .withHour(6).withMinute(30).withSecond(0).withNano(0);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
 
-        // Earlier occurrence: 01:30 CDT = 06:30 UTC
-        String earlierStr = "2026-11-01 06:30:00+00:00";
+        // Earlier instant (e.g. 06:30 UTC)
+        String earlierStr = fmt.format(baseUtc) + "+00:00";
         Map<String, String> propsEarlier = Maps.newHashMap();
         propsEarlier.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
         propsEarlier.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, earlierStr);
         DataProperty dpEarlier = PropertyAnalyzer.analyzeDataProperty(propsEarlier,
                 new DataProperty(TStorageMedium.SSD));
-        long earlierMillis = ZonedDateTime.of(2026, 11, 1, 6, 30, 0, 0, ZoneOffset.UTC)
-                .toInstant().toEpochMilli();
+        long earlierMillis = baseUtc.toInstant().toEpochMilli();
         Assert.assertEquals("Explicit +00:00 should parse earlier DST hour correctly",
                 earlierMillis, dpEarlier.getCooldownTimeMs());
 
-        // Later occurrence: 01:30 CST = 07:30 UTC
-        String laterStr = "2026-11-01 07:30:00+00:00";
+        // Later instant (1 hour later, e.g. 07:30 UTC)
+        ZonedDateTime laterUtc = baseUtc.plusHours(1);
+        String laterStr = fmt.format(laterUtc) + "+00:00";
         Map<String, String> propsLater = Maps.newHashMap();
         propsLater.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
         propsLater.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, laterStr);
         DataProperty dpLater = PropertyAnalyzer.analyzeDataProperty(propsLater,
                 new DataProperty(TStorageMedium.SSD));
-        long laterMillis = ZonedDateTime.of(2026, 11, 1, 7, 30, 0, 0, ZoneOffset.UTC)
-                .toInstant().toEpochMilli();
+        long laterMillis = laterUtc.toInstant().toEpochMilli();
         Assert.assertEquals("Explicit +00:00 should parse later DST hour correctly",
                 laterMillis, dpLater.getCooldownTimeMs());
 
