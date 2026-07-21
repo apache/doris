@@ -93,11 +93,6 @@ protected:
         _request.tablet_schema.columns[4].__set_is_allow_null(true);
         _request.__set_enable_unique_key_merge_on_write(true);
         testutil::enable_row_binlog(&_request);
-        _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 5);
-        _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 2);
-        _request.row_binlog_schema.__set_binlog_tso_idx(4);
-        _request.row_binlog_schema.__set_binlog_lsn_idx(5);
-        _request.row_binlog_schema.__set_binlog_op_idx(6);
         auto profile = std::make_unique<RuntimeProfile>("GroupRowsetWriterTest");
         ASSERT_TRUE(engine_ptr->create_tablet(_request, profile.get()).ok());
         _tablet = engine_ptr->tablet_manager()->get_tablet(_request.tablet_id);
@@ -107,6 +102,7 @@ protected:
         _row_binlog_request.tablet_id = 10011;
         _row_binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
                 _request.tablet_schema, _request.tablet_schema.schema_hash + 1);
+        _row_binlog_request.__set_is_row_binlog_tablet(true);
         ASSERT_TRUE(engine_ptr->create_tablet(_row_binlog_request, profile.get()).ok());
         _row_binlog_tablet =
                 engine_ptr->tablet_manager()->get_tablet(_row_binlog_request.tablet_id);
@@ -285,8 +281,7 @@ TEST_F(GroupRowsetWriterTest, success) {
     ASSERT_EQ(rowsets[1]->rowset_meta()->tablet_id(), _row_binlog_tablet->tablet_id());
     ASSERT_EQ(rowsets[1]->rowset_meta()->tablet_schema_hash(),
               _row_binlog_request.tablet_schema.schema_hash);
-    ASSERT_GE(rowsets[1]->rowset_meta()->tablet_schema()->field_index(BINLOG_LSN_COL),
-              0);
+    ASSERT_GE(rowsets[1]->rowset_meta()->tablet_schema()->field_index(BINLOG_LSN_COL), 0);
     EXPECT_FALSE(rowsets[1]->rowset_meta()->is_segments_key_bounds_aggregated());
     std::vector<KeyBoundsPB> row_binlog_key_bounds;
     rowsets[1]->rowset_meta()->get_segments_key_bounds(&row_binlog_key_bounds);
@@ -294,9 +289,9 @@ TEST_F(GroupRowsetWriterTest, success) {
 }
 
 TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
-    ASSERT_EQ(1, _tablet->row_binlog_tablet_schema()->field_index("__DORIS_TEST_HIDDEN_KEY__"));
-    ASSERT_EQ(-1, _tablet->row_binlog_tablet_schema()->field_index("__DORIS_TEST_HIDDEN_VALUE__"));
-    ASSERT_EQ(-1, _tablet->row_binlog_tablet_schema()->field_index(DELETE_SIGN));
+    ASSERT_EQ(1, _row_binlog_tablet->tablet_schema()->field_index("__DORIS_TEST_HIDDEN_KEY__"));
+    ASSERT_EQ(-1, _row_binlog_tablet->tablet_schema()->field_index("__DORIS_TEST_HIDDEN_VALUE__"));
+    ASSERT_EQ(-1, _row_binlog_tablet->tablet_schema()->field_index(DELETE_SIGN));
 
     auto partial_update_info = std::make_shared<PartialUpdateInfo>();
     ASSERT_TRUE(
@@ -311,8 +306,8 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     EXPECT_EQ((std::vector<uint32_t> {4, 5}), partial_update_info->missing_cids);
 
     RowsetWriterContext row_binlog_context;
-    row_binlog_context.tablet = _tablet;
-    row_binlog_context.tablet_schema = _tablet->row_binlog_tablet_schema();
+    row_binlog_context.tablet = _row_binlog_tablet;
+    row_binlog_context.tablet_schema = _row_binlog_tablet->tablet_schema();
     row_binlog_context.rowset_state = PREPARED;
     row_binlog_context.segments_overlap = NONOVERLAPPING;
     row_binlog_context.max_rows_per_segment = 1024;
@@ -334,7 +329,8 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     ASSERT_TRUE(allocate_binlog_lsn(lsn_buffer, 1, *lsn_ids).ok());
     binlog_options.insert_seg_lsn(0, lsn_ids);
 
-    auto row_binlog_writer_res = _tablet->create_rowset_writer(row_binlog_context, false);
+    auto row_binlog_writer_res =
+            _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
     ASSERT_TRUE(row_binlog_writer_res.has_value());
     auto row_binlog_writer = std::move(row_binlog_writer_res.value());
 
@@ -345,7 +341,7 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     ASSERT_TRUE(row_binlog_writer->build(row_binlog_rowset).ok());
     ASSERT_EQ(1, row_binlog_rowset->num_segments());
 
-    const auto& row_binlog_schema = _tablet->row_binlog_tablet_schema();
+    const auto& row_binlog_schema = _row_binlog_tablet->tablet_schema();
     ASSERT_EQ(7, row_binlog_schema->num_columns());
     std::vector<uint32_t> return_columns {0, 1, 2, 3, 4, 5, 6};
     RowsetReaderContext reader_context;
