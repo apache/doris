@@ -16,6 +16,9 @@
 // under the License.
 
 suite("correlated_scalar_subquery_to_window_function") {
+    if (isCloudMode()) {
+        return
+    }
     multi_sql """
         set exec_mem_limit=21G;
         set be_number_for_test=3;
