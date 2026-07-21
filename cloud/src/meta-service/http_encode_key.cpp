@@ -206,7 +206,10 @@ static std::string parse_tablet_stats(const ValueBuf& buf) {
 }
 
 static std::string parse_empty_value(const std::string& buf) {
-    return "";
+    if (!buf.empty()) {
+        return "";
+    }
+    return "{}";
 }
 
 static std::string parse_int64_value(const std::string& buf) {
@@ -254,6 +257,7 @@ static std::unordered_map<std::string_view,
     {"TableVersionKey",            {{"instance_id", "db_id", "tbl_id"},                              [](param_type& p) { return table_version_key(KeyInfoSetter<TableVersionKeyInfo>{p}.get());                             }, parse<VersionPB>                , parse_json<VersionPB>}},
     {"MetaRowsetKey",              {{"instance_id", "tablet_id", "version"},                         [](param_type& p) { return meta_rowset_key(KeyInfoSetter<MetaRowsetKeyInfo>{p}.get());                                 }, parse<doris::RowsetMetaCloudPB> , parse_json<doris::RowsetMetaCloudPB>}},
     {"MetaRowsetTmpKey",           {{"instance_id", "txn_id", "tablet_id"},                          [](param_type& p) { return meta_rowset_tmp_key(KeyInfoSetter<MetaRowsetTmpKeyInfo>{p}.get());                          }, parse<doris::RowsetMetaCloudPB> , parse_json<doris::RowsetMetaCloudPB>}},
+    {"TableStreamOffsetKey",       {{"instance_id", "base_db_id", "base_table_id", "stream_db_id", "stream_id", "partition_id"}, [](param_type& p) { return table_stream_offset_key(KeyInfoSetter<TableStreamOffsetKeyInfo>{p}.get()); }, parse<TableStreamOffsetPB>, parse_json<TableStreamOffsetPB>}},
     {"MetaTabletKey",              {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return meta_tablet_key(KeyInfoSetter<MetaTabletKeyInfo>{p}.get());                                 }, parse<doris::TabletMetaCloudPB> , parse_json<doris::TabletMetaCloudPB>}},
     {"MetaTabletIdxKey",           {{"instance_id", "tablet_id"},                                    [](param_type& p) { return meta_tablet_idx_key(KeyInfoSetter<MetaTabletIdxKeyInfo>{p}.get());                          }, parse<TabletIndexPB>            , parse_json<TabletIndexPB>}},
     {"RecycleIndexKey",            {{"instance_id", "index_id"},                                     [](param_type& p) { return recycle_index_key(KeyInfoSetter<RecycleIndexKeyInfo>{p}.get());                             }, parse<RecycleIndexPB>           , parse_json<RecycleIndexPB>}},
@@ -304,6 +308,7 @@ static std::unordered_map<std::string_view,
     {"VersionedMetaRowsetLoadKey",          {{"instance_id", "tablet_id", "version"},                        [](param_type& p) { return versioned::meta_rowset_load_key(KeyInfoSetter<versioned::MetaRowsetLoadKeyInfo>{p}.get());          }, true, [](const std::string& s) { return ""; }, parse_json<doris::RowsetMetaCloudPB>}},
     {"VersionedMetaRowsetCompactKey",       {{"instance_id", "tablet_id", "version"},                        [](param_type& p) { return versioned::meta_rowset_compact_key(KeyInfoSetter<versioned::MetaRowsetCompactKeyInfo>{p}.get());    }, true, [](const std::string& s) { return ""; }, parse_json<doris::RowsetMetaCloudPB>}},
     {"VersionedMetaDeleteBitmapKey",        {{"instance_id", "tablet_id", "rowset_id"},                      [](param_type& p) { return versioned::meta_delete_bitmap_key(KeyInfoSetter<versioned::MetaDeleteBitmapInfo>{p}.get());         }, false, parse_to_json<DeleteBitmapStoragePB>, parse_json<DeleteBitmapStoragePB>}},
+    {"VersionedTableStreamOffsetKey",       {{"instance_id", "base_db_id", "base_table_id", "stream_db_id", "stream_id", "partition_id"}, [](param_type& p) { return versioned::table_stream_offset_key(KeyInfoSetter<versioned::TableStreamOffsetKeyInfo>{p}.get()); }, true, parse_to_json<TableStreamOffsetPB>, parse_json<TableStreamOffsetPB>}},
     {"VersionedDataRowsetRefCountKey",      {{"instance_id", "tablet_id", "rowset_id"},                      [](param_type& p) { return versioned::data_rowset_ref_count_key(KeyInfoSetter<versioned::DataRowsetRefCountKeyInfo>{p}.get()); }, false, parse_int64_value, nullptr}},
 };
 // clang-format on

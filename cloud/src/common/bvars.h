@@ -559,6 +559,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_abort_sub_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_version;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_table_stream_read_state;
 extern BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version;
 extern BvarLatencyRecorderWithTag g_bvar_ms_create_tablets;
 extern BvarLatencyRecorderWithTag g_bvar_ms_update_tablet;
@@ -787,6 +788,7 @@ extern BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_cost_many_time;
 // rpc kv
 extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_table_stream_read_state_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_counter;
@@ -929,6 +931,7 @@ extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_put_counter;
 
 extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_table_stream_read_state_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_bytes;

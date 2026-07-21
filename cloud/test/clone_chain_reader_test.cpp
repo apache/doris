@@ -270,6 +270,75 @@ TEST_F(CloneChainReaderTest, GetPartitionVersion) {
     }
 }
 
+TEST_F(CloneChainReaderTest, GetTableStreamOffset) {
+    CloneChainReader reader(instance_ids_[2], Versionstamp(snapshot_versions_[2]), txn_kv_.get(),
+                            resource_mgr_.get());
+    TableStreamIdentityPB identity;
+    identity.set_base_db_id(2001);
+    identity.set_base_table_id(2002);
+    identity.set_stream_db_id(2003);
+    identity.set_stream_id(2004);
+    int64_t partition_id = 2005;
+
+    TableStreamOffsetPB offset;
+    Versionstamp versionstamp;
+    ASSERT_EQ(reader.get_table_stream_offset(identity, partition_id, &offset, &versionstamp),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+    auto put_offset = [&](const std::string& instance_id, int64_t target_partition_id,
+                          Versionstamp key_version, int64_t offset_tso) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::table_stream_offset_key(
+                {instance_id, identity.base_db_id(), identity.base_table_id(),
+                 identity.stream_db_id(), identity.stream_id(), target_partition_id});
+        TableStreamOffsetPB value;
+        value.set_partition_id(target_partition_id);
+        value.set_state(TABLE_STREAM_OFFSET_CONSUMED);
+        value.set_offset_tso(offset_tso);
+        versioned_put(txn.get(), key, key_version, value.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    put_offset(instance_ids_[0], partition_id, Versionstamp(500, 0), 50);
+    ASSERT_EQ(reader.get_table_stream_offset(identity, partition_id, &offset, &versionstamp),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offset.offset_tso(), 50);
+
+    // This value is newer than B's source snapshot and must not shadow A's value.
+    put_offset(instance_ids_[1], partition_id, Versionstamp(2100, 0), 210);
+    ASSERT_EQ(reader.get_table_stream_offset(identity, partition_id, &offset, &versionstamp),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offset.offset_tso(), 50);
+
+    put_offset(instance_ids_[1], partition_id, Versionstamp(1500, 0), 150);
+    ASSERT_EQ(reader.get_table_stream_offset(identity, partition_id, &offset, &versionstamp),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offset.offset_tso(), 150);
+
+    put_offset(instance_ids_[2], partition_id, Versionstamp(2500, 0), 250);
+    ASSERT_EQ(reader.get_table_stream_offset(identity, partition_id, &offset, &versionstamp),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offset.offset_tso(), 250);
+
+    int64_t parent_partition_id = partition_id + 1;
+    int64_t missing_partition_id = partition_id + 2;
+    put_offset(instance_ids_[0], parent_partition_id, Versionstamp(600, 0), 60);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unordered_map<int64_t, TableStreamOffsetPB> offsets;
+    std::unordered_map<int64_t, Versionstamp> versionstamps;
+    ASSERT_EQ(
+            reader.get_table_stream_offsets(
+                    txn.get(), identity, {partition_id, parent_partition_id, missing_partition_id},
+                    &offsets, &versionstamps, true),
+            TxnErrorCode::TXN_OK);
+    ASSERT_EQ(offsets.size(), 2);
+    EXPECT_EQ(offsets.at(partition_id).offset_tso(), 250);
+    EXPECT_EQ(offsets.at(parent_partition_id).offset_tso(), 60);
+    EXPECT_FALSE(offsets.contains(missing_partition_id));
+}
+
 TEST_F(CloneChainReaderTest, GetTabletLoadStats) {
     std::string instance_id = instance_ids_[2]; // C
     Versionstamp snapshot_version = snapshot_versions_[2];

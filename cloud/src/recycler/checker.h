@@ -23,12 +23,16 @@
 #endif
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
+#include <memory>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "meta-store/txn_kv_error.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 #include "snapshot/snapshot_manager.h"
@@ -42,6 +46,22 @@ class StorageVaultAccessor;
 class InstanceChecker;
 class TxnKv;
 class InstanceInfoPB;
+
+struct PendingTableStreamDrop {
+    int64_t base_db_id;
+    int64_t base_table_id;
+    int64_t stream_db_id;
+
+    bool matches(const IndexIndexPB& index) const {
+        return index.object_type() == TABLE_STREAM && index.has_stream_db_id() &&
+               index.db_id() == base_db_id && index.table_id() == base_table_id &&
+               index.stream_db_id() == stream_db_id;
+    }
+};
+
+TxnErrorCode collect_pending_table_stream_drops(
+        const std::shared_ptr<TxnKv>& txn_kv, std::string_view instance_id,
+        std::unordered_map<int64_t, PendingTableStreamDrop>* pending_drops);
 
 class Checker {
 public:
@@ -134,6 +154,11 @@ public:
     // Return 1 if mvcc meta key and data leak or loss is identified.
     // Return negative if a temporary error occurred during the check process.
     int do_mvcc_meta_key_check();
+
+    // Return 0 if all Table Stream mappings and offsets are consistent.
+    // Return 1 if an inconsistent mapping or offset is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_table_stream_check();
 
     // Return 0 if success.
     // Return 1 if packed file metadata leak or loss is identified.
@@ -254,6 +279,8 @@ private:
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
     std::shared_ptr<SnapshotManager> snapshot_manager_;
     std::shared_ptr<ResourceManager> resource_mgr_;
+    bool table_stream_read_from_clone_chain_ {false};
+    bool table_stream_versioned_write_ {false};
 };
 
 } // namespace doris::cloud

@@ -430,11 +430,57 @@ public:
                                        const SnapshotPB& snapshot_pb);
 
 private:
+    struct TableStreamIndexCandidate {
+        std::string instance_id;
+        Versionstamp snapshot_version;
+        int64_t index_id;
+        bool inherited;
+    };
+
+    struct TableStreamBinding {
+        int64_t stream_db_id;
+        int64_t stream_id;
+    };
+
     // returns 0 for success otherwise error
     int init_obj_store_accessors();
 
     // returns 0 for success otherwise error
     int init_storage_vault_accessors();
+
+    int recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
+                       std::string_view recycle_key);
+
+    int recycle_table_stream_offset_prefix(std::string prefix,
+                                           RecyclerMetricsContext* metrics_context);
+
+    int finalize_recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
+                                std::string_view recycle_key);
+
+    int recycle_partition_table_stream_offsets(int64_t db_id, int64_t table_id,
+                                               int64_t partition_id);
+
+    int collect_table_stream_index_candidates(int64_t db_id, int64_t table_id,
+                                              std::vector<TableStreamIndexCandidate>* candidates);
+
+    int get_recycle_source_snapshot(std::string_view current_instance_id,
+                                    std::string* source_instance_id,
+                                    Versionstamp* source_snapshot_version);
+
+    int resolve_table_stream_bindings(int64_t db_id, int64_t table_id, int64_t partition_id,
+                                      const std::vector<TableStreamIndexCandidate>& candidates,
+                                      std::vector<TableStreamBinding>* stream_bindings);
+
+    int resolve_table_stream_binding_batch(int64_t db_id, int64_t table_id, int64_t partition_id,
+                                           const std::vector<TableStreamIndexCandidate>& candidates,
+                                           size_t begin_index, size_t end_index,
+                                           std::unordered_set<int64_t>* resolved_stream_ids,
+                                           std::vector<TableStreamBinding>* stream_bindings);
+
+    int remove_partition_table_stream_offsets(
+            int64_t db_id, int64_t table_id, int64_t partition_id,
+            const std::vector<TableStreamBinding>& stream_bindings,
+            RecyclerMetricsContext* metrics_context);
 
     /**
      * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),

@@ -47,6 +47,7 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
@@ -416,6 +417,43 @@ TEST(MetaServiceHttpTest, ResolveHttpHandlerByVersion) {
     ASSERT_EQ(resolve_http_handler(it->second, ""), &it->second.handler);
     ASSERT_EQ(resolve_http_handler(it->second, "v1"), &it->second.handler);
     ASSERT_EQ(resolve_http_handler(it->second, "v2"), nullptr);
+}
+
+TEST(MetaServiceHttpTest, GetAndListOperationLogs) {
+    HttpContext ctx(true);
+    auto txn_kv = ctx.meta_service_->txn_kv();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    const std::string log_key = versioned::log_key({"test-instance"});
+    OperationLogPB log1;
+    log1.set_min_timestamp(1);
+    log1.mutable_commit_index()->add_index_ids(10);
+    versioned::blob_put(txn.get(), log_key, Versionstamp(10, 1), log1);
+    OperationLogPB log2;
+    log2.set_min_timestamp(2);
+    log2.mutable_commit_index()->add_index_ids(20);
+    versioned::blob_put(txn.get(), log_key, Versionstamp(11, 1), log2);
+    OperationLogPB log3;
+    log3.set_min_timestamp(3);
+    log3.mutable_drop_index()->add_index_ids(30);
+    versioned::blob_put(txn.get(), log_key, Versionstamp(20, 1), log3);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto [status_code, body] = ctx.query<std::string>(
+            "get_operation_log", "instance_id=test-instance&versionstamp=000000000000000a0001");
+    ASSERT_EQ(status_code, 200) << body;
+    EXPECT_NE(body.find(R"("versionstamp":"000000000000000a0001")"), std::string::npos);
+    EXPECT_NE(body.find(R"("index_ids":["10"])"), std::string::npos);
+
+    std::tie(status_code, body) = ctx.query<std::string>(
+            "list_operation_logs",
+            "instance_id=test-instance&start_versionstamp=000000000000000b0001&end_"
+            "versionstamp=00000000000000140001");
+    ASSERT_EQ(status_code, 200) << body;
+    EXPECT_EQ(body.find("000000000000000a0001"), std::string::npos);
+    EXPECT_NE(body.find("000000000000000b0001"), std::string::npos);
+    EXPECT_NE(body.find("00000000000000140001"), std::string::npos);
 }
 
 TEST(MetaServiceHttpTest, InstanceTest) {

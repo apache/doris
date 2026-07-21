@@ -2980,6 +2980,8 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
     }
 
     response->mutable_instance()->CopyFrom(instance);
+    response->add_server_capabilities(
+            MetaServiceCapabilityPB::META_SERVICE_CAPABILITY_TABLE_STREAM_CONTROL_PLANE);
 }
 
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(

@@ -132,6 +132,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
 
 [[maybe_unused]] HttpResponse process_set_value(MetaServiceImpl* service, brpc::Controller* ctrl);
 
+[[maybe_unused]] HttpResponse process_get_operation_log(MetaServiceImpl* service,
+                                                        brpc::Controller* ctrl);
+
+[[maybe_unused]] HttpResponse process_list_operation_logs(MetaServiceImpl* service,
+                                                          brpc::Controller* ctrl);
+
 // show all key ranges and their count.
 [[maybe_unused]] HttpResponse process_show_meta_ranges(MetaServiceImpl* service,
                                                        brpc::Controller* ctrl);

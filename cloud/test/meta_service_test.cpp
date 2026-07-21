@@ -617,6 +617,9 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         meta_service->get_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                    &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.server_capabilities_size(), 1);
+        EXPECT_EQ(res.server_capabilities(0),
+                  MetaServiceCapabilityPB::META_SERVICE_CAPABILITY_TABLE_STREAM_CONTROL_PLANE);
     }
 }
 
@@ -13348,6 +13351,379 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteMixedTxns) {
         ASSERT_EQ(label_pb.txn_ids_size(), 1);
         ASSERT_EQ(label_pb.txn_ids(0), txn_ids[1]);
     }
+}
+
+static void put_table_stream_test_instance(MetaServiceProxy* meta_service,
+                                           const std::string& instance_id,
+                                           MultiVersionStatus multi_version_status) {
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(multi_version_status);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static void put_table_stream_test_partition_mapping(MetaServiceProxy* meta_service,
+                                                    const std::string& instance_id, int64_t db_id,
+                                                    int64_t table_id, int64_t partition_id) {
+    PartitionIndexPB partition_index;
+    partition_index.set_db_id(db_id);
+    partition_index.set_table_id(table_id);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(versioned::partition_index_key({instance_id, partition_id}),
+             partition_index.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static void put_table_stream_test_partition_version(MetaServiceProxy* meta_service,
+                                                    const std::string& instance_id, int64_t db_id,
+                                                    int64_t table_id, int64_t partition_id,
+                                                    MultiVersionStatus status) {
+    VersionPB version;
+    version.set_version(2);
+    version.set_visible_tso(2000);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    if (status == MULTI_VERSION_READ_WRITE) {
+        versioned_put(txn.get(), versioned::partition_version_key({instance_id, partition_id}),
+                      version.SerializeAsString());
+    } else {
+        txn->put(partition_version_key({instance_id, db_id, table_id, partition_id}),
+                 version.SerializeAsString());
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static void put_table_stream_test_partition_visibility(MetaServiceProxy* meta_service,
+                                                       const std::string& instance_id,
+                                                       int64_t partition_id) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    versioned_put(txn.get(), versioned::meta_partition_key({instance_id, partition_id}), "");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static IndexRequest make_table_stream_index_request(int64_t db_id, int64_t table_id,
+                                                    int64_t stream_db_id, int64_t stream_id) {
+    IndexRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_db_id(db_id);
+    request.set_table_id(table_id);
+    request.add_index_ids(stream_id);
+    request.set_object_type(IndexObjectTypePB::TABLE_STREAM);
+    request.set_stream_db_id(stream_db_id);
+    request.set_expiration(::time(nullptr) + 3600);
+    return request;
+}
+
+static PartitionRequest make_table_stream_partition_request(
+        int64_t db_id, int64_t table_id, int64_t stream_id,
+        const std::vector<int64_t>& partitions) {
+    PartitionRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_db_id(db_id);
+    request.set_table_id(table_id);
+    request.add_index_ids(stream_id);
+    request.set_object_type(IndexObjectTypePB::TABLE_STREAM);
+    for (size_t i = 0; i < partitions.size(); ++i) {
+        request.add_partition_ids(partitions[i]);
+        auto* offset = request.add_table_stream_offsets();
+        offset->set_partition_id(partitions[i]);
+        offset->set_state(i == 0 ? TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING
+                                 : TABLE_STREAM_OFFSET_CONSUMED);
+        offset->set_offset_tso(1000 + i);
+    }
+    return request;
+}
+
+TEST(MetaServiceTest, TableStreamCreateDisabled) {
+    auto meta_service = get_meta_service();
+    const std::string instance_id = "table_stream_create_disabled";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t db_id = 101;
+    constexpr int64_t table_id = 102;
+    constexpr int64_t stream_db_id = 103;
+    constexpr int64_t stream_id = 104;
+    const std::vector<int64_t> partition_ids {105, 106};
+    put_table_stream_test_instance(meta_service.get(), instance_id, MULTI_VERSION_DISABLED);
+    for (int64_t partition_id : partition_ids) {
+        put_table_stream_test_partition_version(meta_service.get(), instance_id, db_id, table_id,
+                                                partition_id, MULTI_VERSION_DISABLED);
+    }
+
+    brpc::Controller ctrl;
+    IndexRequest index_request =
+            make_table_stream_index_request(db_id, table_id, stream_db_id, stream_id);
+    IndexResponse index_response;
+    meta_service->prepare_index(&ctrl, &index_request, &index_response, nullptr);
+    ASSERT_EQ(index_response.status().code(), MetaServiceCode::OK)
+            << index_response.status().DebugString();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    ASSERT_EQ(txn->get(recycle_index_key({instance_id, stream_id}), &value), TxnErrorCode::TXN_OK);
+    RecycleIndexPB recycle_index;
+    ASSERT_TRUE(recycle_index.ParseFromString(value));
+    EXPECT_EQ(recycle_index.state(), RecycleIndexPB::PREPARED);
+    EXPECT_EQ(recycle_index.object_type(), IndexObjectTypePB::TABLE_STREAM);
+    EXPECT_EQ(recycle_index.db_id(), db_id);
+    EXPECT_EQ(recycle_index.table_id(), table_id);
+    EXPECT_EQ(recycle_index.stream_db_id(), stream_db_id);
+
+    index_response.Clear();
+    meta_service->prepare_index(&ctrl, &index_request, &index_response, nullptr);
+    ASSERT_EQ(index_response.status().code(), MetaServiceCode::OK);
+    IndexRequest mismatched_prepare = index_request;
+    mismatched_prepare.set_stream_db_id(stream_db_id + 1);
+    index_response.Clear();
+    meta_service->prepare_index(&ctrl, &mismatched_prepare, &index_response, nullptr);
+    ASSERT_EQ(index_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    PartitionRequest partition_request =
+            make_table_stream_partition_request(db_id, table_id, stream_id, partition_ids);
+    PartitionResponse partition_response;
+    meta_service->commit_partition(&ctrl, &partition_request, &partition_response, nullptr);
+    ASSERT_EQ(partition_response.status().code(), MetaServiceCode::OK)
+            << partition_response.status().DebugString();
+    EXPECT_FALSE(partition_response.has_table_version());
+
+    for (int i = 0; i < partition_request.table_stream_offsets_size(); ++i) {
+        const auto& expected_offset = partition_request.table_stream_offsets(i);
+        TableStreamOffsetKeyInfo key_info {instance_id,  db_id,     table_id,
+                                           stream_db_id, stream_id, expected_offset.partition_id()};
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(table_stream_offset_key(key_info), &value), TxnErrorCode::TXN_OK);
+        TableStreamOffsetPB actual_offset;
+        ASSERT_TRUE(actual_offset.ParseFromString(value));
+        EXPECT_EQ(actual_offset.SerializeAsString(), expected_offset.SerializeAsString());
+
+        Versionstamp version;
+        EXPECT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(key_info), &version,
+                                &value),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+        EXPECT_EQ(versioned_get(txn.get(),
+                                versioned::meta_partition_key(
+                                        {instance_id, expected_offset.partition_id()}),
+                                &version, &value),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+        EXPECT_EQ(txn->get(versioned::partition_index_key(
+                                   {instance_id, expected_offset.partition_id()}),
+                           &value),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    partition_response.Clear();
+    meta_service->commit_partition(&ctrl, &partition_request, &partition_response, nullptr);
+    ASSERT_EQ(partition_response.status().code(), MetaServiceCode::OK);
+    PartitionRequest mismatched_offsets = partition_request;
+    mismatched_offsets.mutable_table_stream_offsets(0)->set_offset_tso(1500);
+    partition_response.Clear();
+    meta_service->commit_partition(&ctrl, &mismatched_offsets, &partition_response, nullptr);
+    ASSERT_EQ(partition_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    PartitionRequest offset_past_visible_tso = partition_request;
+    offset_past_visible_tso.mutable_table_stream_offsets(0)->set_offset_tso(2001);
+    partition_response.Clear();
+    meta_service->commit_partition(&ctrl, &offset_past_visible_tso, &partition_response, nullptr);
+    ASSERT_EQ(partition_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    index_response.Clear();
+    meta_service->commit_index(&ctrl, &index_request, &index_response, nullptr);
+    ASSERT_EQ(index_response.status().code(), MetaServiceCode::OK)
+            << index_response.status().DebugString();
+    EXPECT_FALSE(index_response.has_table_version());
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(recycle_index_key({instance_id, stream_id}), &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(txn->get(versioned::index_index_key({instance_id, stream_id}), &value),
+              TxnErrorCode::TXN_OK);
+    IndexIndexPB index_index;
+    ASSERT_TRUE(index_index.ParseFromString(value));
+    EXPECT_EQ(index_index.object_type(), IndexObjectTypePB::TABLE_STREAM);
+    EXPECT_EQ(index_index.db_id(), db_id);
+    EXPECT_EQ(index_index.table_id(), table_id);
+    EXPECT_EQ(index_index.stream_db_id(), stream_db_id);
+    EXPECT_EQ(txn->get(versioned::index_inverted_key({instance_id, db_id, table_id, stream_id}),
+                       &value),
+              TxnErrorCode::TXN_OK);
+    Versionstamp version;
+    EXPECT_EQ(versioned_get(txn.get(), versioned::meta_index_key({instance_id, stream_id}),
+                            &version, &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    EXPECT_EQ(txn->get(table_version_key({instance_id, db_id, table_id}), &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+    index_response.Clear();
+    meta_service->commit_index(&ctrl, &index_request, &index_response, nullptr);
+    EXPECT_EQ(index_response.status().code(), MetaServiceCode::OK);
+    index_response.Clear();
+    meta_service->prepare_index(&ctrl, &index_request, &index_response, nullptr);
+    EXPECT_EQ(index_response.status().code(), MetaServiceCode::ALREADY_EXISTED);
+}
+
+TEST(MetaServiceTest, TableStreamCreateVersionedModes) {
+    std::string instance_id;
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    for (MultiVersionStatus status : {MULTI_VERSION_WRITE_ONLY, MULTI_VERSION_READ_WRITE}) {
+        auto meta_service = get_meta_service();
+        instance_id = fmt::format("table_stream_create_mode_{}", static_cast<int>(status));
+        constexpr int64_t db_id = 201;
+        constexpr int64_t table_id = 202;
+        constexpr int64_t stream_db_id = 203;
+        const int64_t stream_id = 210 + static_cast<int>(status);
+        const int64_t partition_id = 220 + static_cast<int>(status);
+        put_table_stream_test_instance(meta_service.get(), instance_id, status);
+
+        brpc::Controller ctrl;
+        IndexRequest index_request =
+                make_table_stream_index_request(db_id, table_id, stream_db_id, stream_id);
+        IndexResponse index_response;
+        meta_service->prepare_index(&ctrl, &index_request, &index_response, nullptr);
+        ASSERT_EQ(index_response.status().code(), MetaServiceCode::OK)
+                << index_response.status().DebugString();
+
+        PartitionRequest partition_request =
+                make_table_stream_partition_request(db_id, table_id, stream_id, {partition_id});
+        PartitionResponse partition_response;
+        meta_service->commit_partition(&ctrl, &partition_request, &partition_response, nullptr);
+        ASSERT_EQ(partition_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+        put_table_stream_test_partition_mapping(meta_service.get(), instance_id, db_id, table_id,
+                                                partition_id);
+        put_table_stream_test_partition_version(meta_service.get(), instance_id, db_id, table_id,
+                                                partition_id, status);
+        if (status == MULTI_VERSION_READ_WRITE) {
+            partition_response.Clear();
+            meta_service->commit_partition(&ctrl, &partition_request, &partition_response, nullptr);
+            ASSERT_EQ(partition_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+            put_table_stream_test_partition_visibility(meta_service.get(), instance_id,
+                                                       partition_id);
+        }
+        partition_response.Clear();
+        meta_service->commit_partition(&ctrl, &partition_request, &partition_response, nullptr);
+        ASSERT_EQ(partition_response.status().code(), MetaServiceCode::OK)
+                << partition_response.status().DebugString();
+        EXPECT_FALSE(partition_response.has_table_version());
+
+        TableStreamOffsetKeyInfo offset_key_info {instance_id,  db_id,     table_id,
+                                                  stream_db_id, stream_id, partition_id};
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(table_stream_offset_key(offset_key_info), &value), TxnErrorCode::TXN_OK);
+        Versionstamp offset_version;
+        ASSERT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(offset_key_info),
+                                &offset_version, &value),
+                  TxnErrorCode::TXN_OK);
+        TableStreamOffsetPB versioned_offset;
+        ASSERT_TRUE(versioned_offset.ParseFromString(value));
+        EXPECT_EQ(versioned_offset.SerializeAsString(),
+                  partition_request.table_stream_offsets(0).SerializeAsString());
+
+        index_response.Clear();
+        meta_service->commit_index(&ctrl, &index_request, &index_response, nullptr);
+        ASSERT_EQ(index_response.status().code(), MetaServiceCode::OK)
+                << index_response.status().DebugString();
+        EXPECT_FALSE(index_response.has_table_version());
+
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versioned_get(txn.get(), versioned::meta_index_key({instance_id, stream_id}),
+                                &offset_version, &value),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(versioned::index_index_key({instance_id, stream_id}), &value),
+                  TxnErrorCode::TXN_OK);
+        IndexIndexPB index_index;
+        ASSERT_TRUE(index_index.ParseFromString(value));
+        EXPECT_EQ(index_index.object_type(), IndexObjectTypePB::TABLE_STREAM);
+        EXPECT_EQ(index_index.stream_db_id(), stream_db_id);
+        EXPECT_EQ(txn->get(table_version_key({instance_id, db_id, table_id}), &value),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+}
+
+TEST(MetaServiceTest, TableStreamCreateRejectsEnabledMode) {
+    auto meta_service = get_meta_service();
+    const std::string instance_id = "table_stream_create_enabled";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t db_id = 301;
+    constexpr int64_t table_id = 302;
+    constexpr int64_t stream_db_id = 303;
+    constexpr int64_t stream_id = 304;
+    constexpr int64_t partition_id = 305;
+    put_table_stream_test_instance(meta_service.get(), instance_id, MULTI_VERSION_DISABLED);
+
+    brpc::Controller ctrl;
+    IndexRequest index_request =
+            make_table_stream_index_request(db_id, table_id, stream_db_id, stream_id);
+    IndexResponse index_response;
+    meta_service->prepare_index(&ctrl, &index_request, &index_response, nullptr);
+    ASSERT_EQ(index_response.status().code(), MetaServiceCode::OK);
+
+    put_table_stream_test_instance(meta_service.get(), instance_id, MULTI_VERSION_ENABLED);
+    PartitionRequest partition_request =
+            make_table_stream_partition_request(db_id, table_id, stream_id, {partition_id});
+    PartitionResponse partition_response;
+    meta_service->commit_partition(&ctrl, &partition_request, &partition_response, nullptr);
+    EXPECT_EQ(partition_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    index_response.Clear();
+    meta_service->commit_index(&ctrl, &index_request, &index_response, nullptr);
+    EXPECT_EQ(index_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    IndexRequest another_index_request =
+            make_table_stream_index_request(db_id, table_id, stream_db_id, stream_id + 1);
+    index_response.Clear();
+    meta_service->prepare_index(&ctrl, &another_index_request, &index_response, nullptr);
+    EXPECT_EQ(index_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    EXPECT_EQ(txn->get(recycle_index_key({instance_id, stream_id}), &value), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(table_stream_offset_key({instance_id, db_id, table_id, stream_db_id,
+                                                stream_id, partition_id}),
+                       &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    EXPECT_EQ(txn->get(versioned::index_index_key({instance_id, stream_id}), &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 } // namespace doris::cloud

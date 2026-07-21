@@ -178,6 +178,7 @@ private:
     int recycle_tablet_load_stats(int64_t tablet_id);
     int recycle_tablet_compact_stats(int64_t tablet_id);
     int recycle_partition_version(int64_t partition_id);
+    int recycle_table_stream_offset(const TableStreamIdentityPB& identity, int64_t partition_id);
     int recycle_rowset_meta(int64_t tablet_id, int64_t end_version, const std::string& rowset_id);
 
     std::string_view instance_id_;
@@ -246,6 +247,10 @@ int OperationLogRecycler::recycle_drop_index_log(const DropIndexLogPB& drop_inde
         recycle_index_pb.set_creation_time(::time(nullptr));
         recycle_index_pb.set_expiration(drop_index_log.expiration());
         recycle_index_pb.set_state(RecycleIndexPB::DROPPED);
+        recycle_index_pb.set_object_type(drop_index_log.object_type());
+        if (drop_index_log.has_stream_db_id()) {
+            recycle_index_pb.set_stream_db_id(drop_index_log.stream_db_id());
+        }
         std::string recycle_index_value;
         if (!recycle_index_pb.SerializeToString(&recycle_index_value)) {
             LOG_WARNING("failed to serialize RecycleIndexPB").tag("index_id", index_id);
@@ -269,6 +274,16 @@ int OperationLogRecycler::recycle_commit_txn_log(const CommitTxnLogPB& commit_tx
     AnnotateTag txn_tag("txn_id", txn_id);
     for (const auto& [partition_id, _] : commit_txn_log.partition_version_map()) {
         RETURN_ON_FAILURE(recycle_partition_version(partition_id));
+    }
+
+    for (const TableStreamPartitionSetPB& partition_set : commit_txn_log.table_stream_offset_gc()) {
+        if (!partition_set.has_identity()) {
+            LOG_WARNING("table stream offset GC entry is missing identity");
+            return -1;
+        }
+        for (int64_t partition_id : partition_set.partition_ids()) {
+            RETURN_ON_FAILURE(recycle_table_stream_offset(partition_set.identity(), partition_id));
+        }
     }
 
     for (const auto& [tablet_id, _] : commit_txn_log.tablet_to_partition_map()) {
@@ -562,6 +577,42 @@ int OperationLogRecycler::recycle_partition_version(int64_t partition_id) {
                    << " partition_id=" << partition_id;
         return 0;
     }
+}
+
+int OperationLogRecycler::recycle_table_stream_offset(const TableStreamIdentityPB& identity,
+                                                      int64_t partition_id) {
+    MetaReader meta_reader(instance_id_, log_version_);
+    Versionstamp previous_version;
+    TxnErrorCode err = meta_reader.get_table_stream_offset(txn_.get(), identity, partition_id,
+                                                           nullptr, &previous_version);
+    if (err == TxnErrorCode::TXN_OK) {
+        if (previous_version < min_read_versionstamp_) {
+            LOG_FATAL("table stream offset version is less than min read versionstamp")
+                    .tag("stream_id", identity.stream_id())
+                    .tag("partition_id", partition_id)
+                    .tag("previous_version", previous_version.to_string())
+                    .tag("min_read_version", min_read_versionstamp_.version());
+        }
+        std::string offset_key = versioned::table_stream_offset_key(
+                {instance_id_, identity.base_db_id(), identity.base_table_id(),
+                 identity.stream_db_id(), identity.stream_id(), partition_id});
+        versioned_remove(txn_.get(), offset_key, previous_version);
+        LOG_INFO("recycle table stream offset")
+                .tag("stream_id", identity.stream_id())
+                .tag("partition_id", partition_id)
+                .tag("previous_version", previous_version.to_string());
+        return 0;
+    }
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG_WARNING("failed to get table stream offset for recycling operation log")
+                .tag("stream_id", identity.stream_id())
+                .tag("partition_id", partition_id)
+                .tag("error_code", err);
+        return -1;
+    }
+    VLOG_DEBUG << "No previous table stream offset found for recycling"
+               << " stream_id=" << identity.stream_id() << " partition_id=" << partition_id;
+    return 0;
 }
 
 int OperationLogRecycler::recycle_rowset_meta(int64_t tablet_id, int64_t end_version,
