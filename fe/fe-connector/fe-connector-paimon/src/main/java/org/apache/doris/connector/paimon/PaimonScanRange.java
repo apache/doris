@@ -59,6 +59,11 @@ public class PaimonScanRange implements ConnectorScanRange {
     private final Map<String, String> partitionValues;
     private final Map<String, String> properties;
     private final long selfSplitWeight;
+    // Rust reader wants db + table names to reopen the table through the paimon catalog on BE.
+    // Non-null only on JNI ranges when the user enabled paimon-rust; empty otherwise.
+    private final String dbName;
+    private final String tableName;
+    private final boolean useRustReader;
     // FIX-A1: weight denominator (legacy scan-level targetSplitSize, PaimonScanNode:499) for the FE
     // FileSplit proportional weight. -1 = not provided (SPI sentinel). Separate from the file-splitting
     // granularity used to slice native files.
@@ -72,6 +77,9 @@ public class PaimonScanRange implements ConnectorScanRange {
         this.fileFormat = builder.fileFormat;
         this.selfSplitWeight = builder.selfSplitWeight;
         this.targetSplitSize = builder.targetSplitSize;
+        this.dbName = builder.dbName;
+        this.tableName = builder.tableName;
+        this.useRustReader = builder.useRustReader;
         this.partitionValues = builder.partitionValues != null
                 ? Collections.unmodifiableMap(builder.partitionValues)
                 : Collections.emptyMap();
@@ -203,7 +211,17 @@ public class PaimonScanRange implements ConnectorScanRange {
             // ("FileScannerV2 does not support table format paimon", file_scanner_v2.cpp
             // is_supported_jni_table_format -> _validate_scan_range) with no per-range V1 fallback.
             // enable_paimon_cpp_reader is therefore a no-op on the plan path, exactly like on master.
-            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+            //
+            // paimon-rust: when the caller opted in AND supplied db/table (see Builder.useRustReader),
+            // emit PAIMON_RUST + db_name/table_name so BE's file_scanner.cpp routes to
+            // PaimonRustReader. Same V2 caveat as PAIMON_CPP — V2 hard-rejects non-JNI reader types.
+            if (useRustReader && dbName != null && tableName != null) {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
+                fileDesc.setDbName(dbName);
+                fileDesc.setTableName(tableName);
+            } else {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+            }
             fileDesc.setPaimonSplit(paimonSplitVal);
             String weightStr = props.get("paimon.self_split_weight");
             if (weightStr != null) {
@@ -307,6 +325,11 @@ public class PaimonScanRange implements ConnectorScanRange {
         // COUNT pushdown
         private Long rowCount;
 
+        // paimon-rust routing (see PaimonScanRange.populateRangeParams).
+        private String dbName;
+        private String tableName;
+        private boolean useRustReader;
+
         public Builder path(String path) {
             this.path = path;
             return this;
@@ -366,6 +389,14 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         public Builder rowCount(long rowCount) {
             this.rowCount = rowCount;
+            return this;
+        }
+
+        /** Enable paimon-rust routing for this range; the paimon catalog on BE reopens the table via db/table. */
+        public Builder useRustReader(String dbName, String tableName) {
+            this.dbName = dbName;
+            this.tableName = tableName;
+            this.useRustReader = true;
             return this;
         }
 
