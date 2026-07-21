@@ -392,6 +392,56 @@ TEST(ParquetSchemaTest, NativeListPreservesRepeatedAndAnnotatedElementWrappers) 
               TYPE_INT);
 }
 
+TEST(ParquetSchemaTest, NativeSchemaRecognizesLogicalTypeOnlyListAndMap) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(2);
+
+    tparquet::SchemaElement list;
+    list.__set_name("items");
+    list.__set_num_children(1);
+    list.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    list.__set_logicalType(tparquet::LogicalType());
+    list.logicalType.__set_LIST(tparquet::ListType());
+    tparquet::SchemaElement list_wrapper;
+    list_wrapper.__set_name("list");
+    list_wrapper.__set_num_children(1);
+    list_wrapper.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    tparquet::SchemaElement element;
+    element.__set_name("element");
+    element.__set_type(tparquet::Type::INT32);
+    element.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    tparquet::SchemaElement map;
+    map.__set_name("attributes");
+    map.__set_num_children(1);
+    map.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    map.__set_logicalType(tparquet::LogicalType());
+    map.logicalType.__set_MAP(tparquet::MapType());
+    tparquet::SchemaElement key_value;
+    key_value.__set_name("key_value");
+    key_value.__set_num_children(2);
+    key_value.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    tparquet::SchemaElement key;
+    key.__set_name("key");
+    key.__set_type(tparquet::Type::BYTE_ARRAY);
+    key.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    tparquet::SchemaElement value;
+    value.__set_name("value");
+    value.__set_type(tparquet::Type::INT64);
+    value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor
+                        .parse_from_thrift(
+                                {root, list, list_wrapper, element, map, key_value, key, value})
+                        .ok());
+    ASSERT_EQ(descriptor.size(), 2);
+    EXPECT_EQ(remove_nullable(descriptor.get_column(0)->data_type)->get_primitive_type(),
+              TYPE_ARRAY);
+    EXPECT_EQ(remove_nullable(descriptor.get_column(1)->data_type)->get_primitive_type(), TYPE_MAP);
+}
+
 TEST(ParquetSchemaTest, NativeMetadataRejectsRowGroupChunkCardinalityAndMissingMetadata) {
     auto make_metadata = []() {
         tparquet::FileMetaData metadata;

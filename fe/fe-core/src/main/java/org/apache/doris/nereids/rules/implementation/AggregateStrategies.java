@@ -740,10 +740,14 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 }
             }
             if (mergeOp == PushDownAggOp.COUNT || mergeOp == PushDownAggOp.MIX) {
-                // NULL value behavior in `count` function is zero, so
-                // we should not use row_count to speed up query. the col
-                // must be not null
-                if (column.isAllowNull() && checkNullSlots.contains(slot)) {
+                // File COUNT carries its semantic argument to the V2 reader, which counts
+                // definition levels instead of substituting the file row count. Keep nullable
+                // rejection for OLAP and mixed aggregates, whose storage shortcuts still require
+                // COUNT(col) to be equivalent to COUNT(*).
+                boolean supportsNullableFileCount = logicalScan instanceof LogicalFileScan
+                        && mergeOp == PushDownAggOp.COUNT;
+                if (column.isAllowNull() && checkNullSlots.contains(slot)
+                        && !supportsNullableFileCount) {
                     return canNotPush;
                 }
             }

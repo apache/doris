@@ -347,8 +347,7 @@ public:
         size_t skipped = 0;
         while (skipped < num_values) {
             const size_t batch_size = std::min(num_values - skipped, kSkipBatchSize);
-            RETURN_IF_ERROR(_decode_slices(batch_size));
-            RETURN_IF_ERROR(_validate_fixed_width_values());
+            RETURN_IF_ERROR(_skip_slices(batch_size));
             skipped += batch_size;
         }
         return Status::OK();
@@ -365,16 +364,47 @@ public:
 
     Status decode_selected_binary_values(const ParquetSelection& selection,
                                          ParquetBinaryValueConsumer& consumer) override {
-        RETURN_IF_ERROR(_decode_slices(selection.total_values));
-        _string_refs.resize(selection.selected_values);
-        size_t output = 0;
+        _selected_binary_values.clear();
+        _selected_value_sizes.clear();
+        _selected_value_sizes.reserve(selection.selected_values);
+        size_t cursor = 0;
         for (const auto& range : selection.ranges) {
-            for (size_t row = 0; row < range.count; ++row) {
-                const auto& value = _values[range.first + row];
-                _string_refs[output++] = StringRef(value.data, value.size);
+            DORIS_CHECK(range.first >= cursor);
+            RETURN_IF_ERROR(skip_values(range.first - cursor));
+            size_t decoded = 0;
+            while (decoded < range.count) {
+                const size_t batch_size = _bounded_reconstruction_batch_size(range.count - decoded);
+                RETURN_IF_ERROR(_decode_slices(batch_size));
+                for (const auto& value : _values) {
+                    if (UNLIKELY(value.size > std::numeric_limits<size_t>::max() -
+                                                      _selected_binary_values.size())) {
+                        return Status::IOError(
+                                "Parquet delta-byte-array selection byte size overflows");
+                    }
+                    if (value.size > 0) {
+                        _selected_binary_values.insert(_selected_binary_values.end(), value.data,
+                                                       value.data + value.size);
+                    }
+                    _selected_value_sizes.push_back(value.size);
+                }
+                decoded += batch_size;
             }
+            cursor = range.first + range.count;
         }
-        DORIS_CHECK_EQ(output, selection.selected_values);
+        DORIS_CHECK(selection.total_values >= cursor);
+        RETURN_IF_ERROR(skip_values(selection.total_values - cursor));
+
+        _string_refs.resize(selection.selected_values);
+        size_t byte_offset = 0;
+        for (size_t output = 0; output < _selected_value_sizes.size(); ++output) {
+            const size_t value_size = _selected_value_sizes[output];
+            const char* value_data =
+                    value_size == 0 ? nullptr : _selected_binary_values.data() + byte_offset;
+            _string_refs[output] = StringRef(value_data, value_size);
+            byte_offset += value_size;
+        }
+        DORIS_CHECK_EQ(_selected_value_sizes.size(), selection.selected_values);
+        DORIS_CHECK_EQ(byte_offset, _selected_binary_values.size());
         return consumer.consume(_string_refs.data(), _string_refs.size());
     }
 
@@ -392,10 +422,6 @@ public:
 
     Status decode_selected_fixed_values(const ParquetSelection& selection,
                                         ParquetFixedValueConsumer& consumer) override {
-        RETURN_IF_ERROR(_decode_slices(selection.total_values));
-        // Validate every consumed value, including filtered ranges, so selection cannot hide a
-        // malformed FIXED_LEN_BYTE_ARRAY width that a later cursor advance has already committed.
-        RETURN_IF_ERROR(_validate_fixed_width_values());
         DORIS_CHECK(_type_length > 0);
         const size_t value_width = static_cast<size_t>(_type_length);
         if (UNLIKELY(selection.selected_values >
@@ -404,13 +430,27 @@ public:
         }
         _fixed_values.resize(selection.selected_values * value_width);
         size_t output = 0;
+        size_t cursor = 0;
         for (const auto& range : selection.ranges) {
-            for (size_t row = 0; row < range.count; ++row) {
-                const auto& value = _values[range.first + row];
-                memcpy(_fixed_values.data() + output * value_width, value.data, value_width);
-                ++output;
+            DORIS_CHECK(range.first >= cursor);
+            // Skips validate widths too, so filtering cannot hide a malformed value after the
+            // decoder cursor has advanced past it.
+            RETURN_IF_ERROR(skip_values(range.first - cursor));
+            size_t decoded = 0;
+            while (decoded < range.count) {
+                const size_t batch_size = _bounded_reconstruction_batch_size(range.count - decoded);
+                RETURN_IF_ERROR(_decode_slices(batch_size));
+                RETURN_IF_ERROR(_validate_fixed_width_values());
+                for (const auto& value : _values) {
+                    memcpy(_fixed_values.data() + output * value_width, value.data, value_width);
+                    ++output;
+                }
+                decoded += batch_size;
             }
+            cursor = range.first + range.count;
         }
+        DORIS_CHECK(selection.total_values >= cursor);
+        RETURN_IF_ERROR(skip_values(selection.total_values - cursor));
         DORIS_CHECK_EQ(output, selection.selected_values);
         return consumer.consume(_fixed_values.data(), output, value_width);
     }
@@ -462,6 +502,8 @@ public:
         release_vector_if_oversized(&_values, max_retained_bytes);
         release_vector_if_oversized(&_string_refs, max_retained_bytes);
         release_vector_if_oversized(&_fixed_values, max_retained_bytes);
+        release_vector_if_oversized(&_selected_binary_values, max_retained_bytes);
+        release_vector_if_oversized(&_selected_value_sizes, max_retained_bytes);
         release_vector_if_oversized(&_buffered_prefix_length, max_retained_bytes);
         release_vector_if_oversized(&_buffered_data, max_retained_bytes);
         _prefix_len_decoder.release_scratch(max_retained_bytes);
@@ -478,6 +520,8 @@ public:
     size_t retained_scratch_bytes() const override {
         return _values.capacity() * sizeof(Slice) + _string_refs.capacity() * sizeof(StringRef) +
                _fixed_values.capacity() * sizeof(uint8_t) +
+               _selected_binary_values.capacity() * sizeof(char) +
+               _selected_value_sizes.capacity() * sizeof(size_t) +
                _buffered_prefix_length.capacity() * sizeof(int32_t) +
                _buffered_data.capacity() * sizeof(char) + _last_value.capacity() +
                _last_value_in_previous_page.capacity() +
@@ -487,6 +531,8 @@ public:
     size_t active_scratch_bytes() const override {
         return _values.size() * sizeof(Slice) + _string_refs.size() * sizeof(StringRef) +
                _fixed_values.size() * sizeof(uint8_t) +
+               _selected_binary_values.size() * sizeof(char) +
+               _selected_value_sizes.size() * sizeof(size_t) +
                _buffered_prefix_length.size() * sizeof(int32_t) +
                _buffered_data.size() * sizeof(char) + _last_value.size() +
                _last_value_in_previous_page.size() + _prefix_len_decoder.active_scratch_bytes() +
@@ -494,6 +540,72 @@ public:
     }
 
 private:
+    size_t _bounded_reconstruction_batch_size(size_t remaining_values) const {
+        constexpr size_t kReconstructionByteBudget = 4UL << 20;
+        constexpr size_t kMaxReconstructionValues = 4096;
+        // Prefix expansion, rather than encoded page bytes, determines reconstruction memory. A
+        // count-based chunk could turn one long value into gigabytes of temporary copies, so first
+        // learn its width and then cap subsequent chunks by a byte budget.
+        if (_last_value.empty()) {
+            return 1;
+        }
+        const size_t budgeted_values =
+                std::max<size_t>(1, kReconstructionByteBudget / _last_value.size());
+        return std::min({remaining_values, kMaxReconstructionValues, budgeted_values});
+    }
+
+    Status _skip_slices(size_t num_values) {
+        _values.resize(num_values);
+        int suffixes_decoded = 0;
+        RETURN_IF_ERROR(_suffix_decoder.decode(_values.data(), cast_set<int32_t>(num_values),
+                                               &suffixes_decoded));
+        if (UNLIKELY(suffixes_decoded != num_values)) {
+            return Status::IOError("Expected to skip {} Parquet delta suffixes, skipped {}",
+                                   num_values, suffixes_decoded);
+        }
+        _buffered_prefix_length.resize(num_values);
+        uint32_t prefixes_decoded = 0;
+        RETURN_IF_ERROR(_prefix_len_decoder.decode(
+                _buffered_prefix_length.data(), cast_set<uint32_t>(num_values), &prefixes_decoded));
+        if (UNLIKELY(prefixes_decoded != num_values)) {
+            return Status::Corruption("Parquet delta prefix stream ended early");
+        }
+
+        // Only the preceding value is semantic decoder state. Rebuilding every skipped value into
+        // one aggregate buffer would amplify compact full-prefix references into page_size * rows.
+        for (size_t row = 0; row < num_values; ++row) {
+            const int32_t encoded_prefix_size = _buffered_prefix_length[row];
+            if (UNLIKELY(encoded_prefix_size < 0)) {
+                return Status::InvalidArgument("negative prefix length in DELTA_BYTE_ARRAY");
+            }
+            const size_t prefix_size = static_cast<size_t>(encoded_prefix_size);
+            if (UNLIKELY(prefix_size > _last_value.size())) {
+                return Status::InvalidArgument("prefix length too large in DELTA_BYTE_ARRAY");
+            }
+            size_t reconstructed_size = 0;
+            if (UNLIKELY(
+                        common::add_overflow(prefix_size, _values[row].size, reconstructed_size))) {
+                return Status::InvalidArgument("excess expansion in DELTA_BYTE_ARRAY");
+            }
+            if (_type_length > 0 &&
+                UNLIKELY(reconstructed_size != static_cast<size_t>(_type_length))) {
+                return Status::Corruption("Parquet fixed value has length {}, expected {}",
+                                          reconstructed_size, _type_length);
+            }
+            // resize() preserves the prefix already stored in _last_value, so only the suffix
+            // needs copying and repeated full-prefix values allocate no additional payload buffer.
+            _last_value.resize(reconstructed_size);
+            if (_values[row].size > 0) {
+                memcpy(_last_value.data() + prefix_size, _values[row].data, _values[row].size);
+            }
+        }
+        _num_valid_values -= cast_set<int32_t>(num_values);
+        if (_num_valid_values == 0) {
+            _last_value_in_previous_page = _last_value;
+        }
+        return Status::OK();
+    }
+
     Status _validate_fixed_width_values() const {
         if (_type_length <= 0) {
             return Status::OK();
@@ -525,6 +637,8 @@ private:
     std::vector<Slice> _values;
     std::vector<StringRef> _string_refs;
     std::vector<uint8_t> _fixed_values;
+    std::vector<char> _selected_binary_values;
+    std::vector<size_t> _selected_value_sizes;
     std::shared_ptr<BitReader> _bit_reader;
     DeltaBitPackDecoder<int32_t> _prefix_len_decoder;
     DeltaLengthByteArrayDecoder _suffix_decoder;

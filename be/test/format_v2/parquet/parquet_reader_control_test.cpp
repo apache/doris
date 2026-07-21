@@ -23,6 +23,7 @@
 
 #include "common/consts.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
@@ -232,6 +233,35 @@ TEST(ParquetColumnReaderControlTest, SchedulerOrsPageCrossingOncePerBatch) {
     // Both readers are sampled even after the OR becomes true so their next batch starts cleanly.
     EXPECT_TRUE(scheduler.finish_current_reader_batch_profiles());
     EXPECT_EQ(predicate_ptr->page_crossing_checks(), 1);
+    EXPECT_EQ(lazy_ptr->page_crossing_checks(), 1);
+}
+
+TEST(ParquetColumnReaderControlTest, PendingOutputDrainsBeforePageCrossingSample) {
+    ParquetScanScheduler scheduler;
+    scheduler._batch_size = 1;
+    auto lazy_reader = std::make_unique<CursorColumnReader>();
+    auto* lazy_ptr = lazy_reader.get();
+    scheduler._current_non_predicate_columns.emplace(format::LocalColumnId(0),
+                                                     std::move(lazy_reader));
+    scheduler._pending_predicate_batch_rows = 2;
+    scheduler._pending_predicate_selection = {0, 1};
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    Block block;
+    auto type = std::make_shared<DataTypeInt64>();
+    block.insert({type->create_column(), type, "mock"});
+    size_t rows = 0;
+
+    ASSERT_TRUE(scheduler.materialize_pending_predicate_batch(request, &block, &rows).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_EQ(lazy_ptr->page_crossing_checks(), 0);
+    lazy_ptr->set_crossed_page(true);
+
+    block.get_by_position(0).column = type->create_column();
+    ASSERT_TRUE(scheduler.materialize_pending_predicate_batch(request, &block, &rows).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_TRUE(scheduler._pending_predicate_selection.empty());
     EXPECT_EQ(lazy_ptr->page_crossing_checks(), 1);
 }
 

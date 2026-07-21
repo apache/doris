@@ -41,13 +41,18 @@ static bool is_group_node(const tparquet::SchemaElement& schema) {
 }
 
 static bool is_list_node(const tparquet::SchemaElement& schema) {
-    return schema.__isset.converted_type && schema.converted_type == tparquet::ConvertedType::LIST;
+    // Writers may emit only the modern logical type, so collection shape must not depend on the
+    // deprecated converted_type field being duplicated in the footer.
+    return (schema.__isset.converted_type &&
+            schema.converted_type == tparquet::ConvertedType::LIST) ||
+           (schema.__isset.logicalType && schema.logicalType.__isset.LIST);
 }
 
 static bool is_map_node(const tparquet::SchemaElement& schema) {
-    return schema.__isset.converted_type &&
-           (schema.converted_type == tparquet::ConvertedType::MAP ||
-            schema.converted_type == tparquet::ConvertedType::MAP_KEY_VALUE);
+    return (schema.__isset.converted_type &&
+            (schema.converted_type == tparquet::ConvertedType::MAP ||
+             schema.converted_type == tparquet::ConvertedType::MAP_KEY_VALUE)) ||
+           (schema.__isset.logicalType && schema.logicalType.__isset.MAP);
 }
 
 static bool is_repeated_node(const tparquet::SchemaElement& schema) {

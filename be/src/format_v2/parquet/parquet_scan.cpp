@@ -1904,7 +1904,9 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     // every tiny batch is measurable on wide/nested scans, so flush periodically and force the
     // tail at row-group reset/close.
     Defer profile_flush {[this, batch_rows]() {
-        if (finish_current_reader_batch_profiles() &&
+        // A widened predicate batch can be emitted in several output slices. Its lazy readers
+        // have not consumed the whole physical batch until the last slice is drained.
+        if (_pending_predicate_selection.empty() && finish_current_reader_batch_profiles() &&
             _scan_profile.column_reader_profile.page_crossing_batches != nullptr) {
             COUNTER_UPDATE(_scan_profile.column_reader_profile.page_crossing_batches, 1);
         }
@@ -2116,6 +2118,10 @@ Status ParquetScanScheduler::materialize_pending_predicate_batch(
     _pending_predicate_selected_offset = output_end;
     if (_pending_predicate_selected_offset == _pending_predicate_selection.size()) {
         DORIS_CHECK_EQ(_pending_predicate_batch_rows_consumed, _pending_predicate_batch_rows);
+        if (finish_current_reader_batch_profiles() &&
+            _scan_profile.column_reader_profile.page_crossing_batches != nullptr) {
+            COUNTER_UPDATE(_scan_profile.column_reader_profile.page_crossing_batches, 1);
+        }
         _pending_predicate_batch_rows = 0;
         _pending_predicate_batch_rows_consumed = 0;
         _pending_predicate_selected_offset = 0;

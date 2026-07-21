@@ -17,6 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
@@ -27,7 +33,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
@@ -38,6 +47,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -113,6 +123,36 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                         physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIX)
                     )
                 );
+    }
+
+    @Test
+    public void testNullableFileCountUsesStorageLayerAggregate() {
+        Column nullableColumn = new Column("value", Type.INT, true);
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(table.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(nullableColumn));
+        Mockito.when(table.getName()).thenReturn("nullable_file_table");
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        DatabaseIf<TableIf> database = Mockito.mock(DatabaseIf.class);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        LogicalFileScan fileScan = new LogicalFileScan(new RelationId(1), table,
+                ImmutableList.of("catalog", "db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        LogicalAggregate<LogicalFileScan> aggregate = new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(fileScan.getOutput().get(0)), "count")),
+                true, Optional.empty(), fileScan);
+
+        PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
+                .matches(logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
+                                && agg.getCountArgumentExprIds().equals(
+                                        ImmutableList.of(fileScan.getOutput().get(0).getExprId())))));
     }
 
     @Override
@@ -214,6 +254,15 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         return new AggregateStrategies().buildRules()
                 .stream()
                 .filter(rule -> rule.getRuleType() == RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT)
+                .findFirst()
+                .get();
+    }
+
+    private Rule storageLayerAggregateWithoutProjectForFileScan() {
+        return new AggregateStrategies().buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType()
+                        == RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN)
                 .findFirst()
                 .get();
     }

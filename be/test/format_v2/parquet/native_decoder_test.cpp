@@ -2287,6 +2287,47 @@ TEST(ParquetV2NativeDecoderTest, DeltaByteArraySkipsKeepScratchBounded) {
     }
 }
 
+TEST(ParquetV2NativeDecoderTest, DeltaByteArrayLongPrefixSparseWorkIsByteBounded) {
+    constexpr size_t value_count = 128;
+    const std::string repeated_value(256UL << 10, 'x');
+    std::vector<::parquet::ByteArray> values(
+            value_count,
+            ::parquet::ByteArray(static_cast<uint32_t>(repeated_value.size()),
+                                 reinterpret_cast<const uint8_t*>(repeated_value.data())));
+    auto byte_descriptor = descriptor(::parquet::Type::BYTE_ARRAY);
+    auto encoder = ::parquet::MakeTypedEncoder<::parquet::ByteArrayType>(
+            ::parquet::Encoding::DELTA_BYTE_ARRAY, false, byte_descriptor.get());
+    encoder->Put(values.data(), static_cast<int>(values.size()));
+    auto encoded = encoder->FlushValues();
+
+    auto make_decoder = [&]() {
+        std::unique_ptr<Decoder> decoder;
+        EXPECT_TRUE(Decoder::get_decoder(tparquet::Type::BYTE_ARRAY,
+                                         tparquet::Encoding::DELTA_BYTE_ARRAY, decoder)
+                            .ok());
+        decoder->set_expected_values(value_count);
+        Slice slice(encoded->data(), encoded->size());
+        EXPECT_TRUE(decoder->set_data(&slice).ok());
+        return decoder;
+    };
+
+    auto skipped = make_decoder();
+    ASSERT_TRUE(skipped->skip_values(value_count).ok());
+    EXPECT_LT(skipped->retained_scratch_bytes(), 8UL << 20);
+
+    auto sparse = make_decoder();
+    CaptureBinaryConsumer consumer;
+    const ParquetSelection selection {
+            .total_values = value_count,
+            .selected_values = 1,
+            .ranges = {{.first = value_count - 1, .count = 1}},
+    };
+    ASSERT_TRUE(sparse->decode_selected_binary_values(selection, consumer).ok());
+    ASSERT_EQ(consumer.refs.size(), 1);
+    EXPECT_EQ(consumer.refs[0].to_string_view(), repeated_value);
+    EXPECT_LT(sparse->retained_scratch_bytes(), 8UL << 20);
+}
+
 TEST(ParquetV2NativeDecoderTest, DeltaFixedWidthValidatesFilteredAndSkippedValues) {
     const std::vector<std::string> values {"good", "bad"};
     std::vector<::parquet::ByteArray> byte_arrays;
