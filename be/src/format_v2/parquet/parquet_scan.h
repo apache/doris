@@ -125,6 +125,7 @@ public:
     }
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx);
     void set_timezone(const cctz::time_zone* timezone) { _timezone = timezone; }
+    void set_int96_timezone(const cctz::time_zone* timezone) { _int96_timezone = timezone; }
     void set_enable_strict_mode(bool enable_strict_mode) {
         _enable_strict_mode = enable_strict_mode;
     }
@@ -218,6 +219,7 @@ private:
     int64_t _merge_read_slice_size = -1;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     const cctz::time_zone* _timezone = nullptr;
+    const cctz::time_zone* _int96_timezone = nullptr;
     bool _enable_strict_mode = false;
     int64_t _batch_size = DEFAULT_READ_BATCH_SIZE;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;

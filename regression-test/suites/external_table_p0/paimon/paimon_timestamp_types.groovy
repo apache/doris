@@ -23,6 +23,7 @@ suite("paimon_timestamp_types", "p0,external") {
         return
     }
 
+    def originalTimeZone = sql("SELECT @@time_zone")[0][0]
     try {
         String catalog_name = "paimon_timestamp_types"
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
@@ -44,6 +45,8 @@ suite("paimon_timestamp_types", "p0,external") {
         sql """use flink_paimon;"""
         logger.info("use test_paimon_db")
 
+        // The expected timestamp_ltz values are defined in the Asia/Shanghai timezone.
+        sql """set time_zone = 'Asia/Shanghai'"""
 
         def test_ltz_ntz = { table -> 
             qt_ltz_ntz2 """ select * from ${table} """
@@ -108,10 +111,11 @@ suite("paimon_timestamp_types", "p0,external") {
         test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet")
     } finally {
         sql """set force_jni_scanner=false"""
+        sql """set time_zone = '${originalTimeZone}'"""
     }
 
     // TODO:
-    // 1. Fix: native read + parquet + timestamp(7/8/9) (ts7,ts8,ts9), it will be 8 hour more
+    // 1. Fix: FileScannerV1 + parquet + timestamp(7/8/9) (ts7,ts8,ts9), it will be 8 hour more
     // 2. paimon bugs: native read + orc + timestamp_ltz.
     //                 In the Shanghai time zone, the read data will be 8 hours less, 
     //                 because the data written by Flink to the orc file is UTC, but the time zone saved in the orc file is Shanghai.

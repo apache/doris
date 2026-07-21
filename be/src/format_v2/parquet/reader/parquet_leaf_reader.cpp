@@ -376,7 +376,15 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
     view.decimal_scale = _type_descriptor.decimal_scale;
     view.fixed_length = _type_descriptor.fixed_length;
     view.timestamp_is_adjusted_to_utc = _type_descriptor.timestamp_is_adjusted_to_utc;
-    view.timezone = _timezone;
+    // INT96 has no timezone annotation, so the writer's convention cannot be inferred from the
+    // file. Match Trino's explicit hive.parquet.time-zone behavior instead of guessing from
+    // created_by or using the SQL session timezone:
+    // - With no catalog property, keep the raw wall clock. For example, raw 2021-01-01 10:11 in a
+    //   Trino/UTC file stays 10:11 instead of becoming 18:11 in an Asia/Shanghai session.
+    // - With hive.parquet.time-zone=Asia/Shanghai, interpret a legacy Hive-normalized raw 02:11 as
+    //   a UTC epoch and convert it back to the original local wall clock 10:11.
+    // TIMESTAMPTZ intentionally ignores this pointer in its SerDe and keeps the same UTC instant.
+    view.timezone = batch._value_kind == DecodedValueKind::INT96 ? _int96_timezone : _timezone;
     view.enable_strict_mode = _enable_strict_mode;
     view.null_map = null_map == nullptr || null_map->empty() ? nullptr : null_map->data();
     const bool read_dense_for_nullable = batch._read_dense_for_nullable && view.null_map != nullptr;
@@ -469,7 +477,8 @@ ParquetLeafReader::ParquetLeafReader(
         std::shared_ptr<::parquet::internal::RecordReader> record_reader,
         ParquetColumnReaderProfile profile, const cctz::time_zone* timezone,
         bool enable_strict_mode,
-        std::function<Status(MutableColumnPtr&, const DecodedColumnView&)> decoded_value_appender)
+        std::function<Status(MutableColumnPtr&, const DecodedColumnView&)> decoded_value_appender,
+        const cctz::time_zone* int96_timezone)
         : _descriptor(descriptor),
           _type_descriptor(type_descriptor),
           _type(std::move(type)),
@@ -477,6 +486,7 @@ ParquetLeafReader::ParquetLeafReader(
           _record_reader(std::move(record_reader)),
           _profile(profile),
           _timezone(timezone),
+          _int96_timezone(int96_timezone),
           _enable_strict_mode(enable_strict_mode),
           _decoded_value_appender(std::move(decoded_value_appender)) {}
 
@@ -736,7 +746,8 @@ Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
     batch->values_column = value_type->create_column();
     if (values_written > 0) {
         ParquetLeafReader value_reader(_descriptor, _type_descriptor, value_type, _name,
-                                       _record_reader, _profile, _timezone, _enable_strict_mode);
+                                       _record_reader, _profile, _timezone, _enable_strict_mode,
+                                       nullptr, _int96_timezone);
         RETURN_IF_ERROR(value_reader.append_values(leaf_batch, values_written, &value_nulls,
                                                    batch->values_column));
     }

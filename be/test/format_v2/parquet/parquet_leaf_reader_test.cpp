@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <parquet/api/schema.h>
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -76,7 +77,8 @@ struct CapturedDecodedView {
 ParquetLeafReader make_spy_leaf_reader(ParquetTypeDescriptor descriptor, DataTypePtr type,
                                        CapturedDecodedView* captured,
                                        const cctz::time_zone* timezone = nullptr,
-                                       bool enable_strict_mode = false) {
+                                       bool enable_strict_mode = false,
+                                       const cctz::time_zone* int96_timezone = nullptr) {
     auto appender = [captured](MutableColumnPtr&, const DecodedColumnView& view) {
         captured->value_kind = view.value_kind;
         captured->time_unit = view.time_unit;
@@ -117,7 +119,7 @@ ParquetLeafReader make_spy_leaf_reader(ParquetTypeDescriptor descriptor, DataTyp
         return Status::OK();
     };
     return ParquetLeafReader(nullptr, descriptor, std::move(type), "leaf", nullptr, {}, timezone,
-                             enable_strict_mode, std::move(appender));
+                             enable_strict_mode, std::move(appender), int96_timezone);
 }
 
 } // namespace
@@ -352,6 +354,34 @@ TEST(ParquetLeafReaderTest, DecodedColumnViewCarriesDescriptorSessionAndNullMapF
     const NullMap empty_null_map;
     ASSERT_TRUE(reader.append_values(batch, 3, &empty_null_map, required_column).ok());
     EXPECT_TRUE(captured.null_map_is_null);
+}
+
+TEST(ParquetLeafReaderTest, Int96UsesOnlyExplicitHiveParquetTimezone) {
+    ParquetTypeDescriptor descriptor;
+    descriptor.physical_type = ::parquet::Type::INT96;
+    auto type = std::make_shared<DataTypeInt64>();
+    cctz::time_zone session_timezone;
+    cctz::time_zone hive_parquet_timezone;
+    ASSERT_TRUE(cctz::load_time_zone("America/Los_Angeles", &session_timezone));
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &hive_parquet_timezone));
+
+    CapturedDecodedView captured;
+    auto reader = make_spy_leaf_reader(descriptor, type, &captured, &session_timezone, false,
+                                       &hive_parquet_timezone);
+    const std::array<uint8_t, 12> int96_value {};
+    ParquetLeafBatch batch;
+    batch._value_kind = DecodedValueKind::INT96;
+    batch._fixed_values = int96_value.data();
+    batch._values_written = 1;
+    auto column = type->create_column();
+
+    ASSERT_TRUE(reader.append_values(batch, 1, nullptr, column).ok());
+    EXPECT_EQ(captured.timezone, &hive_parquet_timezone);
+
+    captured.timezone = &session_timezone;
+    auto default_reader = make_spy_leaf_reader(descriptor, type, &captured, &session_timezone);
+    ASSERT_TRUE(default_reader.append_values(batch, 1, nullptr, column).ok());
+    EXPECT_EQ(captured.timezone, nullptr);
 }
 
 TEST(ParquetLeafReaderTest, DecodedColumnViewCapturesBinaryFixedLengthAndFloat16Override) {

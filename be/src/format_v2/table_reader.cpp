@@ -754,10 +754,14 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
                                              _scan_params->__isset.enable_mapping_timestamp_tz &&
                                              _scan_params->enable_mapping_timestamp_tz;
+    const std::string hive_parquet_time_zone =
+            _scan_params != nullptr && _scan_params->__isset.hive_parquet_time_zone
+                    ? _scan_params->hive_parquet_time_zone
+                    : "";
     if (_format == FileFormat::PARQUET) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, hive_parquet_time_zone);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {

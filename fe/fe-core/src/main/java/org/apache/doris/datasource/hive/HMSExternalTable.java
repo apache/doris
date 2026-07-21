@@ -604,6 +604,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
+    public String getHiveParquetTimeZone() throws UserException {
+        if (getDlaType() == DLAType.ICEBERG) {
+            return "";
+        }
+        return ((HMSExternalCatalog) getCatalog()).getHiveParquetTimeZone();
+    }
+
+    @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());

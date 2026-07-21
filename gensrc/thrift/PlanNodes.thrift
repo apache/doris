@@ -560,6 +560,9 @@ struct TFileScanRangeParams {
     32: optional map<string, string> es_docvalue_context
     // ES fields field→keyword mappings
     33: optional map<string, string> es_fields_context
+    // HMS catalog property hive.parquet.time-zone. When absent, format_v2 keeps INT96 wall-clock
+    // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
+    34: optional string hive_parquet_time_zone
 }
 
 struct TFileRangeDesc {

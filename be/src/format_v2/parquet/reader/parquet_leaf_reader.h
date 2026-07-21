@@ -103,7 +103,8 @@ public:
                       ParquetColumnReaderProfile profile = {},
                       const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false,
                       std::function<Status(MutableColumnPtr&, const DecodedColumnView&)>
-                              decoded_value_appender = nullptr);
+                              decoded_value_appender = nullptr,
+                      const cctz::time_zone* int96_timezone = nullptr);
 
     Status read_batch(int64_t batch_rows, ParquetLeafBatch* batch, int64_t* rows_read) const;
 
@@ -166,7 +167,8 @@ private:
             _record_reader;                     // Arrow physical column reader (shared ownership)
     ParquetColumnReaderProfile _profile;        // profile counters
     const cctz::time_zone* _timezone = nullptr; // timezone for timestamp conversion
-    bool _enable_strict_mode = false;           // strict mode for type mismatch errors
+    const cctz::time_zone* _int96_timezone = nullptr;
+    bool _enable_strict_mode = false; // strict mode for type mismatch errors
     std::function<Status(MutableColumnPtr&, const DecodedColumnView&)> _decoded_value_appender;
 };
 

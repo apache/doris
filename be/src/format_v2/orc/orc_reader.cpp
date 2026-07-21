@@ -500,7 +500,15 @@ DateV2Value<DateTimeV2ValueType> datetime_v2_from_orc_millis(int64_t millis, int
         millis_remainder += 1000;
     }
     const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
-    const auto microseconds = cast_set<uint64_t>(millis_remainder * 1000 + extra_nanos / 1000);
+    constexpr int64_t NANOS_PER_MICROSECOND = 1000;
+    constexpr int64_t MICROS_PER_SECOND = 1000000;
+    // Stripe statistics split the timestamp into milliseconds and the remaining nanoseconds. Use
+    // the same half-up rule as row decoding so zone-map pruning observes identical values.
+    const auto rounded_extra_microseconds =
+            (extra_nanos + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
+    const auto microseconds_with_carry = millis_remainder * 1000 + rounded_extra_microseconds;
+    seconds += microseconds_with_carry / MICROS_PER_SECOND;
+    const auto microseconds = cast_set<uint64_t>(microseconds_with_carry % MICROS_PER_SECOND);
     DateV2Value<DateTimeV2ValueType> value;
     value.from_unixtime(seconds, timezone);
     value.set_microsecond(microseconds);
@@ -2110,6 +2118,16 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             _state->reader->getWriterVersion() < ::orc::WriterVersion_ORC_135) {
             return Status::NotSupported(
                     "ORC TIMESTAMP min/max statistics are unsafe before writer version ORC-135");
+        }
+        if (leaf_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT &&
+            !_enable_mapping_timestamp_tz) {
+            // Raw timestamp order does not preserve local DATETIMEV2 order across a DST fold.
+            int32_t fixed_offset_seconds = 0;
+            if (!TimezoneUtils::try_get_fixed_offset_seconds(_state->timezone_obj,
+                                                             &fixed_offset_seconds)) {
+                return Status::NotSupported(
+                        "ORC timestamp min/max pushdown requires a fixed-offset timezone");
+            }
         }
 
         auto& aggregate_column = result->columns[column_idx];

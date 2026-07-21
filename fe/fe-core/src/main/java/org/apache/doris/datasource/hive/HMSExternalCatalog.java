@@ -20,6 +20,8 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -65,7 +67,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // But notice that if set to true, the default value of column will be ignored because we cannot get default value
     // from remoteTable object.
     public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
-
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
     private SpiSwitchingFileSystem spiFileSystem;
@@ -123,7 +124,22 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "The parameter " + PARTITION_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
         }
+
+        getHiveParquetTimeZone();
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractHiveProperties.class);
+    }
+
+    /**
+     * Timezone used to reverse legacy Parquet INT96 writer normalization. This intentionally
+     * follows Trino's hive.parquet.time-zone catalog property instead of the SQL session timezone.
+     * An empty value keeps INT96 wall-clock fields unchanged. A configured value applies to Hive
+     * and Hudi Parquet files in this catalog because Parquet metadata cannot reliably identify the
+     * writer's timezone convention. Iceberg timestamp semantics are defined by its table format
+     * and intentionally ignore this property.
+     */
+    public String getHiveParquetTimeZone() throws DdlException {
+        return FileFormatUtils.parseHiveParquetTimeZone(catalogProperty.getOrDefault(
+                FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, ""));
     }
 
     @Override

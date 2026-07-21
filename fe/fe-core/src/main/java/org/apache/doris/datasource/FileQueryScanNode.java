@@ -45,6 +45,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
@@ -191,6 +192,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
+        String hiveParquetTimeZone = getHiveParquetTimeZone();
+        if (!hiveParquetTimeZone.isEmpty()) {
+            params.setHiveParquetTimeZone(hiveParquetTimeZone);
+        }
     }
 
     private void updateRequiredSlots() throws UserException {
@@ -680,6 +685,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     e.getMessage());
         }
         return false;
+    }
+
+    protected String getHiveParquetTimeZone() throws UserException {
+        TableIf table = getTargetTable();
+        if (table instanceof ExternalTable) {
+            return ((ExternalTable) table).getHiveParquetTimeZone();
+        }
+        if (table instanceof FunctionGenTable) {
+            FunctionGenTable functionGenTable = (FunctionGenTable) table;
+            TableValuedFunctionIf tvf = functionGenTable.getTvf();
+            return tvf.getHiveParquetTimeZone();
+        }
+        return "";
     }
 
     protected abstract List<String> getPathPartitionKeys() throws UserException;

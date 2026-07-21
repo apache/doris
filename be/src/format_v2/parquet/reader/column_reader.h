@@ -156,7 +156,8 @@ public:
                                ParquetPageSkipProfile page_skip_profile = {},
                                const cctz::time_zone* timezone = nullptr,
                                bool enable_strict_mode = false,
-                               ParquetColumnReaderProfile column_reader_profile = {});
+                               ParquetColumnReaderProfile column_reader_profile = {},
+                               const cctz::time_zone* int96_timezone = nullptr);
 
     Status create(const ParquetColumnSchema& column_schema,
                   const format::LocalColumnIndex* projection,
@@ -225,6 +226,7 @@ private:
             nullptr;                                   // page-index pruning result
     ParquetPageSkipProfile _page_skip_profile;         // page skip profile
     const cctz::time_zone* _timezone = nullptr;        // timezone
+    const cctz::time_zone* _int96_timezone = nullptr;  // explicit timezone for legacy INT96
     bool _enable_strict_mode = false;                  // strict mode
     ParquetColumnReaderProfile _column_reader_profile; // column reader profile
 };

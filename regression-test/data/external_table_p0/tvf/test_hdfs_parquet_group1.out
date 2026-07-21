@@ -90,9 +90,9 @@
 [{"latitude":0, "longitude":180}, {"latitude":0, "longitude":0}]
 
 -- !test_17 --
-1	1880-01-01T15:58:41
-2	1884-01-01T16:05:43
-3	1990-01-01T16:00
+1	1880-01-01T07:52:58
+2	1884-01-01T08:00
+3	1990-01-01T08:00
 
 -- !test_18 --
 [{"latitude":0, "longitude":0}, null, {"latitude":0, "longitude":180}]

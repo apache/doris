@@ -38,6 +38,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -123,6 +124,8 @@ public class ExportJob implements Writable {
     private String columns;
     @SerializedName("format")
     private String format;
+    @SerializedName("enableInt96Timestamps")
+    private String enableInt96Timestamps;
     @SerializedName("timeoutSecond")
     private int timeoutSecond;
     @SerializedName("maxFileSize")
@@ -482,6 +485,11 @@ public class ExportJob implements Writable {
         // compressType == null means outfile will use default compression type
         if (compressType != null) {
             outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+        }
+
+        if (enableInt96Timestamps != null) {
+            outfileProperties.put(ParquetFileFormatProperties.ENABLE_INT96_TIMESTAMPS,
+                    enableInt96Timestamps);
         }
 
         if (!maxFileSize.isEmpty()) {

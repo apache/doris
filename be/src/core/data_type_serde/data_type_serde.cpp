@@ -476,6 +476,24 @@ int64_t find_struct_child_index(const ::orc::Type& type, const std::string& fiel
     return -1;
 }
 
+struct RoundedOrcTimestamp {
+    int64_t seconds;
+    uint64_t microseconds;
+};
+
+RoundedOrcTimestamp round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds) {
+    constexpr int64_t NANOS_PER_SECOND = 1000000000;
+    constexpr int64_t NANOS_PER_MICROSECOND = 1000;
+    constexpr int64_t MICROS_PER_SECOND = 1000000;
+    DORIS_CHECK(nanoseconds >= 0 && nanoseconds < NANOS_PER_SECOND);
+    // Doris stores six fractional digits, so use half-up rounding and carry 999999500ns into the
+    // next second instead of silently truncating the ORC value.
+    const auto rounded_microseconds =
+            (nanoseconds + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
+    return {.seconds = seconds + rounded_microseconds / MICROS_PER_SECOND,
+            .microseconds = cast_set<uint64_t>(rounded_microseconds % MICROS_PER_SECOND)};
+}
+
 Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view,
                                    const cctz::time_zone& timezone) {
     const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
@@ -495,8 +513,10 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
-        value.from_unixtime(orc_batch->data[source_row], timezone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        const auto timestamp = round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row]);
+        value.from_unixtime(timestamp.seconds, timezone);
+        value.set_microsecond(timestamp.microseconds);
     }
     return Status::OK();
 }
@@ -520,8 +540,10 @@ Status decode_timestamp_tz_orc_values(IColumn& nested_column,
             continue;
         }
         auto& value = data[old_data_size + row];
-        value.from_unixtime(orc_batch->data[source_row], utc_time_zone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        const auto timestamp = round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row]);
+        value.from_unixtime(timestamp.seconds, utc_time_zone);
+        value.set_microsecond(timestamp.microseconds);
     }
     return Status::OK();
 }

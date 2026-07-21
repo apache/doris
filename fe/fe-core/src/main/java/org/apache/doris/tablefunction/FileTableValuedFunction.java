@@ -110,6 +110,11 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     @Override
+    public String getHiveParquetTimeZone() {
+        return delegateTvf.getHiveParquetTimeZone();
+    }
+
+    @Override
     public void checkAuth(ConnectContext ctx) {
         delegateTvf.checkAuth(ctx);
     }
