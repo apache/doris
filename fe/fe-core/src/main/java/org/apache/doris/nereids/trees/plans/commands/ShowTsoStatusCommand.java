@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -39,7 +40,7 @@ import java.util.List;
 /**
  * Command for SHOW TSO STATUS.
  */
-public class ShowTsoStatusCommand extends ShowCommand implements ForwardNoSync {
+public class ShowTsoStatusCommand extends ShowCommand {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("window_end_physical_time",
@@ -83,5 +84,10 @@ public class ShowTsoStatusCommand extends ShowCommand implements ForwardNoSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowTsoStatusCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
