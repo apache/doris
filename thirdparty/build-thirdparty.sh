@@ -2144,37 +2144,26 @@ build_lance_c() {
         exit 1
     fi
 
+    local required_rust_version="1.91.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
         "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
-        if rustup toolchain list | grep -q '^1.91.0'; then
-            cargo_env+=("RUSTUP_TOOLCHAIN=1.91.0")
+        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
         fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
     fi
 
-    local required_rust_version="1.91.0"
     local cargo_version
     if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
-            split(required, r, ".");
-            split(actual, a, ".");
-            for (i = 1; i <= 3; i++) {
-                if ((a[i] + 0) > (r[i] + 0)) {
-                    exit 0;
-                }
-                if ((a[i] + 0) < (r[i] + 0)) {
-                    exit 1;
-                }
-            }
-            exit 0;
-        }'; then
-        echo "lance-c requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
+    if [[ "${cargo_version}" != "${required_rust_version}" ]]; then
+        echo "lance-c requires Rust/Cargo ${required_rust_version}, but found ${cargo_version}."
         echo "Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi

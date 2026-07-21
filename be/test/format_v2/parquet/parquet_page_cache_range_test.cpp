@@ -115,6 +115,45 @@ TEST(ParquetPageCacheRangeTest, InvalidRequestMisses) {
     EXPECT_TRUE(detail::plan_page_cache_range_read(100, -1, cached_ranges).empty());
 }
 
+TEST(ParquetPageCacheRangeTest, PerFileRangeIndexDeduplicatesAndEvictsAtCapacity) {
+    detail::ParquetPageCacheRangeIndex index(3);
+    index.insert({200, 20});
+    index.insert({100, 30});
+    index.insert({100, 10});
+    index.insert({100, 30});
+
+    EXPECT_EQ(index.size(), 3);
+    index.insert({300, 40});
+    const auto ranges = index.ranges();
+    ASSERT_EQ(ranges.size(), 3);
+    EXPECT_EQ(ranges[0].offset, 100);
+    EXPECT_EQ(ranges[0].size, 30);
+    EXPECT_EQ(ranges[1].offset, 200);
+    EXPECT_EQ(ranges[1].size, 20);
+    EXPECT_EQ(ranges[2].offset, 300);
+
+    index.erase({100, 30});
+    EXPECT_EQ(index.size(), 2);
+}
+
+TEST(ParquetPageCacheRangeTest, DirectorySharesBoundedIndexAcrossReaderLifetimes) {
+    detail::ParquetPageCacheRangeDirectory directory(2);
+    auto first_reader_index = directory.get_or_create("file-a");
+    first_reader_index->insert({100, 100});
+    first_reader_index.reset();
+
+    // The directory owns the per-file index, so reader B still discovers reader A's wider cache
+    // entry and can plan a subset hit after A closes.
+    auto second_reader_index = directory.get_or_create("file-a");
+    const auto plan = detail::plan_page_cache_range_read(120, 30, second_reader_index->ranges());
+    ASSERT_EQ(plan.size(), 1);
+    expect_plan_entry(plan[0], {100, 100}, 20, 0, 30);
+
+    directory.get_or_create("file-b");
+    directory.get_or_create("file-c");
+    EXPECT_EQ(directory.size(), 2);
+}
+
 TEST(ParquetPageCacheRangeTest, ValidPrefetchRangesSkipInvalidAndOverflowRanges) {
     const std::vector<ParquetPageCacheRange> ranges = {
             {100, 50},

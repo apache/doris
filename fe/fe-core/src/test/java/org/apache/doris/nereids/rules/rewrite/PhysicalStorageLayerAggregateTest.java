@@ -75,7 +75,26 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                 .applyImplementation(storageLayerAggregateWithoutProject())
                 .matches(
                     logicalAggregate(
-                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
+                                && agg.getCountArgumentExprIds().equals(
+                                        ImmutableList.of(olapScan.getOutput().get(0).getExprId())))
+                    )
+                );
+
+        // COUNT(*) still keeps a placeholder scan slot after column pruning, so its semantic
+        // argument list must remain empty instead of being inferred from the physical scan shape.
+        aggregate = new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(), "count_star")),
+                true, Optional.empty(), olapScan);
+        context = MemoTestUtils.createCascadesContext(aggregate);
+
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithoutProject())
+                .matches(
+                    logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
+                                && agg.getCountArgumentExprIds().isEmpty())
                     )
                 );
 
@@ -138,7 +157,9 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                 .matches(
                     logicalAggregate(
                         logicalProject(
-                            physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)
+                            physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
+                                    && agg.getCountArgumentExprIds().equals(
+                                            ImmutableList.of(olapScan.getOutput().get(0).getExprId())))
                         )
                     )
                 );
