@@ -388,6 +388,17 @@ const schema::external::TField* find_external_root_field(const TFileScanRangePar
     if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
+    if (!supports_iceberg_scan_semantics_v1(params)) {
+        // Old BEs used one ordered current-name/alias pass. Preserve that result for old-FE plans
+        // until the explicit scan-semantics marker makes exact-name precedence cluster-wide.
+        for (const auto& field_ptr : schema->root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr && external_field_matches_name(*field, column.name)) {
+                return field;
+            }
+        }
+        return nullptr;
+    }
     // A reused name identifies the newly added field, not an older sibling that retained that
     // spelling as an alias. Exhaust exact current names before consulting historical aliases.
     for (const auto& field_ptr : schema->root_field.fields) {

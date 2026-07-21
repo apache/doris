@@ -253,6 +253,29 @@ TEST(AccessPathParserTest, CurrentStructNameTakesPriorityOverHistoricalAlias) {
     expect_child(column.children[0], 2, "b");
 }
 
+TEST(AccessPathParserTest, LegacyPlanRetainsOrderedStructNameAndAliasLookup) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                        Strings {"renamed_b", "b"});
+    format::ColumnDefinition schema {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "s",
+            .type = struct_type,
+            .children =
+                    {
+                            field(1, "renamed_b", int_type, {}, {"b"}, true),
+                            field(2, "b", int_type, {}, {}, true),
+                    },
+    };
+
+    auto column = root_column(100, "s", struct_type);
+    auto status = AccessPathParser::build_nested_children(
+            &column, std::vector<TColumnAccessPath> {data_access_path({"s", "b"})}, &schema, false);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(column.children.size(), 1);
+    expect_child(column.children[0], 1, "renamed_b");
+}
+
 // Scenario: array access paths must pass through the "*" element token, then reuse struct child
 // parsing under the element wrapper; invalid array tokens are rejected.
 TEST(AccessPathParserTest, ArrayAccessPathMatrix) {

@@ -2772,6 +2772,57 @@ TEST(IcebergV2ReaderTest, ReusedRootNameReadsNewFieldInitialDefault) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(IcebergV2ReaderTest, LegacyPlanRetainsOrderedRootNameAndAliasLookupWithAllFieldIds) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_legacy_reused_root_name_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_two_int_parquet_file(file_path, "renamed_b", {10}, 1, "b", {20}, 2);
+
+    auto renamed_b = external_schema_field("renamed_b", 1, {"b"}, std::nullopt,
+                                           external_primitive_type(TPrimitiveType::INT));
+    renamed_b.field_ptr->__set_name_mapping_is_authoritative(true);
+    auto current_b = external_schema_field("b", 2, {}, std::nullopt,
+                                           external_primitive_type(TPrimitiveType::INT));
+    current_b.field_ptr->__set_name_mapping({});
+    current_b.field_ptr->__set_name_mapping_is_authoritative(true);
+
+    TFileScanRangeParams old_fe_scan_params;
+    old_fe_scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    old_fe_scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    old_fe_scan_params.__set_current_schema_id(100);
+    old_fe_scan_params.__set_history_schema_info({external_schema(100, {renamed_b, current_b})});
+
+    auto projected_b = make_table_column(-1, "b", std::make_shared<DataTypeInt32>());
+    ProjectedColumnBuildContext context {.scan_params = &old_fe_scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader annotation_reader;
+    ASSERT_TRUE(
+            annotation_reader.annotate_projected_column(slot_info, &context, &projected_b).ok());
+    ASSERT_EQ(projected_b.get_identifier_field_id(), 1);
+    std::vector<ColumnDefinition> projected_columns = {projected_b};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &old_fe_scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({10}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(IcebergV2ReaderTest, ReusedNestedNameReadsNewFieldInitialDefault) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_reused_nested_name_test";

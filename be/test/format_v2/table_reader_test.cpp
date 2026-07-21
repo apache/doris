@@ -1953,6 +1953,7 @@ TEST(TableReaderTest, AnnotateProjectedColumnPrefersCurrentNameOverHistoricalAli
     current_field.field_ptr->__set_name_mapping_is_authoritative(true);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {renamed_field, current_field})});
 
@@ -1965,6 +1966,29 @@ TEST(TableReaderTest, AnnotateProjectedColumnPrefersCurrentNameOverHistoricalAli
     EXPECT_EQ(projected.get_identifier_field_id(), 2);
     ASSERT_TRUE(projected.has_name_mapping);
     EXPECT_TRUE(projected.name_mapping.empty());
+}
+
+TEST(TableReaderTest, LegacyPlanRetainsOrderedCurrentNameAndAliasLookup) {
+    auto renamed_field = external_schema_field("renamed_b", 1, {"b"});
+    renamed_field.field_ptr->__set_name_mapping_is_authoritative(true);
+    auto current_field = external_schema_field("b", 2);
+    current_field.field_ptr->__set_name_mapping({});
+    current_field.field_ptr->__set_name_mapping_is_authoritative(true);
+
+    TFileScanRangeParams old_fe_scan_params;
+    old_fe_scan_params.__set_current_schema_id(100);
+    old_fe_scan_params.__set_history_schema_info(
+            {external_schema(100, {renamed_field, current_field})});
+
+    ColumnDefinition projected = make_table_column(-1, "b", std::make_shared<DataTypeInt32>());
+    ProjectedColumnBuildContext context {.scan_params = &old_fe_scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &projected).ok());
+
+    EXPECT_EQ(projected.get_identifier_field_id(), 1);
+    ASSERT_TRUE(projected.has_name_mapping);
+    EXPECT_EQ(projected.name_mapping, std::vector<std::string>({"b"}));
 }
 
 TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefaultExpr) {
