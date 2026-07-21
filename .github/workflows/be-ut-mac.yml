@@ -19,6 +19,7 @@ name: BE UT (macOS)
 
 on:
   pull_request:
+    types: [opened, synchronize]
   schedule:
     - cron: '0 4,10,16,22 * * *'    # schedule it periodically to share the cache
 
