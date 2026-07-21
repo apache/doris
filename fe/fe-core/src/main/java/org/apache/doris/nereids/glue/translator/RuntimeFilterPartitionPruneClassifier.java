@@ -33,6 +33,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
@@ -78,6 +79,9 @@ final class RuntimeFilterPartitionPruneClassifier {
         }
         if (hasUnsupportedAutomaticPartitionExpression(partitionInfo)) {
             return Classification.unsupported("automatic partition expression boundary is not modeled");
+        }
+        if (nereidsTargetExpr.containsType(NoneMovableFunction.class)) {
+            return Classification.unsupported("target expression contains non-movable function");
         }
 
         if (targetExpr instanceof SlotRef) {
