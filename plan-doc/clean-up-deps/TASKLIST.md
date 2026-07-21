@@ -67,17 +67,19 @@
 
 **前置**：Batch 1–3 完成更干净。**风险**：高——**这些是 live 未迁移特性，须走连接器 SPI 委派，不是删除**。每子项先出迁移设计再动手，遵守架构铁律（HANDOFF §2）。
 
-- [ ] **T5.1** iceberg 行级 DML 簇（~15 文件）：`IcebergRowLevelDmlTransform` + `Iceberg{Delete,Merge,Update}Command` + `IcebergMetadataColumn`/`IcebergRowId` + `Logical/PhysicalIcebergDeleteSink`/`MergeSink` + 实现规则 + `PhysicalPlanTranslator` visitor + `DataPartition.IcebergPartitionField`/`DistributionSpecMerge.IcebergPartitionField` + `ExplainCommand` 分支。→ 设计 SPI 行级 DML 委派。
-- [ ] **T5.2** legacy `engine=hive` 簇：`catalog/HiveTable.java`（源特有类 + 属性解析）、`catalog/HMSResource.java`、`load/BrokerFileGroup.java:198` + `nereids/load/NereidsBrokerFileGroup.java:215`、`catalog/Env.java:4480/:4847` show-create 臂。
-- [ ] **T5.3** `ranger-hive` 授权包（`catalog/authorizer/ranger/hive/*`，9 文件，ServiceLoader head `RangerHiveAccessControllerFactory`）——授权迁移轴。
-- [ ] **T5.4** hudi `hudi_meta` TVF：`tablefunction/HudiTableValuedFunction.java`、`tablefunction/MetadataGenerator.java`（`hudiMetadataResult` + `case HUDI`）、`nereids/trees/expressions/functions/table/HudiMeta.java`。
-- [ ] **T5.5** 分散的按源分支：
+> **顺序**（2026-07-21 用户调整）：iceberg 行级 DML 簇工作量最大、风险最高，**移到最后**做；先啃独立性强、边界清晰的小项（hudi TVF、ranger-hive、engine=hive、散点分支）。es 兼容桩碰持久化兼容，属长期保留候选。
+
+- [ ] **T5.1** legacy `engine=hive` 簇：`catalog/HiveTable.java`（源特有类 + 属性解析）、`catalog/HMSResource.java`、`load/BrokerFileGroup.java:198` + `nereids/load/NereidsBrokerFileGroup.java:215`、`catalog/Env.java:4480/:4847` show-create 臂。
+- [ ] **T5.2** `ranger-hive` 授权包（`catalog/authorizer/ranger/hive/*`，9 文件，ServiceLoader head `RangerHiveAccessControllerFactory`）——授权迁移轴。
+- [ ] **T5.3** hudi `hudi_meta` TVF：`tablefunction/HudiTableValuedFunction.java`、`tablefunction/MetadataGenerator.java`（`hudiMetadataResult` + `case HUDI`）、`nereids/trees/expressions/functions/table/HudiMeta.java`。
+- [ ] **T5.4** 分散的按源分支：
   - `nereids/trees/plans/commands/info/CreateTableInfo.java`（paimon :788、iceberg :784、es :818/:1140 分支）
   - `qe/Coordinator.java:2634` 按源 if-链
   - `datasource/property/storage/AzureProperties.java:311` `isIcebergRestCatalog`（源码有 TODO）
   - `common/util/DatasourcePrintableMap.java:20/55` maxcompute 遮蔽 → **改字符串字面量 `"mc.secret_key"`**（见 HANDOFF §4 风险）
   - `datasource/InternalCatalog.java:1281` es 弃用 guard
-- [ ] **T5.6** es 兼容桩 `catalog/EsTable.java` / `catalog/EsResource.java`——碰持久化镜像反序列化，放最后或长期保留（先评估能否安全去除）。
+- [ ] **T5.5** es 兼容桩 `catalog/EsTable.java` / `catalog/EsResource.java`——碰持久化镜像反序列化，长期保留候选（先评估能否安全去除）。
+- [ ] **T5.6** iceberg 行级 DML 簇（~15 文件，**工作量最大，故排最后**）：`IcebergRowLevelDmlTransform` + `Iceberg{Delete,Merge,Update}Command` + `IcebergMetadataColumn`/`IcebergRowId` + `Logical/PhysicalIcebergDeleteSink`/`MergeSink` + 实现规则 + `PhysicalPlanTranslator` visitor + `DataPartition.IcebergPartitionField`/`DistributionSpecMerge.IcebergPartitionField` + `ExplainCommand` 分支。→ 设计 SPI 行级 DML 委派。
 
 ---
 

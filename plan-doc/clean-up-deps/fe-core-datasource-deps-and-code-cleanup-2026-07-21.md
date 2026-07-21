@@ -211,12 +211,12 @@ ES 连接器**已迁走**（fe-core 无 `datasource/es/`、pom 无 elasticsearch
 - 定性经 4 个对抗 agent 独立反证（反射/config、ranger 审计、BOS 原生、跨模块+BE），全部 `refuted=false`（high）。
 
 ### 批次 5 —— live 源特有逻辑的迁移（独立设计，非本次"删依赖"）
-按数据源分别设计 SPI 委派，把以下请出 fe-core（顺序与 catalog-SPI 迁移主线对齐）：
-- **iceberg 行级 DML 簇**（B.1(b)，~15 文件）——工作量最大。
+按数据源分别设计 SPI 委派，把以下请出 fe-core（**顺序 2026-07-21 调整**：iceberg 行级 DML 工作量最大、移到最后；先做小而独立的项）：
 - **legacy engine=hive 簇**（`HiveTable`/`HMSResource`/`BrokerFileGroup` 分支/`Env` show-create/`ranger-hive` 授权包）。
 - **hudi `hudi_meta` TVF**（3 文件）。
 - **paimon / es 的 `CreateTableInfo` 分支**、`Coordinator` 按源 if-链、`AzureProperties.isIcebergRestCatalog`（有 TODO）、`DatasourcePrintableMap` 的 maxcompute 遮蔽（改字符串字面量）。
-- **es 兼容桩**（`EsTable`/`EsResource`）——碰持久化兼容，最后处理或长期保留。
+- **es 兼容桩**（`EsTable`/`EsResource`）——碰持久化兼容，长期保留候选。
+- **iceberg 行级 DML 簇**（B.1(b)，~15 文件）——工作量最大，**排最后**。
 
 ---
 
