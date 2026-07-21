@@ -8,9 +8,9 @@
 
 ## Batch 0 — 起步（每个 session 开头做一次，不 commit）
 
-- [ ] **T0.1** 读 HANDOFF + 本文件 + 分析文档；对照真实代码 review。
-- [ ] **T0.2** 并发踩踏探测（`git log -5` / `git status` / maven 进程 / 近 90s mtime）；活跃则只写新文件、小步提交。
-- [ ] **T0.3** 建绿色基线：`mvn -f <repo>/fe/pom.xml -pl fe-core -am compile` 通过。
+- [x] **T0.1** 读 HANDOFF + 本文件 + 分析文档；对照真实代码 review。
+- [x] **T0.2** 并发踩踏探测：本仓无活跃 maven/无近 90s 改动；活跃 maven 在**兄弟 worktree** `git/doris`（跑 FE 测试，不碰本树源码），仅共享 `~/.m2` → 构建保持 compile-only。
+- [x] **T0.3** 建绿色基线：`test-compile -pl fe-core -am` BUILD SUCCESS。
 
 ---
 
@@ -18,13 +18,11 @@
 
 **前置**：无。**风险**：低。
 
-- [ ] **T1.1** 删 `com.dmetasoul:lakesoul-io-java`（pom `<dependencies>` 内的 lakesoul 段，约 L498–561，连同 exclusions）。
-  - 判据：fe-core `src/` 0 个 `com.dmetasoul`/lakesoul 类引用（全是 Gson 兼容字符串）。
-- [ ] **T1.2** 删 `org.scala-lang:scala-library`（provided，约 L569–574）。
-  - 判据：fe-core `src/` 0 个 `import scala.`。
-- [ ] **T1.3** `org.postgresql:postgresql`（provided，约 L563–568）：先处理 `src/test/java/org/apache/doris/catalog/JdbcResourceTest.java`（它 import `org.postgresql`）——迁移/改造该测试后再删；否则**暂缓**，标记为待办。
-- [ ] **T1.V** 验证：`mvn -f <repo>/fe/pom.xml -pl fe-core -am test-compile` 绿（到测试编译阶段）。
-- [ ] **T1.C** commit（英文信息，范围：`[chore](fe-core) drop deprecated lakesoul/scala provided deps`）。
+- [x] **T1.1** 删 `com.dmetasoul:lakesoul-io-java`（连同 exclusions）。核实 fe-core `src/` 0 个 `com.dmetasoul`/LakeSoul 类引用（全是 Gson 兼容字符串/枚举名）。
+- [x] **T1.2** 删 `org.scala-lang:scala-library`（provided）。核实 0 个 `import scala.`。
+- [x] **T1.3** 删 `org.postgresql:postgresql`（provided）——**未暂缓**。实证：`JdbcResourceTest` 里 postgresql 只是字符串字面量 `"org.postgresql.Driver"`（非 `import`），且 `JdbcResource`/`ResourceMgr`/`CreateResourceInfo` 的创建/校验/回放路径零 `Class.forName`/`DriverManager`；provided 本不进生产 runtime。删除安全。
+- [x] **T1.V** 验证：`test-compile -pl fe-core -am` BUILD SUCCESS。
+- [x] **T1.C** commit `76e6d5fcf2d` `[chore](fe-core) drop deprecated lakesoul/scala/postgresql provided deps`。
 
 ---
 
@@ -32,22 +30,12 @@
 
 **前置**：无（与 Batch 1 独立）。**风险**：低（均为已核验死代码）。动手前逐个用 grep 复核"零调用"。
 
-- [ ] **T2.1** 删 `statistics/util/StatisticsUtil.java` 的 `getIcebergColumnStats(...)` + private `getColId(...)` + 相关 `org.apache.iceberg.*` import。
-  - 前置复核：`grep -rn getIcebergColumnStats fe/` 仅剩定义行。
-  - 效果：斩断 fe-core**主源码**对 iceberg 库的最后一处编译引用。
-- [ ] **T2.2** 删 iceberg 死写路径：
-  - `nereids/analyzer/UnboundIcebergTableSink.java`（整类）
-  - `nereids/trees/plans/commands/insert/InsertUtils.java` 两处 `instanceof UnboundIcebergTableSink` 分支（约 :376、:597）
-  - `nereids/trees/plans/commands/insert/InsertOverwriteTableCommand.java` 的 `instanceof UnboundIcebergTableSink` 分支（约 :393，及其 `setStaticPartitionToContext` 重载）
-  - `nereids/trees/plans/commands/insert/IcebergInsertCommandContext.java`（整类）
-  - 前置复核：`grep -rn "new UnboundIcebergTableSink\|new IcebergInsertCommandContext" fe/` 仅剩自拷贝/被删分支。
-- [ ] **T2.3** 删 `nereids/trees/plans/commands/insert/HiveInsertCommandContext.java`（整类）。
-  - 前置复核：`grep -rn "new HiveInsertCommandContext" fe/` 为空（连接器仅 javadoc 提及）。
-- [ ] **T2.4** 注释纠错（保留依赖）：
-  - `pom.xml` `kryo-shaded`（约 L675）："for hudi catalog" → 指向 `WorkloadSchedPolicy`（`com.esotericsoftware.minlog.Log`）。
-  - `pom.xml` `avro`/`parquet-avro`（约 L627–636）：把"For Iceberg"改成说明真实用途=fe-core parquet reader（`common/parquet/ParquetReader.java`）。
-- [ ] **T2.V** 验证：`test-compile` 绿；`grep` 确认无悬空引用。
-- [ ] **T2.C** commit（`[chore](fe-core) remove dead iceberg/hive insert-sink code; fix stale pom comments`）。
+- [x] **T2.1** 删 `StatisticsUtil.getIcebergColumnStats` + `getColId` + 5 个 iceberg import。**额外**：删死方法后 `ColumnStatisticBuilder` / `java.util.Optional` 变未用（checkstyle 报），一并删。斩断 fe-core 主源码对 iceberg 库最后一处编译引用。
+- [x] **T2.2** 删 iceberg 死写路径：`UnboundIcebergTableSink`（整类）、`InsertUtils` 两处 `instanceof` 分支、`InsertOverwriteTableCommand` overwrite 分支 + `setStaticPartitionToContext`、`IcebergInsertCommandContext`（整类）。**TASKLIST 漏项**：`SinkVisitor.visitUnboundIcebergTableSink`（第 4 个引用者，无 override）已一并删。删后 `grep UnboundIcebergTableSink fe/` = CLEAN。
+- [x] **T2.3** 删 `HiveInsertCommandContext`（整类）。删后仅连接器 javadoc 提及。
+- [~] **T2.4** 注释纠错：`kryo-shaded` "for hudi catalog" → 指向 `WorkloadSchedPolicy`（**已改**）。`avro`/`parquet-avro` "For Iceberg" 注释**推迟到 Batch 3**——那两个依赖 Batch 3 会删/换（avro 删显式声明、parquet-avro→parquet-hadoop），注释随之处理，避免立即被推翻的 churn。
+- [x] **T2.V** 验证：`test-compile -pl fe-core -am` BUILD SUCCESS；悬空引用 grep = CLEAN；对抗复核见 HANDOFF。
+- [x] **T2.C** commit `0102a022341` `[chore](fe-core) remove dead iceberg/hive insert-sink code; fix stale pom comment`。
 
 ---
 
@@ -105,9 +93,9 @@
 
 | 批次 | 标题 | 风险 | 前置 | 状态 |
 |---|---|---|---|---|
-| 0 | 起步 | — | — | ⬜ |
-| 1 | 零风险依赖删除 | 低 | — | ⬜ |
-| 2 | 死代码 + 注释纠错 | 低 | — | ⬜ |
-| 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | ⬜ |
+| 0 | 起步 | — | — | ✅ |
+| 1 | 零风险依赖删除 | 低 | — | ✅ `76e6d5fcf2d` |
+| 2 | 死代码 + 注释纠错 | 低 | — | ✅ `0102a022341`（avro 注释顺延 B3） |
+| 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | ⬜ **下一步** |
 | 4 | 待定依赖定性 | 低 | — | ⬜ |
 | 5 | LIVE 源特有逻辑迁移 | 高 | B1–3 | ⬜ |
