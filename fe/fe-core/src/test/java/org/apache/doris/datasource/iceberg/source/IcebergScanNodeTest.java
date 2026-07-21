@@ -17,8 +17,12 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.TableFormatType;
@@ -26,18 +30,24 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
+import org.apache.doris.thrift.TPushAggOp;
 
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
@@ -88,6 +98,114 @@ public class IcebergScanNodeTest {
         protected boolean getEnableMappingVarbinary() {
             return enableMappingVarbinary;
         }
+
+        @Override
+        public List<String> getPathPartitionKeys() {
+            return Collections.emptyList();
+        }
+
+        void addSlot(int slotId, Column column) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc.getId());
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
+    }
+
+    @Test
+    public void testSystemTableProjectionMatchesFileSlotOrder() throws Exception {
+        Schema systemTableSchema = new Schema(
+                Types.NestedField.required(1, "file_path", Types.StringType.get()),
+                Types.NestedField.required(2, "record_count", Types.LongType.get()),
+                Types.NestedField.optional(3, "readable_metrics", Types.StructType.of(
+                        Types.NestedField.optional(4, "id", Types.StructType.of(
+                                Types.NestedField.optional(5, "lower_bound", Types.IntegerType.get()))))));
+        Table systemTable = Mockito.mock(Table.class);
+        Mockito.when(systemTable.schema()).thenReturn(systemTableSchema);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, systemTable);
+        node.addSlot(1, new Column("RECORD_COUNT", Type.BIGINT));
+        node.addSlot(2, new Column(Column.GLOBAL_ROWID_COL + "system_table", Type.BIGINT));
+        node.addSlot(3, new Column("FILE_PATH", Type.STRING));
+
+        List<Expression> filters = Collections.singletonList(Expressions.greaterThan("record_count", 0L));
+        Schema projectedSchema = node.getSystemTableProjectedSchema(filters, false);
+
+        Assert.assertEquals(2, projectedSchema.columns().size());
+        Assert.assertEquals("record_count", projectedSchema.columns().get(0).name());
+        Assert.assertEquals("file_path", projectedSchema.columns().get(1).name());
+        Assert.assertNull(projectedSchema.findField("readable_metrics"));
+    }
+
+    @Test
+    public void testSystemTableProjectionRejectsUnmaterializedFilterColumn() throws Exception {
+        Schema systemTableSchema = new Schema(
+                Types.NestedField.required(1, "file_path", Types.StringType.get()),
+                Types.NestedField.required(2, "record_count", Types.LongType.get()));
+        Table systemTable = Mockito.mock(Table.class);
+        Mockito.when(systemTable.schema()).thenReturn(systemTableSchema);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, systemTable);
+        node.addSlot(1, new Column("record_count", Type.BIGINT));
+
+        try {
+            node.getSystemTableProjectedSchema(
+                    Collections.singletonList(Expressions.equal("file_path", "data.parquet")), true);
+            Assert.fail("Filter columns must be materialized by the planner");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("filter column file_path is not materialized"));
+        }
+    }
+
+    private static class CountPlanningIcebergScanNode extends IcebergScanNode {
+        private final TableScan tableScan;
+        private final long snapshotCount;
+        private int snapshotCountCalls;
+
+        CountPlanningIcebergScanNode(SessionVariable sv, TableScan tableScan, long snapshotCount) {
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
+            this.tableScan = tableScan;
+            this.snapshotCount = snapshotCount;
+        }
+
+        @Override
+        public TableScan createTableScan() {
+            return tableScan;
+        }
+
+        @Override
+        public long getCountFromSnapshot() {
+            ++snapshotCountCalls;
+            return snapshotCount;
+        }
+    }
+
+    @Test
+    public void testTableLevelCountSplitPlanningRequiresCountStar() {
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(false);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(Mockito.mock(Snapshot.class));
+
+        // COUNT(required_col) carries a non-empty semantic argument list. Even though its result
+        // equals COUNT(*) for valid data, BE intentionally reads the column to enforce schema
+        // contracts. FE must therefore leave all real file tasks available to that fallback.
+        CountPlanningIcebergScanNode countColumnNode =
+                new CountPlanningIcebergScanNode(sv, tableScan, 30_000);
+        countColumnNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        countColumnNode.setPushDownCountSlotIds(Collections.singletonList(new SlotId(7)));
+        Assert.assertFalse(countColumnNode.isBatchMode());
+        Assert.assertEquals(0, countColumnNode.snapshotCountCalls);
+
+        // COUNT(*) has an explicitly empty argument list, so snapshot row count remains eligible
+        // and doGetSplits may retain only representative tasks for parallel materialization.
+        CountPlanningIcebergScanNode countStarNode =
+                new CountPlanningIcebergScanNode(sv, tableScan, 30_000);
+        countStarNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        countStarNode.setPushDownCountSlotIds(Collections.emptyList());
+        Assert.assertFalse(countStarNode.isBatchMode());
+        Assert.assertEquals(1, countStarNode.snapshotCountCalls);
     }
 
     @Test
@@ -142,6 +260,12 @@ public class IcebergScanNodeTest {
         Mockito.verify(node, Mockito.never()).createTableScan();
     }
 
+    private static void setIcebergTable(IcebergScanNode node, Table table) throws Exception {
+        Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
+        icebergTableField.setAccessible(true);
+        icebergTableField.set(node, table);
+    }
+
     @Test
     public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
         SessionVariable sv = new SessionVariable();
@@ -180,6 +304,7 @@ public class IcebergScanNodeTest {
         IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
                 3, Collections.emptyMap(), new ArrayList<>(), dataPath);
         split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.PARQUET);
         split.setFirstRowId(10L);
         split.setLastUpdatedSequenceNumber(20L);
         split.setDeleteFileFilters(Collections.emptyList(), Collections.singletonList(
@@ -202,6 +327,53 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSetIcebergParamsUsesSplitFileFormat() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        String dataPath = "file:///tmp/data-file.orc";
+        IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
+                2, Collections.emptyMap(), new ArrayList<>(), dataPath);
+        split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.ORC);
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("setIcebergParams",
+                TFileRangeDesc.class, IcebergSplit.class);
+        method.setAccessible(true);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        method.invoke(node, rangeDesc, split);
+
+        Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
+    }
+
+    @Test
+    public void testPositionDeleteSystemTableValidatesDeletionVectorMetadata() throws Exception {
+        DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
+        Mockito.when(deleteFile.path()).thenReturn("file:///tmp/delete-shared.puffin");
+        Mockito.when(deleteFile.format()).thenReturn(FileFormat.PUFFIN);
+        Mockito.when(deleteFile.fileSizeInBytes()).thenReturn(100L);
+        Mockito.when(deleteFile.contentOffset()).thenReturn(null);
+        Mockito.when(deleteFile.contentSizeInBytes()).thenReturn(10L);
+
+        PositionDeletesScanTask task = Mockito.mock(PositionDeletesScanTask.class);
+        Mockito.when(task.file()).thenReturn(deleteFile);
+        Mockito.when(task.start()).thenReturn(0L);
+        Mockito.when(task.length()).thenReturn(100L);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Method method = IcebergScanNode.class.getDeclaredMethod(
+                "createIcebergPositionDeleteSysSplit", PositionDeletesScanTask.class);
+        method.setAccessible(true);
+
+        try {
+            method.invoke(node, task);
+            Assert.fail("position_deletes planning should reject invalid deletion vector metadata");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getCause().getMessage().contains("delete-shared.puffin"));
+        }
+    }
+
+    @Test
     public void testSetIcebergParamsPropagatesPositionDeleteFileFormat() throws Exception {
         SessionVariable sv = new SessionVariable();
         TestIcebergScanNode node = new TestIcebergScanNode(sv);
@@ -215,6 +387,7 @@ public class IcebergScanNodeTest {
         IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
                 2, Collections.emptyMap(), new ArrayList<>(), dataPath);
         split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.PARQUET);
         split.setDeleteFileFilters(Collections.emptyList(), Collections.singletonList(
                 new IcebergDeleteFileFilter.PositionDelete(deletePath, -1L, -1L, 256L,
                         org.apache.iceberg.FileFormat.ORC)));

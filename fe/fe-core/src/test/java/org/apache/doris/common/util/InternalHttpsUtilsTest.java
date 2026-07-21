@@ -28,18 +28,18 @@ import java.lang.reflect.Field;
 
 public class InternalHttpsUtilsTest {
 
-    private String originalCertPath;
+    private String originalKeyStorePath;
 
     @Before
     public void setUp() throws Exception {
-        originalCertPath = Config.mysql_ssl_default_ca_certificate;
+        originalKeyStorePath = Config.key_store_path;
         // Reset the cached SSLContext before each test so tests are independent.
         resetCachedSslContext();
     }
 
     @After
     public void tearDown() throws Exception {
-        Config.mysql_ssl_default_ca_certificate = originalCertPath;
+        Config.key_store_path = originalKeyStorePath;
         resetCachedSslContext();
     }
 
@@ -51,14 +51,15 @@ public class InternalHttpsUtilsTest {
 
     @Test
     public void testGetSslContextThrowsWhenCertMissing() {
-        Config.mysql_ssl_default_ca_certificate = "/non/existent/path/ca.p12";
+        Config.key_store_path = "/non/existent/path/doris_ssl_certificate.keystore";
         try {
             InternalHttpsUtils.getSslContext();
             Assert.fail("Expected RuntimeException when cert file does not exist");
         } catch (RuntimeException e) {
             // Error message must mention the cert path so operators know what to fix.
             Assert.assertTrue("Error message should contain cert path",
-                    e.getMessage() != null && e.getMessage().contains("/non/existent/path/ca.p12"));
+                    e.getMessage() != null
+                            && e.getMessage().contains("/non/existent/path/doris_ssl_certificate.keystore"));
         }
     }
 }

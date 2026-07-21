@@ -47,12 +47,17 @@ suite("test_non_catalog_kerberos", "p0,external") {
             "hadoop.kerberos.min.seconds.before.relogin" = "5",
             "hadoop.kerberos.keytab.login.autorenewal.enabled" = "false",
               "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
-            "fs.defaultFS" = "hdfs://${externalEnvIp}:8520"
+            "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication"
             ); 
         """
 
     sql """ switch ${hms_catalog_name} """
-    sql """ use test_krb_hive_db """
+    sql """ create database if not exists test_non_catalog_krb_hive_db """
+    sql """ use test_non_catalog_krb_hive_db """
     sql """ drop table  if exists ${test_tbl_name}"""
     sql """
         CREATE TABLE `${test_tbl_name}` (
@@ -76,6 +81,10 @@ suite("test_non_catalog_kerberos", "p0,external") {
         )
         with HDFS (
           "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication",
             "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
@@ -94,6 +103,10 @@ suite("test_non_catalog_kerberos", "p0,external") {
          FORMAT AS CSV
         PROPERTIES(
             "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication",
             "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
@@ -115,6 +128,10 @@ suite("test_non_catalog_kerberos", "p0,external") {
             "hadoop.username" = "doris",
             "format" = "csv",
            "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication",
             "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
@@ -130,7 +147,7 @@ suite("test_non_catalog_kerberos", "p0,external") {
     Awaitility.await("queery-export-task-result-test").atMost(60, SECONDS).pollInterval(5, SECONDS).until(
             {
                 sql """ switch ${hms_catalog_name} """
-                sql """ use test_krb_hive_db """
+                sql """ use test_non_catalog_krb_hive_db """
                 def res = sql """ show export where label = "${export_task_label}" """
                 if (res[0][2] == "FINISHED") {
                     return true

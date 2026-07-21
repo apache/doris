@@ -733,7 +733,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                         splitStart,
                         splitEnd,
                         null,
-                        tableSchemas);
+                        Collections.singletonMap(tableId, tableChange));
         return split;
     }
 

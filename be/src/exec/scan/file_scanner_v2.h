@@ -87,6 +87,12 @@ public:
     static void TEST_report_file_cache_profile(
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
+    static bool TEST_should_skip_empty(const Status& status, bool stopped);
+    static bool TEST_should_run_adaptive_batch_size(bool predictor_initialized,
+                                                    bool current_split_uses_metadata_count) {
+        return _should_run_adaptive_batch_size(predictor_initialized,
+                                               current_split_uses_metadata_count);
+    }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -121,6 +127,7 @@ private:
     Status _prepare_table_reader_split(const TFileRangeDesc& range,
                                        std::map<std::string, Field> partition_values);
     static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
+    static bool _should_skip_empty(const Status& status, bool stopped);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;
@@ -138,6 +145,8 @@ private:
     void _init_adaptive_batch_size_state(TFileFormatType::type format_type);
     bool _should_enable_adaptive_batch_size(TFileFormatType::type format_type) const;
     bool _should_run_adaptive_batch_size() const;
+    static bool _should_run_adaptive_batch_size(bool predictor_initialized,
+                                                bool current_split_uses_metadata_count);
     size_t _predict_reader_batch_rows();
     void _update_adaptive_batch_size(const Block& block);
     static RealtimeCounterDeltas _collect_realtime_counter_deltas(
@@ -181,6 +190,7 @@ private:
     ShardedKVCache* _kv_cache = nullptr;
 
     RuntimeProfile::Counter* _get_block_timer = nullptr;
+    RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;

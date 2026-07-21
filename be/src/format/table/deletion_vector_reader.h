@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -37,6 +38,12 @@ struct IOContext;
 } // namespace io
 
 namespace doris {
+Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
+                                                   size_t& bytes_read);
+
+Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t length,
+                                                  size_t& bytes_read);
+
 struct DeleteFileDesc {
     enum class Format {
         PAIMON,
@@ -111,7 +118,6 @@ private:
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;
     io::FileReaderSPtr _file_reader;
-    int64_t _file_size = 0;
     bool _is_opened = false;
 };
 } // namespace doris

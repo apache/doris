@@ -122,6 +122,9 @@ suite("test_paimon_hms_catalog", "p2,external") {
     // kerberos
     String hdfs_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${extHiveHmsHost}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.security.authentication" = "kerberos",           
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
@@ -129,6 +132,9 @@ suite("test_paimon_hms_catalog", "p2,external") {
 
     String hdfs_new_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${extHiveHmsHost}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hdfs.authentication.type" = "kerberos",
                 "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
@@ -226,4 +232,3 @@ suite("test_paimon_hms_catalog", "p2,external") {
     testQuery(paimon_hms_catalog_properties + paimon_fs_gcs_support + gcs_warehouse_properties + gcs_storage_s3_properties, "support_gcs_s3", "gcs_db")
 
 }
-
