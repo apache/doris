@@ -31,6 +31,10 @@ std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
     output_stats->num_io_bytes_read_from_cache += _statistics->num_io_bytes_read_from_cache;
     output_stats->num_io_bytes_read_from_remote += _statistics->num_io_bytes_read_from_remote;
     output_stats->num_io_bytes_read_from_peer += _statistics->num_io_bytes_read_from_peer;
+    output_stats->inverted_index_bytes_read_from_remote +=
+            _statistics->inverted_index_bytes_read_from_remote;
+    output_stats->segment_footer_index_bytes_read_from_remote +=
+            _statistics->segment_footer_index_bytes_read_from_remote;
     return output_stats;
 }
 
@@ -45,6 +49,10 @@ void FileCacheMetrics::update(FileCacheStatistics* input_stats) {
     _statistics->num_io_bytes_read_from_cache += input_stats->bytes_read_from_local;
     _statistics->num_io_bytes_read_from_remote += input_stats->bytes_read_from_remote;
     _statistics->num_io_bytes_read_from_peer += input_stats->bytes_read_from_peer;
+    _statistics->inverted_index_bytes_read_from_remote +=
+            input_stats->inverted_index_bytes_read_from_remote;
+    _statistics->segment_footer_index_bytes_read_from_remote +=
+            input_stats->segment_footer_index_bytes_read_from_remote;
 }
 
 void FileCacheMetrics::register_entity() {
@@ -63,6 +71,10 @@ void FileCacheMetrics::update_metrics_callback() {
     DorisMetrics::instance()->num_io_bytes_read_total->set_value(
             stats->num_io_bytes_read_from_cache + stats->num_io_bytes_read_from_remote +
             stats->num_io_bytes_read_from_peer);
+    DorisMetrics::instance()->inverted_index_bytes_read_from_remote->set_value(
+            stats->inverted_index_bytes_read_from_remote);
+    DorisMetrics::instance()->segment_footer_index_bytes_read_from_remote->set_value(
+            stats->segment_footer_index_bytes_read_from_remote);
 }
 
 FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
