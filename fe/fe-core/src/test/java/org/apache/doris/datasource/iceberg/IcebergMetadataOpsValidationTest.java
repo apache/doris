@@ -31,16 +31,24 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -48,7 +56,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class IcebergMetadataOpsValidationTest {
 
@@ -56,6 +67,9 @@ public class IcebergMetadataOpsValidationTest {
     private ExternalCatalog dorisCatalog;
     private Method validateForModifyColumnMethod;
     private Method validateForModifyComplexColumnMethod;
+
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Before
     public void setUp() throws Exception {
@@ -687,6 +701,72 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.verify(updateSchema).makeColumnOptional("info");
         Mockito.verify(updateSchema).makeColumnOptional("info.metric");
         Mockito.verify(updateSchema, Mockito.times(2)).commit();
+    }
+
+    @Test
+    public void testSchemaCommitConflictDoesNotPartiallyApplyComplexModify() throws Exception {
+        String dbName = "db";
+        String tableName = "conflict_table";
+        TableIdentifier tableIdentifier = TableIdentifier.of(dbName, tableName);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CatalogProperties.WAREHOUSE_LOCATION,
+                temporaryFolder.newFolder("iceberg_warehouse").toURI().toString());
+
+        HadoopCatalog icebergCatalog = new HadoopCatalog();
+        icebergCatalog.setConf(new Configuration());
+        icebergCatalog.initialize("conflict_catalog", properties);
+        icebergCatalog.createNamespace(Namespace.of(dbName));
+        Table staleTable = icebergCatalog.createTable(tableIdentifier, new Schema(
+                Types.NestedField.optional(1, "info", Types.StructType.of(
+                        Types.NestedField.optional(2, "a", Types.IntegerType.get()),
+                        Types.NestedField.optional(3, "b", Types.IntegerType.get())))));
+        Table concurrentTable = icebergCatalog.loadTable(tableIdentifier);
+
+        ExternalCatalog conflictDorisCatalog = Mockito.mock(ExternalCatalog.class);
+        AtomicBoolean conflictInjected = new AtomicBoolean(false);
+        Mockito.when(conflictDorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+            @Override
+            public void execute(Runnable task) {
+                Assert.assertTrue("schema commit should execute only once", conflictInjected.compareAndSet(false, true));
+                concurrentTable.updateSchema().renameColumn("info.a", "concurrent_a").commit();
+                task.run();
+            }
+        });
+        Mockito.when(conflictDorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.doReturn(Optional.empty()).when(conflictDorisCatalog).getDbForReplay(Mockito.anyString());
+        IcebergMetadataOps conflictOps = new IcebergMetadataOps(conflictDorisCatalog, icebergCatalog);
+
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn(dbName);
+        Mockito.when(dorisTable.getRemoteName()).thenReturn(tableName);
+        StructType promotedInfo = new StructType(
+                new StructField("a", Type.BIGINT),
+                new StructField("b", Type.BIGINT));
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(staleTable);
+
+            try {
+                conflictOps.modifyColumn(dorisTable, ColumnPath.of("info"),
+                        new Column("info", promotedInfo, true), null, 1L);
+                Assert.fail("expected schema commit conflict");
+            } catch (UserException e) {
+                Assert.assertTrue(e.getMessage().contains("Failed to modify column: info"));
+                Assert.assertTrue("expected Iceberg commit conflict but got " + e.getCause(),
+                        e.getCause() instanceof CommitFailedException);
+            }
+        }
+
+        Schema committedSchema = icebergCatalog.loadTable(tableIdentifier).schema();
+        Assert.assertNull(committedSchema.findField("info.a"));
+        Assert.assertEquals(Types.IntegerType.get(), committedSchema.findType("info.concurrent_a"));
+        Assert.assertEquals(Types.IntegerType.get(), committedSchema.findType("info.b"));
+        Mockito.verify(conflictDorisCatalog, Mockito.never()).getDbForReplay(Mockito.anyString());
+
+        icebergCatalog.dropTable(tableIdentifier);
+        icebergCatalog.dropNamespace(Namespace.of(dbName));
+        icebergCatalog.close();
     }
 
     @Test

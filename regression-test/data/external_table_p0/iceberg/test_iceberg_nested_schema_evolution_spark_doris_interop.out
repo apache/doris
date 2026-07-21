@@ -17,3 +17,11 @@ attrs	map<string,struct<int(11),bigint(20),int(11),int(11)>>
 1	\N	10	\N	spark_before	\N	\N	100	\N	\N	\N	1000	\N	\N
 2	spark_first_field	20	spark_after_metric_field	spark_after	spark_new_field	202	200	203	201	2002	2000	2003	2001
 3	doris_first_field	30	doris_after_metric_field	doris_after_spark	doris_can_write_spark_field	302	300	303	301	3002	3000	3003	3001
+
+-- !required_nested_rows --
+1	10	old-label
+2	20	\N
+
+-- !deep_nested_rows --
+1	last-old	middle-old	first-old	old-note	1.5	12.34
+2	last-new	middle-new	first-new	new-note	2.5	56.78

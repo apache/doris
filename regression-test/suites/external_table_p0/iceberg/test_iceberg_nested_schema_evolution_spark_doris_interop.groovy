@@ -30,6 +30,8 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
     String commentTable = "doris_nested_comment_semantics"
     String sparkTable = "spark_nested_evolution_to_doris"
     String mixedCaseTable = "spark_mixed_case_nested_collision"
+    String requiredTable = "spark_required_nested_evolution"
+    String advancedTable = "spark_deep_nested_evolution"
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -353,4 +355,198 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
     order_qt_spark_driven_rows_after_write sparkDrivenDorisQuery
     def sparkDrivenDorisRows = sql sparkDrivenDorisQuery
     assertSparkDorisResultEquals(sparkDrivenSparkRows, sparkDrivenDorisRows)
+
+    spark_iceberg_multi """
+        DROP TABLE IF EXISTS demo.${dbName}.${requiredTable};
+        CREATE TABLE demo.${dbName}.${requiredTable} (
+            id INT,
+            info STRUCT<required_metric: INT NOT NULL, required_label: STRING NOT NULL>
+        ) USING iceberg;
+        INSERT INTO demo.${dbName}.${requiredTable} VALUES (
+            1,
+            NAMED_STRUCT('required_metric', 10, 'required_label', 'old-label')
+        );
+    """
+
+    sql """refresh catalog ${catalogName}"""
+    sql """switch ${catalogName}"""
+    sql """use ${dbName}"""
+
+    sql """ALTER TABLE ${requiredTable} MODIFY COLUMN info.required_metric BIGINT"""
+    sql """ALTER TABLE ${requiredTable} MODIFY COLUMN info.required_label STRING NULL"""
+    test {
+        sql """ALTER TABLE ${requiredTable} MODIFY COLUMN info.required_label STRING NOT NULL"""
+        exception "Can not change nullable column info.required_label to not null"
+    }
+
+    String requiredTableUrl =
+            "http://${externalEnvIp}:${restPort}/v1/namespaces/${dbName}/tables/${requiredTable}"
+    def requiredTableMetadata = new JsonSlurper().parseText(
+            new URL(requiredTableUrl).getText("UTF-8")).metadata
+    def requiredSchema = requiredTableMetadata.schemas.find {
+        it["schema-id"] == requiredTableMetadata["current-schema-id"]
+    }
+    def requiredInfo = requiredSchema.fields.find { it.name == "info" }
+    def requiredInfoFields = requiredInfo.type.fields.collectEntries { [(it.name): it] }
+    assertEquals("long", requiredInfoFields.required_metric.type)
+    assertTrue(requiredInfoFields.required_metric.required)
+    assertFalse(requiredInfoFields.required_label.required)
+
+    sql """
+        INSERT INTO ${requiredTable} VALUES (
+            2,
+            STRUCT(20, NULL)
+        )
+    """
+
+    String requiredDorisQuery = """
+        SELECT id,
+               element_at(info, 'required_metric'),
+               element_at(info, 'required_label')
+        FROM ${requiredTable}
+        ORDER BY id
+    """
+    order_qt_required_nested_rows requiredDorisQuery
+    spark_iceberg """REFRESH TABLE demo.${dbName}.${requiredTable}"""
+    def requiredSparkRows = spark_iceberg """
+        SELECT id, info.required_metric, info.required_label
+        FROM demo.${dbName}.${requiredTable}
+        ORDER BY id
+    """
+    def requiredDorisRows = sql requiredDorisQuery
+    assertSparkDorisResultEquals(requiredSparkRows, requiredDorisRows)
+
+    spark_iceberg_multi """
+        DROP TABLE IF EXISTS demo.${dbName}.${advancedTable};
+        CREATE TABLE demo.${dbName}.${advancedTable} (
+            id INT,
+            root STRUCT<
+                first_field: STRING,
+                middle_field: STRING,
+                last_field: STRING,
+                items: ARRAY<STRUCT<attrs: MAP<STRING, STRUCT<
+                    score: FLOAT,
+                    amount: DECIMAL(9, 2),
+                    note: STRING
+                >>>>
+            >
+        ) USING iceberg;
+        INSERT INTO demo.${dbName}.${advancedTable} VALUES (
+            1,
+            NAMED_STRUCT(
+                'first_field', 'first-old',
+                'middle_field', 'middle-old',
+                'last_field', 'last-old',
+                'items', ARRAY(NAMED_STRUCT(
+                    'attrs', MAP('k', NAMED_STRUCT(
+                        'score', CAST(1.5 AS FLOAT),
+                        'amount', CAST(12.34 AS DECIMAL(9, 2)),
+                        'note', 'old-note'
+                    ))
+                ))
+            )
+        );
+    """
+
+    sql """refresh catalog ${catalogName}"""
+    sql """switch ${catalogName}"""
+    sql """use ${dbName}"""
+
+    sql """ALTER TABLE ${advancedTable} MODIFY COLUMN root.last_field STRING FIRST"""
+    sql """ALTER TABLE ${advancedTable} MODIFY COLUMN root.first_field STRING AFTER middle_field"""
+    sql """ALTER TABLE ${advancedTable} MODIFY COLUMN root.items.element.attrs.value.score DOUBLE"""
+    sql """ALTER TABLE ${advancedTable} MODIFY COLUMN root.items.element.attrs.value.amount DECIMAL(18, 2)"""
+    test {
+        sql """ALTER TABLE ${advancedTable}
+                MODIFY COLUMN root.items.element.attrs.value.amount DECIMAL(18, 3)"""
+        exception "Cannot change column type"
+    }
+    test {
+        sql """ALTER TABLE ${advancedTable}
+                MODIFY COLUMN root.items.element.attrs.value.score FLOAT"""
+        exception "Cannot change column type"
+    }
+    sql """ALTER TABLE ${advancedTable}
+            ADD COLUMN root.items.element.attrs.value.added STRING NULL AFTER amount"""
+    sql """ALTER TABLE ${advancedTable}
+            RENAME COLUMN root.items.element.attrs.value.added TO renamed"""
+    sql """ALTER TABLE ${advancedTable}
+            MODIFY COLUMN root.items.element.attrs.value.renamed COMMENT 'deep field'"""
+    sql """ALTER TABLE ${advancedTable}
+            MODIFY COLUMN root.items.element.attrs.value.note STRING FIRST"""
+
+    String advancedTableUrl =
+            "http://${externalEnvIp}:${restPort}/v1/namespaces/${dbName}/tables/${advancedTable}"
+    def advancedTableMetadata = new JsonSlurper().parseText(
+            new URL(advancedTableUrl).getText("UTF-8")).metadata
+    def advancedSchema = advancedTableMetadata.schemas.find {
+        it["schema-id"] == advancedTableMetadata["current-schema-id"]
+    }
+    def rootField = advancedSchema.fields.find { it.name == "root" }
+    assertEquals(["last_field", "middle_field", "first_field", "items"],
+            rootField.type.fields.collect { it.name })
+    def itemsField = rootField.type.fields.find { it.name == "items" }
+    def attrsField = itemsField.type.element.fields.find { it.name == "attrs" }
+    def deepFields = attrsField.type.value.fields
+    assertEquals(["note", "score", "amount", "renamed"], deepFields.collect { it.name })
+    assertEquals("double", deepFields.find { it.name == "score" }.type)
+    assertEquals("decimal(18, 2)", deepFields.find { it.name == "amount" }.type)
+    assertEquals("deep field", deepFields.find { it.name == "renamed" }.doc)
+
+    sql """ALTER TABLE ${advancedTable}
+            DROP COLUMN root.items.element.attrs.value.renamed"""
+
+    def droppedFieldMetadata = new JsonSlurper().parseText(
+            new URL(advancedTableUrl).getText("UTF-8")).metadata
+    def droppedFieldSchema = droppedFieldMetadata.schemas.find {
+        it["schema-id"] == droppedFieldMetadata["current-schema-id"]
+    }
+    def droppedRootField = droppedFieldSchema.fields.find { it.name == "root" }
+    def droppedItemsField = droppedRootField.type.fields.find { it.name == "items" }
+    def droppedAttrsField = droppedItemsField.type.element.fields.find { it.name == "attrs" }
+    assertEquals(["note", "score", "amount"],
+            droppedAttrsField.type.value.fields.collect { it.name })
+
+    sql """
+        INSERT INTO ${advancedTable} VALUES (
+            2,
+            STRUCT(
+                'last-new',
+                'middle-new',
+                'first-new',
+                ARRAY(STRUCT(MAP('k', STRUCT(
+                    'new-note',
+                    CAST(2.5 AS DOUBLE),
+                    CAST(56.78 AS DECIMAL(18, 2))
+                ))))
+            )
+        )
+    """
+
+    String advancedDorisQuery = """
+        SELECT id,
+               element_at(root, 'last_field'),
+               element_at(root, 'middle_field'),
+               element_at(root, 'first_field'),
+               element_at(element_at(element_at(root, 'items')[1], 'attrs')['k'], 'note'),
+               element_at(element_at(element_at(root, 'items')[1], 'attrs')['k'], 'score'),
+               element_at(element_at(element_at(root, 'items')[1], 'attrs')['k'], 'amount')
+        FROM ${advancedTable}
+        ORDER BY id
+    """
+    order_qt_deep_nested_rows advancedDorisQuery
+    spark_iceberg """REFRESH TABLE demo.${dbName}.${advancedTable}"""
+    def advancedSparkRows = spark_iceberg """
+        SELECT id,
+               root.last_field,
+               root.middle_field,
+               root.first_field,
+               root.items[0].attrs['k'].note,
+               root.items[0].attrs['k'].score,
+               root.items[0].attrs['k'].amount
+        FROM demo.${dbName}.${advancedTable}
+        ORDER BY id
+    """
+    def advancedDorisRows = sql advancedDorisQuery
+    assertSparkDorisResultEquals(advancedSparkRows, advancedDorisRows)
 }
