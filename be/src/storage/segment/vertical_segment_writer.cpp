@@ -33,6 +33,7 @@
 
 #include "cloud/config.h"
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -370,7 +371,200 @@ Status VerticalSegmentWriter::batch_block(const Block* block, size_t row_pos, si
     return Status::OK();
 }
 
+bool VerticalSegmentWriter::_is_partial_update_load() const {
+    const auto& partial_update_info = _opts.rowset_ctx->partial_update_info;
+    return partial_update_info != nullptr && partial_update_info->is_partial_update() &&
+           _opts.write_type == DataWriteType::TYPE_DIRECT &&
+           !_opts.rowset_ctx->is_transient_rowset_writer;
+}
+
+Status VerticalSegmentWriter::_write_partial_update_column(
+        const RowsInBlock& data, uint32_t cid, IOlapColumnDataAccessor*& retained_column) {
+    retained_column = nullptr;
+    DORIS_CHECK(cid < _tablet_schema->num_columns());
+    const bool is_row_store_column = _tablet_schema->column(cid).is_row_store_column();
+    if (_column_writers[cid] == nullptr) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+    }
+    if (data.num_rows == 0) {
+        return _finalize_column_writer_and_update_meta(cid);
+    }
+
+    if (is_row_store_column) {
+        DORIS_CHECK(_derived_column.second != nullptr);
+        DORIS_CHECK(_derived_column.first == cid);
+        RETURN_IF_ERROR(_append_generated_column(*_derived_column.second, *data.block, data.row_pos,
+                                                 data.num_rows, cid));
+    } else {
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
+                data.block->get_by_position(cid), data.row_pos, data.num_rows, cid));
+        auto [status, column] = _olap_data_convertor->convert_column_data(cid);
+        RETURN_IF_ERROR(status);
+        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
+                                                     data.num_rows));
+
+        const bool retain_for_key_index =
+                cid < _tablet_schema->num_key_columns() ||
+                (_tablet_schema->has_sequence_col() && cid == _tablet_schema->sequence_col_idx());
+        if (retain_for_key_index) {
+            retained_column = column;
+        } else {
+            _olap_data_convertor->clear_source_content(cid);
+        }
+    }
+
+    return _finalize_column_writer_and_update_meta(cid);
+}
+
+Status VerticalSegmentWriter::_write_fixed_partial_update_batch(const RowsInBlock& data) {
+    const auto& partial_update_info = *_opts.rowset_ctx->partial_update_info;
+    std::vector<IOlapColumnDataAccessor*> key_columns;
+    key_columns.reserve(_tablet_schema->num_key_columns());
+    IOlapColumnDataAccessor* seq_column = nullptr;
+    bool have_input_seq_column = false;
+
+    // The legacy fixed-partial writer created and flushed the provided columns first.
+    for (const uint32_t cid : partial_update_info.update_cids) {
+        IOlapColumnDataAccessor* retained_column = nullptr;
+        RETURN_IF_ERROR(_write_partial_update_column(data, cid, retained_column));
+        if (cid < _tablet_schema->num_key_columns()) {
+            DCHECK(data.num_rows == 0 || retained_column != nullptr);
+            key_columns.push_back(retained_column);
+        } else if (_tablet_schema->has_sequence_col() &&
+                   cid == _tablet_schema->sequence_col_idx()) {
+            DCHECK(data.num_rows == 0 || retained_column != nullptr);
+            seq_column = retained_column;
+            have_input_seq_column = true;
+        }
+    }
+    DORIS_CHECK(key_columns.size() == _tablet_schema->num_key_columns());
+
+    // Without a sequence column, or when it was provided, the old writer built the primary-key
+    // index between the provided and missing column groups. IndexedColumnWriter can emit a full
+    // page from add_item(), so preserving this point also preserves physical page ordering.
+    const bool build_key_index_before_missing =
+            !_tablet_schema->has_sequence_col() || have_input_seq_column;
+    if (build_key_index_before_missing) {
+        for (size_t pos = 0; pos < data.num_rows; ++pos) {
+            std::string key = _key_encoder.full_encode(key_columns, pos);
+            if (seq_column != nullptr) {
+                _key_encoder.append_seq_suffix(&key, seq_column, pos);
+            }
+            RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+        }
+    }
+
+    for (const uint32_t cid : partial_update_info.missing_cids) {
+        IOlapColumnDataAccessor* retained_column = nullptr;
+        RETURN_IF_ERROR(_write_partial_update_column(data, cid, retained_column));
+        if (_tablet_schema->has_sequence_col() && cid == _tablet_schema->sequence_col_idx()) {
+            DCHECK(data.num_rows == 0 || retained_column != nullptr);
+            seq_column = retained_column;
+        }
+    }
+
+    if (!build_key_index_before_missing) {
+        DORIS_CHECK(data.num_rows == 0 || seq_column != nullptr);
+        RETURN_IF_ERROR(_generate_primary_key_index(key_columns, seq_column, data.num_rows, false));
+    }
+
+    _num_rows_written += data.num_rows;
+    DORIS_CHECK(_primary_key_index_builder->num_rows() == _num_rows_written);
+    _olap_data_convertor->clear_source_content();
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_precreate_flexible_partial_update_writers(uint32_t num_key_columns) {
+    // The legacy flexible-partial writer created all key writers and the sequence writer before
+    // writing any column. Creation order is observable in SegmentFooterPB::columns.
+    for (uint32_t cid = 0; cid < num_key_columns; ++cid) {
+        DCHECK(_column_writers[cid] == nullptr);
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+    }
+    if (_tablet_schema->has_sequence_col()) {
+        const uint32_t seq_cid = cast_set<uint32_t>(_tablet_schema->sequence_col_idx());
+        DORIS_CHECK(_column_writers[seq_cid] == nullptr);
+        RETURN_IF_ERROR(
+                _create_column_writer(seq_cid, _tablet_schema->column(seq_cid), _tablet_schema));
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_write_flexible_partial_update_batch(const RowsInBlock& data) {
+    const uint32_t num_key_columns = cast_set<uint32_t>(_tablet_schema->num_key_columns());
+    RETURN_IF_ERROR(_precreate_flexible_partial_update_writers(num_key_columns));
+
+    std::vector<IOlapColumnDataAccessor*> key_columns;
+    key_columns.reserve(num_key_columns);
+    for (uint32_t cid = 0; cid < num_key_columns; ++cid) {
+        IOlapColumnDataAccessor* retained_column = nullptr;
+        RETURN_IF_ERROR(_write_partial_update_column(data, cid, retained_column));
+        DCHECK(data.num_rows == 0 || retained_column != nullptr);
+        key_columns.push_back(retained_column);
+    }
+
+    // RowStore was physically written after keys, but before all value columns. Scan the schema
+    // instead of the generator because flexible aggregation can produce an empty block, for which
+    // RowStoreFill intentionally does not register a generator.
+    for (uint32_t cid = num_key_columns; cid < _tablet_schema->num_columns(); ++cid) {
+        if (!_tablet_schema->column(cid).is_row_store_column()) {
+            continue;
+        }
+        IOlapColumnDataAccessor* retained_column = nullptr;
+        RETURN_IF_ERROR(_write_partial_update_column(data, cid, retained_column));
+        DCHECK(retained_column == nullptr);
+    }
+
+    IOlapColumnDataAccessor* seq_column = nullptr;
+    for (uint32_t cid = num_key_columns; cid < _tablet_schema->num_columns(); ++cid) {
+        if (_tablet_schema->column(cid).is_row_store_column()) {
+            continue;
+        }
+        IOlapColumnDataAccessor* retained_column = nullptr;
+        RETURN_IF_ERROR(_write_partial_update_column(data, cid, retained_column));
+        if (_tablet_schema->has_sequence_col() && cid == _tablet_schema->sequence_col_idx()) {
+            DCHECK(data.num_rows == 0 || retained_column != nullptr);
+            seq_column = retained_column;
+        }
+    }
+
+    if (_tablet_schema->has_sequence_col()) {
+        DORIS_CHECK(data.num_rows == 0 || seq_column != nullptr);
+    }
+    RETURN_IF_ERROR(_generate_primary_key_index(key_columns, seq_column, data.num_rows, false));
+
+    _num_rows_written += data.num_rows;
+    DORIS_CHECK(_primary_key_index_builder->num_rows() == _num_rows_written);
+    _olap_data_convertor->clear_source_content();
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_write_partial_update_batch() {
+    DORIS_CHECK(_is_mow());
+    // MemTable rejects partial updates on MOW tables with cluster keys before flushing. Both the
+    // legacy writer and the fill stages rely on sort keys being the schema key prefix.
+    DORIS_CHECK(!_is_mow_with_cluster_key());
+    DORIS_CHECK(_batched_blocks.size() == 1);
+    const RowsInBlock& data = _batched_blocks.front();
+    DORIS_CHECK(data.row_pos == 0);
+    DORIS_CHECK(_num_rows_written == 0);
+
+    const auto& partial_update_info = *_opts.rowset_ctx->partial_update_info;
+    if (partial_update_info.is_fixed_partial_update()) {
+        RETURN_IF_ERROR(_write_fixed_partial_update_batch(data));
+    } else {
+        DORIS_CHECK(partial_update_info.is_flexible_partial_update());
+        RETURN_IF_ERROR(_write_flexible_partial_update_batch(data));
+    }
+    _batched_blocks.clear();
+    return Status::OK();
+}
+
 Status VerticalSegmentWriter::write_batch() {
+    if (_is_partial_update_load()) {
+        return _write_partial_update_batch();
+    }
+
     if (_derived_column.second) {
         const auto& [cid, generator] = _derived_column;
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));

@@ -78,12 +78,12 @@ TEST_F(ValidateStageTest, CompositionCompactionEmpty) {
     EXPECT_TRUE(build_transform_chain(c).stage_names().empty());
 }
 
-// TYPE_DIRECT, no PU -> Validate, VariantParse, RowStoreFill.
+// TYPE_DIRECT, no PU -> Validate, RowStoreFill, VariantParse.
 TEST_F(ValidateStageTest, CompositionDirectNonPartialUpdate) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     EXPECT_EQ(build_transform_chain(direct_rwc(schema)).stage_names(),
-              (V {"Validate", "VariantParse", "RowStoreFill"}));
+              (V {"Validate", "RowStoreFill", "VariantParse"}));
 }
 
 // TYPE_SCHEMA_CHANGE, no PU -> same shape as a direct write.
@@ -93,7 +93,7 @@ TEST_F(ValidateStageTest, CompositionSchemaChange) {
     RowsetWriterContext c = direct_rwc(schema);
     c.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "VariantParse", "RowStoreFill"}));
+              (V {"Validate", "RowStoreFill", "VariantParse"}));
 }
 
 // TYPE_DIRECT + fixed PU -> the fixed fill stage sits between Validate and Parse.
@@ -121,7 +121,7 @@ TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
     RowsetWriterContext c = direct_rwc(fschema);
     c.partial_update_info = pui;
     EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "FlexiblePartialUpdateFill", "VariantParse", "RowStoreFill"}));
+              (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill", "VariantParse"}));
 }
 
 // A transient-rowset-writer PU degrades to the plain direct chain: the PU
@@ -138,7 +138,7 @@ TEST_F(ValidateStageTest, CompositionTransientPartialUpdateDegradesToNoFill) {
     c.partial_update_info = pui;
     c.is_transient_rowset_writer = true; // degrade: PU predicate becomes false
     EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "VariantParse", "RowStoreFill"}));
+              (V {"Validate", "RowStoreFill", "VariantParse"}));
 }
 
 // binlog, plain path (DUP, no PU, no BEFORE) -> [PlainRowBinlogDerive].

@@ -134,6 +134,26 @@ protected:
         return schema;
     }
 
+    TabletSchemaSPtr create_variant_row_store_schema() {
+        TabletSchemaPB pb;
+        create_variant_schema()->to_schema_pb(&pb);
+        pb.set_store_row_column(true);
+        pb.set_next_column_unique_id(11);
+        ColumnPB* row_store = pb.add_column();
+        row_store->set_unique_id(10);
+        row_store->set_name(BeConsts::ROW_STORE_COL);
+        row_store->set_type("STRING");
+        row_store->set_is_key(false);
+        row_store->set_length(2147483643);
+        row_store->set_index_length(4);
+        row_store->set_is_nullable(false);
+        row_store->set_aggregation("NONE");
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
     // Inserts one root-scalar JSON object string into a block's variant column.
     static void insert_variant_json(Block& block, size_t variant_pos, std::string_view json) {
         auto* variant = assert_cast<ColumnVariant*>(
@@ -499,6 +519,40 @@ TEST_F(VariantRowStoreTest, RowStoreFillMaterializeContent) {
     EXPECT_TRUE(key_ids.count(1)) << "missing uid 1 (v)";
     EXPECT_TRUE(key_ids.count(2)) << "missing uid 2 (delete_sign)";
     EXPECT_FALSE(key_ids.count(3)) << "row-store column uid 3 must not be encoded";
+}
+
+// RowStore must preserve the raw Variant representation that existed before
+// VariantParse. Parsing normalizes a JSON boolean to an integer in the Variant
+// column, but the row-store JSONB must still contain the original boolean.
+TEST_F(VariantRowStoreTest, RowStoreSnapshotsVariantBeforeParse) {
+    auto schema = create_variant_row_store_schema();
+    RowsetWriterContext rwc = direct_rwc(schema);
+    auto chain = build_transform_chain(rwc);
+    EXPECT_EQ(chain.stage_names(),
+              (std::vector<std::string_view> {"Validate", "RowStoreFill", "VariantParse"}));
+    TransformExecContext ctx = exec_ctx(schema, &rwc);
+
+    Block block = schema->create_block();
+    int32_t key = 1;
+    int8_t delete_sign = 0;
+    block.get_by_position(0).column->assert_mutable()->insert_data(
+            reinterpret_cast<const char*>(&key), sizeof(key));
+    insert_variant_json(block, 1, R"({"flag":true})");
+    block.get_by_position(2).column->assert_mutable()->insert_data(
+            reinterpret_cast<const char*>(&delete_sign), sizeof(delete_sign));
+    block.get_by_position(3).column->assert_mutable()->insert_default();
+
+    ASSERT_TRUE(chain.apply(ctx, &block).ok());
+    EXPECT_NE(variant_row_json(block, 1, 0).find(R"("flag":1)"), std::string::npos);
+    ASSERT_NE(ctx.derived_column.second, nullptr);
+    ASSERT_TRUE(materialize_derived_columns(ctx.derived_column, &block).ok());
+
+    const auto& row_store = assert_cast<const ColumnString&>(*block.get_by_position(3).column);
+    ASSERT_EQ(row_store.size(), 1U);
+    Block decoded = decode_row_store_cell(schema, row_store.get_data_at(0));
+    const std::string stored_variant = variant_row_json(decoded, 1, 0);
+    EXPECT_NE(stored_variant.find(R"("flag":true)"), std::string::npos) << stored_variant;
+    EXPECT_EQ(stored_variant.find(R"("flag":1)"), std::string::npos) << stored_variant;
 }
 
 // R4 (by rows): drive the registered generator directly as the vertical writer

@@ -130,28 +130,32 @@ public:
 // DerivedColumnGenerator so the vertical writer can stream it in batches.
 class RowStoreColumnGenerator : public DerivedColumnGenerator {
 public:
-    RowStoreColumnGenerator(TabletSchemaSPtr schema, DataTypeSerDeSPtrs serdes)
+    RowStoreColumnGenerator(TabletSchemaSPtr schema, Block source_block)
             : _schema(std::move(schema)),
-              _serdes(std::move(serdes)),
+              _source_block(std::move(source_block)),
+              _serdes(create_data_type_serdes(_source_block.get_data_types())),
               _row_store_cids(_schema->row_columns_uids().begin(),
                               _schema->row_columns_uids().end()) {}
 
-    size_t generate(const Block& block, size_t row_pos, size_t max_rows, size_t max_bytes,
+    size_t generate(const Block& /*block*/, size_t row_pos, size_t max_rows, size_t max_bytes,
                     IColumn* dst) const override {
         auto* dst_str = static_cast<ColumnString*>(dst);
-        return JsonbSerializeUtil::block_to_jsonb(*_schema, block, *dst_str,
+        return JsonbSerializeUtil::block_to_jsonb(*_schema, _source_block, *dst_str,
                                                   cast_set<int>(_schema->num_columns()), _serdes,
                                                   _row_store_cids, row_pos, max_rows, max_bytes);
     }
 
 private:
     TabletSchemaSPtr _schema;
+    Block _source_block;
     DataTypeSerDeSPtrs _serdes;
     std::unordered_set<int32_t> _row_store_cids;
 };
 
-// Registers the row-store generator. Safe to run after VariantParse: the
-// variant serde produces the same bytes whether the variant is parsed or not.
+// Registers a row-store generator over a COW snapshot of the block at this
+// exact stage. Variant parsing can change its JSONB representation, so the
+// snapshot preserves the legacy writer's RowStore/Variant ordering while the
+// vertical writer still materializes the column in bounded batches.
 class RowStoreFillStage : public BlockTransform {
 public:
     Status apply(TransformExecContext& ctx, Block* block) const override {
@@ -164,8 +168,7 @@ public:
                 continue;
             }
             std::shared_ptr<const DerivedColumnGenerator> generator =
-                    std::make_shared<RowStoreColumnGenerator>(
-                            ctx.tablet_schema, create_data_type_serdes(block->get_data_types()));
+                    std::make_shared<RowStoreColumnGenerator>(ctx.tablet_schema, *block);
             ctx.derived_column = std::make_pair(cast_set<uint32_t>(i), std::move(generator));
             break;
         }
@@ -196,22 +199,33 @@ BlockTransformChain build_transform_chain(const RowsetWriterContext& context) {
                                         context.partial_update_info->is_partial_update() &&
                                         context.write_type == DataWriteType::TYPE_DIRECT &&
                                         !context.is_transient_rowset_writer;
+    const bool rebuild_row_store = context.write_type == DataWriteType::TYPE_DIRECT ||
+                                   context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE;
     if (is_partial_update_load) {
-        // Parse runs after the fill, once on the full-width block: the fill's
-        // probe only touches key columns, which are never variant.
         if (context.partial_update_info->is_fixed_partial_update()) {
             stages.push_back(std::make_shared<FixedPartialUpdateFillStage>());
+            // The legacy fixed path parsed both provided and missing Variant
+            // columns before rebuilding RowStore.
+            stages.push_back(std::make_shared<VariantParseStage>());
+            if (rebuild_row_store) {
+                stages.push_back(std::make_shared<RowStoreFillStage>());
+            }
         } else {
             stages.push_back(std::make_shared<FlexiblePartialUpdateFillStage>());
+            // The legacy flexible path rebuilt RowStore before parsing the
+            // filled Variant columns.
+            if (rebuild_row_store) {
+                stages.push_back(std::make_shared<RowStoreFillStage>());
+            }
+            stages.push_back(std::make_shared<VariantParseStage>());
         }
-    }
-    stages.push_back(std::make_shared<VariantParseStage>());
-    // Fill the row-store column for direct and schema-change writes (types may
-    // have changed, so it must be rebuilt); for partial update it runs after
-    // the fill.
-    if (context.write_type == DataWriteType::TYPE_DIRECT ||
-        context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        stages.push_back(std::make_shared<RowStoreFillStage>());
+    } else {
+        // Direct and schema-change writers rebuilt RowStore from the raw
+        // Variant representation, then parsed Variant for its column writer.
+        if (rebuild_row_store) {
+            stages.push_back(std::make_shared<RowStoreFillStage>());
+        }
+        stages.push_back(std::make_shared<VariantParseStage>());
     }
     return BlockTransformChain {std::move(stages)};
 }

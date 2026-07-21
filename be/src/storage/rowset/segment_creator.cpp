@@ -58,6 +58,24 @@
 namespace doris {
 using namespace ErrorCode;
 
+namespace {
+
+segment_v2::TransformExecContext make_transform_exec_context(RowsetWriterContext& context,
+                                                             int32_t segment_id) {
+    return {.tablet_schema = context.tablet_schema,
+            .write_type = context.write_type,
+            .tablet = context.tablet,
+            .mow_context = context.mow_context,
+            .partial_update_info = context.partial_update_info,
+            .rowset_ctx = &context,
+            .rowset_id = context.rowset_id,
+            .segment_id = segment_id,
+            .derived_column = {},
+            .partial_update_stats = {}};
+}
+
+} // namespace
+
 SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
                                InvertedIndexFileCollection& idx_files)
         : _context(context), _seg_files(seg_files), _idx_files(idx_files) {}
@@ -72,17 +90,7 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     }
     Block flush_block(*block);
     const size_t input_rows = flush_block.rows();
-    segment_v2::TransformExecContext transform_ctx {
-            .tablet_schema = _context.tablet_schema,
-            .write_type = _context.write_type,
-            .tablet = _context.tablet,
-            .mow_context = _context.mow_context,
-            .partial_update_info = _context.partial_update_info,
-            .rowset_ctx = &_context,
-            .rowset_id = _context.rowset_id,
-            .segment_id = segment_id,
-            .derived_column = {},
-            .partial_update_stats = {}};
+    auto transform_ctx = make_transform_exec_context(_context, segment_id);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             segment_v2::build_transform_chain(_context).apply(transform_ctx, &flush_block));
     // partial update stats come from the transform chain; add them into the
@@ -411,29 +419,18 @@ Status SegmentCreator::add_block(const Block* block) {
         return Status::OK();
     }
 
-    {
-        auto& context = _segment_flusher.context();
-        segment_v2::TransformExecContext transform_ctx {
-                .tablet_schema = context.tablet_schema,
-                .write_type = context.write_type,
-                .tablet = context.tablet,
-                .mow_context = context.mow_context,
-                .partial_update_info = context.partial_update_info,
-                .rowset_ctx = &context,
-                .rowset_id = context.rowset_id,
-                .segment_id = -1,
-                .derived_column = {},
-                .partial_update_stats = {}};
-        RETURN_IF_ERROR(segment_v2::build_transform_chain(context).apply(
-                transform_ctx, const_cast<Block*>(block)));
-        RETURN_IF_ERROR(segment_v2::materialize_derived_columns(transform_ctx.derived_column,
-                                                                const_cast<Block*>(block)));
-    }
-
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
+    auto& context = _segment_flusher.context();
+    auto transform_chain = segment_v2::build_transform_chain(context);
+    auto transform_block = [&]() -> Status {
+        auto transform_ctx = make_transform_exec_context(context, -1);
+        RETURN_IF_ERROR(transform_chain.apply(transform_ctx, const_cast<Block*>(block)));
+        return segment_v2::materialize_derived_columns(transform_ctx.derived_column,
+                                                       const_cast<Block*>(block));
+    };
 
     if (_flush_writer == nullptr) {
         RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
@@ -449,6 +446,10 @@ Status SegmentCreator::add_block(const Block* block) {
             DCHECK(max_row_add > 0);
         }
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
+        // The legacy writer transformed the shared block once per add_rows call.
+        // Preserve that timing because a later SegmentCreator chunk observes the
+        // Variant/RowStore representation produced by the preceding chunk.
+        RETURN_IF_ERROR(transform_block());
         RETURN_IF_ERROR(_flush_writer->add_rows(block, row_offset, input_row_num));
         row_offset += input_row_num;
     } while (row_offset < block_row_num);

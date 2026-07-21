@@ -116,8 +116,10 @@ private:
 // The single place that decides which transforms a write path gets:
 //   - compaction: empty (rows are already final)
 //   - binlog sub-writer: [RowBinlogDerive]
-//   - partial update: [Validate, Fixed/FlexibleFill, VariantParse, RowStoreFill]
-//   - direct / schema change / transient flush: [Validate, VariantParse, RowStoreFill]
+//   - fixed partial update: [Validate, FixedFill, VariantParse, RowStoreFill]
+//   - flexible partial update: [Validate, FlexibleFill, RowStoreFill, VariantParse]
+//   - direct / schema change / transient flush: [Validate, RowStoreFill, VariantParse]
+// RowStoreFill is omitted when the write type does not rebuild the row-store column.
 BlockTransformChain build_transform_chain(const RowsetWriterContext& context);
 
 } // namespace segment_v2
