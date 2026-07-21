@@ -85,16 +85,21 @@ jobs:
           )
           brew install "${cellars[@]}" || true
 
+          # macos-15 runners are Apple Silicon (arm64), so download the arm64
+          # prebuilt thirdparty. Using the x86_64 archive makes the linker ignore
+          # every thirdparty static library ("found architecture 'x86_64',
+          # required architecture 'arm64'") and the final BE link fails with
+          # thousands of undefined symbols.
           pushd thirdparty
           branch="${{ github.base_ref }}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-arm64.tar.xz" \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
-          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
           # macos-15 runners are Apple Silicon (arm64), so the JDK env var is
