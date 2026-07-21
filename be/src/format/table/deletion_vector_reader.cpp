@@ -17,11 +17,77 @@
 
 #include "format/table/deletion_vector_reader.h"
 
+#include <limits>
+
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "util/block_compression.h"
 
 namespace doris {
+namespace {
+
+constexpr int64_t ICEBERG_DELETION_VECTOR_MIN_BYTES =
+        static_cast<int64_t>(ICEBERG_DELETION_VECTOR_BLOB_OVERHEAD_BYTES);
+constexpr int64_t PAIMON_DELETION_VECTOR_MIN_BYTES = 8;
+constexpr int64_t PAIMON_LENGTH_PREFIX_BYTES = 4;
+
+enum class DeletionVectorSizeLimitStatus {
+    DATA_QUALITY,
+    NOT_SUPPORTED,
+};
+
+Status validate_deletion_vector_read_range(const char* description, int64_t offset, int64_t size,
+                                           int64_t min_size, int64_t max_size,
+                                           DeletionVectorSizeLimitStatus size_limit_status,
+                                           size_t& bytes_read) {
+    if (offset < 0) {
+        return Status::DataQualityError("{} offset must be non-negative: {}", description, offset);
+    }
+    if (size < min_size) {
+        return Status::DataQualityError("{} size too small: {}, minimum: {}", description, size,
+                                        min_size);
+    }
+    if (size > max_size) {
+        if (size_limit_status == DeletionVectorSizeLimitStatus::NOT_SUPPORTED) {
+            return Status::NotSupported("{} size exceeds Doris supported limit: {}, limit: {}",
+                                        description, size, max_size);
+        }
+        return Status::DataQualityError("{} size exceeds limit: {}, limit: {}", description, size,
+                                        max_size);
+    }
+    if (offset > std::numeric_limits<int64_t>::max() - size) {
+        return Status::DataQualityError("{} offset plus size overflows: offset {}, size {}",
+                                        description, offset, size);
+    }
+    bytes_read = static_cast<size_t>(size);
+    return Status::OK();
+}
+
+} // namespace
+
+Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
+                                                   size_t& bytes_read) {
+    return validate_deletion_vector_read_range(
+            "Iceberg deletion vector", offset, size, ICEBERG_DELETION_VECTOR_MIN_BYTES,
+            MAX_ICEBERG_DELETION_VECTOR_BYTES, DeletionVectorSizeLimitStatus::NOT_SUPPORTED,
+            bytes_read);
+}
+
+Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t length,
+                                                  size_t& bytes_read) {
+    if (length < 0) {
+        return Status::DataQualityError("Paimon deletion vector length must be non-negative: {}",
+                                        length);
+    }
+    if (length > std::numeric_limits<int64_t>::max() - PAIMON_LENGTH_PREFIX_BYTES) {
+        return Status::DataQualityError("Paimon deletion vector length overflows: {}", length);
+    }
+    return validate_deletion_vector_read_range(
+            "Paimon deletion vector", offset, length + PAIMON_LENGTH_PREFIX_BYTES,
+            PAIMON_DELETION_VECTOR_MIN_BYTES, MAX_PAIMON_DELETION_VECTOR_BYTES,
+            DeletionVectorSizeLimitStatus::DATA_QUALITY, bytes_read);
+}
+
 DeletionVectorReader::~DeletionVectorReader() {
     // The file reader may retain the child IOContext. Destroy it before merging and before the
     // child statistics storage goes away.
@@ -60,11 +126,25 @@ Status DeletionVectorReader::open() {
         return Status::OK();
     }
 
+    if (_desc.start_offset < 0 || _desc.size < 0) {
+        return Status::DataQualityError(
+                "Deletion vector range must be non-negative: path {}, offset {}, size {}",
+                _desc.path, _desc.start_offset, _desc.size);
+    }
+
     _init_system_properties();
     _init_file_description();
     RETURN_IF_ERROR(_create_file_reader());
 
-    _file_size = _file_reader->size();
+    const size_t file_size = _file_reader->size();
+    const size_t start_offset = static_cast<size_t>(_desc.start_offset);
+    const size_t range_size = static_cast<size_t>(_desc.size);
+    if (start_offset > file_size || range_size > file_size - start_offset) {
+        return Status::DataQualityError(
+                "Deletion vector range exceeds file size: path {}, offset {}, size {}, file size "
+                "{}",
+                _desc.path, _desc.start_offset, _desc.size, file_size);
+    }
     _is_opened = true;
     return Status::OK();
 }

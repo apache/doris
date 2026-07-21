@@ -1713,6 +1713,10 @@ struct TPlanNode {
   52: optional TRecCTEScanNode rec_cte_scan_node
   53: optional TBucketedAggregationNode bucketed_agg_node
   54: optional TLocalExchangeNode local_exchange_node
+  // COUNT(*) and COUNT(col) share push_down_agg_type_opt=COUNT, but file readers need to know
+  // whether a projected scan slot is the aggregate argument or merely the placeholder retained by
+  // column pruning. Empty means row-count semantics; non-empty identifies explicit COUNT columns.
+  55: optional list<Types.TSlotId> push_down_count_slot_ids
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

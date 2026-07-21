@@ -62,7 +62,6 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -1077,10 +1076,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setPositionDeleteFileFormat(getNativePositionDeleteFileFormat(deleteFile.format()));
         split.setPositionDeleteOriginalPath(originalPath);
         if (deleteFile.format() == FileFormat.PUFFIN) {
+            Long contentOffset = deleteFile.contentOffset();
+            Long contentLength = deleteFile.contentSizeInBytes();
+            IcebergDeleteFileFilter.validateDeletionVectorMetadata(
+                    originalPath, deleteFile.fileSizeInBytes(), contentOffset, contentLength);
             split.setPositionDeleteContent(IcebergDeleteFileFilter.DeletionVector.type());
             split.setPositionDeleteReferencedDataFilePath(deleteFile.referencedDataFile());
-            split.setPositionDeleteContentOffset(deleteFile.contentOffset());
-            split.setPositionDeleteContentSizeInBytes(deleteFile.contentSizeInBytes());
+            split.setPositionDeleteContentOffset(contentOffset);
+            split.setPositionDeleteContentSizeInBytes(contentLength);
         } else {
             split.setPositionDeleteContent(IcebergDeleteFileFilter.PositionDelete.type());
         }
@@ -1349,8 +1352,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (cached != null) {
             return cached;
         }
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT)) {
+        if (isTableLevelCountStarPushdown()) {
             try {
                 countFromSnapshot = getCountFromSnapshot();
             } catch (UserException e) {
