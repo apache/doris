@@ -25,6 +25,9 @@
 
 namespace doris {
 
+extern bvar::Adder<int64_t> s3_get_bytes_rate_limit_sleep_count;
+extern bvar::Adder<int64_t> s3_get_bytes_rate_limit_rejected_count;
+
 namespace {
 
 // Saves every rate limiter related config on construction, restores it and re-applies
@@ -73,6 +76,15 @@ constexpr size_t kNoThrottle = 1ULL << 40;
 
 } // namespace
 
+TEST(S3RateLimiterResolveTest, registered_defaults_preserve_legacy_compatibility) {
+    const auto& fields = *config::Register::_s_field_map;
+    EXPECT_STREQ("-1", fields.at("s3_get_qps_per_core").defval);
+    EXPECT_STREQ("-1", fields.at("s3_put_qps_per_core").defval);
+    EXPECT_STREQ("-1", fields.at("s3_get_bytes_per_second_per_core").defval);
+    EXPECT_STREQ("-1", fields.at("s3_put_bytes_per_second_per_core").defval);
+    EXPECT_STREQ("0", fields.at("s3_rate_limiter_cpu_cores").defval);
+}
+
 TEST(S3RateLimiterResolveTest, legacy_config_wins_when_per_core_unset) {
     RateLimiterConfigGuard guard;
     config::s3_get_qps_per_core = -1;
@@ -80,27 +92,49 @@ TEST(S3RateLimiterResolveTest, legacy_config_wins_when_per_core_unset) {
     config::s3_get_bucket_tokens = 456;
     config::s3_get_token_limit = 789;
     config::s3_get_qps_max = 9; // must be ignored on the legacy path
+    config::s3_put_qps_per_core = -1;
+    config::s3_put_token_per_second = 321;
+    config::s3_put_bucket_tokens = 654;
+    config::s3_put_token_limit = 987;
+    config::s3_put_qps_max = 8; // must be ignored on the legacy path
     config::s3_get_bytes_per_second_per_core = -1;
+    config::s3_put_bytes_per_second_per_core = -1;
 
-    auto limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
-    EXPECT_EQ(123, limit.qps);
-    EXPECT_EQ(456, limit.burst);
-    EXPECT_EQ(789, limit.count_limit);
-    EXPECT_EQ(0, limit.bytes_per_second);
+    auto get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
+    EXPECT_EQ(123, get_limit.qps);
+    EXPECT_EQ(456, get_limit.burst);
+    EXPECT_EQ(789, get_limit.count_limit);
+    EXPECT_EQ(0, get_limit.bytes_per_second);
+
+    auto put_limit = resolve_s3_rate_limit(S3RateLimitType::PUT, kCores);
+    EXPECT_EQ(321, put_limit.qps);
+    EXPECT_EQ(654, put_limit.burst);
+    EXPECT_EQ(987, put_limit.count_limit);
+    EXPECT_EQ(0, put_limit.bytes_per_second);
 }
 
-TEST(S3RateLimiterResolveTest, per_core_config_overrides_legacy) {
+TEST(S3RateLimiterResolveTest, get_and_put_per_core_configs_override_legacy_independently) {
     RateLimiterConfigGuard guard;
+    config::s3_get_qps_per_core = 3;
+    config::s3_get_qps_max = 0;
+    config::s3_get_token_per_second = 321;
+    config::s3_get_bucket_tokens = 654;
+    config::s3_get_token_limit = 987;
     config::s3_put_qps_per_core = 7;
     config::s3_put_qps_max = 0;
     config::s3_put_token_per_second = 123;
     config::s3_put_bucket_tokens = 456;
     config::s3_put_token_limit = 789;
 
-    auto limit = resolve_s3_rate_limit(S3RateLimitType::PUT, kCores);
-    EXPECT_EQ(7 * kCores, limit.qps);
-    EXPECT_EQ(7 * kCores, limit.burst);
-    EXPECT_EQ(0, limit.count_limit); // legacy count cap is dropped on the per-core path
+    auto get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
+    EXPECT_EQ(3 * kCores, get_limit.qps);
+    EXPECT_EQ(3 * kCores, get_limit.burst);
+    EXPECT_EQ(0, get_limit.count_limit);
+
+    auto put_limit = resolve_s3_rate_limit(S3RateLimitType::PUT, kCores);
+    EXPECT_EQ(7 * kCores, put_limit.qps);
+    EXPECT_EQ(7 * kCores, put_limit.burst);
+    EXPECT_EQ(0, put_limit.count_limit);
 }
 
 TEST(S3RateLimiterResolveTest, per_core_zero_disables_qps_limiting) {
@@ -108,21 +142,35 @@ TEST(S3RateLimiterResolveTest, per_core_zero_disables_qps_limiting) {
     config::s3_get_qps_per_core = 0;
     config::s3_get_token_per_second = 123;
     config::s3_get_token_limit = 789;
+    config::s3_put_qps_per_core = 0;
+    config::s3_put_token_per_second = 321;
+    config::s3_put_token_limit = 987;
 
-    auto limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
-    EXPECT_EQ(0, limit.qps);
-    EXPECT_EQ(0, limit.burst);
-    EXPECT_EQ(0, limit.count_limit);
+    auto get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
+    EXPECT_EQ(0, get_limit.qps);
+    EXPECT_EQ(0, get_limit.burst);
+    EXPECT_EQ(0, get_limit.count_limit);
+
+    auto put_limit = resolve_s3_rate_limit(S3RateLimitType::PUT, kCores);
+    EXPECT_EQ(0, put_limit.qps);
+    EXPECT_EQ(0, put_limit.burst);
+    EXPECT_EQ(0, put_limit.count_limit);
 }
 
-TEST(S3RateLimiterResolveTest, qps_max_caps_per_core_result) {
+TEST(S3RateLimiterResolveTest, get_and_put_qps_max_cap_per_core_results_independently) {
     RateLimiterConfigGuard guard;
     config::s3_get_qps_per_core = 1000000;
     config::s3_get_qps_max = 256;
+    config::s3_put_qps_per_core = 2000000;
+    config::s3_put_qps_max = 512;
 
-    auto limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
-    EXPECT_EQ(256, limit.qps);
-    EXPECT_EQ(256, limit.burst);
+    auto get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
+    EXPECT_EQ(256, get_limit.qps);
+    EXPECT_EQ(256, get_limit.burst);
+
+    auto put_limit = resolve_s3_rate_limit(S3RateLimitType::PUT, kCores);
+    EXPECT_EQ(512, put_limit.qps);
+    EXPECT_EQ(512, put_limit.burst);
 }
 
 TEST(S3RateLimiterResolveTest, overflowing_multiplication_is_capped) {
@@ -139,22 +187,30 @@ TEST(S3RateLimiterResolveTest, overflowing_multiplication_is_capped) {
     EXPECT_EQ(std::numeric_limits<int64_t>::max(), limit.qps);
 }
 
-TEST(S3RateLimiterResolveTest, bytes_per_core_derives_bandwidth) {
+TEST(S3RateLimiterResolveTest, get_and_put_bytes_caps_are_resolved_independently) {
     RateLimiterConfigGuard guard;
     config::s3_get_bytes_per_second_per_core = 1024;
     config::s3_get_bytes_per_second_max = 0;
+    config::s3_put_bytes_per_second_per_core = 2048;
+    config::s3_put_bytes_per_second_max = 6144;
 
-    auto limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
-    EXPECT_EQ(1024 * kCores, limit.bytes_per_second);
+    auto get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
+    EXPECT_EQ(1024 * kCores, get_limit.bytes_per_second);
+
+    auto put_limit = resolve_s3_rate_limit(S3RateLimitType::PUT, kCores);
+    EXPECT_EQ(6144, put_limit.bytes_per_second);
 
     config::s3_get_bytes_per_second_max = 2048;
-    limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
-    EXPECT_EQ(2048, limit.bytes_per_second);
+    get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
+    EXPECT_EQ(2048, get_limit.bytes_per_second);
 
     // -1 and 0 both disable bandwidth limiting.
     config::s3_get_bytes_per_second_per_core = 0;
-    limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
-    EXPECT_EQ(0, limit.bytes_per_second);
+    config::s3_put_bytes_per_second_per_core = -1;
+    get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
+    put_limit = resolve_s3_rate_limit(S3RateLimitType::PUT, kCores);
+    EXPECT_EQ(0, get_limit.bytes_per_second);
+    EXPECT_EQ(0, put_limit.bytes_per_second);
 }
 
 TEST(S3RateLimiterResolveTest, cpu_cores_override_config_wins) {
@@ -186,10 +242,19 @@ TEST(S3RateLimiterManagerTest, refresh_with_same_parameters_keeps_consumed_state
     EXPECT_EQ(-1, get_qps->add(1));
 }
 
-TEST(S3RateLimiterManagerTest, refresh_applies_core_changes) {
+TEST(S3RateLimiterManagerTest, refresh_applies_qps_speed_burst_and_limit_changes) {
     RateLimiterConfigGuard guard;
     auto& manager = S3RateLimiterManager::instance();
     auto* get_qps = manager.qps_limiter(S3RateLimitType::GET);
+
+    config::s3_get_qps_per_core = -1;
+    config::s3_get_token_per_second = 100;
+    config::s3_get_bucket_tokens = 200;
+    config::s3_get_token_limit = 300;
+    manager.refresh();
+    EXPECT_EQ(100, get_qps->get_max_speed());
+    EXPECT_EQ(200, get_qps->get_max_burst());
+    EXPECT_EQ(300, get_qps->get_limit());
 
     config::s3_rate_limiter_cpu_cores = kCores;
     config::s3_get_qps_per_core = 100;
@@ -197,11 +262,14 @@ TEST(S3RateLimiterManagerTest, refresh_applies_core_changes) {
     manager.refresh();
     EXPECT_EQ(100 * kCores, get_qps->get_max_speed());
     EXPECT_EQ(100 * kCores, get_qps->get_max_burst());
+    EXPECT_EQ(0, get_qps->get_limit());
 
     // Simulate a serverless resize: the core count is an input of refresh().
     config::s3_rate_limiter_cpu_cores = 2 * kCores;
     manager.refresh();
     EXPECT_EQ(100 * 2 * kCores, get_qps->get_max_speed());
+    EXPECT_EQ(100 * 2 * kCores, get_qps->get_max_burst());
+    EXPECT_EQ(0, get_qps->get_limit());
 }
 
 TEST(S3RateLimiterManagerTest, refresh_applies_bytes_limit_and_enables_bucket) {
@@ -238,15 +306,88 @@ TEST(TokenBucketRateLimiterTest, rejected_add_rolls_back_count_and_tokens) {
     EXPECT_EQ(0, limiter.add(1000));
 }
 
-TEST(S3RateLimitGuardTest, disabled_limiter_admits_everything) {
+TEST(S3RateLimiterManagerTest, qps_and_bytes_buckets_are_independent) {
+    RateLimiterConfigGuard guard;
+    auto& manager = S3RateLimiterManager::instance();
+    auto* qps = manager.qps_limiter(S3RateLimitType::GET);
+    auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
+    qps->reset(kNoThrottle, kNoThrottle, 1);
+    bytes->reset(kNoThrottle, kNoThrottle, 100);
+
+    EXPECT_EQ(0, qps->add(1));
+    EXPECT_EQ(-1, qps->add(1));
+    EXPECT_EQ(0, bytes->add(100));
+    EXPECT_EQ(-1, bytes->add(1));
+}
+
+TEST(S3RateLimiterManagerTest, get_and_put_qps_buckets_are_independent) {
+    RateLimiterConfigGuard guard;
+    auto& manager = S3RateLimiterManager::instance();
+    auto* get_qps = manager.qps_limiter(S3RateLimitType::GET);
+    auto* put_qps = manager.qps_limiter(S3RateLimitType::PUT);
+    get_qps->reset(kNoThrottle, kNoThrottle, 1);
+    put_qps->reset(kNoThrottle, kNoThrottle, 2);
+
+    EXPECT_EQ(0, get_qps->add(1));
+    EXPECT_EQ(-1, get_qps->add(1));
+    EXPECT_EQ(0, put_qps->add(2));
+    EXPECT_EQ(-1, put_qps->add(1));
+}
+
+TEST(S3RateLimiterManagerTest, get_and_put_bytes_buckets_are_independent) {
+    RateLimiterConfigGuard guard;
+    auto& manager = S3RateLimiterManager::instance();
+    auto* get_bytes = manager.bytes_limiter(S3RateLimitType::GET);
+    auto* put_bytes = manager.bytes_limiter(S3RateLimitType::PUT);
+    get_bytes->reset(kNoThrottle, kNoThrottle, 1);
+    put_bytes->reset(kNoThrottle, kNoThrottle, 2);
+
+    EXPECT_EQ(0, get_bytes->add(1));
+    EXPECT_EQ(-1, get_bytes->add(1));
+    EXPECT_EQ(0, put_bytes->add(2));
+    EXPECT_EQ(-1, put_bytes->add(1));
+}
+
+TEST(S3RateLimitGuardTest, disabled_limiter_does_not_consume_qps_or_bytes) {
     RateLimiterConfigGuard guard;
     config::enable_s3_rate_limiter = false;
-    S3RateLimiterManager::instance().qps_limiter(S3RateLimitType::GET)->reset(0, 0, 1);
+    auto& manager = S3RateLimiterManager::instance();
+    auto* qps = manager.qps_limiter(S3RateLimitType::GET);
+    auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
+    qps->reset(0, 0, 1);
+    bytes->reset(0, 0, 100);
 
     for (int i = 0; i < 3; ++i) {
         S3RateLimitGuard g(S3RateLimitType::GET, 100);
         EXPECT_TRUE(g.ok());
     }
+
+    // The disabled guards must not consume either cumulative limit. Each bucket still
+    // admits exactly its configured limit after the guards have completed.
+    EXPECT_EQ(0, qps->add(1));
+    EXPECT_EQ(-1, qps->add(1));
+    EXPECT_EQ(0, bytes->add(100));
+    EXPECT_EQ(-1, bytes->add(1));
+}
+
+TEST(S3RateLimiterMetricsTest, bytes_wait_and_rejection_have_distinct_counters) {
+    RateLimiterConfigGuard guard;
+    auto* bytes = S3RateLimiterManager::instance().bytes_limiter(S3RateLimitType::GET);
+    const int64_t sleep_count_before = s3_get_bytes_rate_limit_sleep_count.get_value();
+    const int64_t rejected_count_before = s3_get_bytes_rate_limit_rejected_count.get_value();
+
+    // The first add exceeds the one-token burst. It waits for the debt to refill and
+    // succeeds instead of being rejected.
+    bytes->reset(1000, 1, 0);
+    EXPECT_GT(bytes->add(2), 0);
+    EXPECT_EQ(sleep_count_before + 1, s3_get_bytes_rate_limit_sleep_count.get_value());
+    EXPECT_EQ(rejected_count_before, s3_get_bytes_rate_limit_rejected_count.get_value());
+
+    // A cumulative-limit rejection is immediate and must not be reported as a wait.
+    bytes->reset(kNoThrottle, kNoThrottle, 1);
+    EXPECT_EQ(-1, bytes->add(2));
+    EXPECT_EQ(sleep_count_before + 1, s3_get_bytes_rate_limit_sleep_count.get_value());
+    EXPECT_EQ(rejected_count_before + 1, s3_get_bytes_rate_limit_rejected_count.get_value());
 }
 
 TEST(S3RateLimitGuardTest, legacy_count_limit_rejects) {
