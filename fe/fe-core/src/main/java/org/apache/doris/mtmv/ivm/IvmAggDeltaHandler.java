@@ -25,7 +25,6 @@ import org.apache.doris.mtmv.ivm.agg.IvmAggExpressionBuilder;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
 import org.apache.doris.mtmv.ivm.agg.IvmAggTarget;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -137,11 +136,13 @@ class IvmAggDeltaHandler {
         }
         IvmRewriteResult rewriteResult = context.getRewriteResult();
         if (rewriteResult == null) {
-            throw new AnalysisException("IVM agg delta rewrite requires normalize result");
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM agg delta rewrite requires normalize result");
         }
         IvmAggMeta aggMeta = rewriteResult.getAggMeta();
         if (aggMeta == null) {
-            throw new AnalysisException("IVM agg delta rewrite requires aggregate metadata");
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM agg delta rewrite requires aggregate metadata");
         }
         DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult.get(), aggMeta);
         LogicalProject<?> applyProject = buildApplyPlan(
@@ -189,7 +190,8 @@ class IvmAggDeltaHandler {
         int groupKeySize = aggMeta.getGroupKeySlots().size();
         for (Expression groupByExpr : normalizedAgg.getGroupByExpressions()) {
             if (!(groupByExpr instanceof NamedExpression)) {
-                throw new AnalysisException("IVM agg delta rewrite requires slot-like group key, but got: "
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM agg delta rewrite requires slot-like group key, but got: "
                         + groupByExpr);
             }
             deltaAggOutputs.add((NamedExpression) groupByExpr);
@@ -235,7 +237,8 @@ class IvmAggDeltaHandler {
         for (Slot groupKey : aggMeta.getGroupKeySlots()) {
             Slot resolved = outputByName.get(groupKey.getName());
             if (resolved == null) {
-                throw new AnalysisException("IVM agg delta rewrite failed to resolve delta group key slot: "
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM agg delta rewrite failed to resolve delta group key slot: "
                         + groupKey.getName());
             }
             groupKeySlotsByName.put(groupKey.getName(), resolved);
@@ -313,7 +316,8 @@ class IvmAggDeltaHandler {
         for (Slot target : normalizedAgg.getOutput()) {
             Expression expr = finalByColumnName.get(target.getName());
             if (expr == null) {
-                throw new AnalysisException("IVM agg delta rewrite missing output expression for column: "
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM agg delta rewrite missing output expression for column: "
                         + target.getName());
             }
             finalOutputs.add(new Alias(target.getExprId(), expr, target.getName()));
@@ -337,7 +341,8 @@ class IvmAggDeltaHandler {
         }
         Optional<LogicalRepeat<?>> sourceRepeat = newAggChild.collectFirst(LogicalRepeat.class::isInstance);
         if (!sourceRepeat.isPresent()) {
-            throw new AnalysisException("IVM agg delta rewrite failed to resolve rewritten source repeat");
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM agg delta rewrite failed to resolve rewritten source repeat");
         }
         return newAgg.withSourceRepeat(sourceRepeat.get());
     }
@@ -365,7 +370,8 @@ class IvmAggDeltaHandler {
     private Expression deltaGroupKey(DeltaPlanParts delta, String name) {
         Slot slot = delta.groupKeySlotsByName.get(name);
         if (slot == null) {
-            throw new AnalysisException("IVM agg delta rewrite failed to resolve delta group key: " + name);
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM agg delta rewrite failed to resolve delta group key: " + name);
         }
         return slot;
     }
