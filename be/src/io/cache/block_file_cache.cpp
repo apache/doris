@@ -867,15 +867,9 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
     }
 
     FileBlocksByOffset* cached_blocks = nullptr;
-    FileBlocksByOffset::iterator cached_block;
     if (file_iterator != _files.end()) {
         DORIS_CHECK(!file_iterator->second.empty());
         cached_blocks = &file_iterator->second;
-        cached_block = cached_blocks->lower_bound(offset);
-        if (cached_block != cached_blocks->begin()) {
-            const auto& previous_range = std::prev(cached_block)->second.file_block->range();
-            DORIS_CHECK(previous_range.right < offset);
-        }
     }
 
     std::vector<FileBlockSPtr> result;
@@ -884,16 +878,19 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
         const size_t block_size = std::min(_max_file_block_size, end - block_offset);
         const FileBlock::Range expected_range(block_offset, block_offset + block_size - 1);
         FileBlockSPtr file_block;
-        if (cached_blocks != nullptr && cached_block != cached_blocks->end() &&
-            cached_block->second.file_block->range().left <= expected_range.right) {
-            file_block = cached_block->second.file_block;
-            DORIS_CHECK(file_block->range().left == expected_range.left);
-            DORIS_CHECK(file_block->range().right >= expected_range.right);
-            // File writers allocate full-size cache blocks before the final buffer size is known.
-            // Only the last short probe slot can therefore have a larger cached right boundary.
-            DORIS_CHECK(file_block->range().right == expected_range.right ||
-                        block_size < _max_file_block_size);
-            ++cached_block;
+        if (cached_blocks != nullptr) {
+            const auto cached_block = cached_blocks->find(block_offset);
+            if (cached_block != cached_blocks->end()) {
+                const auto& candidate = cached_block->second.file_block;
+                const auto& candidate_range = candidate->range();
+                DCHECK(candidate_range.left == expected_range.left);
+                const bool exact_slot = candidate_range.right == expected_range.right;
+                const bool preallocated_file_tail = block_size < _max_file_block_size &&
+                                                    candidate_range.right > expected_range.right;
+                if (exact_slot || preallocated_file_tail) {
+                    file_block = candidate;
+                }
+            }
         }
         result.emplace_back(std::move(file_block));
         block_offset += block_size;

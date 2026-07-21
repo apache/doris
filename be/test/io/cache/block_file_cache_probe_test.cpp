@@ -115,6 +115,69 @@ TEST_F(BlockFileCacheTest, ProbeReturnsDownloadedBlockAndNullMissSlot) {
     fs::remove_all(path, error);
 }
 
+TEST_F(BlockFileCacheTest, ProbeTreatsIncompatibleExistingBlocksAsSlotMisses) {
+    const auto path = caches_dir / "block_file_cache_probe_incompatible_existing_blocks";
+    std::error_code error;
+    fs::remove_all(path, error);
+    fs::create_directories(path);
+    {
+        BlockFileCache cache(path.string(), probe_cache_settings());
+        ASSERT_TRUE(cache.initialize().ok());
+        wait_until_cache_ready(cache);
+        const auto hash = BlockFileCache::hash("probe_unaligned_existing_block");
+        ReadStatistics stats;
+        CacheContext context;
+        context.stats = &stats;
+
+        // Generic get_or_set callers, such as the segment writer's index-cache range, can create
+        // a valid cache cell that begins inside a probe slot. It cannot represent the whole slot
+        // and must therefore be reported as a miss without hiding a later aligned slot.
+        {
+            auto holder = cache.get_or_set(hash, 1024, 2048, context);
+            ASSERT_EQ(holder.file_blocks.size(), 1);
+            const auto& block = holder.file_blocks.front();
+            ASSERT_EQ(block->range().left, 1024);
+            ASSERT_EQ(block->range().right, 3071);
+            ASSERT_EQ(block->get_or_set_downloader(), FileBlock::get_caller_id());
+            const std::string payload(2048, 'u');
+            ASSERT_TRUE(block->append(Slice(payload.data(), payload.size())).ok());
+            ASSERT_TRUE(block->finalize().ok());
+        }
+        FileBlockSPtr aligned_block;
+        {
+            auto holder = cache.get_or_set(hash, 4096, 4096, context);
+            ASSERT_EQ(holder.file_blocks.size(), 1);
+            aligned_block = holder.file_blocks.front();
+            ASSERT_EQ(aligned_block->get_or_set_downloader(), FileBlock::get_caller_id());
+            const std::string payload(4096, 'a');
+            ASSERT_TRUE(aligned_block->append(Slice(payload.data(), payload.size())).ok());
+            ASSERT_TRUE(aligned_block->finalize().ok());
+        }
+
+        auto result = cache.probe(hash, 0, 8192, context);
+        ASSERT_EQ(result.file_blocks.size(), 2);
+        EXPECT_EQ(result.file_blocks[0], nullptr);
+        EXPECT_EQ(result.file_blocks[1], aligned_block);
+
+        // An existing cell can also start at the probe slot but end before it. This is another
+        // valid generic layout, but it cannot be returned as coverage for the complete slot.
+        const auto short_hash = BlockFileCache::hash("probe_short_existing_block");
+        {
+            auto holder = cache.get_or_set(short_hash, 0, 2048, context);
+            ASSERT_EQ(holder.file_blocks.size(), 1);
+            const auto& block = holder.file_blocks.front();
+            ASSERT_EQ(block->get_or_set_downloader(), FileBlock::get_caller_id());
+            const std::string payload(2048, 's');
+            ASSERT_TRUE(block->append(Slice(payload.data(), payload.size())).ok());
+            ASSERT_TRUE(block->finalize().ok());
+        }
+        auto short_result = cache.probe(short_hash, 0, 4096, context);
+        ASSERT_EQ(short_result.file_blocks.size(), 1);
+        EXPECT_EQ(short_result.file_blocks[0], nullptr);
+    }
+    fs::remove_all(path, error);
+}
+
 TEST_F(BlockFileCacheTest, ProbeAcceptsPreallocatedBlockCoveringFileTail) {
     const auto path = caches_dir / "block_file_cache_probe_preallocated_file_tail";
     std::error_code error;
