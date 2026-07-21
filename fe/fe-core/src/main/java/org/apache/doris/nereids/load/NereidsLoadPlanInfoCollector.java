@@ -172,7 +172,6 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
                 slotInfo.setSlotId(srcSlotIds.get(i).asInt());
                 slotInfo.setIsFileSlot(i < numColumnsFromFile);
-                slotInfo.setIsOutputSlot(true);
                 params.addToRequiredSlots(slotInfo);
             }
 

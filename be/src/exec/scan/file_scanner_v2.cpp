@@ -737,13 +737,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
             return Status::InternalError("Unknown source slot descriptor, slot_id={}",
                                          slot_info.slot_id);
         }
-        if (!slot_info.__isset.is_output_slot) {
-            return Status::InternalError(
-                    "Missing required file scan slot output semantic, slot_id={}",
-                    slot_info.slot_id);
-        }
         auto column = _build_table_column(it->second);
-        column.is_output_slot = slot_info.is_output_slot;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _need_global_rowid_column = true;
         }

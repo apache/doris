@@ -129,8 +129,8 @@ struct ReadProfile {
 };
 
 struct TableReadOptions {
-    // Columns required by the scan. They are all in table/global schema semantics;
-    // ColumnDefinition::is_output_slot distinguishes output from predicate-only dependencies.
+    // Columns need to be read from file and output by table reader. They are all in table/global
+    // schema semantics.
     const std::vector<ColumnDefinition> projected_columns;
     // All complex conjuncts from scan operator
     const VExprContextSPtrs conjuncts;
@@ -636,7 +636,15 @@ protected:
         DORIS_CHECK(block->columns() > 0 || rows == 0);
         for (size_t column_idx = 0; column_idx < block->columns(); ++column_idx) {
             auto column = block->get_by_position(column_idx).type->create_column();
-            column->resize(rows);
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+                // Metadata COUNT emits synthetic input rows for the unchanged upper aggregate.
+                // They must be non-NULL for COUNT(nullable_col), and constructing them explicitly
+                // also keeps every nullable null map boolean-valid in debug/ASAN block checks.
+                nullable->get_nested_column().insert_many_defaults(rows);
+                nullable->get_null_map_data().resize_fill(rows, 0);
+            } else {
+                column->insert_many_defaults(rows);
+            }
             block->replace_by_position(column_idx, std::move(column));
         }
         return Status::OK();

@@ -1807,6 +1807,7 @@ TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_FALSE(eos);
     EXPECT_EQ(block.rows(), 3);
+    ASSERT_TRUE(block.check_type_and_column().ok()) << block.dump_structure();
     EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(fake_state->close_count, 1);
     EXPECT_TRUE(reader.current_split_uses_metadata_count());
@@ -1856,6 +1857,7 @@ TEST(TableReaderTest, PushDownCountStarIgnoresProjectedPlaceholderColumn) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_FALSE(eos);
     EXPECT_EQ(block.rows(), 3);
+    ASSERT_TRUE(block.check_type_and_column().ok()) << block.dump_structure();
     ASSERT_TRUE(fake_state->last_request != nullptr);
     ASSERT_EQ(fake_state->last_request->count_star_placeholder_columns.size(), 1);
     EXPECT_TRUE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(0)));

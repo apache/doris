@@ -2334,8 +2334,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
             if (inputPlanNode instanceof OlapScanNode) {
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
-            } else if (inputPlanNode instanceof FileQueryScanNode) {
-                ((FileQueryScanNode) inputPlanNode).setRequiredByProjectSlotIds(requiredByProjectSlotIdSet);
             }
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, context);
