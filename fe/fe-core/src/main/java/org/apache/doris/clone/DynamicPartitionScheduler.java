@@ -230,12 +230,28 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         }
                         // When currentUtcBorder is available, exclude the current
                         // partition by comparing range lower bounds, not names.
+                        // Use PartitionKey.compareTo (not getStringValue) to
+                        // handle scale differences: a TIMESTAMPTZ(6) lower key
+                        // stores "2026-07-20 00:00:00.000000+00:00" while
+                        // currentUtcBorder is "2026-07-20 00:00:00+00:00" —
+                        // the string representations differ even though they
+                        // represent the same instant.
                         if (currentUtcBorder != null) {
                             RangePartitionItem item = (RangePartitionItem) info.getItem(partition.getId());
                             if (item != null) {
                                 PartitionKey lower = item.getItems().lowerEndpoint();
-                                if (lower.getKeys().get(0).getStringValue().equals(currentUtcBorder)) {
-                                    return false; // current partition
+                                try {
+                                    Column partitionColumn = info.getPartitionColumns().get(0);
+                                    PartitionValue currentValue = new PartitionValue(currentUtcBorder);
+                                    PartitionKey currentKey = PartitionKey.createPartitionKey(
+                                            Collections.singletonList(currentValue),
+                                            Collections.singletonList(partitionColumn));
+                                    if (lower.compareTo(currentKey) == 0) {
+                                        return false; // current partition
+                                    }
+                                } catch (AnalysisException e) {
+                                    // Fall back to name-based comparison
+                                    return !partition.getName().equals(nowPartitionName);
                                 }
                             }
                         }
@@ -686,7 +702,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
         String currentTimeStr = DateTimeFormatter.ofPattern(partitionFormat).format(now);
-
+        if (isTimestampTz) {
+            currentTimeStr += "+00:00";
+        }
         PartitionValue currentTimeValue = new PartitionValue(currentTimeStr);
         PartitionKey currentTimeKey;
         try {
