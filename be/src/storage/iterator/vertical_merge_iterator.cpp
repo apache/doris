@@ -918,9 +918,19 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
             return Status::InternalError("VerticalMergeIteratorContext not valid");
         }
 
-        // find max same source count in cur ctx
+        // The key group marks merged, delete-sign and TTL-expired rows in the shared mask. Every
+        // later value group must advance its source iterator for those rows without copying them.
+        if (_row_sources_buf->current().agg_flag()) {
+            _row_sources_buf->advance();
+            RETURN_IF_ERROR(ctx->advance());
+            _filtered_rows++;
+            st = _row_sources_buf->has_remaining();
+            continue;
+        }
+
+        // Find a run that is both from the same source and not masked by the key group.
         size_t limit = std::min(ctx->remain_rows(), _block_row_max - rows);
-        auto same_source_cnt = _row_sources_buf->same_source_count(order, limit);
+        auto same_source_cnt = _row_sources_buf->same_source_continuous_non_agg_count(order, limit);
         _row_sources_buf->advance(same_source_cnt);
         // copy rows to block
         RETURN_IF_ERROR(ctx->copy_rows(block, same_source_cnt));

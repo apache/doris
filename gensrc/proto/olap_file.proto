@@ -151,6 +151,7 @@ message RowsetMetaPB {
     optional bool segments_key_bounds_aggregated = 57;
 
     optional bool is_row_binlog = 58 [default = false];
+    reserved 59;
 
     // For cloud
     // for data recycling
@@ -268,6 +269,7 @@ message RowsetMetaCloudPB {
     optional bool segments_key_bounds_aggregated = 57;
 
     optional bool is_row_binlog = 58 [default = false];
+    reserved 59;
 
     // cloud
     // the field is a vector, rename it
@@ -304,6 +306,7 @@ message RowsetMetaCloudPB {
 }
 
 message SegmentStatisticsPB {
+    reserved 5;
     optional int64 row_num = 1;
     optional int64 data_size = 2;
     optional int64 index_size = 3;
@@ -511,7 +514,8 @@ message TabletSchemaPB {
     optional bool is_dynamic_schema = 19 [default=false]; // deprecated
     reserved 20; // deprecated is_partial_update
     reserved 21; // deprecated partial_update_input_columns
-    reserved 22; // deprecated enable_single_replica_compaction
+    // Read-only compatibility with the branch-1.2.8 local Tablet PB. New code never writes it.
+    optional int64 legacy_row_ttl_duration_seconds = 22 [default = -1];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
@@ -551,6 +555,10 @@ message TabletSchemaPB {
 
     // cid of the binlog op column (__DORIS_BINLOG_OP__).
     optional int32 binlog_op_col_idx = 42 [default = -1];
+
+    // cid of the row TTL hidden column (__DORIS_TTL_COL__).
+    optional int32 ttl_col_idx = 43 [default = -1];
+    optional int64 row_ttl_duration_us = 44 [default = -1];
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -610,6 +618,10 @@ message TabletSchemaCloudPB {
 
     // cid of the binlog op column (__DORIS_BINLOG_OP__).
     optional int32 binlog_op_col_idx = 43 [default = -1];
+
+    // cid of the row TTL hidden column (__DORIS_TTL_COL__).
+    optional int32 ttl_col_idx = 44 [default = -1];
+    optional int64 row_ttl_duration_us = 45 [default = -1];
 
     optional bool is_dynamic_schema = 100 [default=false];
 
@@ -849,6 +861,9 @@ message PartialUpdateInfoPB {
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
+    optional int32 row_ttl_source_column_cid = 16 [default = -1];
+    reserved 17; // deprecated row_ttl_duration_us
+    optional int32 row_ttl_source_column_uid = 18 [default = -1];
 }
 
 message FileEncryptionInfoPB {

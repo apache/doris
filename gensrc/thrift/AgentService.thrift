@@ -56,6 +56,8 @@ struct TTabletSchema {
     27: optional i32 binlog_tso_idx = -1
     28: optional i32 binlog_lsn_idx = -1
     29: optional i32 binlog_op_idx = -1
+    30: optional i32 ttl_col_idx = -1
+    31: optional i64 row_ttl_duration_us = -1
 }
 
 // this enum stands for different storage format in src_backends

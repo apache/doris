@@ -367,8 +367,8 @@ struct OlapReaderStatistics {
     int64_t in_zonemap_range_only_count = 0;
     int64_t rows_bf_filtered = 0;
     int64_t segment_dict_filtered = 0;
-    // Including the number of rows filtered out according to the Delete information in the Tablet,
-    // and the number of rows filtered for marked deleted rows under the unique key model.
+    // Including rows filtered by Tablet delete information, unique-key delete signs, and the
+    // conditional row TTL delete sign.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
     // and it is also used to record the replaced rows in the Unique key model in the "Reader" class.
     // In segmentv2, if you want to get all filtered rows, you need the sum of "rows_del_filtered" and "rows_conditions_filtered".

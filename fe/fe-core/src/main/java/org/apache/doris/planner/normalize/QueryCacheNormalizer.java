@@ -116,11 +116,18 @@ public class QueryCacheNormalizer implements Normalizer {
     }
 
     private Optional<CachePoint> computeCachePoint() {
-        if (!fragment.getTargetRuntimeFilterIds().isEmpty()) {
+        if (!fragment.getTargetRuntimeFilterIds().isEmpty() || containsRowTtlScan(fragment.getPlanRoot())) {
             return Optional.empty();
         }
         PlanNode planRoot = fragment.getPlanRoot();
         return doComputeCachePoint(planRoot);
+    }
+
+    private boolean containsRowTtlScan(PlanNode planRoot) {
+        if (planRoot instanceof OlapScanNode && ((OlapScanNode) planRoot).getOlapTable().hasRowTtl()) {
+            return true;
+        }
+        return planRoot.getChildren().stream().anyMatch(this::containsRowTtlScan);
     }
 
     private Optional<CachePoint> doComputeCachePoint(PlanNode planRoot) {

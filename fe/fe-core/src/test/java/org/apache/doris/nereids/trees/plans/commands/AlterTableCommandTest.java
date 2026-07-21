@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 
 import org.junit.jupiter.api.Assertions;
@@ -54,6 +56,30 @@ public class AlterTableCommandTest {
         Assertions.assertEquals(
                 "ALTER TABLE `internal`.`db`.`test` ENABLE FEATURE \"SEQUENCE_LOAD\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
                 alterTableCommand.toSql());
+
+        ops.clear();
+        properties.clear();
+        properties.put("function_column.ttl_col", "event_time");
+        properties.put("function_column.ttl", "1 day");
+        EnableFeatureOp rowTtl = new EnableFeatureOp("ROW_TTL", properties);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> rowTtl.validate(null));
+        Assertions.assertEquals("unknown feature name: ROW_TTL", exception.getMessage());
+    }
+
+    @Test
+    void testRejectAlterRowTtlProperties() {
+        for (String property : new String[] {
+                "enable_row_ttl", "function_column.ttl_col", "function_column.ttl"}) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put(property, property.equals("enable_row_ttl") ? "true" : "event_time");
+            ModifyTablePropertiesOp modifyRowTtl = new ModifyTablePropertiesOp(properties);
+            org.apache.doris.nereids.exceptions.AnalysisException propertyException =
+                    Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                            () -> modifyRowTtl.validate(null));
+            Assertions.assertEquals("TTL properties can only be specified when creating a table",
+                    propertyException.getMessage());
+        }
     }
 
     @Test

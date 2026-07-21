@@ -106,6 +106,9 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
             LogicalProject<LogicalFilter<LogicalOlapScan>> project,
             LogicalFilter<LogicalOlapScan> filter,
             LogicalOlapScan scan) {
+        if (scan.getTable().hasRowTtl()) {
+            return null;
+        }
         // 1. Requirement: Project must contain a score() function.
         boolean hasScoreFunction = project.getProjects().stream()
                 .anyMatch(projection -> {

@@ -34,6 +34,7 @@
 #include <string>
 #include <tuple>
 
+#include "common/check.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -161,6 +162,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _nano_seconds = pschema.nano_seconds();
     }
     _timezone = pschema.timezone();
+    _row_ttl_source_column_uid = pschema.row_ttl_source_column_unique_id();
+    if (pschema.has_row_ttl_source_column()) {
+        _row_ttl_source_column = _obj_pool.add(new TabletColumn());
+        _row_ttl_source_column->init_from_pb(pschema.row_ttl_source_column());
+    }
 
     for (const auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
@@ -331,6 +337,12 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     for (const auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
     }
+    if (tschema.__isset.row_ttl_source_column_unique_id) {
+        _row_ttl_source_column_uid = tschema.row_ttl_source_column_unique_id;
+        DORIS_CHECK(tschema.__isset.row_ttl_source_column);
+        _row_ttl_source_column = _obj_pool.add(new TabletColumn());
+        _row_ttl_source_column->init_from_thrift(tschema.row_ttl_source_column);
+    }
     std::unordered_map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
     for (const auto& t_slot_desc : tschema.slot_descs) {
@@ -442,6 +454,10 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_timezone(_timezone);
     pschema->set_nano_seconds(_nano_seconds);
     pschema->set_sequence_map_col_unique_id(_sequence_map_col_uid);
+    pschema->set_row_ttl_source_column_unique_id(_row_ttl_source_column_uid);
+    if (_row_ttl_source_column != nullptr) {
+        _row_ttl_source_column->to_schema_pb(pschema->mutable_row_ttl_source_column());
+    }
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }

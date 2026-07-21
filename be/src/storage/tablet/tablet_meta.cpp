@@ -621,6 +621,12 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     if (tablet_schema.__isset.commit_tso_col_idx) {
         tablet_schema_pb->set_commit_tso_col_idx(tablet_schema.commit_tso_col_idx);
     }
+    if (tablet_schema.__isset.ttl_col_idx) {
+        tablet_schema_pb->set_ttl_col_idx(tablet_schema.ttl_col_idx);
+    }
+    if (tablet_schema.__isset.row_ttl_duration_us) {
+        tablet_schema_pb->set_row_ttl_duration_us(tablet_schema.row_ttl_duration_us);
+    }
     if (tablet_schema.__isset.store_row_column) {
         tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
     }

@@ -497,6 +497,12 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     if (in.has_binlog_op_col_idx()) {
         out->set_binlog_op_col_idx(in.binlog_op_col_idx());
     }
+    if (in.has_ttl_col_idx()) {
+        out->set_ttl_col_idx(in.ttl_col_idx());
+    }
+    if (in.has_row_ttl_duration_us()) {
+        out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -557,6 +563,12 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     }
     if (in.has_binlog_op_col_idx()) {
         out->set_binlog_op_col_idx(in.binlog_op_col_idx());
+    }
+    if (in.has_ttl_col_idx()) {
+        out->set_ttl_col_idx(in.ttl_col_idx());
+    }
+    if (in.has_row_ttl_duration_us()) {
+        out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     }
 
     if (in.has___split_schema()) {
@@ -632,6 +644,12 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     if (in.has_binlog_op_col_idx()) {
         out->set_binlog_op_col_idx(in.binlog_op_col_idx());
     }
+    if (in.has_ttl_col_idx()) {
+        out->set_ttl_col_idx(in.ttl_col_idx());
+    }
+    if (in.has_row_ttl_duration_us()) {
+        out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -693,6 +711,12 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     }
     if (in.has_binlog_op_col_idx()) {
         out->set_binlog_op_col_idx(in.binlog_op_col_idx());
+    }
+    if (in.has_ttl_col_idx()) {
+        out->set_ttl_col_idx(in.ttl_col_idx());
+    }
+    if (in.has_row_ttl_duration_us()) {
+        out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     }
 
     if (in.has___split_schema()) {

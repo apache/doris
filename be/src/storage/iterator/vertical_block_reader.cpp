@@ -35,6 +35,7 @@
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader.h"
@@ -56,7 +57,37 @@ VerticalBlockReader::~VerticalBlockReader() {
 }
 
 Status VerticalBlockReader::next_block_with_aggregation(Block* block, bool* eof) {
+    uint64_t row_source_start = _row_sources_buffer->buffered_size();
     auto res = (this->*_next_block_func)(block, eof);
+    if (res.ok() && (_filter_delete_sign || _filter_row_ttl) && block->rows() > 0) {
+        RowVisibilityFilter filter;
+        RETURN_IF_ERROR(build_row_visibility_filter(*block, *_tablet_schema, _filter_delete_sign,
+                                                    _filter_row_ttl, _row_ttl_now_us, &filter));
+
+        if (_row_sources_buffer->buffered_size() < row_source_start) {
+            row_source_start = 0;
+        }
+        uint64_t row_source_idx = row_source_start;
+        if (UNLIKELY(_reader_context.record_rowids)) {
+            DORIS_CHECK_EQ(_block_row_locations.size(), filter.selection.size());
+        }
+        for (size_t row = 0; row < filter.selection.size(); ++row) {
+            while (row_source_idx < _row_sources_buffer->buffered_size() &&
+                   _row_sources_buffer->get_agg_flag(row_source_idx)) {
+                ++row_source_idx;
+            }
+            DORIS_CHECK(row_source_idx < _row_sources_buffer->buffered_size());
+            if (!filter.selection[row]) {
+                _row_sources_buffer->set_agg_flag(row_source_idx, true);
+                if (UNLIKELY(_reader_context.record_rowids)) {
+                    _block_row_locations[row].row_id = -1;
+                }
+            }
+            ++row_source_idx;
+        }
+        RETURN_IF_ERROR(filter_block_by_row_visibility(block, filter.selection));
+        _stats.rows_del_filtered += filter.rows_deleted;
+    }
     if (!config::is_cloud_mode()) {
         if (!res.ok()) [[unlikely]] {
             static_cast<Tablet*>(_tablet.get())->report_error(res);
@@ -230,6 +261,14 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         _reader_context.batch_size = opts.block_row_max;
     }
     RETURN_IF_ERROR(TabletReader::init(read_params));
+    _filter_row_ttl =
+            read_params.is_key_column_group &&
+            should_gc_row_ttl(*_tablet_schema, _tablet->enable_unique_key_merge_on_write(),
+                              read_params.reader_type, read_params.version);
+    if (_filter_row_ttl) {
+        _row_ttl_now_us =
+                read_params.row_ttl_gc_now_us > 0 ? read_params.row_ttl_gc_now_us : UnixMicros();
+    }
 
     auto status = _init_collect_iter(read_params, sample_info);
     if (!status.ok()) [[unlikely]] {
@@ -246,9 +285,6 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
     case KeysType::UNIQUE_KEYS:
         if (_tablet_schema->cluster_key_uids().empty()) {
             _next_block_func = &VerticalBlockReader::_unique_key_next_block;
-            if (_filter_delete) {
-                _delete_filter_column = ColumnUInt8::create();
-            }
         } else {
             _next_block_func = &VerticalBlockReader::_direct_next_block;
         }
@@ -263,6 +299,9 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
         break;
     }
+    _filter_delete_sign = read_params.is_key_column_group &&
+                          _next_block_func == &VerticalBlockReader::_unique_key_next_block &&
+                          _delete_sign_available;
 
     // Use sparse optimization flag from ReaderParams (calculated in merger.cpp based on avg_row_bytes threshold)
     _enable_sparse_optimization = read_params.enable_sparse_optimization;
@@ -441,15 +480,12 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
 Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
     if (_reader_context.is_key_column_group) {
         // Record row_source_buffer current size for key column agg flag
-        // _vcollect_iter->next_batch(block) will fill row_source_buffer but delete sign is ignored
-        // we calc delete sign column if it's base compaction and update row_sourece_buffer's agg flag
-        // after we get current block
+        // _vcollect_iter->next_batch(block) fills row_source_buffer. Post-merge row visibility
+        // updates its aggregation flags after the key block has been produced.
         VLOG_NOTICE << "reader id: " << _id
                     << ", buffer size: " << _row_sources_buffer->buffered_size();
-        uint64_t row_source_idx = _row_sources_buffer->buffered_size();
-        uint64_t row_buffer_size_start = row_source_idx;
+        uint64_t row_buffer_size_start = _row_sources_buffer->buffered_size();
         uint64_t merged_rows_start = _vcollect_iter->merged_rows();
-        uint64_t filtered_rows_start = _stats.rows_del_filtered;
 
         auto res = _vcollect_iter->next_batch(block);
         if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
@@ -465,7 +501,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
 
         if (_row_sources_buffer->buffered_size() < row_buffer_size_start) {
             row_buffer_size_start = 0;
-            row_source_idx = 0;
         }
 
         size_t merged_rows_in_rs_buffer = 0;
@@ -475,80 +510,9 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             }
         }
 
-        size_t block_rows = block->rows();
-        if (_delete_sign_available && block_rows > 0) {
-            int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
-            if (ori_delete_sign_idx < 0) {
-                *eof = (res.is<END_OF_FILE>());
-                _eof = *eof;
-                return Status::OK();
-            }
-            // delete sign column must store in last column of the block
-            int delete_sign_idx = block->columns() - 1;
-            DCHECK(delete_sign_idx > 0);
-            auto target_columns_guard = block->mutate_columns_scoped();
-            auto& target_columns = target_columns_guard.mutable_columns();
-            auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
-            auto* delete_filter_data_column =
-                    reinterpret_cast<ColumnUInt8*>(delete_filter_column.get());
-            delete_filter_data_column->resize(block_rows);
-
-            auto* __restrict filter_data = delete_filter_data_column->get_data().data();
-            auto* __restrict delete_data =
-                    reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
-                            ->get_data()
-                            .data();
-
-            int cur_row = 0;
-            int delete_count = 0;
-            while (cur_row < block_rows) {
-                if (_row_sources_buffer->get_agg_flag(row_source_idx)) {
-                    row_source_idx++;
-                    continue;
-                }
-                bool sign = (delete_data[cur_row] == 0);
-                filter_data[cur_row] = sign;
-                if (UNLIKELY(!sign)) {
-                    _row_sources_buffer->set_agg_flag(row_source_idx, true);
-                    if (UNLIKELY(_reader_context.record_rowids)) {
-                        _block_row_locations[cur_row].row_id = -1;
-                        delete_count++;
-                    }
-                }
-                cur_row++;
-                row_source_idx++;
-            }
-            while (row_source_idx < _row_sources_buffer->buffered_size()) {
-                row_source_idx++;
-            }
-
-            const auto column_to_keep = target_columns.size();
-            target_columns_guard.restore();
-            _delete_filter_column = std::move(delete_filter_column);
-            ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
-                                                             std::make_shared<DataTypeUInt8>(),
-                                                             "__DORIS_COMPACTION_FILTER__"};
-            block->insert(column_with_type_and_name);
-            RETURN_IF_ERROR(Block::filter_block(block, column_to_keep, column_to_keep));
-            _stats.rows_del_filtered += block_rows - block->rows();
-            if (UNLIKELY(_reader_context.record_rowids)) {
-                DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
-            }
-        }
-
-        size_t filtered_rows_in_rs_buffer = 0;
-        for (auto i = row_buffer_size_start; i < _row_sources_buffer->buffered_size(); i++) {
-            if (_row_sources_buffer->get_agg_flag(i)) {
-                filtered_rows_in_rs_buffer++;
-            }
-        }
-        filtered_rows_in_rs_buffer -= merged_rows_in_rs_buffer;
-
         auto merged_rows_cur_batch = _vcollect_iter->merged_rows() - merged_rows_start;
-        auto filtered_rows_cur_batch = _stats.rows_del_filtered - filtered_rows_start;
 
         DCHECK_EQ(merged_rows_in_rs_buffer, merged_rows_cur_batch);
-        DCHECK_EQ(filtered_rows_in_rs_buffer, filtered_rows_cur_batch);
         *eof = (res.is<END_OF_FILE>());
         _eof = *eof;
         return Status::OK();

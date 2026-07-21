@@ -335,6 +335,7 @@ public class OlapTableSink extends DataSink {
     public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
         if (isPartialUpdate) {
             this.uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+            addRowTtlInputColumn(columns);
             this.partialUpdateInputColumns = columns;
         }
     }
@@ -342,7 +343,19 @@ public class OlapTableSink extends DataSink {
     public void setPartialUpdateInfo(TUniqueKeyUpdateMode uniqueKeyUpdateMode, HashSet<String> columns) {
         this.uniqueKeyUpdateMode = uniqueKeyUpdateMode;
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+            addRowTtlInputColumn(columns);
             this.partialUpdateInputColumns = columns;
+        }
+    }
+
+    private void addRowTtlInputColumn(HashSet<String> columns) {
+        if (!dstTable.hasRowTtl() || dstTable.getRowTtlCol() == null) {
+            return;
+        }
+        boolean updatesSource = columns.stream()
+                .anyMatch(column -> column.equalsIgnoreCase(dstTable.getRowTtlCol()));
+        if (updatesSource) {
+            columns.add(Column.TTL_COL);
         }
     }
 
@@ -473,6 +486,12 @@ public class OlapTableSink extends DataSink {
                     rowBinlogMeta.getIndexId(), binlogColumns, rowBinlogMeta.getSchemaHash());
             rowBinlogIndexSchema.setColumnsDesc(binlogColumnsDesc);
             schemaParam.setRowBinlogIndexSchema(rowBinlogIndexSchema);
+        }
+
+        if (table.hasRowTtl() && table.getRowTtlCol() != null) {
+            Column sourceColumn = table.getColumn(table.getRowTtlCol());
+            schemaParam.setRowTtlSourceColumnUniqueId(sourceColumn.getUniqueId());
+            schemaParam.setRowTtlSourceColumn(ColumnToThrift.toThrift(sourceColumn));
         }
 
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);

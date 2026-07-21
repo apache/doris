@@ -46,6 +46,7 @@
 #include "storage/index/primary_key_index.h"
 #include "storage/iterators.h"
 #include "storage/partial_update_info.h"
+#include "storage/row_ttl.h"
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/group_rowset_writer.h"
@@ -1133,6 +1134,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                                                              old_block, default_value_block));
 
     CHECK(update_rows >= old_rows);
+    std::vector<bool> row_ttl_recompute(update_rows, false);
 
     // build full block
     for (auto i = 0; i < missing_cids.size(); ++i) {
@@ -1168,6 +1170,10 @@ Status BaseTablet::generate_new_block_for_partial_update(
                 }
 
                 if (use_default) {
+                    if (rowset_schema->has_ttl_col() &&
+                        missing_cids[i] == rowset_schema->ttl_col_idx()) {
+                        row_ttl_recompute[idx] = true;
+                    }
                     if (rs_column.has_default_value()) {
                         mutable_column->insert_from(*default_value_block.get_by_position(i).column,
                                                     0);
@@ -1186,35 +1192,50 @@ Status BaseTablet::generate_new_block_for_partial_update(
         }
     }
     full_mutable_columns_guard.restore();
+    if (partial_update_info->row_ttl_source_cid() >= 0 &&
+        std::ranges::any_of(row_ttl_recompute, [](bool recompute) { return recompute; })) {
+        RETURN_IF_ERROR(copy_row_ttl_source(output_block, *rowset_schema,
+                                            partial_update_info->row_ttl_source_cid(),
+                                            row_ttl_recompute));
+    }
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
 
+static bool flexible_partial_update_uses_default(const std::map<uint32_t, uint32_t>& read_index_old,
+                                                 const TabletSchemaSPtr& rowset_schema,
+                                                 const PartialUpdateInfo* partial_update_info,
+                                                 const TabletColumn& tablet_column, std::size_t idx,
+                                                 bool skipped, bool row_has_sequence_col,
+                                                 const signed char* delete_sign_column_data) {
+    if (!skipped) {
+        return false;
+    }
+    const auto old_row = read_index_old.at(cast_set<uint32_t>(idx));
+    const bool old_row_delete_sign =
+            delete_sign_column_data != nullptr && delete_sign_column_data[old_row] != 0;
+    if (!old_row_delete_sign) {
+        return false;
+    }
+    if (!rowset_schema->has_sequence_col()) {
+        return true;
+    }
+    return row_has_sequence_col ||
+           (!tablet_column.is_seqeunce_col() &&
+            tablet_column.unique_id() != partial_update_info->sequence_map_col_uid());
+}
+
 static void fill_cell_for_flexible_partial_update(
-        std::map<uint32_t, uint32_t>& read_index_old,
-        std::map<uint32_t, uint32_t>& read_index_update, const TabletSchemaSPtr& rowset_schema,
-        const PartialUpdateInfo* partial_update_info, const TabletColumn& tablet_column,
-        std::size_t idx, MutableColumnPtr& new_col, const IColumn& default_value_col,
-        const IColumn& old_value_col, const IColumn& cur_col, bool skipped,
-        bool row_has_sequence_col, const signed char* delete_sign_column_data) {
+        const std::map<uint32_t, uint32_t>& read_index_old,
+        const std::map<uint32_t, uint32_t>& read_index_update,
+        const TabletSchemaSPtr& rowset_schema, const PartialUpdateInfo* partial_update_info,
+        const TabletColumn& tablet_column, std::size_t idx, MutableColumnPtr& new_col,
+        const IColumn& default_value_col, const IColumn& old_value_col, const IColumn& cur_col,
+        bool skipped, bool row_has_sequence_col, const signed char* delete_sign_column_data) {
     if (skipped) {
-        bool use_default = false;
-        bool old_row_delete_sign =
-                (delete_sign_column_data != nullptr &&
-                 delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0);
-        if (old_row_delete_sign) {
-            if (!rowset_schema->has_sequence_col()) {
-                use_default = true;
-            } else if (row_has_sequence_col || (!tablet_column.is_seqeunce_col() &&
-                                                (tablet_column.unique_id() !=
-                                                 partial_update_info->sequence_map_col_uid()))) {
-                // to keep the sequence column value not decreasing, we should read values of seq column(and seq map column)
-                // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
-                // it may cause the merge-on-read based compaction to produce incorrect results
-                use_default = true;
-            }
-        }
-        if (use_default) {
+        if (flexible_partial_update_uses_default(read_index_old, rowset_schema, partial_update_info,
+                                                 tablet_column, idx, skipped, row_has_sequence_col,
+                                                 delete_sign_column_data)) {
             if (tablet_column.has_default_value()) {
                 new_col->insert_from(default_value_col, 0);
             } else if (tablet_column.is_nullable()) {
@@ -1226,15 +1247,15 @@ static void fill_cell_for_flexible_partial_update(
                 //     - if the previous conflicting row is deleted, we should use the value in current block as its final value
                 //     - if the previous conflicting row is an insert, we should use the value in old block as its final value to
                 //       keep consistency between replicas
-                new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
+                new_col->insert_from(cur_col, read_index_update.at(cast_set<uint32_t>(idx)));
             } else {
                 new_col->insert_default();
             }
         } else {
-            new_col->insert_from(old_value_col, read_index_old[cast_set<uint32_t>(idx)]);
+            new_col->insert_from(old_value_col, read_index_old.at(cast_set<uint32_t>(idx)));
         }
     } else {
-        new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
+        new_col->insert_from(cur_col, read_index_update.at(cast_set<uint32_t>(idx)));
     }
 }
 
@@ -1298,6 +1319,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
             &(assert_cast<const ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
                       update_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
                       ->get_data());
+    std::vector<bool> row_ttl_recompute(update_rows, false);
 
     if (rowset_schema->has_sequence_col() && !rids_be_overwritten.empty()) {
         // If the row specifies the sequence column, we should delete the current row becase the
@@ -1330,14 +1352,21 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                 if (rids_be_overwritten.contains(idx)) {
                     new_col->insert_from(old_value_col, read_index_old[idx]);
                 } else {
+                    const bool skipped = skip_bitmaps->at(idx).contains(col_uid);
+                    const bool row_has_sequence_col =
+                            rowset_schema->has_sequence_col()
+                                    ? !skip_bitmaps->at(idx).contains(seq_col_unique_id)
+                                    : false;
                     fill_cell_for_flexible_partial_update(
                             read_index_old, read_index_update, rowset_schema, partial_update_info,
                             rs_column, idx, new_col, default_value_col, old_value_col, cur_col,
-                            skip_bitmaps->at(idx).contains(col_uid),
-                            rowset_schema->has_sequence_col()
-                                    ? !skip_bitmaps->at(idx).contains(seq_col_unique_id)
-                                    : false,
-                            old_block_delete_signs);
+                            skipped, row_has_sequence_col, old_block_delete_signs);
+                    if (rowset_schema->has_ttl_col() && cid == rowset_schema->ttl_col_idx() &&
+                        flexible_partial_update_uses_default(
+                                read_index_old, rowset_schema, partial_update_info, rs_column, idx,
+                                skipped, row_has_sequence_col, old_block_delete_signs)) {
+                        row_ttl_recompute[idx] = true;
+                    }
                 }
             }
         }
@@ -1345,6 +1374,12 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     }
 
     full_mutable_columns_guard.restore();
+    if (partial_update_info->row_ttl_source_cid() >= 0 &&
+        std::ranges::any_of(row_ttl_recompute, [](bool recompute) { return recompute; })) {
+        RETURN_IF_ERROR(copy_row_ttl_source(output_block, *rowset_schema,
+                                            partial_update_info->row_ttl_source_cid(),
+                                            row_ttl_recompute));
+    }
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }

@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <iterator>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -46,10 +47,13 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/predicate/like_column_predicate.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 class ColumnPredicate;
@@ -68,7 +72,33 @@ BlockReader::~BlockReader() {
 }
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
+    if (_remove_row_ttl_output) {
+        const auto& ttl_column = _tablet_schema->column(_tablet_schema->ttl_col_idx());
+        const auto ttl_type = ttl_column.get_vec_type();
+        block->insert({ttl_type->create_column(), ttl_type, TTL_COL});
+    }
+    Defer remove_internal_ttl([&] {
+        if (_remove_row_ttl_output) {
+            DORIS_CHECK_EQ(_row_ttl_output_pos, block->columns() - 1);
+            block->erase(_row_ttl_output_pos);
+        }
+    });
     auto res = (this->*_next_block_func)(block, eof);
+    if (res.ok() && (_filter_delete_sign || _filter_row_ttl) && block->rows() > 0) {
+        RowVisibilityFilter filter;
+        RETURN_IF_ERROR(build_row_visibility_filter(*block, *_tablet_schema, _filter_delete_sign,
+                                                    _filter_row_ttl, _row_ttl_now_us, &filter));
+        if (UNLIKELY(_reader_context.record_rowids)) {
+            DORIS_CHECK_EQ(_block_row_locations.size(), filter.selection.size());
+            for (size_t row = 0; row < filter.selection.size(); ++row) {
+                if (!filter.selection[row]) {
+                    _block_row_locations[row].row_id = -1;
+                }
+            }
+        }
+        RETURN_IF_ERROR(filter_block_by_row_visibility(block, filter.selection));
+        _stats.rows_del_filtered += filter.rows_deleted;
+    }
     if (!config::is_cloud_mode()) {
         if (!res.ok()) [[unlikely]] {
             static_cast<Tablet*>(_tablet.get())->report_error(res);
@@ -535,6 +565,13 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
+    _filter_row_ttl = should_gc_row_ttl(*_tablet_schema,
+                                        _tablet->enable_unique_key_merge_on_write(),
+                                        read_params.reader_type, read_params.version);
+    if (_filter_row_ttl) {
+        _row_ttl_now_us =
+                read_params.row_ttl_gc_now_us > 0 ? read_params.row_ttl_gc_now_us : UnixMicros();
+    }
 
     auto return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size(), -1);
@@ -553,6 +590,24 @@ Status BlockReader::init(const ReaderParams& read_params) {
                 _return_columns_loc[j] = i;
                 break;
             }
+        }
+    }
+
+    if (_filter_row_ttl) {
+        const int32_t ttl_cid = _tablet_schema->ttl_col_idx();
+        DORIS_CHECK(ttl_cid >= 0);
+        auto ttl_it = std::find(read_params.return_columns.begin(),
+                                read_params.return_columns.end(), ttl_cid);
+        if (ttl_it == read_params.return_columns.end()) {
+            return Status::InternalError("row ttl column is missing from reader columns");
+        }
+        const size_t ttl_read_pos = std::distance(read_params.return_columns.begin(), ttl_it);
+        if (_return_columns_loc[ttl_read_pos] == -1) {
+            _row_ttl_output_pos = return_column_size;
+            _remove_row_ttl_output = true;
+            _return_columns_loc[ttl_read_pos] = _row_ttl_output_pos;
+            _normal_columns_idx.emplace_back(ttl_read_pos);
+            pos_map[ttl_cid] = static_cast<int32_t>(_normal_columns_idx.size() - 1);
         }
     }
 
@@ -640,9 +695,6 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _next_block_func = &BlockReader::_replace_key_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
-            if (_filter_delete) {
-                _delete_filter_column = ColumnUInt8::create();
-            }
         }
         break;
     case KeysType::AGG_KEYS:
@@ -653,6 +705,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
         break;
     }
+    _filter_delete_sign = _next_block_func == &BlockReader::_unique_key_next_block &&
+                          _delete_sign_available;
 
     return Status::OK();
 }
@@ -916,49 +970,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
     } while (target_block_row < batch_max_rows());
 
-    if (_delete_sign_available) {
-        int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
-        DCHECK(delete_sign_idx > 0);
-        if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {
-            LOG(WARNING) << "tablet_id: " << tablet()->tablet_id() << " delete sign idx "
-                         << delete_sign_idx
-                         << " not invalid, skip filter delete in base compaction";
-            target_columns_guard.restore();
-            return Status::OK();
-        }
-        auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
-        reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
-
-        auto* __restrict filter_data =
-                reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
-        auto* __restrict delete_data =
-                reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
-                        ->get_data()
-                        .data();
-        int delete_count = 0;
-        for (int i = 0; i < target_block_row; ++i) {
-            bool sign = (delete_data[i] == 0);
-            filter_data[i] = sign;
-            if (UNLIKELY(!sign)) {
-                if (UNLIKELY(_reader_context.record_rowids)) {
-                    _block_row_locations[i].row_id = -1;
-                    delete_count++;
-                }
-            }
-        }
-        auto target_columns_size = target_columns.size();
-        _delete_filter_column = std::move(delete_filter_column);
-        ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
-                                                         std::make_shared<DataTypeUInt8>(),
-                                                         "__DORIS_COMPACTION_FILTER__"};
-        target_columns_guard.restore();
-        block->insert(column_with_type_and_name);
-        RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
-        _stats.rows_del_filtered += target_block_row - block->rows();
-        if (UNLIKELY(_reader_context.record_rowids)) {
-            DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
-        }
-    }
     return Status::OK();
 }
 

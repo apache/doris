@@ -1216,6 +1216,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return null;
     }
 
+    public boolean hasRowTtl() {
+        return getTtlColumn() != null;
+    }
+
+    public Column getTtlColumn() {
+        return getColumn(Column.TTL_COL);
+    }
+
+    public String getRowTtlCol() {
+        return tableProperty == null ? null : tableProperty.getRowTtlCol();
+    }
+
+    public long getRowTtlDurationMicros() {
+        return tableProperty == null ? -1 : tableProperty.getRowTtlDurationMicros();
+    }
+
     // schemaHash
     public Map<Long, Integer> getIndexIdToSchemaHash() {
         Map<Long, Integer> result = Maps.newHashMap();
@@ -2118,6 +2134,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
+
+        // Older catalogs did not persist the explicit switch. The physical hidden column is the
+        // authoritative compatibility marker; persist the recovered switch for SHOW CREATE.
+        if (hasRowTtl() && !getOrCreatTableProperty().getProperties()
+                .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)) {
+            getOrCreatTableProperty().modifyTableProperties(
+                    PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL, "true");
+        }
 
         if (tableProperty != null && tableProperty.hasInvalidDynamicPartition()) {
             LOG.warn("Table [{}-{}] has incomplete dynamic partition properties {}, "

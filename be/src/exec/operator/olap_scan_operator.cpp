@@ -50,6 +50,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
+#include "storage/utils.h"
 #include "util/to_string.h"
 
 namespace doris {
@@ -575,6 +576,10 @@ bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
                                                     ExprStorageFilterCheckMode mode) {
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+        if (slot_ref->expr_name() == TTL_COL) {
+            // TTL observes the row only after UNIQUE winner/sequence/delete-sign merging.
+            return false;
+        }
         return mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR ||
                !_is_key_column(slot_ref->expr_name());
     }

@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
@@ -661,6 +662,49 @@ public class CreateTableInfo {
                 }
                 for (int i = keys.size(); i < columns.size(); ++i) {
                     columns.get(i).setAggType(type);
+                }
+            }
+
+            boolean enableRowTtl = PropertyAnalyzer.analyzeEnableRowTtl(properties, keysType);
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL,
+                        Boolean.toString(enableRowTtl));
+            }
+            String rowTtlCol = PropertyAnalyzer.analyzeRowTtlCol(properties, keysType);
+            if (enableRowTtl) {
+                ColumnDefinition sourceColumn = null;
+                DataType ttlColumnType = BigIntType.INSTANCE;
+                if (rowTtlCol != null) {
+                    long durationMicros = PropertyAnalyzer.analyzeRowTtlDurationMicros(properties);
+                    properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                                    + PropertyAnalyzer.PROPERTIES_TTL,
+                            Long.toString(durationMicros / 1_000_000L));
+                    sourceColumn = columnMap.get(rowTtlCol);
+                    if (sourceColumn == null) {
+                        throw new AnalysisException("row ttl column does not exist: " + rowTtlCol);
+                    }
+                    if (sourceColumn.isKey()) {
+                        throw new AnalysisException("row ttl column must be a value column: " + rowTtlCol);
+                    }
+                    if (!sourceColumn.getType().isDateLikeType()) {
+                        throw new AnalysisException("row ttl column only supports DATE/DATETIME types: " + rowTtlCol);
+                    }
+                    ttlColumnType = sourceColumn.getType();
+                }
+                AggregateType ttlAggregateType = keysType == KeysType.DUP_KEYS
+                        ? AggregateType.NONE : AggregateType.REPLACE;
+                columns.add(ColumnDefinition.newTtlColumnDefinition(ttlColumnType, ttlAggregateType));
+                String sequenceMappingPrefix = PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".";
+                for (Map.Entry<String, String> entry : properties.entrySet()) {
+                    if (!entry.getKey().startsWith(sequenceMappingPrefix)) {
+                        continue;
+                    }
+                    List<String> mappedColumns = new ArrayList<>(List.of(entry.getValue().split(",")));
+                    if (rowTtlCol != null && mappedColumns.stream().anyMatch(rowTtlCol::equalsIgnoreCase)
+                            && mappedColumns.stream().noneMatch(Column.TTL_COL::equalsIgnoreCase)) {
+                        mappedColumns.add(Column.TTL_COL);
+                        entry.setValue(String.join(",", mappedColumns));
+                    }
                 }
             }
 

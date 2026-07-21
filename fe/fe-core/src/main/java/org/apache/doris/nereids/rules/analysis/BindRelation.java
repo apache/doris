@@ -33,6 +33,7 @@ import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SchemaTable.SchemaColumn;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TimeTravelTableWrapper;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.stream.BaseTableStream;
@@ -88,6 +89,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisible;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -240,11 +242,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier,
             CascadesContext cascadesContext) {
         LogicalOlapScan scan;
+        OlapTable originTable = (OlapTable) table;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
         StreamScanType changeScanType = checkChangeScanCondition((OlapTable) table, unboundRelation.getScanParams());
         if (changeScanType != null) {
             table = new RowBinlogTableWrapper((OlapTable) table);
+        } else if (unboundRelation.getTableSnapshot().isPresent()) {
+            table = new TimeTravelTableWrapper(originTable);
         } else if (unboundRelation.getScanParams() != null) {
             unboundRelation.getScanParams().validateOlapTable();
         }
@@ -301,7 +306,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // Time-travel (FOR VERSION/TIME AS OF): wrap the scan with a __DORIS_COMMIT_TSO_COL__
         // predicate (dup) or a base/binlog union (mow).
         if (unboundRelation.getTableSnapshot().isPresent()) {
-            return buildTimeTravelPlan(scan, (OlapTable) table,
+            return buildTimeTravelPlan(scan, originTable,
                     unboundRelation.getTableSnapshot().get(), unboundRelation, qualifier,
                     partIds, tabletIds, cascadesContext);
         }
@@ -314,8 +319,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return preAggForRandomDistribution(scan);
         } else {
             // it's a duplicate, unique or hash distribution agg table
-            // add delete sign filter on olap scan if needed
-            return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+            // add post-merge row visibility conditions on olap scan if needed
+            return addRowVisibilityFilters(scan, ConnectContext.get(), (OlapTable) table);
         }
     }
 
@@ -454,12 +459,33 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    /**
-     * Add delete sign filter on olap scan if need.
-     */
-    public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
+    /** Add the ordinary row-visibility conditions after storage merge. */
+    public static LogicalPlan addRowVisibilityFilters(LogicalOlapScan scan, ConnectContext connectContext,
             OlapTable olapTable) {
-        return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
+        if (olapTable.hasRowTtl() && olapTable.isMorTable()) {
+            scan = scan.withPreAggStatus(PreAggStatus.off(
+                    Column.TTL_COL + " is used as conjuncts."));
+        }
+        return addRowTtlFilter(
+                checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false), olapTable,
+                false);
+    }
+
+    /** Add the non-pushdown row TTL visibility condition. */
+    private static LogicalPlan addRowTtlFilter(LogicalPlan plan, OlapTable olapTable,
+            boolean historicalRow) {
+        if (!olapTable.hasRowTtl()) {
+            return plan;
+        }
+        String ttlValueColumn = historicalRow && olapTable.getRowTtlCol() != null
+                ? olapTable.getRowTtlCol() : Column.TTL_COL;
+        Slot ttlSlot = plan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(ttlValueColumn))
+                .findFirst()
+                .orElseThrow(() -> new AnalysisException(
+                        "row ttl hidden column is missing from table " + olapTable.getName()));
+        return new LogicalFilter<>(ImmutableSet.of(new RowTtlIsVisible(ttlSlot,
+                new BigIntLiteral(olapTable.getRowTtlDurationMicros()))), plan);
     }
 
     private static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
@@ -500,7 +526,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         validateTimeTravel(olapTable);
         long targetTso = resolveSnapshotTso(snapshot);
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-            return addCommitTsoFilter(scan, targetTso, olapTable);
+            return addRowTtlFilter(addCommitTsoFilter(scan, targetTso, olapTable), olapTable, true);
         }
         return buildMowTimeTravelUnion(scan, olapTable, targetTso, unboundRelation,
                 qualifier, partIds, tabletIds, cascadesContext);
@@ -526,6 +552,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 && !olapTable.getBinlogConfig().getNeedHistoricalValue()) {
             throw new AnalysisException("FOR VERSION/TIME AS OF on merge-on-write table requires "
                     + "binlog.need_historical_value=true. Table " + olapTable.getQualifiedName());
+        }
+        if (olapTable.isUniqKeyMergeOnWrite() && olapTable.hasRowTtl()
+                && olapTable.getRowTtlCol() == null) {
+            throw new AnalysisException("FOR VERSION/TIME AS OF on a direct-expiration TTL table "
+                    + "is not supported because row binlog does not persist hidden expiration values. Table "
+                    + olapTable.getQualifiedName());
         }
     }
 
@@ -577,8 +609,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 .filter(slot -> !(slot instanceof SlotReference)
                         || ((SlotReference) slot).isVisible())
                 .collect(Collectors.toList());
-
-        // left: base survived rows at t1 = delete_sign=0 AND commit_tso<=t1, projected to visible.
+        // Keep the source time on both branches. The row-binlog schema intentionally contains
+        // visible values rather than storage-only hidden columns, so source-time TTL is evaluated
+        // only after the historical row version has been reconstructed.
         LogicalPlan left = checkAndAddDeleteSignFilter(baseScan, ConnectContext.get(), olapTable, true);
         left = projectFromOriginSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
 
@@ -608,8 +641,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // fully-qualified name (catalog.db.table) rather than the table-less qualifier, otherwise
         // qualified references such as t.k / t.* fail to bind (the dup path keeps the original scan
         // slots that already carry the table name in their qualifier).
-        return new LogicalSubQueryAlias<>(baseScan.qualified(),
-                new LogicalUnion(Qualifier.ALL, ImmutableList.of(left, right)));
+        LogicalPlan reconstructed = new LogicalUnion(Qualifier.ALL, ImmutableList.of(left, right));
+        reconstructed = addRowTtlFilter(reconstructed, olapTable, true);
+        reconstructed = projectFromOriginSlots(reconstructed, visibleOutput);
+        return new LogicalSubQueryAlias<>(baseScan.qualified(), reconstructed);
     }
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,

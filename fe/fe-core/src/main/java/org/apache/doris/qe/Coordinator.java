@@ -156,6 +156,7 @@ import org.jetbrains.annotations.NotNull;
 import org.joda.time.DateTime;
 
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -365,9 +366,10 @@ public class Coordinator implements CoordInterface {
         }
         setFromUserProperty(context);
 
+        Instant queryNow = Instant.now();
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        this.queryGlobals.setTimestampMs(queryNow.toEpochMilli());
+        this.queryGlobals.setNanoSeconds(queryNow.getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
             this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
@@ -397,8 +399,10 @@ public class Coordinator implements CoordInterface {
         this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
         this.queryOptions.setProfileLevel(2);
+        Instant queryNow = Instant.now();
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
+        this.queryGlobals.setTimestampMs(queryNow.toEpochMilli());
+        this.queryGlobals.setNanoSeconds(queryNow.getNano());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);

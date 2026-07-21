@@ -1436,6 +1436,8 @@ Status CompactionMixin::modify_rowsets() {
             std::size_t merged_missed_rows_size = _stats.merged_rows;
             if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
                 merged_missed_rows_size += _stats.filtered_rows;
+            } else {
+                merged_missed_rows_size += _stats.post_merge_filtered_rows;
             }
 
             // Suppose a heavy schema change process on BE converting tablet A to tablet B.

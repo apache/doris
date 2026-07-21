@@ -64,6 +64,7 @@
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
 #include "storage/row_cursor.h" // RowCursor // IWYU pragma: keep
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
@@ -666,7 +667,13 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
             *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
             segment_start_pos, data.block));
-
+    if (_tablet_schema->has_ttl_col() &&
+        _opts.rowset_ctx->partial_update_info->row_ttl_source_cid() >= 0) {
+        const auto* partial_update_info = _opts.rowset_ctx->partial_update_info.get();
+        RETURN_IF_ERROR(copy_row_ttl_source(&full_block, *_tablet_schema,
+                                            partial_update_info->row_ttl_source_cid(),
+                                            use_default_or_null_flag, data.row_pos));
+    }
     if (_tablet_schema->num_variant_columns() > 0) {
         RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
                 full_block, *_tablet_schema, _opts.rowset_ctx->partial_update_info->missing_cids));
@@ -832,7 +839,13 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
             _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
             *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
             segment_start_pos, cast_set<uint32_t>(data.row_pos), data.block, skip_bitmaps));
-
+    if (_tablet_schema->has_ttl_col() &&
+        _opts.rowset_ctx->partial_update_info->row_ttl_source_cid() >= 0) {
+        const auto* partial_update_info = _opts.rowset_ctx->partial_update_info.get();
+        RETURN_IF_ERROR(copy_row_ttl_source(&full_block, *_tablet_schema,
+                                            partial_update_info->row_ttl_source_cid(),
+                                            use_default_or_null_flag, data.row_pos));
+    }
     // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table
 

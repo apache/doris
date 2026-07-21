@@ -60,6 +60,7 @@
 #include "storage/segment/segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
 #include "util/slice.h"
@@ -888,7 +889,6 @@ Status BaseBetaRowsetWriter::flush_memtable(Block* block, int32_t segment_id, in
     if (block->rows() == 0) {
         return Status::OK();
     }
-
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         RETURN_IF_ERROR(_segment_creator.flush_single_block(block, segment_id, flush_size));

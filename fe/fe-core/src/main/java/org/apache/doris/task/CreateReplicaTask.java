@@ -142,6 +142,7 @@ public class CreateReplicaTask extends AgentTask {
 
     private TEncryptionAlgorithm tdeAlgorithm;
     private Map<String, List<String>> columnSeqMapping;
+    private long rowTtlDurationUs;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -171,7 +172,7 @@ public class CreateReplicaTask extends AgentTask {
                              long storagePageSize, TEncryptionAlgorithm tdeAlgorithm,
                              long storageDictPageSize, Map<String, List<String>> columnSeqMapping,
                              int verticalCompactionNumColumnsPerGroup,
-                             MaterializedIndexMeta rowBinlogMeta) {
+                             MaterializedIndexMeta rowBinlogMeta, long rowTtlDurationUs) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -224,6 +225,7 @@ public class CreateReplicaTask extends AgentTask {
         this.tdeAlgorithm = tdeAlgorithm;
         this.columnSeqMapping = columnSeqMapping;
         this.rowBinlogMeta = rowBinlogMeta;
+        this.rowTtlDurationUs = rowTtlDurationUs;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -314,6 +316,7 @@ public class CreateReplicaTask extends AgentTask {
         int sequenceCol = -1;
         int versionCol = -1;
         int commitTsoCol = -1;
+        int ttlCol = -1;
         List<TColumn> tColumns = null;
         Object tCols = objectPool.get(columns);
         if (tCols != null) {
@@ -352,12 +355,17 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isCommitTsoColumn()) {
                 commitTsoCol = i;
             }
+            if (column.isTtlColumn()) {
+                ttlCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
         tSchema.setCommitTsoColIdx(commitTsoCol);
+        tSchema.setTtlColIdx(ttlCol);
+        tSchema.setRowTtlDurationUs(rowTtlDurationUs);
         tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             tSchema.setClusterKeyUids(clusterKeyUids);

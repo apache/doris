@@ -144,6 +144,9 @@ public class PropertyAnalyzer {
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+    public static final String PROPERTIES_ENABLE_ROW_TTL = "enable_row_ttl";
+    public static final String PROPERTIES_TTL_COL = "ttl_col";
+    public static final String PROPERTIES_TTL = "ttl";
     public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
 
     public static final String PROPERTIES_SEQUENCE_MAPPING = "sequence_mapping";
@@ -1402,6 +1405,99 @@ public class PropertyAnalyzer {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
         return sequenceCol;
+    }
+
+    public static boolean analyzeEnableRowTtl(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        if (properties == null) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_ROW_TTL);
+        String colProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_COL;
+        String ttlProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL;
+        if (value == null) {
+            if (properties.containsKey(colProperty) || properties.containsKey(ttlProperty)) {
+                throw new AnalysisException("enable_row_ttl must be true when row ttl properties are specified");
+            }
+            return false;
+        }
+        if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+            throw new AnalysisException("enable_row_ttl must be true or false");
+        }
+        boolean enabled = Boolean.parseBoolean(value);
+        if (!enabled && (properties.containsKey(colProperty) || properties.containsKey(ttlProperty))) {
+            throw new AnalysisException("enable_row_ttl must be true when row ttl properties are specified");
+        }
+        if (enabled && keysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("row ttl does not support AGG_KEYS");
+        }
+        return enabled;
+    }
+
+    public static String analyzeRowTtlCol(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        if (properties == null) {
+            return null;
+        }
+        String colProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_COL;
+        String ttlProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL;
+        String ttlCol = properties.get(colProperty);
+        String ttl = properties.get(ttlProperty);
+        if ((ttlCol == null) != (ttl == null)) {
+            throw new AnalysisException("function_column.ttl_col and function_column.ttl must be set together");
+        }
+        if (ttlCol != null && keysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("row ttl does not support AGG_KEYS");
+        }
+        return ttlCol;
+    }
+
+    public static long analyzeRowTtlDurationMicros(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null) {
+            return -1;
+        }
+        String ttl = properties.get(PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL);
+        return ttl == null ? -1 : parseRowTtlDurationMicros(ttl);
+    }
+
+    public static long parseRowTtlDurationMicros(String ttl) throws AnalysisException {
+        String normalized = ttl.trim().toLowerCase();
+        long multiplier = 1_000_000L;
+        if (normalized.endsWith("weeks")) {
+            normalized = normalized.substring(0, normalized.length() - 5).trim();
+            multiplier = 7L * 24 * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("week")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 7L * 24 * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("days")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("day")) {
+            normalized = normalized.substring(0, normalized.length() - 3).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("d")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("hours")) {
+            normalized = normalized.substring(0, normalized.length() - 5).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        } else if (normalized.endsWith("hour")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        } else if (normalized.endsWith("h")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        }
+        try {
+            long value = Long.parseLong(normalized);
+            if (value < 0) {
+                throw new AnalysisException("row ttl duration must not be negative");
+            }
+            return Math.multiplyExact(value, multiplier);
+        } catch (NumberFormatException | ArithmeticException e) {
+            throw new AnalysisException("invalid or overflowing row ttl duration: " + ttl);
+        }
     }
 
     public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,

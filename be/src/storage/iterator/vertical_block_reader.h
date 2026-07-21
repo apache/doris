@@ -113,7 +113,9 @@ private:
     Status (VerticalBlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
 
     RowSourcesBuffer* _row_sources_buffer;
-    ColumnPtr _delete_filter_column;
+    bool _filter_delete_sign = false;
+    bool _filter_row_ttl = false;
+    int64_t _row_ttl_now_us = 0;
 
     // for agg mode
     std::vector<AggregateFunctionPtr> _agg_functions;
