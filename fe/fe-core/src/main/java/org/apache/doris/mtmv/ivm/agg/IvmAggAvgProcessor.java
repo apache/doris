@@ -23,7 +23,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -59,8 +62,13 @@ class IvmAggAvgProcessor extends IvmAggSumLikeProcessor {
         Divide coercedDivide = (Divide) TypeCoercionUtils.processDivide(new Divide(newSum, newCount));
         Expression guardedCount = new If(ctx.isPositive(newCount), coercedDivide.right(),
                 new NullLiteral(coercedDivide.right().getDataType()));
-        Expression visibleValue = TypeCoercionUtils.castIfNotMatchType(
-                coercedDivide.withChildren(coercedDivide.left(), guardedCount),
+        Expression average = coercedDivide.withChildren(coercedDivide.left(), guardedCount);
+        if (target.getVisibleSlot().getDataType() instanceof DecimalV3Type) {
+            DecimalV3Type visibleType = (DecimalV3Type) target.getVisibleSlot().getDataType();
+            average = TypeCoercionUtils.processBoundFunction(
+                    new Truncate(average, new IntegerLiteral(visibleType.getScale())));
+        }
+        Expression visibleValue = TypeCoercionUtils.castIfNotMatchType(average,
                 target.getVisibleSlot().getDataType());
         applyContext.putFinalExpression(target.getVisibleSlot().getName(),
                 visibleValue);
