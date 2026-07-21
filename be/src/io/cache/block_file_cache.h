@@ -236,6 +236,9 @@ public:
     /// Cache capacity in bytes.
     [[nodiscard]] size_t capacity() const { return _capacity; }
 
+    /// Canonical size used to partition a cached file into blocks.
+    [[nodiscard]] size_t max_file_block_size() const { return _max_file_block_size; }
+
     // try to release all releasable block
     // it maybe hang the io/system
     size_t try_release();
@@ -261,11 +264,9 @@ public:
 
     /// Probe the block-aligned `[offset, offset + size)` range without creating cache cells or
     /// touching LRU state. The result contains one ordered slot per cache block; each slot is null
-    /// on miss or owns an existing block that starts at and covers the slot. Existing blocks with
-    /// incompatible boundaries are valid for generic get_or_set callers but remain misses here so
-    /// the result stays one-to-one with the requested slots. A final short slot can be covered by a
-    /// full-size block preallocated by a file writer. `context` supplies cache metadata when lazy
-    /// loading is required.
+    /// on miss or owns an existing block that starts at and covers the slot. A final short slot can
+    /// be covered by a full-size block preallocated by a file writer. `context` supplies cache
+    /// metadata when lazy loading is required.
     FileBlocksProbeResult probe(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 const CacheContext& context);
 
