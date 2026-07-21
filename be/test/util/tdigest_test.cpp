@@ -21,6 +21,7 @@
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
+#include <numeric>
 #include <random>
 
 #include "gtest/gtest_pred_impl.h"
@@ -213,6 +214,45 @@ TEST_F(TDigestTest, ExtremeQuantiles) {
     std::vector<double> quantiles {1.5 / 9.0, 3.5 / 9.0, 6.5 / 9.0};
     for (auto q : quantiles) {
         EXPECT_NEAR(quantile(q, values), digest.quantile(q), 0.01) << "q = " << q;
+    }
+}
+
+TEST_F(TDigestTest, BatchQuantilesMatchSingleQuantiles) {
+    TDigest digest(1000);
+    for (int i = 0; i < 10000; ++i) {
+        digest.add(static_cast<double>((i * 37) % 1000));
+    }
+
+    std::vector<double> levels {0.9, 0.0, 0.5, 0.1, 1.0, 0.5, 0.99};
+    std::vector<size_t> permutation(levels.size());
+    std::iota(permutation.begin(), permutation.end(), 0);
+    std::sort(permutation.begin(), permutation.end(),
+              [&levels](size_t lhs, size_t rhs) { return levels[lhs] < levels[rhs]; });
+
+    std::vector<double> results(levels.size());
+    digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+
+    for (size_t i = 0; i < levels.size(); ++i) {
+        EXPECT_DOUBLE_EQ(results[i], static_cast<double>(digest.quantile(levels[i])));
+    }
+}
+
+TEST_F(TDigestTest, BatchQuantilesHandleEmptyAndSingleValueDigests) {
+    std::vector<double> levels {0.0, 0.5, 1.0};
+    std::vector<size_t> permutation {0, 1, 2};
+    std::vector<double> results(levels.size());
+
+    TDigest empty_digest(1000);
+    empty_digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+    for (double result : results) {
+        EXPECT_TRUE(std::isnan(result));
+    }
+
+    TDigest single_value_digest(1000);
+    single_value_digest.add(42.0);
+    single_value_digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+    for (double result : results) {
+        EXPECT_DOUBLE_EQ(result, 42.0);
     }
 }
 

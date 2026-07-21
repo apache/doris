@@ -357,6 +357,61 @@ public:
         return quantileProcessed(q);
     }
 
+    void quantiles(const double* quantile_levels, const size_t* permutation, size_t size,
+                   double* result) {
+        if (size == 0) {
+            return;
+        }
+        if (haveUnprocessed() || isDirty()) {
+            process();
+        }
+
+        if (_processed.empty()) {
+            std::fill(result, result + size, NAN);
+            return;
+        }
+
+        if (_processed.size() == 1) {
+            std::fill(result, result + size, static_cast<double>(mean(0)));
+            return;
+        }
+
+        const auto n = _processed.size();
+        size_t cumulative_index = 0;
+        for (size_t result_index = 0; result_index < size; ++result_index) {
+            const size_t level_index = permutation[result_index];
+            const auto q = static_cast<Value>(quantile_levels[level_index]);
+            DCHECK_GE(q, 0);
+            DCHECK_LE(q, 1);
+
+            const auto index = q * _processed_weight;
+            if (index <= weight(0) / 2.0) {
+                DCHECK_GT(weight(0), 0);
+                result[level_index] =
+                        static_cast<double>(_min + 2.0 * index / weight(0) * (mean(0) - _min));
+                continue;
+            }
+
+            while (cumulative_index < _cumulative.size() && _cumulative[cumulative_index] < index) {
+                ++cumulative_index;
+            }
+
+            if (cumulative_index > 0 && cumulative_index + 1 < _cumulative.size()) {
+                auto z1 = index - _cumulative[cumulative_index - 1];
+                auto z2 = _cumulative[cumulative_index] - index;
+                result[level_index] = static_cast<double>(weightedAverage(
+                        mean(cumulative_index - 1), z2, mean(cumulative_index), z1));
+                continue;
+            }
+
+            DCHECK_LE(index, _processed_weight);
+            DCHECK_GE(index, _processed_weight - weight(n - 1) / 2.0);
+            auto z1 = static_cast<Value>(index - _processed_weight - weight(n - 1) / 2.0);
+            auto z2 = static_cast<Value>(weight(n - 1) / 2 - z1);
+            result[level_index] = static_cast<double>(weightedAverage(mean(n - 1), z1, _max, z2));
+        }
+    }
+
     // this returns a quantile on the currently processed values without changing the t-digest
     // the value will not represent the unprocessed values
     Value quantileProcessed(Value q) const {
