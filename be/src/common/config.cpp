@@ -2241,6 +2241,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
         TYPE old_value = ref_conf_value;                                                           \
+        ref_conf_value = new_value;                                                                \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
@@ -2250,7 +2251,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
-        ref_conf_value = new_value;                                                                \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \

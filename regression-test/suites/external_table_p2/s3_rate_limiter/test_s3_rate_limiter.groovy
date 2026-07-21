@@ -44,7 +44,11 @@ suite("test_s3_rate_limiter", "p2,external,nonConcurrent") {
             "s3_get_rate_limit_sleep_count",
             "s3_put_rate_limit_sleep_count",
             "s3_get_bytes_rate_limit_sleep_count",
-            "s3_put_bytes_rate_limit_sleep_count"
+            "s3_put_bytes_rate_limit_sleep_count",
+            "s3_get_rate_limit_rejected_count",
+            "s3_put_rate_limit_rejected_count",
+            "s3_get_bytes_rate_limit_rejected_count",
+            "s3_put_bytes_rate_limit_rejected_count"
     ]
 
     def getMetricTotal = { String metricName ->
@@ -105,6 +109,26 @@ suite("test_s3_rate_limiter", "p2,external,nonConcurrent") {
         sleep(12000)
     }
 
+    def applyLegacyCountLimitPhase = { long getLimit, long putLimit ->
+        Map<String, Object> phase = [
+                "s3_get_qps_per_core": getLimit > 0 ? -1 : 0,
+                "s3_put_qps_per_core": putLimit > 0 ? -1 : 0,
+                "s3_get_token_per_second": 1000000000000000000L,
+                "s3_put_token_per_second": 1000000000000000000L,
+                "s3_get_bucket_tokens": 1000000000000000000L,
+                "s3_put_bucket_tokens": 1000000000000000000L,
+                "s3_get_token_limit": getLimit,
+                "s3_put_token_limit": putLimit,
+                "s3_get_bytes_per_second_per_core": 0,
+                "s3_put_bytes_per_second_per_core": 0
+        ]
+        phase.each { key, value -> set_be_param(key, value) }
+        set_be_param("enable_s3_rate_limiter", true)
+        phase.each { key, value -> assertBeConfig(key, value) }
+        assertBeConfig("enable_s3_rate_limiter", true)
+        sleep(12000)
+    }
+
     def outfileSql = { String path, String querySuffix ->
         return """
             SELECT id, payload FROM ${context.dbName}.test_s3_rate_limiter
@@ -145,6 +169,12 @@ suite("test_s3_rate_limiter", "p2,external,nonConcurrent") {
             "s3_put_qps_per_core": 0,
             "s3_get_qps_max": 0,
             "s3_put_qps_max": 0,
+            "s3_get_token_per_second": 1000000000000000000L,
+            "s3_put_token_per_second": 1000000000000000000L,
+            "s3_get_bucket_tokens": 1000000000000000000L,
+            "s3_put_bucket_tokens": 1000000000000000000L,
+            "s3_get_token_limit": 0,
+            "s3_put_token_limit": 0,
             "s3_get_bytes_per_second_per_core": 0,
             "s3_put_bytes_per_second_per_core": 0,
             "s3_get_bytes_per_second_max": 0,
@@ -257,6 +287,29 @@ suite("test_s3_rate_limiter", "p2,external,nonConcurrent") {
                     "s3_put_rate_limit_sleep_count"
             ])
             qt_mixed_result tvfSql(mixedPath)
+
+            // Legacy GET token_limit: force an admission rejection and verify both the
+            // user-visible direction/reason and the dedicated rejection bvar.
+            applyLegacyCountLimitPhase(1, 0)
+            before = snapshotMetrics()
+            test {
+                sql getQpsReadSql
+                exception "s3 get request exceeds QPS limit"
+                exception "rejected by BE rate limiter"
+            }
+            after = snapshotMetrics()
+            assertMetricChanges(before, after, ["s3_get_rate_limit_rejected_count"])
+
+            // Legacy PUT token_limit has an independent counter and error message.
+            applyLegacyCountLimitPhase(0, 1)
+            before = snapshotMetrics()
+            test {
+                sql outfileSql("${rootPath}/put_rejected_", "WHERE id < 10")
+                exception "s3 put request exceeds QPS limit"
+                exception "rejected by BE rate limiter"
+            }
+            after = snapshotMetrics()
+            assertMetricChanges(before, after, ["s3_put_rate_limit_rejected_count"])
         }
     } finally {
         // setBeConfigTemporary restores the values first. Allow the daemon to publish

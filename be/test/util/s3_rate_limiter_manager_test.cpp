@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "common/config.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -83,6 +84,35 @@ TEST(S3RateLimiterResolveTest, registered_defaults_preserve_legacy_compatibility
     EXPECT_STREQ("-1", fields.at("s3_get_bytes_per_second_per_core").defval);
     EXPECT_STREQ("-1", fields.at("s3_put_bytes_per_second_per_core").defval);
     EXPECT_STREQ("0", fields.at("s3_rate_limiter_cpu_cores").defval);
+}
+
+TEST(S3RateLimiterConfigTest, invalid_dynamic_values_are_rejected_without_changing_config) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = false;
+    config::s3_get_qps_per_core = -1;
+    config::s3_get_bytes_per_second_per_core = -1;
+    config::s3_put_bytes_per_second_max = 0;
+
+    auto status = config::set_config("s3_get_qps_per_core", "-2");
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("validate s3_get_qps_per_core=-2 failed"));
+    EXPECT_EQ(-1, config::s3_get_qps_per_core);
+
+    status = config::set_config("s3_get_bytes_per_second_per_core", "Ab");
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("convert 'Ab' as int64_t failed"));
+    EXPECT_EQ(-1, config::s3_get_bytes_per_second_per_core);
+
+    status = config::set_config("enable_s3_rate_limiter", "A");
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("convert 'A' as bool failed"));
+    EXPECT_FALSE(config::enable_s3_rate_limiter);
+
+    status = config::set_config("s3_put_bytes_per_second_max", "9223372036854775808");
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("convert '9223372036854775808' as int64_t failed"));
+    EXPECT_EQ(0, config::s3_put_bytes_per_second_max);
 }
 
 TEST(S3RateLimiterResolveTest, legacy_config_wins_when_per_core_unset) {
@@ -242,6 +272,25 @@ TEST(S3RateLimiterManagerTest, refresh_with_same_parameters_keeps_consumed_state
     EXPECT_EQ(-1, get_qps->add(1));
 }
 
+TEST(S3RateLimiterManagerTest, legacy_get_config_throttles_when_per_core_is_unset) {
+    RateLimiterConfigGuard guard;
+    auto& manager = S3RateLimiterManager::instance();
+    auto* get_qps = manager.qps_limiter(S3RateLimitType::GET);
+
+    config::s3_get_qps_per_core = -1;
+    config::s3_get_token_per_second = 100;
+    config::s3_get_bucket_tokens = 1;
+    config::s3_get_token_limit = 0;
+    manager.refresh();
+
+    EXPECT_EQ(100, get_qps->get_max_speed());
+    EXPECT_EQ(1, get_qps->get_max_burst());
+    EXPECT_EQ(0, get_qps->get_limit());
+    // Charging two requests against a one-token burst must wait for the legacy
+    // token_per_second refill, proving that fallback affects runtime behavior.
+    EXPECT_GT(get_qps->add(2), 0);
+}
+
 TEST(S3RateLimiterManagerTest, refresh_applies_qps_speed_burst_and_limit_changes) {
     RateLimiterConfigGuard guard;
     auto& manager = S3RateLimiterManager::instance();
@@ -352,22 +401,32 @@ TEST(S3RateLimitGuardTest, disabled_limiter_does_not_consume_qps_or_bytes) {
     RateLimiterConfigGuard guard;
     config::enable_s3_rate_limiter = false;
     auto& manager = S3RateLimiterManager::instance();
-    auto* qps = manager.qps_limiter(S3RateLimitType::GET);
-    auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
-    qps->reset(0, 0, 1);
-    bytes->reset(0, 0, 100);
+    auto* get_qps = manager.qps_limiter(S3RateLimitType::GET);
+    auto* put_qps = manager.qps_limiter(S3RateLimitType::PUT);
+    auto* get_bytes = manager.bytes_limiter(S3RateLimitType::GET);
+    auto* put_bytes = manager.bytes_limiter(S3RateLimitType::PUT);
+    get_qps->reset(0, 0, 1);
+    put_qps->reset(0, 0, 1);
+    get_bytes->reset(0, 0, 100);
+    put_bytes->reset(0, 0, 100);
 
     for (int i = 0; i < 3; ++i) {
-        S3RateLimitGuard g(S3RateLimitType::GET, 100);
-        EXPECT_TRUE(g.ok());
+        S3RateLimitGuard get_guard(S3RateLimitType::GET, 100);
+        S3RateLimitGuard put_guard(S3RateLimitType::PUT, 100);
+        EXPECT_TRUE(get_guard.ok());
+        EXPECT_TRUE(put_guard.ok());
     }
 
     // The disabled guards must not consume either cumulative limit. Each bucket still
     // admits exactly its configured limit after the guards have completed.
-    EXPECT_EQ(0, qps->add(1));
-    EXPECT_EQ(-1, qps->add(1));
-    EXPECT_EQ(0, bytes->add(100));
-    EXPECT_EQ(-1, bytes->add(1));
+    for (auto type : {S3RateLimitType::GET, S3RateLimitType::PUT}) {
+        auto* qps = manager.qps_limiter(type);
+        auto* bytes = manager.bytes_limiter(type);
+        EXPECT_EQ(0, qps->add(1));
+        EXPECT_EQ(-1, qps->add(1));
+        EXPECT_EQ(0, bytes->add(100));
+        EXPECT_EQ(-1, bytes->add(1));
+    }
 }
 
 TEST(S3RateLimiterMetricsTest, bytes_wait_and_rejection_have_distinct_counters) {
@@ -489,6 +548,28 @@ TEST(S3RateLimitGuardTest, reservation_is_clamped_to_one_second_of_bandwidth) {
     }
     EXPECT_EQ(0, bytes->add(500));
     EXPECT_EQ(-1, bytes->add(1));
+}
+
+TEST(S3RateLimitGuardTest, first_oversized_reservation_is_admitted_without_waiting) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    auto* bytes = manager.bytes_limiter(S3RateLimitType::GET);
+    manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+    bytes->reset(1000, 1000, 0);
+    const int64_t sleep_count_before = s3_get_bytes_rate_limit_sleep_count.get_value();
+
+    // The guard clamps this request to max_speed (= one full bucket). Charging exactly
+    // the initial bucket does not create debt, so the request is admitted without wait.
+    S3RateLimitGuard g(S3RateLimitType::GET, 1000000);
+    EXPECT_TRUE(g.ok());
+    EXPECT_EQ(sleep_count_before, s3_get_bytes_rate_limit_sleep_count.get_value());
+
+    // A later oversized request is clamped in the same way. With the initial burst
+    // already consumed, it waits for refill and is still admitted rather than rejected.
+    S3RateLimitGuard next(S3RateLimitType::GET, 1000000);
+    EXPECT_TRUE(next.ok());
+    EXPECT_GT(s3_get_bytes_rate_limit_sleep_count.get_value(), sleep_count_before);
 }
 
 } // namespace doris
