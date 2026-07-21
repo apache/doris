@@ -480,6 +480,14 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occurred, error msg: {}", e.what());
+    } catch (const std::bad_alloc& e) {
+        // SPIMI byte readers can request a huge `vector::reserve`
+        // when the on-disk `doc_freq` / `tii_size` / etc. is
+        // corrupt. `bad_alloc` would otherwise escape past this
+        // catch and abort the query thread. Defence-in-depth.
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                "Out-of-memory while parsing inverted index (likely corrupt segment): {}",
+                e.what());
     }
 }
 

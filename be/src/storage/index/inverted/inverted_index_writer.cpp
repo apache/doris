@@ -17,12 +17,21 @@
 
 #include "storage/index/inverted/inverted_index_writer.h"
 
+#include <cstdlib>
+
+#include "common/config.h"
+#include "runtime/memory/global_memory_arbitrator.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/thread_context.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/spimi/spimi_index_writer.h"
+#include "storage/index/inverted/spimi/tee_token_stream.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
+#include "util/mem_info.h"
 
 namespace doris::segment_v2 {
 
@@ -48,9 +57,23 @@ InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(const std::stri
 
 template <FieldType field_type>
 InvertedIndexColumnWriter<field_type>::~InvertedIndexColumnWriter() {
-    if (_index_writer != nullptr) {
+    // V4 holds `_dir` directly without `_index_writer`. If the
+    // writer dies before `finish()` runs (exception in
+    // `add_values`, cancelled load), we still need to delete the
+    // partial files on disk — without this branch, the V4 path
+    // leaked the directory and its partial outputs on every error
+    // path.
+    if (_index_writer != nullptr || (_is_v4 && _dir != nullptr)) {
         close_on_error();
     }
+}
+
+template <FieldType field_type>
+size_t InvertedIndexColumnWriter<field_type>::spimi_buffer_memory_usage() const {
+    // Out-of-line because SpimiIndexWriter is only forward-declared in the
+    // header (so a posting_buffer.h edit doesn't recompile every TU that
+    // transitively includes inverted_index_writer.h via exec_env.h).
+    return _spimi_writer == nullptr ? 0 : _spimi_writer->MemoryUsage();
 }
 
 template <FieldType field_type>
@@ -85,12 +108,30 @@ void InvertedIndexColumnWriter<field_type>::close_on_error() {
         // because index_writer will close the directory
         if (_dir) {
             _dir->deleteDirectory();
+            // Null `_dir` so a second call (e.g. dtor after the V4
+            // add_values catch already called close_on_error) is a
+            // true no-op rather than producing a spurious
+            // `delete_directory NOT_FOUND` log line.
+            _dir.reset();
         }
         if (_index_writer) {
             _index_writer->close();
+            _index_writer.reset();
+        }
+        // V4: release in-memory spill data and buffer.
+        if (_spimi_writer) {
+            _spimi_writer->Cleanup();
         }
     } catch (CLuceneError& e) {
         LOG(ERROR) << "InvertedIndexWriter close_on_error failure: " << e.what();
+    } catch (const std::exception& e) {
+        // close_on_error MUST be no-throw so callers in catch
+        // handlers (V4 add_values, dtor) can rely on it. Catch
+        // any non-CLucene exception too and log instead of
+        // re-throwing.
+        LOG(ERROR) << "InvertedIndexWriter close_on_error unexpected: " << e.what();
+    } catch (...) {
+        LOG(ERROR) << "InvertedIndexWriter close_on_error unknown exception";
     }
 }
 
@@ -159,10 +200,22 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
     field_config |= _should_analyzer ? int32_t(lucene::document::Field::INDEX_TOKENIZED)
                                      : int32_t(lucene::document::Field::INDEX_UNTOKENIZED);
     *field = new lucene::document::Field(_field_name.c_str(), field_config);
-    (*field)->setOmitTermFreqAndPositions(
+    const bool omit_term_freq_and_positions =
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
-              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    if (_should_analyzer) {
+              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+    (*field)->setOmitTermFreqAndPositions(omit_term_freq_and_positions);
+    // Norms (length normalization) are only consumed by relevance scoring, which
+    // needs term frequencies. A DOCS_ONLY field (omit_term_freq_and_positions,
+    // i.e. support_phrase off) can never be scored, so its per-doc norms are pure
+    // dead weight on disk -- the SPIMI/V4 path omits them unconditionally. Keep
+    // norms only for analyzed fields that still carry freq+positions.
+    //
+    // inverted_index_v2_omit_norms forces norms off even for phrase-on analyzed
+    // fields: Doris fulltext MATCH never scores with BM25, so the .nrm stream is
+    // dead weight here too. Gating it makes V2 idx sizes apples-to-apples with V4
+    // (which always omits norms) without changing the default production layout.
+    if (_should_analyzer && !omit_term_freq_and_positions &&
+        !config::inverted_index_v2_omit_norms) {
         (*field)->setOmitNorms(false);
     }
 
@@ -211,6 +264,54 @@ InvertedIndexColumnWriter<field_type>::create_analyzer(
 
 template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
+    // SPIMI is the new write path that replaces CLucene's per-term Posting +
+    // byte-pool slice machinery with a flat record buffer. It is currently
+    // opt-in (default off) and partially landed: the writer infrastructure
+    // (posting buffer, term dictionary, skip-list, freq/prox encoder, field
+    // infos, segments_N writer, file-backed adapter) is all in place and
+    // unit-tested under be/{src,test}/storage/index/inverted/spimi/. The
+    // final wiring — tapping the analyzer's token stream into
+    // SpimiFulltextWriter::AddOccurrence and replacing IndexWriter::close()
+    // with SpimiFulltextWriter::Finish — is the next step.
+    // V4 storage format = pure SPIMI write path. No CLucene
+    // IndexWriter/Document/Field — tokens go directly from the
+    // analyzer into `_spimi_buffer`. This is where SPIMI's memory-
+    // savings target lives (running CLucene alongside doubles RAM,
+    // which is exactly what shadow mode does and what V4 explicitly
+    // does NOT do).
+    _is_v4 = (_index_file_writer != nullptr &&
+              _index_file_writer->get_storage_format() == InvertedIndexStorageFormatPB::V4);
+    if (_is_v4 && !_should_analyzer) {
+        // V4 today only implements the analyzed-fulltext path. A
+        // non-analyzed (keyword) string column on a V4 tablet would
+        // load successfully via add_values's "keyword" branch but
+        // every query against it would error at read time
+        // (column_reader.cpp routes V4+!should_analyzer to
+        // INVERTED_INDEX_NOT_SUPPORTED). Fail fast at writer init
+        // so the user sees the misconfiguration BEFORE loading
+        // data; mirrors the read-side rejection.
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "V4 inverted index storage format only supports analyzed fulltext columns "
+                "(parser != 'none' / 'unknown'); use V1/V2/V3 for keyword columns.");
+    }
+    if (_is_v4) {
+        const std::string field_name_utf8(_field_name.begin(), _field_name.end());
+        // Same flag Finish() passes via SpimiFinishConfig (see ~L997). Captured
+        // here so spill segments omit freq+positions in lockstep with the final
+        // segment when the field has no phrase support.
+        const bool omit_term_freq_and_positions =
+                !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
+                  INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        _spimi_writer = std::make_unique<segment_v2::inverted_index::spimi::SpimiIndexWriter>(
+                field_name_utf8, /*is_v4=*/true, omit_term_freq_and_positions);
+        _spimi_tee = std::make_unique<segment_v2::inverted_index::spimi::TeeTokenStream>();
+        // Per-writer backstop: cap a single column writer at min(2GiB,
+        // mem_limit/20) of SPIMI buffer before forcing a spill, independent of
+        // process-global pressure. Cached once here (mem_limit is effectively
+        // fixed for the process lifetime).
+        _spimi_backstop_bytes = std::min<int64_t>(int64_t {2} << 30, MemInfo::mem_limit() / 20);
+        LOG_FIRST_N(INFO, 1) << "V4 storage format: pure SPIMI write path (no CLucene)";
+    }
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
     _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(_index_meta->properties()));
@@ -227,14 +328,20 @@ Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
         _analyzer = DORIS_TRY(create_analyzer(_analyzer_config));
     }
     _similarity = std::make_unique<lucene::search::LengthSimilarity>();
-    _index_writer = create_index_writer();
-    _doc = std::make_unique<lucene::document::Document>();
-    if (_single_field) {
-        RETURN_IF_ERROR(create_field(&_field));
-        _doc->add(*_field);
-    } else {
-        // array's inverted index do need create field first
-        _doc->setNeedResetFieldData(true);
+    if (!_is_v4) {
+        // V1/V2/V3: classic CLucene write path. V4 skips all of
+        // these — no IndexWriter, no Document, no Field. Saves the
+        // CLucene write-side allocations that the SPIMI project
+        // exists to eliminate.
+        _index_writer = create_index_writer();
+        _doc = std::make_unique<lucene::document::Document>();
+        if (_single_field) {
+            RETURN_IF_ERROR(create_field(&_field));
+            _doc->add(*_field);
+        } else {
+            // array's inverted index do need create field first
+            _doc->setNeedResetFieldData(true);
+        }
     }
     auto ignore_above_value =
             get_parser_ignore_above_value_from_properties(_index_meta->properties());
@@ -277,6 +384,21 @@ Status InvertedIndexColumnWriter<field_type>::add_nulls(uint32_t count) {
     _null_bitmap.addRange(_rid, _rid + count);
     _rid += count;
     if constexpr (field_is_slice_type(field_type)) {
+        if (_is_v4) {
+            // V4: null bitmap already updated above; no CLucene
+            // call needed. Update _spimi_doc_count so finish() emits
+            // the right segment.doc_count for downstream readers.
+            // V4 is "pure SPIMI" — a null `_spimi_buffer` here is a
+            // programmer error in the init flow (e.g. add_nulls
+            // called after a saturation-triggered reset). DORIS_CHECK
+            // surfaces the bug rather than silently producing a
+            // segment with a doc_count that the buffer never saw.
+            DORIS_CHECK(_spimi_writer->HasBuffer());
+            if (static_cast<int32_t>(_rid) > _spimi_doc_count) {
+                _spimi_doc_count = static_cast<int32_t>(_rid);
+            }
+            return Status::OK();
+        }
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_nulls_field_nullptr", { _field = nullptr; })
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_nulls_index_writer_nullptr",
                         { _index_writer = nullptr; })
@@ -345,7 +467,18 @@ void InvertedIndexColumnWriter<field_type>::new_char_token_stream(const char* s,
                           "UnsupportedOperationException: CLStream::init");
             })
     auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader);
-    field->setValue(stream);
+    if (_spimi_writer != nullptr && _spimi_writer->HasBuffer()) {
+        // SPIMI shadow mode: wrap the analyser's reusable stream in a tee
+        // so every token CLucene's addDocument observes is also copied
+        // into the SPIMI buffer with the right doc id and position. This
+        // guarantees the two segments share an identical token sequence
+        // without re-tokenising. The tee is a non-owning member; the
+        // upstream stream's lifetime is managed by the analyser.
+        _spimi_tee->Configure(stream, _spimi_writer->buffer(), static_cast<uint32_t>(_rid));
+        field->setValue(_spimi_tee.get(), /*own_stream=*/false);
+    } else {
+        field->setValue(stream);
+    }
 }
 
 template <FieldType field_type>
@@ -364,9 +497,221 @@ void InvertedIndexColumnWriter<field_type>::new_field_char_value(const char* s, 
 }
 
 template <FieldType field_type>
+bool InvertedIndexColumnWriter<field_type>::ShouldSpillUnderPressure() const {
+    DCHECK(_spimi_writer != nullptr);
+    // Process-pressure spill triggers ONLY (the cheap config-driven
+    // (inverted_index_ram_buffer_size) ShouldFlush() budget floor is checked
+    // separately every row in add_values; this is the expensive half, throttled
+    // to every inverted_index_spimi_spill_check_interval_rows).
+    // (1) Process hard mem limit exceeded → force a spill regardless of size.
+    if (GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {
+        return true;
+    }
+    const int64_t mem = _spimi_writer->MemoryUsage();
+    // (2) Soft pressure + buffer past the opportunistic min. Avoids tiny
+    //     segments under transient soft pressure.
+    if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit() &&
+        mem >= (config::inverted_index_spimi_min_spill_mem_mb << 20)) {
+        return true;
+    }
+    // (3) Per-writer backstop.
+    return mem >= _spimi_backstop_bytes;
+}
+
+template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, const void* values,
                                                          size_t count) {
     if constexpr (field_is_slice_type(field_type)) {
+        if (_is_v4) {
+            // V4 = pure SPIMI. No CLucene Document/Field/IndexWriter
+            // touched. Tokens flow direct: analyzer.reusableTokenStream
+            // → next() loop → SpimiPostingBuffer::Append. This is the
+            // path that delivers the SPIMI memory-savings target.
+            //
+            // The analyzer / token-stream calls below can throw
+            // CLuceneError (custom tokenizers, filter exceptions);
+            // wrap the whole loop in try/catch so CLucene exceptions
+            // and DORIS_CHECK-thrown doris::Exception convert to
+            // Status rather than escaping `add_values` past the
+            // segment writer's caller. Matches the catch placement
+            // in `add_document()` for the V1/V2/V3 path.
+            try {
+                // P2: return any unused growth reservation at scope end. The
+                // reserve below only ever charges incremental growth granules
+                // (never the full MemoryUsage()), so this DEFER is the matching
+                // release for whatever try_reserve left outstanding.
+                DEFER_RELEASE_RESERVED();
+                // SPIMI write memory is ALWAYS tracked under the synchronous
+                // attached limiter (LOAD / COMPACTION / SCHEMA_CHANGE depending
+                // on the caller) — never Orphan. Cheap debug guard catches a
+                // future thread-move that would silently mis-account / make the
+                // process-global watermark gate and try_reserve no-ops. Assert
+                // NON-Orphan (any valid Type), not LOAD specifically.
+                DCHECK(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() !=
+                       "Orphan")
+                        << "V4 SPIMI add_values running under Orphan mem tracker";
+                const int64_t kSpimiReserveGranule = config::inverted_index_spimi_reserve_granule_mb
+                                                     << 20;
+                const int64_t kSpimiMinSpillBytes = config::inverted_index_spimi_min_spill_mem_mb
+                                                    << 20;
+                const auto* v = (Slice*)values;
+                // Hot path: fetch the posting buffer once. AppendToken/Saturated
+                // are thin facade forwarders living in a separate TU (BE builds
+                // without LTO), so calling the buffer directly drops a cross-TU
+                // call per token — Saturated() then inlines to a single load from
+                // posting_buffer.h, and Append() loses its facade trampoline.
+                auto* const spimi_buf = _spimi_writer->buffer();
+                DCHECK(spimi_buf != nullptr);
+                for (size_t i = 0; i < count; ++i) {
+                    if ((!_should_analyzer && v->get_size() > _ignore_above) ||
+                        (_should_analyzer && v->empty())) {
+                        // Empty / over-limit value → no tokens to index,
+                        // but the ROW IS NOT NULL. `_null_bitmap` must
+                        // mirror only true upstream nulls (added by
+                        // `add_nulls`); empty strings have a non-null
+                        // column value of "" and `IS NULL` must return
+                        // false for them. Mirrors V2's behavior at
+                        // `add_values:615` which calls `add_null_document`
+                        // (a CLucene "null-doc" marker that does NOT
+                        // touch `_null_bitmap`). The earlier V4 impl
+                        // added these to `_null_bitmap`, causing
+                        // `WHERE body IS NULL` to incorrectly return
+                        // empty-string rows.
+                    } else if (_should_analyzer) {
+                        // Tokenize. Mirror TeeTokenStream::next: position
+                        // accumulator clamped to 0 on first token to
+                        // handle the synonym-overlay-as-first-token edge
+                        // case CLucene's DocumentsWriter normalises.
+                        _char_string_reader->init(v->get_data(), cast_set<int32_t>(v->get_size()),
+                                                  false);
+                        auto* stream = _analyzer->reusableTokenStream(_field_name.c_str(),
+                                                                      _char_string_reader);
+                        // `reusableTokenStream` returning null means the
+                        // analyzer is mis-configured at init time — a
+                        // programmer error, not a runtime input. Per
+                        // CLAUDE.md's "assert correctness, no defensive
+                        // if" rule, crash via DORIS_CHECK rather than
+                        // silently dropping the row's tokens.
+                        DORIS_CHECK(stream != nullptr);
+                        stream->reset();
+                        lucene::analysis::Token tok;
+                        int32_t pos = -1;
+                        bool first_token = true;
+                        while (stream->next(&tok) != nullptr) {
+                            pos += tok.getPositionIncrement();
+                            if (first_token && pos < 0) {
+                                pos = 0;
+                            }
+                            first_token = false;
+                            const char* term_buf = tok.template termBuffer<char>();
+                            const size_t term_len = tok.template termLength<char>();
+                            // Skip zero-length tokens (legitimate output of
+                            // some filters). `term_buf` is non-null by
+                            // analyzer contract when term_len > 0 — no
+                            // defensive guard.
+                            if (term_len > 0) {
+                                spimi_buf->Append(std::string_view(term_buf, term_len),
+                                                  static_cast<uint32_t>(_rid),
+                                                  static_cast<uint32_t>(pos));
+                                // Mid-row saturation check. The buffer's
+                                // `Append` is silently no-op once
+                                // saturated; without polling here the
+                                // remaining tokens of THIS row would be
+                                // silently dropped before the outer row-
+                                // boundary poll catches it. Throw inside
+                                // the try so the existing catch records
+                                // context + calls close_on_error.
+                                if (spimi_buf->Saturated()) [[unlikely]] {
+                                    _CLTHROWA(CL_ERR_IO,
+                                              "V4 SPIMI buffer saturated mid-row: "
+                                              "subsequent tokens would be dropped");
+                                }
+                            }
+                        }
+                    } else {
+                        // Non-analyzed (keyword) string: append whole
+                        // value at position 0 — same semantics CLucene's
+                        // setValue(char*, len) produces.
+                        spimi_buf->Append(std::string_view(v->get_data(), v->get_size()),
+                                          static_cast<uint32_t>(_rid), 0);
+                    }
+                    // Poll saturation after each row's worth of Appends.
+                    // The buffer's `Append` is void / silent on
+                    // saturation — under V4 we must surface the error
+                    // immediately instead of letting subsequent rows
+                    // silently drop their tokens before `finish()`
+                    // ultimately fails. Shadow mode (V1/V2/V3) keeps the
+                    // existing silent-drop behaviour: CLucene is the
+                    // primary, the shadow buffer is best-effort.
+                    if (spimi_buf->Saturated()) [[unlikely]] {
+                        return Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                                "V4 SPIMI buffer saturated mid-batch for field {}: subsequent "
+                                "tokens "
+                                "would be dropped silently",
+                                std::string(_field_name.begin(), _field_name.end()));
+                    }
+                    // Spill gate. The cheap ShouldFlush() latch (set inside
+                    // Append when the buffer crosses its config-driven budget,
+                    // inverted_index_ram_buffer_size clamped to >= 16MiB) is
+                    // checked EVERY row, so the budget floor stays responsive
+                    // even at the smallest configurable budget and the .idx
+                    // output is unchanged (the budget only moves spill points).
+                    // The EXPENSIVE checks — process memory watermarks,
+                    // MemoryUsage and the growth reserve — run only every
+                    // inverted_index_spimi_spill_check_interval_rows rows,
+                    // keeping the per-row hot path lean.
+                    if (_spimi_writer->ShouldFlush()) {
+                        _spimi_writer->FlushPending(_spimi_doc_count);
+                    } else if (++_spimi_gate_counter >=
+                               std::max<int64_t>(
+                                       1, config::inverted_index_spimi_spill_check_interval_rows)) {
+                        _spimi_gate_counter = 0;
+                        // Expensive process hard/soft pressure + per-writer
+                        // backstop (ShouldFlush already false here).
+                        if (ShouldSpillUnderPressure()) {
+                            _spimi_writer->FlushPending(_spimi_doc_count);
+                        } else if (_spimi_writer->MemoryUsage() >= kSpimiMinSpillBytes &&
+                                   thread_context()->thread_mem_tracker_mgr->reserved_mem() == 0) {
+                            // P2 reserve-before-growth: reserve a fixed incremental
+                            // growth granule (CHECK_PROCESS only — the write_tracker
+                            // task limit is -1). ONLY the granule, never the full
+                            // MemoryUsage() (would double-charge the disabled
+                            // flush-level reserve at memtable_flush_executor.cpp).
+                            Status rst = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                    kSpimiReserveGranule,
+                                    ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
+                            if (!rst.ok()) {
+                                // PROCESS_MEMORY_EXCEEDED: spill to relieve, retry
+                                // ONCE, else proceed best-effort (SPIMI must NEVER
+                                // fail the load).
+                                _spimi_writer->FlushPending(_spimi_doc_count);
+                                rst = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                        kSpimiReserveGranule,
+                                        ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
+                                (void)rst;
+                            }
+                        }
+                    }
+                    if (static_cast<int32_t>(_rid) + 1 > _spimi_doc_count) {
+                        _spimi_doc_count = static_cast<int32_t>(_rid) + 1;
+                    }
+                    ++v;
+                    _rid++;
+                }
+            } catch (const CLuceneError& e) {
+                close_on_error();
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "V4 SPIMI add_values CLucene error: {}", e.what());
+            } catch (const Exception& e) {
+                // doris::Exception from DORIS_CHECK or downstream
+                // (e.g. SpimiPostingBuffer's DCHECK paths).
+                close_on_error();
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("V4 SPIMI add_values error: {}",
+                                                                e.what());
+            }
+            return Status::OK();
+        }
+        // V1/V2/V3 classic CLucene path follows.
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_values_field_is_nullptr",
                         { _field = nullptr; })
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_values_index_writer_is_nullptr",
@@ -384,6 +729,20 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
             } else {
                 RETURN_IF_ERROR(new_inverted_index_field(v->get_data(), v->get_size()));
                 RETURN_IF_ERROR(add_document());
+                if (_spimi_writer != nullptr && _spimi_writer->HasBuffer()) {
+                    // The tee installed by new_inverted_index_field already
+                    // tapped this value's tokens into _spimi_writer during
+                    // add_document; for non-analyzed fields the tee is not
+                    // used (field->setValue takes the raw bytes), so we
+                    // append the whole value at position 0 here.
+                    if (!_should_analyzer) {
+                        _spimi_writer->AppendToken(std::string_view(v->get_data(), v->get_size()),
+                                                   static_cast<uint32_t>(_rid), 0);
+                    }
+                    if (static_cast<int32_t>(_rid) + 1 > _spimi_doc_count) {
+                        _spimi_doc_count = static_cast<int32_t>(_rid) + 1;
+                    }
+                }
             }
             ++v;
             _rid++;
@@ -400,6 +759,19 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                                                                const uint8_t* nested_null_map,
                                                                const uint8_t* offsets_ptr,
                                                                size_t count) {
+    // V4 does not yet support array<string> fulltext columns. Both
+    // overloads of `add_array_values` go through the CLucene
+    // Document path which we deliberately don't build in V4 mode.
+    // Without this guard the caller would hit `_field == nullptr`
+    // and get a misleading "field or index writer is null"
+    // InternalError. Surface a clear NOT_SUPPORTED instead.
+    if constexpr (field_is_slice_type(field_type)) {
+        if (_is_v4) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "V4 storage format does not yet support ARRAY<string> inverted index "
+                    "columns; use V1/V2/V3 for arrays.");
+        }
+    }
     if (count == 0) {
         // no values to add inverted index
         return Status::OK();
@@ -566,6 +938,15 @@ Status InvertedIndexColumnWriter<field_type>::add_value(const CppType& value) {
 
 template <FieldType field_type>
 int64_t InvertedIndexColumnWriter<field_type>::size() const {
+    // V4 path reports the SPIMI posting buffer's resident bytes; this is
+    // where the segment memory estimate sees the V4 writer's working
+    // set. V1/V2/V3 keep master's "TODO 0" behaviour — the CLucene-side
+    // memory accounting + cap is the precursor PR's job, not this one.
+    if constexpr (field_is_slice_type(field_type)) {
+        if (_is_v4) {
+            return _spimi_writer != nullptr ? _spimi_writer->MemoryUsage() : 0;
+        }
+    }
     //TODO: get memory size of inverted index
     return 0;
 }
@@ -630,11 +1011,60 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                                       "debug point: test throw error in fulltext "
                                       "index writer");
                         });
+                if (_spimi_writer != nullptr && _spimi_writer->HasBuffer()) {
+                    // Delegate the entire SPIMI segment emission to the
+                    // SpimiIndexWriter facade. It handles saturated-buffer
+                    // checks, file naming, IndexOutput creation, direct
+                    // emit vs spill-merge path selection, FINALLY_CLOSE,
+                    // and on-disk byte-count validation internally.
+                    namespace spimi_ns = segment_v2::inverted_index::spimi;
+                    spimi_ns::SpimiFinishConfig spimi_config;
+                    spimi_config.is_v4 = _is_v4;
+                    spimi_config.omit_term_freq_and_positions =
+                            !(get_parser_phrase_support_string_from_properties(
+                                      _index_meta->properties()) ==
+                              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+                    spimi_config.field_name_utf8 =
+                            std::string(_field_name.begin(), _field_name.end());
+                    spimi_config.doc_count = _spimi_doc_count;
+                    _spimi_writer->Finish(_dir.get(), spimi_config);
+                }
+                // SPIMI segment emission is now fully delegated to
+                // SpimiIndexWriter::Finish() above. Nothing else to do
+                // here for the SPIMI path.
             }
+            // catch order note: CLuceneError and doris::Exception are
+            // unrelated types (neither inherits from the other), so the
+            // order below is correct as-is. If a future change introduces a
+            // common base (e.g. `std::exception`) the more-derived catch
+            // MUST stay first.
         } catch (CLuceneError& e) {
             error_context.eptr = std::current_exception();
             error_context.err_msg.append("Inverted index writer finish error occurred: ");
             error_context.err_msg.append(e.what());
+            LOG(ERROR) << error_context.err_msg;
+        } catch (const Exception& e) {
+            // Phase 27 — `DORIS_CHECK` throws `doris::Exception`, and the
+            // SPIMI emit path now contains DORIS_CHECKs (NoteDocId,
+            // WriteSkipEntry). Without this branch the exception would
+            // propagate past the FINALLY block, leaking the seven
+            // SPIMI IndexOutputs and the primary CLucene writer's
+            // handles. Funnel it through the same error_context path
+            // so cleanup runs uniformly.
+            error_context.eptr = std::current_exception();
+            error_context.err_msg.append("Inverted index writer finish error occurred: ");
+            error_context.err_msg.append(e.what());
+            LOG(ERROR) << error_context.err_msg;
+        } catch (...) {
+            // Catch-all so the FINALLY cleanup runs for ANY exception type, not
+            // just the two named above. SpimiIndexWriter::Finish() rethrows the
+            // original exception type (e.g. a std::bad_alloc surfaced while
+            // building a segment); without this branch such a type would escape
+            // past the FINALLY block, leaking the seven SPIMI IndexOutputs and
+            // skipping the eptr->Status conversion. The FINALLY macro converts
+            // the captured eptr into an INVERTED_INDEX_CLUCENE_ERROR Status.
+            error_context.eptr = std::current_exception();
+            error_context.err_msg.append("Inverted index writer finish unknown exception");
             LOG(ERROR) << error_context.err_msg;
         }
         FINALLY({
@@ -645,9 +1075,33 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
             if constexpr (field_is_numeric_type(field_type)) {
                 FINALLY_CLOSE(_dir);
             } else if constexpr (field_is_slice_type(field_type)) {
-                FINALLY_CLOSE(_index_writer);
-                // After closing the _index_writer, it needs to be reset to null to prevent issues of not closing it or closing it multiple times.
-                _index_writer.reset();
+                if (_is_v4) {
+                    // V4 owns the directory directly (no CLucene
+                    // IndexWriter held it). Close the dir so the
+                    // SPIMI outputs are durably flushed.
+                    FINALLY_CLOSE(_dir);
+                    if (!error_context.eptr) {
+                        // Success: the directory's files must survive until
+                        // IndexFileWriter packs them into the combined .idx (it
+                        // keeps its own reference via _indices_dirs). Drop OUR
+                        // reference WITHOUT deleting, so the success path no
+                        // longer satisfies ~InvertedIndexColumnWriter()'s
+                        // `_is_v4 && _dir != nullptr` guard and therefore does
+                        // NOT call close_on_error()->_dir->deleteDirectory(),
+                        // which would wipe the temp dir before it is packed.
+                        // Mirrors the V1/V2/V3 `_index_writer.reset()` success
+                        // signal. Only observable with an on-disk
+                        // DorisFSDirectory (inverted_index_ram_dir_enable=false);
+                        // with the RAM dir deleteDirectory() is a no-op, which is
+                        // why this was hidden. On the error path _dir is kept so
+                        // the destructor still cleans up the partial temp files.
+                        _dir.reset();
+                    }
+                } else {
+                    FINALLY_CLOSE(_index_writer);
+                    // After closing the _index_writer, it needs to be reset to null to prevent issues of not closing it or closing it multiple times.
+                    _index_writer.reset();
+                }
             }
         })
 
@@ -658,9 +1112,20 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
             "Inverted index writer finish error occurred: dir is nullptr");
 }
 
+// Helper member template definition placed BEFORE the explicit instantiation
+// list. Per `[temp.explicit]/12`, an explicit instantiation only instantiates
+// members whose definitions are visible at that point in the translation
+// unit. The slice-type instantiations (CHAR/VARCHAR/STRING) below are
+// exactly the specializations whose `add_array_values` overloads call this
+// helper; ordering the definition before them ensures the body is emitted
+// for those specializations rather than being left as a declaration-only
+// reference (which would silently rely on a later implicit instantiation
+// from the call sites, a build-fragility landmine if the call sites ever
+// move to another TU).
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_CHAR>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_STRING>;
+
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TINYINT>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_SMALLINT>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_INT>;

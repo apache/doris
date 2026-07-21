@@ -56,6 +56,7 @@
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/spimi/spimi_fulltext_index_reader.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -726,12 +727,33 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {
-                index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                // V4 storage format → SPIMI reader. V1/V2/V3 keep
+                // the existing CLucene-backed FullTextIndexReader.
+                // Format flows from the FE CREATE TABLE PROPERTIES
+                // through the tablet schema PB into IndexFileReader.
+                if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::V4) {
+                    index_reader =
+                            SpimiFulltextIndexReader::create_shared(index_meta, index_file_reader);
+                } else {
+                    index_reader =
+                            FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                }
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
+            // V4 only covers analyzed fulltext today. A keyword
+            // (non-analyzer) index on a V4 tablet would have been
+            // written by the SPIMI writer but the StringType reader
+            // expects CLucene segment files and would fail with a
+            // file-not-found error. Reject explicitly so the user
+            // sees a clear message instead.
+            if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::V4) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "V4 storage format does not yet support non-analyzed string columns; "
+                        "use V1/V2/V3 or set 'parser' to enable analyzed fulltext");
+            }
             try {
                 index_reader =
                         StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);

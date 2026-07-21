@@ -1349,6 +1349,15 @@ DECLARE_mInt32(inverted_index_max_buffered_docs);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
+// SPIMI (V4 pure-SPIMI write path) tunables.
+DECLARE_String(inverted_index_spimi_spill_path);
+DECLARE_mInt64(inverted_index_spimi_min_spill_mem_mb);
+DECLARE_mInt64(inverted_index_spimi_reserve_granule_mb);
+DECLARE_mInt64(inverted_index_spimi_zstd_min_window_bytes);
+DECLARE_mBool(inverted_index_spimi_prx_zstd_enable);
+DECLARE_mBool(inverted_index_spimi_frq_zstd_enable);
+DECLARE_mInt64(inverted_index_spimi_prx_window_docs);
+DECLARE_mInt64(inverted_index_spimi_spill_check_interval_rows);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
@@ -1359,6 +1368,13 @@ DECLARE_mBool(debug_inverted_index_compaction);
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
+// When true, the CLucene inverted-index write path omits per-doc norms (.nrm)
+// even for analyzed phrase-on fields. Doris fulltext MATCH is a filter and never
+// consumes BM25 norms, so the .nrm stream is dead weight that makes V2 vs V4
+// (which omits norms unconditionally) idx-size comparisons unfair. Applies to the
+// shared CLucene write path -- storage format V2 AND V3; V4/SPIMI omits norms on
+// its own independent path. Default false preserves the historical V2/V3 layout.
+DECLARE_mBool(inverted_index_v2_omit_norms);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 

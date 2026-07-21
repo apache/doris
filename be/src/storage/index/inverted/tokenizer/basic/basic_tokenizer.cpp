@@ -19,6 +19,8 @@
 
 #include <unicode/unistr.h>
 
+#include "storage/index/inverted/tokenizer/basic/basic_tokenizer_simd.h"
+
 namespace doris::segment_v2::inverted_index {
 
 #define IS_IN_RANGE(c, start, end) ((uint32_t)((c) - (start)) <= ((end) - (start)))
@@ -27,6 +29,10 @@ namespace doris::segment_v2::inverted_index {
     (IS_IN_RANGE(c, 0x4E00, 0x9FFF) || IS_IN_RANGE(c, 0x3400, 0x4DBF) ||     \
      IS_IN_RANGE(c, 0x20000, 0x2A6DF) || IS_IN_RANGE(c, 0x2A700, 0x2EBEF) || \
      IS_IN_RANGE(c, 0x30000, 0x3134A))
+
+// `scan_ascii_alnum_run` now lives in
+// `basic_tokenizer_simd.h` so V4's fused tokenize+append loop in
+// `inverted_index_writer.cpp` can share the same SIMD scanner.
 
 BasicTokenizer::BasicTokenizer(bool own_reader) {
     this->ownReader = own_reader;
@@ -85,6 +91,16 @@ void BasicTokenizer::cut() {
 
         if (is_alnum(firstByte)) {
             int32_t start = i;
+#if defined(__AVX2__)
+            // SIMD ASCII alnum-run scan + inline lowercase. `is_alnum(firstByte)`
+            // already guarantees firstByte < 0x80, and the scanner stops at the
+            // first non-ASCII or non-alnum byte — which fully delimits this ASCII
+            // token: a non-ASCII (e.g. CJK) byte is handled by the `U8_NEXT`
+            // branch below and never extends an ASCII alnum run. Templated on
+            // `lowercase` so the common true path pays no per-byte flag branch.
+            i = this->lowercase ? scan_ascii_alnum_run<true>(s, i, length)
+                                : scan_ascii_alnum_run<false>(s, i, length);
+#else
             while (i < length) {
                 uint8_t nextByte = s[i];
                 if (!is_alnum(nextByte)) {
@@ -97,6 +113,7 @@ void BasicTokenizer::cut() {
                 }
                 i++;
             }
+#endif
             std::string_view token((const char*)(s + start), i - start);
             _tokens_text.emplace_back(token);
         } else {

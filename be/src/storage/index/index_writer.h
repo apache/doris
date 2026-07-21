@@ -63,6 +63,12 @@ public:
 
     virtual int64_t size() const = 0;
 
+    // For tests: returns the V4 SPIMI posting buffer's resident bytes
+    // (12 B/record + arena + intern slots), or 0 on the V1/V2/V3
+    // (CLucene) path. Overridden by `InvertedIndexColumnWriter` for the
+    // fulltext (slice) field types.
+    virtual size_t spimi_buffer_memory_usage() const { return 0; }
+
     virtual void close_on_error() = 0;
 
     // check if the column is valid for inverted index, some columns

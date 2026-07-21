@@ -1308,6 +1308,60 @@ DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
+// SPIMI (V4 pure-SPIMI write path) tunables.
+// Explicit base dir for SPIMI spill tmp files. Empty -> fall back to
+// spill_storage_root_path, then $DORIS_SPILL_TMP, then "/tmp". Always BE-local.
+DEFINE_String(inverted_index_spimi_spill_path, "");
+// Minimum buffer bytes (MiB) before an opportunistic soft-pressure spill is
+// allowed. Avoids producing tiny spill segments under transient soft pressure.
+DEFINE_mInt64(inverted_index_spimi_min_spill_mem_mb, "64");
+// Incremental growth granule (MiB) reserved before accepting more rows once the
+// SPIMI buffer is past its soft floor. Reserve only this chunk, never the full
+// MemoryUsage().
+DEFINE_mInt64(inverted_index_spimi_reserve_granule_mb, "16");
+// Skip the per-window ZSTD attempt (and store the window raw) when the window is
+// smaller than this many bytes. ZSTD level-1 pays a fixed Huffman/FSE table-build
+// cost per call that tiny windows can't amortize, so skipping them trades a
+// negligible .idx increase for a large write-CPU saving. Applies to whichever of
+// the .frq / .prx streams have ZSTD enabled below. 0 = no minimum (always attempt
+// ZSTD on every window).
+DEFINE_mInt64(inverted_index_spimi_zstd_min_window_bytes, "512");
+// ZSTD-compress the .prx (positions) stream? Positions carry the bulk (~73-81%)
+// of the windowed ZSTD disk saving, so this is ON by default.
+DEFINE_mBool(inverted_index_spimi_prx_zstd_enable, "true");
+// ZSTD-compress the .frq (doc-id delta + term-freq integer) stream? The .frq is
+// PFOR-packed integers where ZSTD earns only ~20-27% of the windowed disk saving
+// but costs disproportionate write-CPU (the adaptive-W search compresses every
+// candidate framing), so turning it OFF is the recommended write-throughput
+// setting. The .prx framing is decoupled (inverted_index_spimi_prx_window_docs),
+// so a raw .frq no longer drags .prx into tiny incompressible windows — disabling
+// .frq keeps the disk win in .prx. OFF by default for the throughput-optimized
+// split (raw .frq / ZSTD .prx): measured +17~38% write throughput on short/medium
+// docs (V4≈V2) at the cost of httplogs-class .idx +10.7% (most corpora flat or
+// smaller, since 73-81% of the ZSTD disk win lives in .prx). Set true to restore
+// the pre-split byte-identical full-ZSTD build.
+DEFINE_mBool(inverted_index_spimi_frq_zstd_enable, "false");
+// Target docs per .prx (positions) window, DECOUPLED from the .frq adaptive-W
+// framing. The .prx window step k_prx = clamp(this / 256, 1, num_units), so the
+// .prx window count is a function of df + this knob ALONE — never of the .frq
+// search or the .frq ZSTD gate. This severs the framing coupling that let a raw
+// .frq term fragment .prx into tiny ZSTD-incompressible windows. Larger = fewer,
+// better-compressing .prx windows + fewer S3 GETs, but more .frq-window freq
+// gathers per random-access position lookup (read-amp ~= this/256). 0 = whole-term
+// (one .prx window: best ZSTD/fewest GETs, worst random-access read-amp). Default
+// 1024 (k_prx=4) bounds read-amp to <=4 while keeping windows well above the ZSTD
+// size-gate.
+DEFINE_mInt64(inverted_index_spimi_prx_window_docs, "1024");
+// Reject the non-monotone cliff: the .prx window step is floor(v / 256), so any
+// value in 1..255 truncates to the FINEST 256-doc window — re-creating the exact
+// tiny-incompressible-window fragmentation the decouple removes. 0 (whole-term) and
+// >=256 are the only meaningful settings.
+DEFINE_VALIDATOR(inverted_index_spimi_prx_window_docs,
+                 [](int64_t v) -> bool { return v <= 0 || v >= 256; });
+// How often (in rows) add_values runs the EXPENSIVE spill gate (process memory
+// watermarks + reserve). The cheap 256MiB ShouldFlush() latch is still checked
+// every row; this only throttles the per-row watermark/MemoryUsage reads.
+DEFINE_mInt64(inverted_index_spimi_spill_check_interval_rows, "512");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
@@ -1318,6 +1372,10 @@ DEFINE_mBool(debug_inverted_index_compaction, "false");
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // wheather index by RAM directory when base compaction
 DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
+// When true, the V2/CLucene write path omits per-doc norms (.nrm) even for
+// analyzed phrase-on fields. See config.h for the fairness rationale; default
+// false keeps the historical production V2 layout.
+DEFINE_mBool(inverted_index_v2_omit_norms, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 

@@ -22,11 +22,14 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <map>
 #include <memory>
+#include <random>
 #include <roaring/roaring.hh>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/field.h"
@@ -37,6 +40,7 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/spimi/spimi_fulltext_index_reader.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -4344,6 +4348,232 @@ TEST_F(InvertedIndexReaderTest, ResultBitmapOrOperatorNullHandling) {
         EXPECT_TRUE(bitmap_field1.get_data_bitmap()->contains(20));
         EXPECT_FALSE(bitmap_field1.get_null_bitmap()->contains(20));
     }
+}
+
+// V4 single-query probe — instantiates `SpimiFulltextIndexReader` (not the
+// base `FullTextIndexReader`) so the searcher-cache dispatch resolves to
+// `SpimiSearcherBuilder` via virtual dispatch on `type()`. Without this
+// override the base reader routes V4 segments through CLucene's
+// `FulltextIndexSearcherBuilder` which crashes opening non-existent
+// CLucene compound files (see `spimi_fulltext_index_reader.h` comment).
+TEST_F(InvertedIndexReaderTest, SpimiV4SingleQueryProbe) {
+    std::string_view rowset_id = "test_v4_probe";
+    int seg_id = 0;
+
+    std::vector<Slice> values;
+    values.reserve(1000);
+    for (int i = 0; i < 600; ++i) values.emplace_back("common_term");
+    for (int i = 0; i < 200; ++i) values.emplace_back("term_a");
+    for (int i = 0; i < 200; ++i) values.emplace_back("term_b");
+
+    TabletIndex idx_meta;
+    auto pb = std::make_unique<TabletIndexPB>();
+    pb->set_index_type(IndexType::INVERTED);
+    pb->set_index_id(1);
+    pb->set_index_name("test");
+    pb->clear_col_unique_id();
+    pb->add_col_unique_id(1);
+    pb->mutable_properties()->insert({"parser", "english"});
+    pb->mutable_properties()->insert({"lower_case", "true"});
+    pb->mutable_properties()->insert({"support_phrase", "true"});
+    idx_meta.init_from_pb(*pb);
+
+    std::string index_path_prefix;
+    prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix,
+                         InvertedIndexStorageFormatPB::V4);
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
+    TQueryOptions q_opts;
+    q_opts.enable_inverted_index_searcher_cache = false;
+    runtime_state.set_query_options(q_opts);
+
+    auto reader = std::make_shared<IndexFileReader>(
+            io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V4);
+    ASSERT_TRUE(reader->init().ok());
+
+    // Critical: V4 segments need `SpimiFulltextIndexReader`, NOT the
+    // base `FullTextIndexReader`. The latter dispatches to CLucene's
+    // searcher builder and crashes on V4 files.
+    auto str_reader = SpimiFulltextIndexReader::create_shared(&idx_meta, reader);
+    ASSERT_NE(str_reader, nullptr);
+
+    io::IOContext io_ctx;
+    auto ctx = std::make_shared<IndexQueryContext>();
+    ctx->io_ctx = &io_ctx;
+    ctx->stats = &stats;
+    ctx->runtime_state = &runtime_state;
+
+    std::string query_term = "common_term";
+    Field qfield = Field::create_field<TYPE_STRING>(query_term);
+    auto bitmap = std::make_shared<roaring::Roaring>();
+    auto st =
+            str_reader->query(ctx, "1", qfield, InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_EQ(bitmap->cardinality(), 600) << "V4 query on 'common_term' should match 600 docs";
+}
+
+// V2 vs V4 query-latency benchmark. Builds the same data through both
+// formats and times MATCH queries via the production read path. Critical
+// detail: V4 must instantiate `SpimiFulltextIndexReader` (dispatched by
+// format), or the searcher cache routes to CLucene's builder and crashes
+// — that bug is what caused early prototypes to "matches=0" or segfault
+// in this fixture.
+//
+// Methodology mirrors the write-side throughput bench:
+//   - 11 iterations per format, drop first 2 as warmup
+//   - V2/V4 alternated per iteration to defeat searcher-cache warm-up
+//   - full distribution reported (min / p25 / median / p75 / max)
+TEST_F(InvertedIndexReaderTest, SpimiV2V4QueryLatencyBenchmark) {
+    auto build_data = []() {
+        std::vector<Slice> v;
+        v.reserve(1000);
+        for (int i = 0; i < 600; ++i) v.emplace_back("common_term");
+        for (int i = 0; i < 200; ++i) v.emplace_back("term_a");
+        for (int i = 0; i < 200; ++i) v.emplace_back("term_b");
+        return v;
+    };
+    auto build_idx_meta = []() {
+        TabletIndex meta;
+        auto pb = std::make_unique<TabletIndexPB>();
+        pb->set_index_type(IndexType::INVERTED);
+        pb->set_index_id(1);
+        pb->set_index_name("test");
+        pb->clear_col_unique_id();
+        pb->add_col_unique_id(1);
+        pb->mutable_properties()->insert({"parser", "english"});
+        pb->mutable_properties()->insert({"lower_case", "true"});
+        pb->mutable_properties()->insert({"support_phrase", "true"});
+        meta.init_from_pb(*pb);
+        return meta;
+    };
+
+    auto v2_values = build_data();
+    auto v4_values = build_data();
+    TabletIndex v2_idx_meta = build_idx_meta();
+    TabletIndex v4_idx_meta = build_idx_meta();
+
+    std::string v2_prefix, v4_prefix;
+    prepare_string_index("bench_v2", 0, v2_values, &v2_idx_meta, &v2_prefix,
+                         InvertedIndexStorageFormatPB::V2);
+    prepare_string_index("bench_v4", 0, v4_values, &v4_idx_meta, &v4_prefix,
+                         InvertedIndexStorageFormatPB::V4);
+
+    // Time one query against an already-written segment. Each call
+    // opens a fresh reader so cold-cache decode cost is included.
+    auto run_one = [&](InvertedIndexStorageFormatPB fmt, const std::string& prefix,
+                       TabletIndex& meta, const std::string& term, InvertedIndexQueryType qtype,
+                       uint64_t* out_matches) -> double {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions q_opts;
+        q_opts.enable_inverted_index_searcher_cache = false;
+        runtime_state.set_query_options(q_opts);
+
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix, fmt);
+        EXPECT_TRUE(reader->init().ok());
+
+        // Production-correct dispatch: V4 needs SpimiFulltextIndexReader
+        // so handle_searcher_cache routes to SpimiSearcherBuilder.
+        std::shared_ptr<FullTextIndexReader> str_reader;
+        if (fmt == InvertedIndexStorageFormatPB::V4) {
+            str_reader = SpimiFulltextIndexReader::create_shared(&meta, reader);
+        } else {
+            str_reader = FullTextIndexReader::create_shared(&meta, reader);
+        }
+        EXPECT_NE(str_reader, nullptr);
+
+        io::IOContext io_ctx;
+        auto ctx = std::make_shared<IndexQueryContext>();
+        ctx->io_ctx = &io_ctx;
+        ctx->stats = &stats;
+        ctx->runtime_state = &runtime_state;
+
+        Field qfield = Field::create_field<TYPE_STRING>(term);
+        auto bitmap = std::make_shared<roaring::Roaring>();
+        const auto t0 = std::chrono::steady_clock::now();
+        auto st = str_reader->query(ctx, "1", qfield, qtype, bitmap);
+        const auto t1 = std::chrono::steady_clock::now();
+        EXPECT_TRUE(st.ok()) << st;
+        *out_matches = bitmap->cardinality();
+        return static_cast<double>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+    };
+
+    auto bench_query = [&](const std::string& tag, const std::string& term,
+                           InvertedIndexQueryType qtype, uint64_t expected_matches) {
+        constexpr int kIterations = 11;
+        // Note: warmup-discard count is folded into `summarize` below
+        // (drops the first 2 samples in arrival order).
+        std::vector<double> v2_samples, v4_samples;
+        v2_samples.reserve(kIterations);
+        v4_samples.reserve(kIterations);
+        uint64_t v2_matches = 0;
+        uint64_t v4_matches = 0;
+        std::mt19937 rng(0xBE17B17EU);
+        for (int i = 0; i < kIterations; ++i) {
+            const bool v2_first = (rng() & 1U) != 0;
+            if (v2_first) {
+                v2_samples.push_back(run_one(InvertedIndexStorageFormatPB::V2, v2_prefix,
+                                             v2_idx_meta, term, qtype, &v2_matches));
+                v4_samples.push_back(run_one(InvertedIndexStorageFormatPB::V4, v4_prefix,
+                                             v4_idx_meta, term, qtype, &v4_matches));
+            } else {
+                v4_samples.push_back(run_one(InvertedIndexStorageFormatPB::V4, v4_prefix,
+                                             v4_idx_meta, term, qtype, &v4_matches));
+                v2_samples.push_back(run_one(InvertedIndexStorageFormatPB::V2, v2_prefix,
+                                             v2_idx_meta, term, qtype, &v2_matches));
+            }
+        }
+        ASSERT_EQ(v2_matches, v4_matches)
+                << tag << " '" << term << "': V2 matched " << v2_matches << " docs, V4 matched "
+                << v4_matches << " — V4 read path returns different result set";
+        ASSERT_EQ(v2_matches, expected_matches)
+                << tag << " '" << term << "': matched " << v2_matches << " docs, expected "
+                << expected_matches;
+
+        auto summarize = [](std::vector<double> s) {
+            s.erase(s.begin(), s.begin() + 2); // drop warmups
+            std::sort(s.begin(), s.end());
+            const size_t n = s.size();
+            auto pct = [&](double p) {
+                const double idx = static_cast<double>(n - 1) * p;
+                const size_t lo = static_cast<size_t>(idx);
+                const size_t hi = std::min(lo + 1, n - 1);
+                const double frac = idx - static_cast<double>(lo);
+                return s[lo] * (1.0 - frac) + s[hi] * frac;
+            };
+            return std::array<double, 5> {s.front(), pct(0.25), s[n / 2], pct(0.75), s.back()};
+        };
+        const auto v2 = summarize(v2_samples);
+        const auto v4 = summarize(v4_samples);
+        auto us = [](double ns) { return ns / 1000.0; };
+        const double ratio = v4[2] / v2[2];
+        std::cerr << "[query-bench][" << tag << " '" << term << "'] matches=" << v2_matches
+                  << "; V2 min/p25/median/p75/max = " << us(v2[0]) << "/" << us(v2[1]) << "/"
+                  << us(v2[2]) << "/" << us(v2[3]) << "/" << us(v2[4]) << " us; V4 = " << us(v4[0])
+                  << "/" << us(v4[1]) << "/" << us(v4[2]) << "/" << us(v4[3]) << "/" << us(v4[4])
+                  << " us; ratio(median) " << ratio << "\n";
+
+        // V4's reader goes through one extra layer of indirection
+        // (SpimiQueryIndexReader wrapping CLucene-shaped APIs). >2x
+        // median regression indicates a real perf bug, not noise.
+        EXPECT_LT(ratio, 2.0) << tag << " '" << term << "': V4 median " << v4[2]
+                              << " ns / V2 median " << v2[2] << " ns = " << ratio
+                              << " exceeded 2.0 cap — SpimiQueryIndexReader regression";
+    };
+
+    // MATCH_PHRASE queries — analyzer tokenizes "common_term" into
+    // {"common", "term"} and matches docs where those tokens appear
+    // consecutively. Exercises term-dict seek + positional adjacency
+    // check. Multi-token query is what production fulltext usage looks
+    // like. MATCH_ANY is omitted from this UT bench because its
+    // semantic depends on tokenization rules (stop-words, multi-token
+    // expansion) that aren't worth disentangling here — production
+    // regression suite covers MATCH_ANY correctness.
+    bench_query("phrase_highfreq", "common_term", InvertedIndexQueryType::MATCH_PHRASE_QUERY, 600);
+    bench_query("phrase_lowfreq_a", "term_a", InvertedIndexQueryType::MATCH_PHRASE_QUERY, 200);
+    bench_query("phrase_lowfreq_b", "term_b", InvertedIndexQueryType::MATCH_PHRASE_QUERY, 200);
 }
 
 } // namespace doris::segment_v2

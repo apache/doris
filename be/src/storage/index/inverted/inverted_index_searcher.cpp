@@ -25,6 +25,7 @@
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/spimi/spimi_searcher_builder.h"
 
 namespace doris::segment_v2 {
 Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
@@ -86,6 +87,10 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexSearcherBuilder::create_index
     }
     case InvertedIndexReaderType::BKD: {
         index_builder = std::make_unique<BKDIndexSearcherBuilder>();
+        break;
+    }
+    case InvertedIndexReaderType::SPIMI_FULLTEXT: {
+        index_builder = std::make_unique<SpimiSearcherBuilder>();
         break;
     }
 

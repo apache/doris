@@ -30,6 +30,20 @@
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
 
+// SPIMI write types are held only as unique_ptr members (the SpimiIndexWriter
+// facade and its TeeTokenStream), dereferenced only in the .cpp. Forward-
+// declaring them here — instead of #include-ing spimi_index_writer.h /
+// tee_token_stream.h (both of which transitively pull in the heavy
+// posting_buffer.h) — keeps those SPIMI headers OUT of this header. This header
+// is pulled in transitively by exec_env.h (→ effectively all of BE), so a
+// posting_buffer.h edit used to recompile ~95 translation units; with the
+// forward declarations a posting_buffer.h change only rebuilds the handful of
+// SPIMI .cpp files plus inverted_index_writer.cpp.
+namespace doris::segment_v2::inverted_index::spimi {
+class SpimiIndexWriter;
+class TeeTokenStream;
+} // namespace doris::segment_v2::inverted_index::spimi
+
 namespace doris {
 
 class KeyCoder;
@@ -74,7 +88,14 @@ public:
                             size_t count) override;
     Status add_numeric_values(const void* values, size_t count);
     Status add_value(const CppType& value);
+
     int64_t size() const override;
+
+    // For tests: returns the resident bytes of the V4 SPIMI posting
+    // buffer (arena + intern slots + per-term state + slice pool), or 0 when
+    // this writer is on the V1/V2/V3 (CLucene) path. Defined out-of-line in the
+    // .cpp because SpimiIndexWriter is only forward-declared in this header.
+    size_t spimi_buffer_memory_usage() const override;
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out);
     Status finish() override;
 
@@ -102,6 +123,41 @@ private:
     IndexFileWriter* _index_file_writer;
     uint32_t _ignore_above;
     bool _should_analyzer = false;
+
+    // SPIMI write facade. Encapsulates the posting buffer, spill
+    // manager, and segment emission logic. Created in
+    // init_fulltext_index() for V4 (pure SPIMI) or shadow mode.
+    // `nullptr` when SPIMI is not active.
+    std::unique_ptr<segment_v2::inverted_index::spimi::SpimiIndexWriter> _spimi_writer = nullptr;
+    // unique_ptr (not by-value) so this header only needs a forward declaration
+    // of TeeTokenStream; constructed in init_fulltext_index() alongside the
+    // facade. Non-owning over the upstream analyser stream it tees from.
+    std::unique_ptr<segment_v2::inverted_index::spimi::TeeTokenStream> _spimi_tee;
+    int32_t _spimi_doc_count = 0;
+    bool _is_v4 = false;
+    // Per-writer backstop: force a spill once the SPIMI buffer alone exceeds
+    // this many resident bytes, independent of process-global pressure. Caps a
+    // single column writer from hoarding memory when the process limit is huge.
+    // Cached once at writer init; only meaningful in the V4 (_spimi_writer)
+    // branch. min(2GiB, MemInfo::mem_limit()/20).
+    int64_t _spimi_backstop_bytes = 0;
+
+    // Row counter throttling the EXPENSIVE per-row spill gate (process memory
+    // watermarks + MemoryUsage + reserve). The cheap config-driven
+    // (inverted_index_ram_buffer_size) ShouldFlush() latch is still checked
+    // every row; the expensive checks run only every
+    // inverted_index_spimi_spill_check_interval_rows rows. Persists across the
+    // batched add_values calls.
+    int64_t _spimi_gate_counter = 0;
+
+    // True when process memory PRESSURE warrants a spill (the expensive half of
+    // the gate, throttled to every N rows): OR of (1) process hard-mem-limit
+    // exceeded (force), (2) process soft pressure + buffer past the opportunistic
+    // min, (3) per-writer backstop. The cheap config-driven
+    // (inverted_index_ram_buffer_size) ShouldFlush() budget floor is checked
+    // separately every row. Only the V4 branch calls this; _spimi_writer
+    // must be non-null.
+    bool ShouldSpillUnderPressure() const;
 };
 
 } // namespace segment_v2
