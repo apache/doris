@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -63,7 +62,7 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<Optional<IvmDeltaRewriteResult>
 
     @Override
     public Optional<IvmDeltaRewriteResult> visit(Plan plan, IvmRefreshContext ctx) {
-        throw new AnalysisException(
+        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                 "IVM delta rewrite does not support: " + plan.getClass().getSimpleName());
     }
 

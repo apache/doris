@@ -17,7 +17,8 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -91,7 +92,8 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         String columnName = deleteDeltaColumnName(target, ctx);
         Slot slot = outputByName.get(columnName);
         if (slot == null) {
-            throw new AnalysisException("IVM agg delta rewrite failed to resolve delta output slot: "
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM agg delta rewrite failed to resolve delta output slot: "
                     + columnName + " for target " + target);
         }
         applyDeltaSlots.put(deleteSlotRef(target), slot);

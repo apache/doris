@@ -887,6 +887,11 @@ public class DatabaseTransactionMgr {
             readUnlock();
         }
 
+        if (DebugPointUtil.isEnable("DatabaseTransactionMgr.commitTransaction.failed")) {
+            throw new TabletQuorumFailedException(transactionId,
+                    "DebugPoint: DatabaseTransactionMgr.commitTransaction.failed");
+        }
+
         if (!checkTransactionStateBeforeCommit(db, tableList, transactionId, is2PC, transactionState)) {
             return;
         }
